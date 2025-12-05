@@ -569,6 +569,14 @@ class CcrAccountService {
       return true
     }
 
+    // 支持 -thinking 后缀：claude-xxx-thinking 匹配 claude-xxx
+    if (requestedModel.endsWith('-thinking')) {
+      const baseModel = requestedModel.replace(/-thinking$/, '')
+      if (Object.prototype.hasOwnProperty.call(modelMapping, baseModel)) {
+        return true
+      }
+    }
+
     // 尝试大小写不敏感匹配
     const requestedModelLower = requestedModel.toLowerCase()
     for (const key of Object.keys(modelMapping)) {

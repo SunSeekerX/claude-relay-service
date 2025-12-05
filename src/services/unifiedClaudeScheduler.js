@@ -12,6 +12,18 @@ class UnifiedClaudeScheduler {
     this.SESSION_MAPPING_PREFIX = 'unified_claude_session_mapping:'
   }
 
+  // 🔧 辅助方法：检查模型是否在白名单中（支持 -thinking 后缀匹配）
+  _isModelInWhitelist(whitelist, requestedModel) {
+    if (!whitelist || whitelist.length === 0) return true
+    if (whitelist.includes(requestedModel)) return true
+    // 支持 -thinking 后缀：claude-xxx-thinking 匹配 claude-xxx
+    if (requestedModel.endsWith('-thinking')) {
+      const baseModel = requestedModel.replace(/-thinking$/, '')
+      if (whitelist.includes(baseModel)) return true
+    }
+    return false
+  }
+
   // 🔧 辅助方法：检查账户是否可调度（兼容字符串和布尔值）
   _isSchedulable(schedulable) {
     // 如果是 undefined 或 null，默认为可调度
@@ -86,7 +98,7 @@ class UnifiedClaudeScheduler {
         // 旧格式：数组
         if (
           account.supportedModels.length > 0 &&
-          !account.supportedModels.includes(requestedModel)
+          !this._isModelInWhitelist(account.supportedModels, requestedModel)
         ) {
           logger.info(
             `🚫 Claude Console account ${account.name} does not support model ${requestedModel}${context ? ` ${context}` : ''}`
@@ -114,7 +126,7 @@ class UnifiedClaudeScheduler {
         // 旧格式：数组
         if (
           account.supportedModels.length > 0 &&
-          !account.supportedModels.includes(requestedModel)
+          !this._isModelInWhitelist(account.supportedModels, requestedModel)
         ) {
           logger.info(
             `🚫 CCR account ${account.name} does not support model ${requestedModel}${context ? ` ${context}` : ''}`
