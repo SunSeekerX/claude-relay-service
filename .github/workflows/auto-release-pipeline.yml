@@ -246,21 +246,58 @@ jobs:
         chmod +x git-cliff-1.4.0/git-cliff
         sudo mv git-cliff-1.4.0/git-cliff /usr/local/bin/
 
+    # changelog 必须有长度上限。曾经在这里翻过车：
+    # `git describe --tags` 只看当前提交的祖先且只查本地 tag —— fork 不继承上游 tag，
+    # 于是判定"无 tag"走全量分支，把上游几年的提交history 全生成出来（实测 213KB），
+    # 传给 action-gh-release 时撑爆 execve 参数上限，报 "Argument list too long"、发布失败。
     - name: Generate changelog
       if: steps.check.outputs.needs_bump == 'true'
       id: changelog
+      env:
+        # Release 正文上限 125000 字符（GitHub API 的硬限制），
+        # 这里取更保守的值：留足空间给正文里的固定段落（docker pull 指令、标题等）
+        MAX_CHANGELOG_BYTES: 20000
       run: |
-        # 获取上一个tag以来的更新日志
-        LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
-        if [ -n "$LATEST_TAG" ]; then
-          # 排除VERSION文件的提交
-          CHANGELOG=$(git-cliff --config .github/cliff.toml $LATEST_TAG..HEAD --strip header | grep -v "bump version" | sed '/^$/d' || echo "- 代码优化和改进")
+        set -uo pipefail
+
+        # 基线取【远端最大版本 tag】，与 Get current version 同口径。
+        # 不用 git describe：它只看当前提交的祖先，且 fork 上没有上游 tag
+        git fetch origin --tags --force
+        LAST_TAG=$(git ls-remote --tags origin \
+          | grep -oE 'refs/tags/v[0-9]+\.[0-9]+\.[0-9]+$' \
+          | sed 's|refs/tags/||' | sort -V | tail -n1)
+
+        if [ -n "$LAST_TAG" ] && git rev-parse -q --verify "refs/tags/${LAST_TAG}" >/dev/null; then
+          echo "changelog 范围：${LAST_TAG}..HEAD"
+          RANGE="refs/tags/${LAST_TAG}..HEAD"
         else
-          CHANGELOG=$(git-cliff --config .github/cliff.toml --strip header || echo "- 初始版本发布")
+          # 无发布 tag（首次发布）：只取最近 30 个提交，不生成全量历史。
+          # 全量在 fork 上等于把上游历史全抄一遍，既无意义又会超长
+          echo "changelog 范围：无发布 tag，取最近 30 个提交"
+          BASE_SHA=$(git rev-list --max-count=31 HEAD | tail -n1)
+          RANGE="${BASE_SHA}..HEAD"
         fi
-        echo "content<<EOF" >> $GITHUB_OUTPUT
-        echo "$CHANGELOG" >> $GITHUB_OUTPUT
-        echo "EOF" >> $GITHUB_OUTPUT
+
+        CHANGELOG=$(git-cliff --config .github/cliff.toml "$RANGE" --strip header 2>/dev/null \
+          | grep -v "bump version" | sed '/^$/d') || CHANGELOG=""
+        [ -n "$CHANGELOG" ] || CHANGELOG="- 代码优化和改进"
+
+        # 兜底截断：即使范围正确，积累很多提交的一次发布也可能超长
+        BYTES=$(printf '%s' "$CHANGELOG" | wc -c)
+        if [ "$BYTES" -gt "$MAX_CHANGELOG_BYTES" ]; then
+          echo "::warning::changelog ${BYTES} 字节超过上限 ${MAX_CHANGELOG_BYTES}，已截断（完整历史见提交记录）"
+          CHANGELOG=$(printf '%s' "$CHANGELOG" | head -c "$MAX_CHANGELOG_BYTES")
+          CHANGELOG=$(printf '%s\n\n%s' "$CHANGELOG" '_（更新日志过长已截断，完整内容见提交记录）_')
+        fi
+        echo "changelog 长度：$(printf '%s' "$CHANGELOG" | wc -c) 字节"
+
+        # 随机分隔符：changelog 内容里若出现 'EOF' 单独一行会提前结束 heredoc、污染后续输出
+        DELIM="CHANGELOG_$(openssl rand -hex 8)"
+        {
+          echo "content<<${DELIM}"
+          printf '%s\n' "$CHANGELOG"
+          echo "${DELIM}"
+        } >> "$GITHUB_OUTPUT"
 
     - name: Prepare image names
       id: image_names
@@ -322,29 +359,46 @@ jobs:
         # 非快进不重试、不 rebase：失败即作废（理由见上方注释）
         git push origin HEAD:main "${NEW_TAG}"
 
+    # 正文写文件再用 body_path 传，不用 body: | 内联。
+    # 内联会把整段正文当作进程参数传给 action，超过 execve 上限就 "Argument list too long"
+    # （曾因此发布失败）。走文件则与长度无关，只受 GitHub API 自身的 125000 字符限制约束。
+    - name: Compose release notes
+      if: steps.check.outputs.needs_bump == 'true'
+      env:
+        IMAGE: ${{ steps.image_names.outputs.ghcr_image }}
+        NEW_TAG: ${{ steps.next_version.outputs.new_tag }}
+        CHANGELOG: ${{ steps.changelog.outputs.content }}
+        REPO: ${{ github.repository }}
+      run: |
+        set -euo pipefail
+        NOTES_FILE="${RUNNER_TEMP}/release-notes.md"
+        {
+          echo '## 🐳 Docker 镜像'
+          echo
+          echo '```bash'
+          echo '# 固定版本'
+          echo "docker pull ${IMAGE}:${NEW_TAG}"
+          echo '# 跟随最新（发布流程全部成功后才指向本版本）'
+          echo "docker pull ${IMAGE}:latest"
+          echo '```'
+          echo
+          echo '## 📦 主要更新'
+          echo
+          printf '%s\n' "${CHANGELOG}"
+          echo
+          echo '## 📋 完整更新日志'
+          echo
+          echo "查看 [所有版本](https://github.com/${REPO}/releases)"
+        } > "$NOTES_FILE"
+        echo "正文长度：$(wc -c < "$NOTES_FILE") 字节"
+
     - name: Create GitHub Release
       if: steps.check.outputs.needs_bump == 'true'
       uses: softprops/action-gh-release@v1
       with:
         tag_name: ${{ steps.next_version.outputs.new_tag }}
         name: Release ${{ steps.next_version.outputs.new_version }}
-        body: |
-          ## 🐳 Docker 镜像
-          
-          ```bash
-          # 固定版本
-          docker pull ${{ steps.image_names.outputs.ghcr_image }}:${{ steps.next_version.outputs.new_tag }}
-          # 跟随最新（发布流程全部成功后才指向本版本）
-          docker pull ${{ steps.image_names.outputs.ghcr_image }}:latest
-          ```
-          
-          ## 📦 主要更新
-          
-          ${{ steps.changelog.outputs.content }}
-          
-          ## 📋 完整更新日志
-          
-          查看 [所有版本](https://github.com/${{ github.repository }}/releases)
+        body_path: ${{ runner.temp }}/release-notes.md
         draft: false
         prerelease: false
         generate_release_notes: true
