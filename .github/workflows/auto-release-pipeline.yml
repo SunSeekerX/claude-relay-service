@@ -87,9 +87,12 @@ jobs:
         # 以最后一个发布 tag 为基线，"自上次发布以来是否有实质改动"才是这个判断真正要问的问题：
         # 上一次作废的内容会被下一次运行自然纳入，不会漏。
         git fetch origin --tags --force
+        # `|| true` 不可省：仓库还没有任何 tag 时 grep 无匹配返回 1，
+        # 而 GitHub 给 run 块默认加了 `-e`（shell: bash -e {0}），会让脚本在此直接退出。
+        # "无 tag" 是合法状态（首次发布），必须让它落到下面的 else 分支
         LAST_RELEASE_TAG=$(git ls-remote --tags origin \
           | grep -oE 'refs/tags/v[0-9]+\.[0-9]+\.[0-9]+$' \
-          | sed 's|refs/tags/||' | sort -V | tail -n1)
+          | sed 's|refs/tags/||' | sort -V | tail -n1 || true)
 
         if [ -n "$LAST_RELEASE_TAG" ] && git rev-parse -q --verify "refs/tags/${LAST_RELEASE_TAG}" >/dev/null; then
           echo "变更基线：上次发布 ${LAST_RELEASE_TAG}"
@@ -146,9 +149,10 @@ jobs:
       run: |
         # 远端最新版本 tag（排序取最大，不用 git describe —— 它只看当前提交的祖先）
         git fetch origin --tags --force
+        # `|| true`：无 tag 时 grep 返回 1，会被 run 块默认的 `-e` 当成致命错误
         LATEST_TAG=$(git ls-remote --tags origin \
           | grep -oE 'refs/tags/v[0-9]+\.[0-9]+\.[0-9]+$' \
-          | sed 's|refs/tags/||' | sort -V | tail -n1)
+          | sed 's|refs/tags/||' | sort -V | tail -n1 || true)
         LATEST_TAG=${LATEST_TAG:-v0.0.0}
         echo "Latest remote tag: $LATEST_TAG"
         TAG_VERSION=${LATEST_TAG#v}
@@ -258,6 +262,10 @@ jobs:
         # 这里取更保守的值：留足空间给正文里的固定段落（docker pull 指令、标题等）
         MAX_CHANGELOG_BYTES: 20000
       run: |
+        # 注意 GitHub 给 run 块默认加了 -e（shell: bash -e {0}）。
+        # 本步骤里"命令返回非 0"多数是正常分支（grep 无匹配 = 仓库还没有 tag），
+        # 不是错误，所以显式关掉 -e，由各处自己判断结果。
+        set +e
         set -uo pipefail
 
         # 基线取【远端最大版本 tag】，与 Get current version 同口径。
@@ -265,7 +273,7 @@ jobs:
         git fetch origin --tags --force
         LAST_TAG=$(git ls-remote --tags origin \
           | grep -oE 'refs/tags/v[0-9]+\.[0-9]+\.[0-9]+$' \
-          | sed 's|refs/tags/||' | sort -V | tail -n1)
+          | sed 's|refs/tags/||' | sort -V | tail -n1 || true)
 
         if [ -n "$LAST_TAG" ] && git rev-parse -q --verify "refs/tags/${LAST_TAG}" >/dev/null; then
           echo "changelog 范围：${LAST_TAG}..HEAD"
@@ -297,7 +305,11 @@ jobs:
           echo "content<<${DELIM}"
           printf '%s\n' "$CHANGELOG"
           echo "${DELIM}"
-        } >> "$GITHUB_OUTPUT"
+        } >> "$GITHUB_OUTPUT" || {
+          # 上面关了 -e，这里必须自己检查：写不进 output 后续步骤会拿到空 changelog
+          echo "::error::写入 GITHUB_OUTPUT 失败"
+          exit 1
+        }
 
     - name: Prepare image names
       id: image_names
