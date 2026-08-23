@@ -86,9 +86,7 @@
           </button>
         </div>
       </div>
-      <div
-        class="mb-3 rounded-lg bg-gray-50 px-3 py-2 dark:bg-gray-900/50"
-      >
+      <div class="mb-3 rounded-lg bg-gray-50 px-3 py-2 dark:bg-gray-900/50">
         <p class="break-all text-sm text-gray-600 dark:text-gray-400">
           当前生效：<span class="font-mono">{{ pricingStatus.source?.pricingUrl || '-' }}</span>
         </p>
@@ -122,10 +120,11 @@
       </div>
       <p class="mt-2 text-sm text-gray-500 dark:text-gray-400">
         上方“当前生效”只显示来源站点，路径与查询参数已隐去（它们加密存储，因为令牌既可能在
-        <span class="font-mono">?token=</span> 也可能在路径里），故不回填到输入框。填入新地址点保存即替换；
-        用“恢复默认”回到内置源。配了 sha256 地址时系统每 10 分钟比对哈希、有变更自动拉取；留空则仅靠每
-        24 小时定时更新与手动拉取。地址不得包含用户名/密码；保存时校验字面量，请求前还会校验域名的
-        DNS 解析结果，指向回环/私网/链路本地的地址会被拒绝（含重定向目标）。
+        <span class="font-mono">?token=</span>
+        也可能在路径里），故不回填到输入框。填入新地址点保存即替换； 用“恢复默认”回到内置源。配了
+        sha256 地址时系统每 10 分钟比对哈希、有变更自动拉取；留空则仅靠每 24
+        小时定时更新与手动拉取。地址不得包含用户名/密码；保存时校验字面量，请求前还会校验域名的 DNS
+        解析结果，指向回环/私网/链路本地的地址会被拒绝（含重定向目标）。
       </p>
     </div>
 
@@ -153,7 +152,9 @@
       </div>
 
       <p class="mb-3 text-sm text-gray-500 dark:text-gray-400">
-        这里管的是 <span class="font-mono">/v1/models</span> 对客户端暴露的模型列表。导入不影响转发能力（能不能用取决于账户的模型映射），
+        这里管的是
+        <span class="font-mono">/v1/models</span>
+        对客户端暴露的模型列表。导入不影响转发能力（能不能用取决于账户的模型映射），
         只决定模型是否出现在列表里。仅列出定价源中的对话类模型。
       </p>
 
@@ -174,7 +175,7 @@
             <el-option
               v-for="model in importableModels"
               :key="model.id"
-              :label="`${model.id}　·　${model.provider}`"
+              :label="`${model.id} · ${model.provider}`"
               :value="model.id"
             />
           </el-select>
@@ -209,7 +210,7 @@
             <el-option
               v-for="model in importedModels"
               :key="model.id"
-              :label="`${model.id}　·　${model.provider}`"
+              :label="`${model.id} · ${model.provider}`"
               :value="model.id"
             />
           </el-select>

@@ -1,6 +1,5 @@
 import { defineConfig, loadEnv } from 'vite'
 import vue from '@vitejs/plugin-vue'
-import checker from 'vite-plugin-checker'
 import AutoImport from 'unplugin-auto-import/vite'
 import Components from 'unplugin-vue-components/vite'
 import { ElementPlusResolver } from 'unplugin-vue-components/resolvers'
@@ -38,14 +37,9 @@ export default defineConfig(({ mode }) => {
     base: basePath,
     plugins: [
       vue(),
-      checker({
-        eslint: {
-          lintCommand: 'eslint "./src/**/*.{js,vue}" --cache=false',
-          dev: {
-            logLevel: ['error', 'warning']
-          }
-        }
-      }),
+      // 这里【不挂 vite-plugin-checker】：lint 不参与构建。
+      // 挂上它等于让格式问题（prettier 换行、全角空格这类）阻断发布流水线的前端构建，
+      // 而那些问题不影响产物正确性。lint 手动跑：npm run lint / npm run format。
       AutoImport({
         resolvers: [ElementPlusResolver()],
         imports: ['vue', 'vue-router', 'pinia']

@@ -17,8 +17,7 @@ export const pullModelPricingApi = () =>
 // 模型目录导入（从定价源把新模型加进 /v1/models）
 export const getImportableModelsApi = () =>
   request({ url: '/admin/models/importable', method: 'GET' })
-export const getImportedModelsApi = () =>
-  request({ url: '/admin/models/imported', method: 'GET' })
+export const getImportedModelsApi = () => request({ url: '/admin/models/imported', method: 'GET' })
 export const importModelsApi = (models) =>
   request({ url: '/admin/models/import', method: 'POST', data: { models } })
 export const removeImportedModelsApi = (models) =>
