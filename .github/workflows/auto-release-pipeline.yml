@@ -45,7 +45,7 @@ jobs:
       !contains(github.event.head_commit.message, '[skip ci]')
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@v7
       with:
         fetch-depth: 0
         token: ${{ secrets.GITHUB_TOKEN }}
@@ -213,9 +213,11 @@ jobs:
     # 构建前端并推送到 web-dist 分支
     - name: Setup Node.js
       if: steps.check.outputs.needs_bump == 'true'
-      uses: actions/setup-node@v4
+      uses: actions/setup-node@v7
       with:
-        node-version: '18'
+        # 仅前端构建；运行时镜像见 Dockerfile 的 node:24-alpine
+        # 2026-08 官方 Active LTS = 24（Krypton）；勿写 lts/*，避免无声跳大版本
+        node-version: '24'
         cache: 'npm'
         cache-dependency-path: web/admin-spa/package-lock.json
 
@@ -242,13 +244,22 @@ jobs:
         cp -r web/admin-spa/dist/* "$DIST_STASH/"
         echo "前端产物已暂存到 $DIST_STASH"
 
+    # 必须解到 RUNNER_TEMP：曾解压在仓库根目录，只 mv 二进制、残留 git-cliff-*/
+    # 被后续 git add --all 误提交进 web-dist；之后再 checkout web-dist 就会
+    # "untracked working tree files would be overwritten" 直接 abort。
     - name: Install git-cliff
       if: steps.check.outputs.needs_bump == 'true'
       run: |
-        wget -q https://github.com/orhun/git-cliff/releases/download/v1.4.0/git-cliff-1.4.0-x86_64-unknown-linux-gnu.tar.gz
-        tar -xzf git-cliff-1.4.0-x86_64-unknown-linux-gnu.tar.gz
-        chmod +x git-cliff-1.4.0/git-cliff
-        sudo mv git-cliff-1.4.0/git-cliff /usr/local/bin/
+        set -euo pipefail
+        CLIFF_VER=2.13.1
+        CLIFF_DIR="${RUNNER_TEMP}/git-cliff"
+        rm -rf "$CLIFF_DIR"
+        mkdir -p "$CLIFF_DIR"
+        cd "$CLIFF_DIR"
+        wget -q "https://github.com/orhun/git-cliff/releases/download/v${CLIFF_VER}/git-cliff-${CLIFF_VER}-x86_64-unknown-linux-gnu.tar.gz"
+        tar -xzf "git-cliff-${CLIFF_VER}-x86_64-unknown-linux-gnu.tar.gz"
+        sudo mv "git-cliff-${CLIFF_VER}/git-cliff" /usr/local/bin/
+        rm -rf "$CLIFF_DIR"
 
     # changelog 必须有长度上限。曾经在这里翻过车：
     # `git describe --tags` 只看当前提交的祖先且只查本地 tag —— fork 不继承上游 tag，
@@ -323,15 +334,15 @@ jobs:
     # Docker构建步骤
     - name: Set up QEMU
       if: steps.check.outputs.needs_bump == 'true'
-      uses: docker/setup-qemu-action@v3
+      uses: docker/setup-qemu-action@v4
 
     - name: Set up Docker Buildx
       if: steps.check.outputs.needs_bump == 'true'
-      uses: docker/setup-buildx-action@v3
+      uses: docker/setup-buildx-action@v4
 
     - name: Log in to GitHub Container Registry
       if: steps.check.outputs.needs_bump == 'true'
-      uses: docker/login-action@v3
+      uses: docker/login-action@v4
       with:
         registry: ghcr.io
         username: ${{ github.repository_owner }}
@@ -368,8 +379,65 @@ jobs:
         fi
 
         git tag -a "${NEW_TAG}" -m "Release ${NEW_TAG}"
-        # 非快进不重试、不 rebase：失败即作废（理由见上方注释）
-        git push origin HEAD:main "${NEW_TAG}"
+        # --atomic：main 与 tag 同事务全成或全败，避免 main 被拒但 tag 已写入。
+        # 非快进不重试、不 rebase：失败即作废（理由见上方注释）。
+        #
+        # 仅 --atomic 不够：远端可能已原子写入，客户端却因断线收到失败。
+        # 若随后一次 git fetch 也因网络挂掉且被 set -e 直接打死，push_tag.outcome=failure，
+        # cleanup 旧条件 (outcome==success) 会跳过 → 远端留下「有 tag/VERSION、无完整发布」。
+        # 因此：① 客户端失败后带退避重试核对远端；② cleanup 在 push_tag 非 skipped 时也跑，
+        # 且 cleanup 必须核对 tag 解引用提交 == 本次 release_sha，禁止只按名字删（防误删外部同名发布）。
+        LOCAL_HEAD=$(git rev-parse HEAD)
+        # 供 cleanup 校验「这个 tag 是不是本 run 的」；VERSION 提交 SHA，不是 github.sha
+        echo "release_sha=${LOCAL_HEAD}" >> "$GITHUB_OUTPUT"
+        # push_uncertain=true：客户端失败且远端持续不可达，可能已原子写入；cleanup 必须真删掉或 fail
+        echo "push_uncertain=false" >> "$GITHUB_OUTPUT"
+        if ! git push --atomic origin HEAD:main "${NEW_TAG}"; then
+          echo "::warning::git push 客户端返回失败，带退避核对远端是否已原子写入..."
+          VERIFIED=0
+          REACHABLE=0
+          for attempt in 1 2 3 4 5; do
+            if git fetch origin main --tags --force 2>/dev/null; then
+              REACHABLE=1
+              REMOTE_MAIN=$(git rev-parse origin/main 2>/dev/null || true)
+              if [ "${REMOTE_MAIN}" != "${LOCAL_HEAD}" ]; then
+                echo "::error::推送失败：远端 main=${REMOTE_MAIN:-无} 不是本提交 ${LOCAL_HEAD}"
+                git tag -d "${NEW_TAG}" 2>/dev/null || true
+                exit 1
+              fi
+              if [ -z "$(git ls-remote --tags origin "refs/tags/${NEW_TAG}" 2>/dev/null || true)" ]; then
+                echo "::error::推送失败：远端 main 已更新但 tag ${NEW_TAG} 不存在"
+                git tag -d "${NEW_TAG}" 2>/dev/null || true
+                exit 1
+              fi
+              if git fetch origin "refs/tags/${NEW_TAG}:refs/tags/${NEW_TAG}" --force 2>/dev/null; then
+                TAG_COMMIT=$(git rev-parse "${NEW_TAG}^{}" 2>/dev/null || true)
+                if [ "${TAG_COMMIT}" = "${LOCAL_HEAD}" ]; then
+                  VERIFIED=1
+                  break
+                fi
+                echo "::error::推送失败：远端 tag ${NEW_TAG} 指向 ${TAG_COMMIT:-无}，不是本提交 ${LOCAL_HEAD}"
+                git tag -d "${NEW_TAG}" 2>/dev/null || true
+                exit 1
+              fi
+            fi
+            echo "::warning::第 ${attempt}/5 次核对远端未完成，$((attempt * 3))s 后重试..."
+            sleep $((attempt * 3))
+          done
+          if [ "${VERIFIED}" -eq 1 ]; then
+            echo "::warning::远端 main 与 tag 已指向 ${LOCAL_HEAD}，视为推送成功（客户端结果丢失）"
+          else
+            if [ "${REACHABLE}" -eq 0 ]; then
+              # 远端可能已写入：标 uncertain，cleanup 在仍不可达时必须 fail（禁止当「无 tag」静默成功）
+              echo "push_uncertain=true" >> "$GITHUB_OUTPUT"
+              echo "::error::推送结果不确定：客户端失败且多次无法 fetch 远端。cleanup 须清掉可能的孤儿 tag，清不掉则 fail。"
+            else
+              echo "::error::推送失败：能连上远端但无法确认 tag ${NEW_TAG} 指向本提交"
+            fi
+            git tag -d "${NEW_TAG}" 2>/dev/null || true
+            exit 1
+          fi
+        fi
 
     # 正文写文件再用 body_path 传，不用 body: | 内联。
     # 内联会把整段正文当作进程参数传给 action，超过 execve 上限就 "Argument list too long"
@@ -381,10 +449,15 @@ jobs:
         NEW_TAG: ${{ steps.next_version.outputs.new_tag }}
         CHANGELOG: ${{ steps.changelog.outputs.content }}
         REPO: ${{ github.repository }}
+        # 正文归属标记：cleanup 只删 body 含本 run_id 的 Release，不靠 create_release.outcome
+        # （outcome=failure 既可能未落库，也可能服务端已建；外部补救不会带此标记）
+        RUN_ID: ${{ github.run_id }}
       run: |
         set -euo pipefail
         NOTES_FILE="${RUNNER_TEMP}/release-notes.md"
         {
+          # 隐藏 HTML 注释，generate_release_notes 追加内容时通常保留 body 前缀
+          echo "<!-- crs-release-run:${RUN_ID} -->"
           echo '## 🐳 Docker 镜像'
           echo
           echo '```bash'
@@ -405,8 +478,9 @@ jobs:
         echo "正文长度：$(wc -c < "$NOTES_FILE") 字节"
 
     - name: Create GitHub Release
+      id: create_release
       if: steps.check.outputs.needs_bump == 'true'
-      uses: softprops/action-gh-release@v1
+      uses: softprops/action-gh-release@v3
       with:
         tag_name: ${{ steps.next_version.outputs.new_tag }}
         name: Release ${{ steps.next_version.outputs.new_version }}
@@ -417,7 +491,7 @@ jobs:
 
     - name: Build and push Docker image
       if: steps.check.outputs.needs_bump == 'true'
-      uses: docker/build-push-action@v6
+      uses: docker/build-push-action@v7
       with:
         context: .
         platforms: linux/amd64,linux/arm64
@@ -543,49 +617,150 @@ jobs:
     #
     # 删除失败一律 fail,不吞错(曾用 `|| echo` 吞掉,会在权限/保护规则/网络问题时
     # 谎报"已回滚",而残留 tag 会让下次版本计算取到它、造成真正的跳号与状态不一致)。
+    # push_tag 成功后后续失败 → 必清；push_tag 客户端失败但远端可能已写入本 run 的 tag → 也要跑。
+    # tag：只删「解引用提交 == release_sha」的，禁止只按名字删（防误删外部同名发布）。
+    # tag 状态必须落到三选一：ABSENT / OWNED / EXTERNAL。ls-remote 见 tag 但 peel 失败
+    # 不算 EXTERNAL——否则 push 已成功、cleanup fetch 抖一下就会静默留下本 run 孤儿 tag。
+    # Release：不靠 create_release.outcome。只删 body 含 <!-- crs-release-run:${run_id} --> 的。
+    # gh release view 失败 ≠ Release 不存在：API/网络错误时禁止删 tag，否则会留下无 tag 的孤儿 Release。
+    # 网络：ls-remote/fetch 失败 ≠ tag 不存在；全不可达必须 fail。
+    # outcome==skipped 才是 needs_bump=false。
     - name: Clean up incomplete release
-      if: failure() && steps.push_tag.outcome == 'success'
+      if: failure() && steps.check.outputs.needs_bump == 'true' && steps.push_tag.outcome != 'skipped'
       env:
         NEW_TAG: ${{ steps.next_version.outputs.new_tag }}
         NEW_VERSION: ${{ steps.next_version.outputs.new_version }}
         IMAGE: ${{ steps.image_names.outputs.ghcr_image }}
+        RELEASE_SHA: ${{ steps.push_tag.outputs.release_sha }}
+        PUSH_UNCERTAIN: ${{ steps.push_tag.outputs.push_uncertain }}
+        RUN_ID: ${{ github.run_id }}
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
         set -euo pipefail
-        echo "::warning::发布未完成，清理 ${NEW_TAG}（VERSION 保留在 ${NEW_VERSION}，该号作废不再复用）"
+        echo "::warning::发布未完成，尝试清理本 run 的 ${NEW_TAG}（VERSION 保留在 ${NEW_VERSION}，该号作废不再复用）"
+
+        if [ -z "${RELEASE_SHA}" ]; then
+          echo "::warning::无 release_sha（push_tag 可能在写出 SHA 前就失败），跳过清理以免误删外部同名 tag"
+          exit 0
+        fi
 
         FAILED=0
+        OWNED=0
+        EXTERNAL=0
+        REACHABLE=0
+        TAG_ABSENT=0
+        RUN_MARKER="<!-- crs-release-run:${RUN_ID} -->"
 
-        # 删 Release（可能还没建，用 view 区分"不存在"与"删不掉"）
-        if gh release view "${NEW_TAG}" >/dev/null 2>&1; then
-          if gh release delete "${NEW_TAG}" --yes; then
-            echo "已删除 Release ${NEW_TAG}"
-          else
-            echo "::error::删除 Release ${NEW_TAG} 失败，请手动删除"
-            FAILED=1
+        # 带退避探测远端：区分「不存在 / 本 run / 外部 / 见得到但 peel 不了」
+        for attempt in 1 2 3 4 5; do
+          LS_ERR=0
+          LS_OUT=$(git ls-remote --tags origin "refs/tags/${NEW_TAG}" 2>/dev/null) || LS_ERR=$?
+          if [ "${LS_ERR}" -ne 0 ]; then
+            echo "::warning::第 ${attempt}/5 次 ls-remote 失败（网络？），$((attempt * 3))s 后重试..."
+            sleep $((attempt * 3))
+            continue
           fi
-        else
-          echo "Release ${NEW_TAG} 不存在，跳过"
-        fi
-
-        # 删远端 tag（用 ls-remote 区分"不存在"与"删不掉"）
-        if [ -n "$(git ls-remote --tags origin "refs/tags/${NEW_TAG}")" ]; then
-          if git push origin ":refs/tags/${NEW_TAG}"; then
-            echo "已删除 tag ${NEW_TAG}"
-          else
-            echo "::error::删除 tag ${NEW_TAG} 失败（可能有 tag 保护规则），请手动删除"
-            FAILED=1
+          REACHABLE=1
+          if [ -z "${LS_OUT}" ]; then
+            TAG_ABSENT=1
+            echo "tag ${NEW_TAG} 不存在，无需删 tag"
+            break
           fi
-        else
-          echo "tag ${NEW_TAG} 不存在，跳过"
-        fi
+          # ls-remote 已见 tag：必须 peel 出提交才能判 OWNED/EXTERNAL，不能 break 成 OWNED=0
+          if git fetch origin "refs/tags/${NEW_TAG}:refs/tags/${NEW_TAG}" --force 2>/dev/null; then
+            TAG_COMMIT=$(git rev-parse "${NEW_TAG}^{}" 2>/dev/null || true)
+            if [ -n "${TAG_COMMIT}" ] && [ "${TAG_COMMIT}" = "${RELEASE_SHA}" ]; then
+              OWNED=1
+              echo "远端 tag ${NEW_TAG} 指向本 run 提交 ${RELEASE_SHA}，将清理"
+              break
+            fi
+            if [ -n "${TAG_COMMIT}" ]; then
+              EXTERNAL=1
+              echo "::warning::远端 tag ${NEW_TAG} 指向 ${TAG_COMMIT}，不是本 run 的 ${RELEASE_SHA}，视为外部发布，不删除"
+              break
+            fi
+            echo "::warning::第 ${attempt}/5 次 peel tag 无提交对象，$((attempt * 3))s 后重试..."
+          else
+            echo "::warning::第 ${attempt}/5 次 fetch tag 失败，$((attempt * 3))s 后重试..."
+          fi
+          sleep $((attempt * 3))
+        done
 
-        if [ "$FAILED" -ne 0 ]; then
-          echo "::error::清理未完全成功，需人工介入：确认 ${NEW_TAG} 的 tag/Release 已删除"
+        if [ "${REACHABLE}" -eq 0 ]; then
+          echo "::error::无法联系远端确认 tag ${NEW_TAG} 状态（ls-remote 均失败）。"
+          echo "::error::若 push 实际已写入，远端可能残留无 Release/镜像/web-dist 的孤儿 tag，请人工检查并删除。"
           exit 1
         fi
 
-        echo "::notice::清理完成。GHCR 上的 ${IMAGE}:${NEW_TAG} 无法删除但已作废（latest 未移动，不影响用户）；下次发布将使用新版本号。"
+        # ls-remote 见 tag 但始终未能 OWNED/EXTERNAL/ABSENT → 不能当「不属于我」静默成功
+        # （push 已 success、后续镜像失败、cleanup fetch 抖动 就会留下本 run 孤儿 tag）
+        if [ "${TAG_ABSENT}" -ne 1 ] && [ "${OWNED}" -ne 1 ] && [ "${EXTERNAL}" -ne 1 ]; then
+          echo "::error::远端存在 tag ${NEW_TAG}（ls-remote 非空），但多次无法 fetch/peel 校验归属。"
+          echo "::error::禁止当作外部 tag 跳过：请人工确认并删除本 run 可能留下的孤儿 tag。"
+          exit 1
+        fi
+
+        if [ "${OWNED}" -eq 1 ]; then
+          # Release 归属只看 body 是否含本 run 标记。
+          # gh release view 失败 ≠ 不存在：API/网络错误时禁止删 tag，否则留下无 tag 的孤儿 Release。
+          # 外部/补救 Release（body 无 marker）同样禁止删同名 tag，否则会把它变成无 tag 孤儿。
+          CAN_DELETE_TAG=1
+          VIEW_ERR_FILE=$(mktemp)
+          VIEW_BODY_FILE=$(mktemp)
+          if gh release view "${NEW_TAG}" --json body -q .body >"${VIEW_BODY_FILE}" 2>"${VIEW_ERR_FILE}"; then
+            RELEASE_BODY=$(cat "${VIEW_BODY_FILE}")
+            if printf '%s' "${RELEASE_BODY}" | grep -Fq "${RUN_MARKER}"; then
+              if gh release delete "${NEW_TAG}" --yes; then
+                echo "已删除本 run 的 Release ${NEW_TAG}（body 含 ${RUN_MARKER}）"
+              else
+                echo "::error::删除 Release ${NEW_TAG} 失败，请手动删除"
+                FAILED=1
+                CAN_DELETE_TAG=0
+              fi
+            else
+              echo "::warning::Release ${NEW_TAG} 存在但 body 无本 run 标记，视为外部/补救发布；不删 Release，也不删同名 tag"
+              CAN_DELETE_TAG=0
+            fi
+          else
+            if grep -qiE 'not found|HTTP 404|Could not find|no release found|Not Found' "${VIEW_ERR_FILE}"; then
+              echo "Release ${NEW_TAG} 不存在，跳过"
+            else
+              echo "::error::查询 Release ${NEW_TAG} 失败（非 not-found），不删 tag 以免留下孤儿 Release："
+              cat "${VIEW_ERR_FILE}" || true
+              FAILED=1
+              CAN_DELETE_TAG=0
+            fi
+          fi
+          rm -f "${VIEW_ERR_FILE}" "${VIEW_BODY_FILE}"
+
+          if [ "${CAN_DELETE_TAG}" -eq 1 ]; then
+            if git push origin ":refs/tags/${NEW_TAG}"; then
+              echo "已删除 tag ${NEW_TAG}"
+            else
+              echo "::error::删除 tag ${NEW_TAG} 失败（可能有 tag 保护规则），请手动删除"
+              FAILED=1
+            fi
+          else
+            echo "::warning::跳过删 tag ${NEW_TAG}（外部/补救 Release、查询失败或删 Release 失败）"
+          fi
+        fi
+
+        if [ "$FAILED" -ne 0 ]; then
+          echo "::error::清理未完全成功，需人工介入：确认 ${NEW_TAG} 的 tag/Release 状态"
+          exit 1
+        fi
+
+        # push 结果不确定时，必须确认本 run 的 tag 已不在或可判定为外部
+        if [ "${PUSH_UNCERTAIN}" = "true" ] && [ "${OWNED}" -eq 0 ] && [ "${TAG_ABSENT}" -ne 1 ] && [ "${EXTERNAL}" -ne 1 ]; then
+          echo "::error::push 结果曾不确定，且未能确认 tag ${NEW_TAG} 已清除或归属外部，请人工检查远端"
+          exit 1
+        fi
+
+        if [ "${OWNED}" -eq 1 ]; then
+          echo "::notice::清理完成。GHCR 上的 ${IMAGE}:${NEW_TAG} 无法删除但已作废（latest 未移动，不影响用户）；下次发布将使用新版本号。"
+        else
+          echo "::notice::未清理任何远端对象（无本 run 归属的 tag，或 tag 本就不存在/属外部）。"
+        fi
 
     # 自动清理旧的tags和releases（保持最近50个）
     - name: Cleanup old tags and releases

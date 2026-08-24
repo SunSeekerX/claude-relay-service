@@ -148,34 +148,107 @@ get_public_ip() {
     fi
 }
 
-# 检查Node.js版本
-check_node_version() {
-    if ! command_exists node; then
+# 把 brew keg-only 的 node@24 的 bin 塞进当前进程 PATH（不保证跨 shell 持久）
+# 返回 0 仅表示本进程现在能跑到该 node 二进制
+activate_brew_node24() {
+    if ! command_exists brew; then
         return 1
     fi
-    
-    local node_version=$(node -v | sed 's/v//')
-    local major_version=$(echo $node_version | cut -d. -f1)
-    
-    if [ "$major_version" -lt 18 ]; then
+
+    local prefix
+    prefix="$(brew --prefix node@24 2>/dev/null || true)"
+    if [ -z "$prefix" ] || [ ! -x "$prefix/bin/node" ]; then
         return 1
     fi
-    
+
+    export PATH="$prefix/bin:$PATH"
+    command_exists node || return 1
     return 0
 }
 
-# 安装Node.js 18+
+# 把 node@24 持久接到系统 PATH。仅 brew link 或 /usr/local/bin/node 落盘成功才返回 0。
+# 只 export PATH 不算成功——新 shell 的 crs restart 会丢。
+persist_brew_node24() {
+    if ! command_exists brew; then
+        return 1
+    fi
+
+    local prefix
+    prefix="$(brew --prefix node@24 2>/dev/null || true)"
+    if [ -z "$prefix" ] || [ ! -x "$prefix/bin/node" ]; then
+        return 1
+    fi
+
+    if brew link node@24 --force --overwrite >/dev/null 2>&1; then
+        return 0
+    fi
+
+    local bindir="/usr/local/bin"
+    if [ ! -d "$bindir" ]; then
+        mkdir -p "$bindir" 2>/dev/null || {
+            if command_exists sudo; then
+                sudo mkdir -p "$bindir" 2>/dev/null || return 1
+            else
+                return 1
+            fi
+        }
+    fi
+
+    local name linked_node=0
+    for name in node npm npx; do
+        if [ ! -x "$prefix/bin/$name" ]; then
+            continue
+        fi
+        if ln -sfn "$prefix/bin/$name" "$bindir/$name" 2>/dev/null \
+            || { command_exists sudo && sudo ln -sfn "$prefix/bin/$name" "$bindir/$name" 2>/dev/null; }; then
+            if [ "$name" = "node" ]; then
+                linked_node=1
+            fi
+        fi
+    done
+
+    # 必须确认 bindir/node 可执行且能跑，避免假成功
+    if [ "$linked_node" -eq 1 ] && [ -x "$bindir/node" ]; then
+        export PATH="$bindir:$PATH"
+        return 0
+    fi
+
+    return 1
+}
+
+# 检查Node.js版本
+check_node_version() {
+    # 每次检查前尽量激活 brew node@24，避免新 shell 丢失安装时的 PATH
+    if ! command_exists node || [ "$(node -v 2>/dev/null | sed 's/v//' | cut -d. -f1)" -lt 24 ] 2>/dev/null; then
+        activate_brew_node24 >/dev/null 2>&1 || true
+    fi
+
+    if ! command_exists node; then
+        return 1
+    fi
+
+    local node_version=$(node -v | sed 's/v//')
+    local major_version=$(echo $node_version | cut -d. -f1)
+
+    if [ "$major_version" -lt 24 ]; then
+        return 1
+    fi
+
+    return 0
+}
+
+# 安装Node.js 24+
 install_nodejs() {
-    print_info "开始安装 Node.js 18+"
-    
+    print_info "开始安装 Node.js 24+"
+
     case $OS in
         "debian")
             # 使用 NodeSource 仓库
-            curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
+            curl -fsSL https://deb.nodesource.com/setup_24.x | sudo -E bash -
             sudo $PACKAGE_MANAGER install -y nodejs
             ;;
         "redhat")
-            curl -fsSL https://rpm.nodesource.com/setup_18.x | sudo bash -
+            curl -fsSL https://rpm.nodesource.com/setup_24.x | sudo bash -
             sudo $PACKAGE_MANAGER install -y nodejs
             ;;
         "arch")
@@ -186,14 +259,23 @@ install_nodejs() {
                 print_error "请先安装 Homebrew: https://brew.sh"
                 return 1
             fi
-            brew install node@18
+            # node@24 是 keg-only；必须持久 link/symlink，禁止只 export PATH 就报成功
+            brew install node@24
+            activate_brew_node24 || true
+            if ! persist_brew_node24; then
+                print_error "node@24 已安装，但 brew link 与 /usr/local/bin symlink 均失败，无法跨 shell 使用"
+                print_info "请手动执行: brew link node@24 --force --overwrite"
+                print_info "或: ln -sfn \"\$(brew --prefix node@24)/bin/node\" /usr/local/bin/node"
+                return 1
+            fi
+            print_info "已把 node@24 持久接入 PATH（brew link 或 /usr/local/bin symlink）"
             ;;
         *)
-            print_error "不支持的操作系统，请手动安装 Node.js 18+"
+            print_error "不支持的操作系统，请手动安装 Node.js 24+"
             return 1
             ;;
     esac
-    
+
     # 验证安装
     if check_node_version; then
         print_success "Node.js 安装成功: $(node -v)"
@@ -252,7 +334,7 @@ install_dependencies() {
     
     # 检查 Node.js
     if ! check_node_version; then
-        print_warning "未检测到 Node.js 18+ 版本"
+        print_warning "未检测到 Node.js 24+ 版本"
         install_nodejs || return 1
     else
         print_success "Node.js 版本检查通过: $(node -v)"
@@ -855,27 +937,33 @@ start_service() {
         print_error "服务未安装，请先运行: $0 install"
         return 1
     fi
-    
+
+    # 新 shell 可能丢了 brew node@24 PATH；启动前必须确认能找到 Node 24+
+    if ! check_node_version; then
+        print_error "未检测到 Node.js 24+，无法启动。请先: $0 install 或手动 brew link node@24 --force"
+        return 1
+    fi
+
     print_info "启动服务..."
-    
+
     cd "$APP_DIR"
-    
+
     # 检查是否已运行
     if pgrep -f "node.*src/app.js" > /dev/null; then
         print_warning "服务已在运行"
         return 0
     fi
-    
+
     # 确保日志目录存在
     mkdir -p "$APP_DIR/logs"
-    
+
     # 检查pm2是否可用并且不是从package.json脚本调用的
     if command_exists pm2 && [ "$1" != "--no-pm2" ]; then
         print_info "使用 pm2 启动服务..."
         # 直接使用pm2启动，避免循环调用
         pm2 start "$APP_DIR/src/app.js" --name "claude-relay" --log "$APP_DIR/logs/pm2.log" 2>/dev/null
         sleep 2
-        
+
         # 检查是否启动成功
         if pm2 list 2>/dev/null | grep -q "claude-relay"; then
             print_success "服务已通过 pm2 启动"
@@ -887,9 +975,9 @@ start_service() {
     else
         start_service_direct
     fi
-    
+
     sleep 2
-    
+
     # 验证服务是否成功启动
     if pgrep -f "node.*src/app.js" > /dev/null; then
         show_status
@@ -906,14 +994,20 @@ start_service() {
 # 直接启动服务（不使用pm2）
 start_service_direct() {
     print_info "使用后台进程启动服务..."
-    
+
+    # 调用方可能绕过 start_service；这里再守一次，避免裸 node 找不到
+    if ! check_node_version; then
+        print_error "未检测到 Node.js 24+，无法启动服务"
+        return 1
+    fi
+
     # 使用setsid创建新会话，确保进程完全脱离终端
     if command_exists setsid; then
         # setsid方式（推荐）
         setsid nohup node "$APP_DIR/src/app.js" > "$APP_DIR/logs/service.log" 2>&1 < /dev/null &
         local pid=$!
         sleep 1
-        
+
         # 获取实际的子进程PID
         local real_pid=$(pgrep -f "node.*src/app.js" | head -1)
         if [ -n "$real_pid" ]; then

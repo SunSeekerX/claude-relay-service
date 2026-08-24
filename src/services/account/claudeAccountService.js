@@ -1355,12 +1355,11 @@ class ClaudeAccountService {
         }
       }
 
-      // 旧格式或格式错误，尝试旧方式解密（向后兼容）
-      // 注意：在新版本Node.js中这将失败，但我们会捕获错误
+      // 旧格式（无 iv: 前缀）：兼容历史上 createCipher('aes-256-cbc', password) 写出的密文。
+      // Node 22+ 已移除 createDecipher，这里用 EVP_BytesToKey(MD5) + createDecipheriv 复现旧行为，
+      // 否则存量无冒号密文解密失败会原样当 token 发出。
       try {
-        const decipher = crypto.createDecipher('aes-256-cbc', config.security.encryptionKey)
-        decrypted = decipher.update(encryptedData, 'hex', 'utf8')
-        decrypted += decipher.final('utf8')
+        decrypted = this._decryptLegacyCreateCipherFormat(encryptedData)
 
         // 💾 旧格式也存入缓存
         this._decryptCache.set(cacheKey, decrypted, 5 * 60 * 1000)
@@ -1375,6 +1374,31 @@ class ClaudeAccountService {
       logger.error('❌ Decryption error:', error)
       return encryptedData
     }
+  }
+
+  // 旧 createCipher/createDecipher 的密钥派生：OpenSSL EVP_BytesToKey(password, empty salt, MD5)
+  // Node 22+ 已删 createDecipher，升运行时后只能手写等价实现读存量无冒号密文
+  _evpBytesToKey(password, keyLen, ivLen) {
+    const passwordBuf = Buffer.isBuffer(password) ? password : Buffer.from(String(password), 'utf8')
+    let data = Buffer.alloc(0)
+    let prev = Buffer.alloc(0)
+    while (data.length < keyLen + ivLen) {
+      prev = crypto.createHash('md5').update(prev).update(passwordBuf).digest()
+      data = Buffer.concat([data, prev])
+    }
+    return {
+      key: data.subarray(0, keyLen),
+      iv: data.subarray(keyLen, keyLen + ivLen)
+    }
+  }
+
+  // 解密历史上 createCipher('aes-256-cbc', encryptionKey) 写出的 hex 密文
+  _decryptLegacyCreateCipherFormat(encryptedData) {
+    const { key, iv } = this._evpBytesToKey(config.security.encryptionKey, 32, 16)
+    const decipher = crypto.createDecipheriv('aes-256-cbc', key, iv)
+    let decrypted = decipher.update(encryptedData, 'hex', 'utf8')
+    decrypted += decipher.final('utf8')
+    return decrypted
   }
 
   // 🔑 生成加密密钥（辅助方法）
