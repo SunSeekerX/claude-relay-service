@@ -39,10 +39,32 @@
       </p>
     </div>
 
+    <!-- 二级 tab：配置块与价格表分屏，避免两张配置卡片挤压表格可用高度 -->
+    <div
+      v-if="!readonly"
+      class="mb-4 flex gap-1 overflow-x-auto rounded-lg bg-gray-100 p-1 dark:bg-gray-700"
+    >
+      <button
+        v-for="tab in sectionTabs"
+        :key="tab.key"
+        :class="[
+          'whitespace-nowrap rounded-md px-3 py-1.5 text-sm font-medium transition-colors',
+          activeTab === tab.key
+            ? 'bg-white text-blue-600 shadow-sm dark:bg-gray-800'
+            : 'text-gray-600 hover:text-gray-900 dark:text-gray-300 dark:hover:text-gray-100'
+        ]"
+        @click="switchTab(tab.key)"
+      >
+        <i :class="['fas', tab.icon, 'mr-1.5']" />
+        {{ tab.label }}
+      </button>
+    </div>
+
     <!-- 数据源配置（管理端可改，改完点“拉取最新价格”即时生效，无需重启） -->
     <div
       v-if="!readonly"
-      class="mb-6 rounded-xl border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800"
+      v-show="activeTab === 'source'"
+      class="rounded-xl border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800"
     >
       <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
         <div class="flex items-center gap-2">
@@ -131,7 +153,8 @@
     <!-- 模型目录导入：把定价源里有、/v1/models 还没有的模型加进目录 -->
     <div
       v-if="!readonly"
-      class="mb-6 rounded-xl border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800"
+      v-show="activeTab === 'catalog'"
+      class="rounded-xl border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800"
     >
       <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
         <div class="flex items-center gap-2">
@@ -229,171 +252,174 @@
       </div>
     </div>
 
-    <!-- 搜索 + 供应商筛选 -->
-    <div class="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center">
-      <div class="relative min-w-0 flex-1">
-        <i class="fas fa-search absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-        <input
-          v-model="searchQuery"
-          class="w-full rounded-lg border border-gray-200 bg-white py-2 pl-9 pr-3 text-sm text-gray-700 placeholder-gray-400 transition focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300"
-          placeholder="搜索模型名称..."
-          type="text"
-        />
+    <!-- 价格表 tab：搜索/表格/统计同属一屏，整体随 tab 显隐 -->
+    <div v-show="readonly || activeTab === 'table'">
+      <!-- 搜索 + 供应商筛选 -->
+      <div class="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center">
+        <div class="relative min-w-0 flex-1">
+          <i class="fas fa-search absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+          <input
+            v-model="searchQuery"
+            class="w-full rounded-lg border border-gray-200 bg-white py-2 pl-9 pr-3 text-sm text-gray-700 placeholder-gray-400 transition focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300"
+            placeholder="搜索模型名称..."
+            type="text"
+          />
+        </div>
+        <el-select
+          v-model="activeProvider"
+          class="w-full sm:w-56"
+          clearable
+          filterable
+          placeholder="全部供应商"
+        >
+          <el-option
+            v-for="provider in providerOptions"
+            :key="provider"
+            :label="provider"
+            :value="provider"
+          />
+        </el-select>
       </div>
-      <el-select
-        v-model="activeProvider"
-        class="w-full sm:w-56"
-        clearable
-        filterable
-        placeholder="全部供应商"
+
+      <!-- 加载状态 -->
+      <div v-if="loading" class="py-12 text-center">
+        <i class="fas fa-spinner fa-spin mb-4 text-2xl text-blue-500" />
+        <p class="text-gray-500 dark:text-gray-400">加载价格数据中...</p>
+      </div>
+
+      <!-- 表格 -->
+      <div
+        v-else
+        ref="tableWrapper"
+        class="overflow-auto rounded-lg border border-gray-200 dark:border-gray-700"
+        :style="{ maxHeight: tableMaxHeight }"
       >
-        <el-option
-          v-for="provider in providerOptions"
-          :key="provider"
-          :label="provider"
-          :value="provider"
-        />
-      </el-select>
-    </div>
-
-    <!-- 加载状态 -->
-    <div v-if="loading" class="py-12 text-center">
-      <i class="fas fa-spinner fa-spin mb-4 text-2xl text-blue-500" />
-      <p class="text-gray-500 dark:text-gray-400">加载价格数据中...</p>
-    </div>
-
-    <!-- 表格 -->
-    <div
-      v-else
-      ref="tableWrapper"
-      class="overflow-auto rounded-lg border border-gray-200 dark:border-gray-700"
-      :style="{ maxHeight: tableMaxHeight }"
-    >
-      <table class="min-w-full text-base">
-        <thead class="sticky top-0 z-10 bg-gray-50 dark:bg-gray-800">
-          <tr>
-            <th
-              class="cursor-pointer px-3 py-3 text-left text-sm font-medium uppercase tracking-wider text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
-              @click="toggleSort('name')"
-            >
-              模型名称
-              <i
-                v-if="sortField === 'name'"
-                :class="['fas ml-1', sortAsc ? 'fa-sort-up' : 'fa-sort-down']"
-              />
-            </th>
-            <th
-              class="cursor-pointer px-3 py-3 text-right text-sm font-medium uppercase tracking-wider text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
-              @click="toggleSort('input')"
-            >
-              输入 $/MTok
-              <i
-                v-if="sortField === 'input'"
-                :class="['fas ml-1', sortAsc ? 'fa-sort-up' : 'fa-sort-down']"
-              />
-            </th>
-            <th
-              class="cursor-pointer px-3 py-3 text-right text-sm font-medium uppercase tracking-wider text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
-              @click="toggleSort('output')"
-            >
-              输出 $/MTok
-              <i
-                v-if="sortField === 'output'"
-                :class="['fas ml-1', sortAsc ? 'fa-sort-up' : 'fa-sort-down']"
-              />
-            </th>
-            <th
-              class="hidden px-3 py-3 text-right text-sm font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400 md:table-cell"
-            >
-              缓存创建
-            </th>
-            <th
-              class="hidden px-3 py-3 text-right text-sm font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400 md:table-cell"
-            >
-              缓存读取
-            </th>
-            <th
-              class="hidden px-3 py-3 text-right text-sm font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400 lg:table-cell"
-            >
-              上下文窗口
-            </th>
-            <th
-              v-if="!readonly"
-              class="px-3 py-3 text-right text-sm font-medium uppercase tracking-wider"
-            >
-              <button
-                class="inline-flex items-center gap-1 rounded-md px-2 py-1 text-sm font-medium text-blue-600 transition hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-900/20"
-                @click="showRawAll"
+        <table class="min-w-full text-base">
+          <thead class="sticky top-0 z-10 bg-gray-50 dark:bg-gray-800">
+            <tr>
+              <th
+                class="cursor-pointer px-3 py-3 text-left text-sm font-medium uppercase tracking-wider text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+                @click="toggleSort('name')"
               >
-                <i class="fas fa-code" />查看全部
-              </button>
-            </th>
-          </tr>
-        </thead>
-        <tbody class="divide-y divide-gray-200 bg-white dark:divide-gray-700 dark:bg-gray-900">
-          <tr
-            v-for="model in sortedModels"
-            :key="model.name"
-            class="transition hover:bg-gray-50 dark:hover:bg-gray-800/50"
-          >
-            <td class="whitespace-nowrap px-3 py-3">
-              <div class="text-base font-semibold text-gray-900 dark:text-gray-100">
-                {{ model.name }}
-              </div>
-              <div v-if="model.provider" class="mt-0.5 text-sm text-gray-500 dark:text-gray-400">
-                {{ model.provider }}
-              </div>
-            </td>
-            <td
-              class="whitespace-nowrap px-3 py-3 text-right font-mono text-base font-medium text-gray-800 dark:text-gray-200"
-            >
-              {{ formatPrice(model.inputCost) }}
-            </td>
-            <td
-              class="whitespace-nowrap px-3 py-3 text-right font-mono text-base font-medium text-gray-800 dark:text-gray-200"
-            >
-              {{ formatPrice(model.outputCost) }}
-            </td>
-            <td
-              class="hidden whitespace-nowrap px-3 py-3 text-right font-mono text-base text-gray-600 dark:text-gray-300 md:table-cell"
-            >
-              {{ formatPrice(model.cacheCreateCost) }}
-            </td>
-            <td
-              class="hidden whitespace-nowrap px-3 py-3 text-right font-mono text-base text-gray-600 dark:text-gray-300 md:table-cell"
-            >
-              {{ formatPrice(model.cacheReadCost) }}
-            </td>
-            <td
-              class="hidden whitespace-nowrap px-3 py-3 text-right text-base text-gray-600 dark:text-gray-300 lg:table-cell"
-            >
-              {{ formatContext(model.maxTokens) }}
-            </td>
-            <td v-if="!readonly" class="whitespace-nowrap px-3 py-3 text-right">
-              <button
-                class="inline-flex items-center gap-1 rounded-md px-2 py-1 text-sm font-medium text-gray-500 transition hover:bg-gray-100 hover:text-blue-600 dark:text-gray-400 dark:hover:bg-gray-700 dark:hover:text-blue-400"
-                @click="showRawOne(model.name)"
+                模型名称
+                <i
+                  v-if="sortField === 'name'"
+                  :class="['fas ml-1', sortAsc ? 'fa-sort-up' : 'fa-sort-down']"
+                />
+              </th>
+              <th
+                class="cursor-pointer px-3 py-3 text-right text-sm font-medium uppercase tracking-wider text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+                @click="toggleSort('input')"
               >
-                <i class="fas fa-code" />查看原始数据
-              </button>
-            </td>
-          </tr>
-          <tr v-if="sortedModels.length === 0">
-            <td
-              class="px-3 py-8 text-center text-base text-gray-500 dark:text-gray-400"
-              :colspan="readonly ? 6 : 7"
+                输入 $/MTok
+                <i
+                  v-if="sortField === 'input'"
+                  :class="['fas ml-1', sortAsc ? 'fa-sort-up' : 'fa-sort-down']"
+                />
+              </th>
+              <th
+                class="cursor-pointer px-3 py-3 text-right text-sm font-medium uppercase tracking-wider text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+                @click="toggleSort('output')"
+              >
+                输出 $/MTok
+                <i
+                  v-if="sortField === 'output'"
+                  :class="['fas ml-1', sortAsc ? 'fa-sort-up' : 'fa-sort-down']"
+                />
+              </th>
+              <th
+                class="hidden px-3 py-3 text-right text-sm font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400 md:table-cell"
+              >
+                缓存创建
+              </th>
+              <th
+                class="hidden px-3 py-3 text-right text-sm font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400 md:table-cell"
+              >
+                缓存读取
+              </th>
+              <th
+                class="hidden px-3 py-3 text-right text-sm font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400 lg:table-cell"
+              >
+                上下文窗口
+              </th>
+              <th
+                v-if="!readonly"
+                class="px-3 py-3 text-right text-sm font-medium uppercase tracking-wider"
+              >
+                <button
+                  class="inline-flex items-center gap-1 rounded-md px-2 py-1 text-sm font-medium text-blue-600 transition hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-900/20"
+                  @click="showRawAll"
+                >
+                  <i class="fas fa-code" />查看全部
+                </button>
+              </th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-gray-200 bg-white dark:divide-gray-700 dark:bg-gray-900">
+            <tr
+              v-for="model in sortedModels"
+              :key="model.name"
+              class="transition hover:bg-gray-50 dark:hover:bg-gray-800/50"
             >
-              <i class="fas fa-search mb-2 text-2xl text-gray-300 dark:text-gray-600" />
-              <p>没有匹配的模型</p>
-            </td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
+              <td class="whitespace-nowrap px-3 py-3">
+                <div class="text-base font-semibold text-gray-900 dark:text-gray-100">
+                  {{ model.name }}
+                </div>
+                <div v-if="model.provider" class="mt-0.5 text-sm text-gray-500 dark:text-gray-400">
+                  {{ model.provider }}
+                </div>
+              </td>
+              <td
+                class="whitespace-nowrap px-3 py-3 text-right font-mono text-base font-medium text-gray-800 dark:text-gray-200"
+              >
+                {{ formatPrice(model.inputCost) }}
+              </td>
+              <td
+                class="whitespace-nowrap px-3 py-3 text-right font-mono text-base font-medium text-gray-800 dark:text-gray-200"
+              >
+                {{ formatPrice(model.outputCost) }}
+              </td>
+              <td
+                class="hidden whitespace-nowrap px-3 py-3 text-right font-mono text-base text-gray-600 dark:text-gray-300 md:table-cell"
+              >
+                {{ formatPrice(model.cacheCreateCost) }}
+              </td>
+              <td
+                class="hidden whitespace-nowrap px-3 py-3 text-right font-mono text-base text-gray-600 dark:text-gray-300 md:table-cell"
+              >
+                {{ formatPrice(model.cacheReadCost) }}
+              </td>
+              <td
+                class="hidden whitespace-nowrap px-3 py-3 text-right text-base text-gray-600 dark:text-gray-300 lg:table-cell"
+              >
+                {{ formatContext(model.maxTokens) }}
+              </td>
+              <td v-if="!readonly" class="whitespace-nowrap px-3 py-3 text-right">
+                <button
+                  class="inline-flex items-center gap-1 rounded-md px-2 py-1 text-sm font-medium text-gray-500 transition hover:bg-gray-100 hover:text-blue-600 dark:text-gray-400 dark:hover:bg-gray-700 dark:hover:text-blue-400"
+                  @click="showRawOne(model.name)"
+                >
+                  <i class="fas fa-code" />查看原始数据
+                </button>
+              </td>
+            </tr>
+            <tr v-if="sortedModels.length === 0">
+              <td
+                class="px-3 py-8 text-center text-base text-gray-500 dark:text-gray-400"
+                :colspan="readonly ? 6 : 7"
+              >
+                <i class="fas fa-search mb-2 text-2xl text-gray-300 dark:text-gray-600" />
+                <p>没有匹配的模型</p>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
 
-    <!-- 模型数量统计 -->
-    <div v-if="!loading" class="mt-3 text-right text-sm text-gray-400 dark:text-gray-500">
-      显示 {{ sortedModels.length }} / {{ allModels.length }} 个模型
+      <!-- 模型数量统计 -->
+      <div v-if="!loading" class="mt-3 text-right text-sm text-gray-400 dark:text-gray-500">
+        显示 {{ sortedModels.length }} / {{ allModels.length }} 个模型
+      </div>
     </div>
 
     <!-- 原始数据查看弹窗 -->
@@ -464,6 +490,13 @@ const props = defineProps({
 })
 
 // ========== 状态 ==========
+// 二级 tab：三块内容原本纵向堆叠，配置卡片把表格挤到只剩几行高，改为分屏
+const sectionTabs = [
+  { key: 'table', label: '价格表', icon: 'fa-table' },
+  { key: 'source', label: '定价数据源', icon: 'fa-cloud-download-alt' },
+  { key: 'catalog', label: '模型目录', icon: 'fa-layer-group' }
+]
+const activeTab = ref('table')
 const loading = ref(false)
 const refreshing = ref(false)
 const pricingData = ref({})
@@ -594,6 +627,14 @@ const formatContext = (tokens) => {
   if (tokens >= 1000000) return `${(tokens / 1000000).toFixed(1)}M`
   if (tokens >= 1000) return `${(tokens / 1000).toFixed(0)}K`
   return String(tokens)
+}
+
+// 切回价格表时表格才重新可见，此刻 top 已变，需重算高度（tab 隐藏期间 offsetParent 为 null，calc 会跳过）
+const switchTab = async (key) => {
+  activeTab.value = key
+  if (key !== 'table') return
+  await nextTick()
+  calcTableHeight()
 }
 
 const toggleSort = (field) => {

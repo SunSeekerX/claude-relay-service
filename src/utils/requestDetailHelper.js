@@ -604,6 +604,36 @@ function finalizeRequestDetailMeta(requestMeta = null) {
   }
 }
 
+// 解析实际生效的 OpenAI service_tier：上游回包是唯一事实源，请求体仅在回包「没有该字段」时兜底。
+//
+// [人工决策-2026-08-24 11:33:43] 上游回传的档位一律照收，包括 default 与 auto——官方定义
+// response.service_tier 是「实际用于服务本次请求的处理档位」，且明确「可能与请求参数不同」，
+// default 即标准定价。请求 fast 但因无资格/容量回退时上游就回 default/auto，此时若按请求的
+// fast 收费就是多收。
+//
+// 判定边界只有一条：回包「有没有这个字段」，而不是「字段值像不像结论」。
+// 把某些回传值（曾是 default，后是 auto）当成「未回传」再回落请求意图，就是按请求意图
+// 覆盖上游结果 —— 这是同一个多收缺陷的两次发作，故不再对回包值做任何豁免。
+// 反向漏收由回包本身覆盖：请求 auto 而上游实际按 priority 服务时，回包就是 priority。
+//
+// 回落请求体时仍排除 auto/default：它们不是价格档，等价于「按基础价」。
+function resolveOpenAIServiceTier(responseTier, requestTier) {
+  const normalize = (value) =>
+    typeof value === 'string' && value.trim() ? value.trim().toLowerCase() : ''
+
+  // 回包有值就是权威结论，原样返回，绝不回落请求值
+  const fromResponse = normalize(responseTier)
+  if (fromResponse) {
+    return fromResponse
+  }
+
+  const fromRequest = normalize(requestTier)
+  if (fromRequest && fromRequest !== 'auto' && fromRequest !== 'default') {
+    return fromRequest
+  }
+  return null
+}
+
 function extractOpenAICacheReadTokens(usage = {}) {
   if (!usage || typeof usage !== 'object') {
     return 0
@@ -710,6 +740,7 @@ module.exports = {
   createRequestDetailMeta,
   finalizeRequestDetailMeta,
   extractOpenAICacheReadTokens,
+  resolveOpenAIServiceTier,
   isOpenAIRelatedEndpoint,
   CACHE_HIT_FORMULA,
   getRequestDetailCacheMetrics,

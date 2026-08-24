@@ -1,6 +1,9 @@
 jest.mock('../src/services/pricingService', () => ({
   calculateCost: jest.fn(),
-  getModelPricing: jest.fn()
+  getModelPricing: jest.fn(),
+  // isDetailedPricingRequest 用这两项判断走详细还是 legacy 分支，mock 需覆盖真实依赖面
+  hasClaudeBillingSignal: jest.fn(() => false),
+  minContextTierThreshold: 200000
 }))
 
 jest.mock('../src/utils/logger', () => ({

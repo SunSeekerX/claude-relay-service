@@ -275,6 +275,15 @@ npm run service:status
 
 ## 🐳 Docker 部署
 
+> **已在运行上游版本（`weishaw/claude-relay-service`）？**
+> 看 [从上游版本迁移到本维护版](docs/MIGRATE-FROM-UPSTREAM.md) —— 已有账户与统计数据全部保留。
+
+本仓库镜像地址（GHCR，公开、无需登录，支持 amd64 / arm64）：
+
+```
+ghcr.io/sunseekerx/claude-relay-service:latest
+```
+
 ### Docker compose
 
 #### 第一步：下载构建docker-compose.yml文件的脚本并执行

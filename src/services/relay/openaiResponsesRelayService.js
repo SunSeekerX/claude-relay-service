@@ -13,7 +13,8 @@ const { buildClientError } = require('../../utils/clientErrorBuilder')
 const { onClientDisconnect } = require('../../utils/clientDisconnect')
 const {
   createRequestDetailMeta,
-  extractOpenAICacheReadTokens
+  extractOpenAICacheReadTokens,
+  resolveOpenAIServiceTier
 } = require('../../utils/requestDetailHelper')
 
 // lastUsedAt 更新节流（每账户 60 秒内最多更新一次，使用 LRU 防止内存泄漏）
@@ -572,6 +573,8 @@ class OpenAIResponsesRelayService {
     res.setHeader('X-Accel-Buffering', 'no')
 
     let usageData = null
+    // 上游实际生效的 service_tier（response.completed 回包里带），供计费定档
+    let upstreamServiceTier = null
     let actualModel = null
     let buffer = ''
     let rateLimitDetected = false
@@ -601,6 +604,11 @@ class OpenAIResponsesRelayService {
               }
 
               // 获取 usage 数据 - OpenAI-Responses 格式在 response.usage 下
+              if (eventData.response.service_tier) {
+                upstreamServiceTier = eventData.response.service_tier
+                logger.debug(`📊 Captured service_tier: ${upstreamServiceTier}`)
+              }
+
               if (eventData.response.usage) {
                 usageData = eventData.response.usage
                 logger.info('📊 Successfully captured usage data from OpenAI-Responses:', {
@@ -689,7 +697,7 @@ class OpenAIResponsesRelayService {
             usageData.total_tokens || totalInputTokens + outputTokens + cacheCreateTokens
           const modelToRecord = actualModel || requestedModel || 'gpt-4'
 
-          const serviceTier = req._serviceTier || null
+          const serviceTier = resolveOpenAIServiceTier(upstreamServiceTier, req._serviceTier)
           await apiKeyService.recordUsage(
             apiKeyData.id,
             actualInputTokens, // 传递实际输入（不含缓存）
@@ -825,7 +833,10 @@ class OpenAIResponsesRelayService {
         const totalTokens =
           usageData.total_tokens || totalInputTokens + outputTokens + cacheCreateTokens
 
-        const serviceTier = req._serviceTier || null
+        const serviceTier = resolveOpenAIServiceTier(
+          responseData?.service_tier ?? responseData?.response?.service_tier,
+          req._serviceTier
+        )
         await apiKeyService.recordUsage(
           apiKeyData.id,
           actualInputTokens, // 传递实际输入（不含缓存）

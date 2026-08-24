@@ -356,7 +356,10 @@ function attach(redisClient) {
     ephemeral5mTokens = 0,
     ephemeral1hTokens = 0,
     model = 'unknown',
-    isLongContextRequest = false
+    isLongContextRequest = false,
+    // 本次请求的真实成本（未乘服务倍率）。由调用方按实际生效的 service_tier / 长上下文档算出，
+    // 落盘后账户日成本直接读它，不再按聚合 token 反推——反推在任何档位下都必然失真
+    realCost = 0
   ) {
     const now = new Date()
     const today = getDateStringInTimezone(now)
@@ -396,6 +399,9 @@ function attach(redisClient) {
     const finalCacheReadTokens = cacheReadTokens || 0
     const finalEphemeral5mTokens = ephemeral5mTokens || 0
     const finalEphemeral1hTokens = ephemeral1hTokens || 0
+    // 非有限值(NaN/Infinity)会让 hincrbyfloat 报错并连带整个 pipeline 失败，按 0 处理
+    const parsedRealCost = Number(realCost)
+    const finalRealCost = Number.isFinite(parsedRealCost) && parsedRealCost > 0 ? parsedRealCost : 0
     const actualTotalTokens =
       finalInputTokens + finalOutputTokens + finalCacheCreateTokens + finalCacheReadTokens
     const coreTokens = finalInputTokens + finalOutputTokens
@@ -485,6 +491,29 @@ function attach(redisClient) {
       this.client.hincrby(accountModelDaily, 'ephemeral1hTokens', finalEphemeral1hTokens),
       this.client.hincrby(accountModelDaily, 'allTokens', actualTotalTokens),
       this.client.hincrby(accountModelDaily, 'requests', 1),
+      // 真实成本按档位算好后累加。同时记下「已被 cost 覆盖的 token 量」(costedXxxTokens)：
+      // 升级当天同一个 hash 里会混有升级前(只有 token、无 cost)与升级后(有 cost)的请求，
+      // 只看 cost 会漏掉升级前那部分，只看 token 又会把已精确计过的重复反推。
+      // 读取侧用 总token − 已覆盖token 得到未覆盖部分单独反推，再与 cost 相加。
+      ...(finalRealCost > 0
+        ? [
+            this.client.hincrbyfloat(accountModelDaily, 'cost', finalRealCost),
+            this.client.hincrby(accountModelDaily, 'costedInputTokens', finalInputTokens),
+            this.client.hincrby(accountModelDaily, 'costedOutputTokens', finalOutputTokens),
+            this.client.hincrby(
+              accountModelDaily,
+              'costedCacheCreateTokens',
+              finalCacheCreateTokens
+            ),
+            this.client.hincrby(accountModelDaily, 'costedCacheReadTokens', finalCacheReadTokens),
+            this.client.hincrby(
+              accountModelDaily,
+              'costedEphemeral5mTokens',
+              finalEphemeral5mTokens
+            ),
+            this.client.hincrby(accountModelDaily, 'costedEphemeral1hTokens', finalEphemeral1hTokens)
+          ]
+        : []),
 
       // 账户按模型统计 - 每月
       this.client.hincrby(accountModelMonthly, 'inputTokens', finalInputTokens),
@@ -495,6 +524,29 @@ function attach(redisClient) {
       this.client.hincrby(accountModelMonthly, 'ephemeral1hTokens', finalEphemeral1hTokens),
       this.client.hincrby(accountModelMonthly, 'allTokens', actualTotalTokens),
       this.client.hincrby(accountModelMonthly, 'requests', 1),
+      ...(finalRealCost > 0
+        ? [
+            this.client.hincrbyfloat(accountModelMonthly, 'cost', finalRealCost),
+            this.client.hincrby(accountModelMonthly, 'costedInputTokens', finalInputTokens),
+            this.client.hincrby(accountModelMonthly, 'costedOutputTokens', finalOutputTokens),
+            this.client.hincrby(
+              accountModelMonthly,
+              'costedCacheCreateTokens',
+              finalCacheCreateTokens
+            ),
+            this.client.hincrby(accountModelMonthly, 'costedCacheReadTokens', finalCacheReadTokens),
+            this.client.hincrby(
+              accountModelMonthly,
+              'costedEphemeral5mTokens',
+              finalEphemeral5mTokens
+            ),
+            this.client.hincrby(
+              accountModelMonthly,
+              'costedEphemeral1hTokens',
+              finalEphemeral1hTokens
+            )
+          ]
+        : []),
 
       // 账户按模型统计 - 每小时
       this.client.hincrby(accountModelHourly, 'inputTokens', finalInputTokens),
@@ -505,6 +557,29 @@ function attach(redisClient) {
       this.client.hincrby(accountModelHourly, 'ephemeral1hTokens', finalEphemeral1hTokens),
       this.client.hincrby(accountModelHourly, 'allTokens', actualTotalTokens),
       this.client.hincrby(accountModelHourly, 'requests', 1),
+      ...(finalRealCost > 0
+        ? [
+            this.client.hincrbyfloat(accountModelHourly, 'cost', finalRealCost),
+            this.client.hincrby(accountModelHourly, 'costedInputTokens', finalInputTokens),
+            this.client.hincrby(accountModelHourly, 'costedOutputTokens', finalOutputTokens),
+            this.client.hincrby(
+              accountModelHourly,
+              'costedCacheCreateTokens',
+              finalCacheCreateTokens
+            ),
+            this.client.hincrby(accountModelHourly, 'costedCacheReadTokens', finalCacheReadTokens),
+            this.client.hincrby(
+              accountModelHourly,
+              'costedEphemeral5mTokens',
+              finalEphemeral5mTokens
+            ),
+            this.client.hincrby(
+              accountModelHourly,
+              'costedEphemeral1hTokens',
+              finalEphemeral1hTokens
+            )
+          ]
+        : []),
 
       // 设置过期时间
       this.client.expire(accountDaily, TTL.usageDaily), // 32天过期

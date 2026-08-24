@@ -79,10 +79,23 @@ class CostCalculator {
     return typeof value === 'number' && Number.isFinite(value)
   }
 
-  static isDetailedPricingRequest(usage, model = 'unknown') {
+  // 走 pricingService 详细定价的条件。除 5m/1h 缓存明细与 [1m] 长上下文外还有两类：
+  // ① 带 service_tier——legacy 分支的档位处理不含长上下文维度；
+  // ② 总输入超过最小长上下文档阈值——legacy 分支只读基础价字段，
+  //    gpt-5.4/5.5/5.6 等的 above_272k 档会被整单漏掉（长请求越大漏收越多）
+  static isDetailedPricingRequest(usage, model = 'unknown', serviceTier = null) {
+    const totalInputTokens =
+      (usage.input_tokens || 0) +
+      (usage.cache_creation_input_tokens || 0) +
+      (usage.cache_read_input_tokens || 0)
+
     return (
       (usage.cache_creation && typeof usage.cache_creation === 'object') ||
-      (typeof model === 'string' && model.includes('[1m]'))
+      (typeof model === 'string' && model.includes('[1m]')) ||
+      (typeof serviceTier === 'string' && serviceTier.trim() !== '') ||
+      totalInputTokens > pricingService.minContextTierThreshold ||
+      // Claude fast mode / 1M beta 信号只有详细分支认，漏判会整单丢掉倍率
+      pricingService.hasClaudeBillingSignal(usage)
     )
   }
 
@@ -101,6 +114,18 @@ class CostCalculator {
       this.isFiniteNumber(result.cacheReadCost) &&
       this.isFiniteNumber(result.totalCost)
     )
+  }
+
+  // 溢价档判定（白名单，禁黑名单）：未知 tier 一律按基础价。
+  // ultrafast 同 pricingService._resolveServiceTierSuffix 口径——受控档、官方未公开价，
+  // 暂按 Fast(_priority) 计费；不认它会整单按基础价漏收。两处白名单必须同步改
+  static isPriorityServiceTier(serviceTier) {
+    const tier = typeof serviceTier === 'string' ? serviceTier.trim().toLowerCase() : ''
+    return tier === 'priority' || tier === 'fast' || tier === 'scale' || tier === 'ultrafast'
+  }
+
+  static isFlexServiceTier(serviceTier) {
+    return (typeof serviceTier === 'string' ? serviceTier.trim().toLowerCase() : '') === 'flex'
   }
 
   static isOpenAIModel(model, pricingData = null) {
@@ -141,7 +166,7 @@ class CostCalculator {
     )
   }
 
-  static buildDetailedPricingResult(usage, model, result) {
+  static buildDetailedPricingResult(usage, model, result, serviceTier = null) {
     return {
       model,
       pricing: {
@@ -191,7 +216,8 @@ class CostCalculator {
         isLongContextModel: typeof model === 'string' && model.includes('[1m]'),
         isLongContextRequest: result.isLongContextRequest || false,
         usedFallbackPricing: false,
-        pricingSource: 'dynamic'
+        pricingSource: 'dynamic',
+        serviceTier: serviceTier || null
       }
     }
   }
@@ -210,22 +236,24 @@ class CostCalculator {
     let usingDynamicPricing = false
 
     if (pricingData) {
-      const usePriority = serviceTier === 'priority' && pricingData.supports_service_tier
-
-      const inputPrice =
-        ((usePriority && pricingData.input_cost_per_token_priority) ||
-          pricingData.input_cost_per_token ||
-          0) * 1000000
-      const outputPrice =
-        ((usePriority && pricingData.output_cost_per_token_priority) ||
-          pricingData.output_cost_per_token ||
-          0) * 1000000
-      const cacheReadPrice =
-        ((usePriority && pricingData.cache_read_input_token_cost_priority) ||
-          pricingData.cache_read_input_token_cost ||
+      // 溢价档白名单：官方 Priority 已更名 Fast mode，priority/fast/scale 是同一档的不同代次名字。
+      // 不再要求 supports_service_tier——该字段在定价源里只有个别模型带，
+      // 以它为门会让绝大多数已配 *_priority 价的模型按基础价少收；有档位价即视为支持
+      const usePriority = this.isPriorityServiceTier(serviceTier)
+      // flex 是折扣档，漏了会按基础价多收
+      const useFlex = this.isFlexServiceTier(serviceTier)
+      // 档位字段后缀，无命中则读基础字段
+      const tierSuffix = usePriority ? '_priority' : useFlex ? '_flex' : ''
+      const tierPrice = (baseField) =>
+        ((tierSuffix && pricingData[`${baseField}${tierSuffix}`]) ||
+          pricingData[baseField] ||
           0) * 1000000
 
-      let cacheWritePrice = (pricingData.cache_creation_input_token_cost || 0) * 1000000
+      const inputPrice = tierPrice('input_cost_per_token')
+      const outputPrice = tierPrice('output_cost_per_token')
+      const cacheReadPrice = tierPrice('cache_read_input_token_cost')
+
+      let cacheWritePrice = tierPrice('cache_creation_input_token_cost')
 
       if (
         this.isOpenAIModel(safeModel, pricingData) &&
@@ -293,7 +321,8 @@ class CostCalculator {
         isLongContextRequest: false,
         usedFallbackPricing:
           options.usedFallbackPricing === true || pricingSource === 'unknown-fallback',
-        pricingSource
+        pricingSource,
+        serviceTier: serviceTier || null
       }
     }
   }
@@ -309,11 +338,11 @@ class CostCalculator {
    * @returns {Object} 费用详情
    */
   static calculateCost(usage, model = 'unknown', serviceTier = null) {
-    // 如果 usage 包含详细的 cache_creation 对象或是 1M 模型，优先使用 pricingService
-    if (this.isDetailedPricingRequest(usage, model)) {
-      const result = pricingService.calculateCost(usage, model)
+    // 如果 usage 包含详细的 cache_creation 对象、是 1M 模型或带 service_tier，优先使用 pricingService
+    if (this.isDetailedPricingRequest(usage, model, serviceTier)) {
+      const result = pricingService.calculateCost(usage, model, serviceTier)
       if (this.isValidPricingServiceResult(result)) {
-        return this.buildDetailedPricingResult(usage, model, result)
+        return this.buildDetailedPricingResult(usage, model, result, serviceTier)
       }
 
       this.logDetailedPricingFallback(model, usage, result)

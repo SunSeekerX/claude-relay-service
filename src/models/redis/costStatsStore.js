@@ -214,6 +214,53 @@ function attach(redisClient) {
     await this.client.expire(weeklyKey, TTL.opusWeekly)
   }
 
+  // 💰 从「账户+模型」的统计 hash 求本条成本。三个读取入口
+  // (getAccountDailyCost / batchGetAccountDailyCost / getAccountDailyCostFallback) 共用，
+  // 免得回落口径写三份、改一处漏两处。
+  //
+  // [人工决策-2026-08-24 11:33:43] 优先直读写入时落盘的 cost 字段，不再按聚合 token 反推。
+  // 反推的固有缺陷：单价随 service_tier(fast/flex/ultrafast) 与长上下文档变化，而聚合 token
+  // 已经丢失「哪些 token 属于哪个档」「单次请求是否超阈值」，于是 Fast/ultrafast 必然低估、
+  // Flex 必然高估，且账户列表展示的日成本与实际扣费长期不一致、无从对账。
+  // 仅当 hash 里没有 cost 字段(本次改动前写入的存量当日数据)才回落 token 反推，
+  // 存量数据随当日过期自然消失，次日起全部走精确值。
+  redisClient._resolveAccountModelCost = function (modelUsage, model, CostCalculator) {
+    if (!modelUsage) {
+      return 0
+    }
+
+    // 直读精确成本：写入侧按实际档位算好后累加
+    if (modelUsage.cost !== undefined && modelUsage.cost !== null && modelUsage.cost !== '') {
+      const storedCost = parseFloat(modelUsage.cost)
+      if (Number.isFinite(storedCost) && storedCost > 0) {
+        return storedCost
+      }
+    }
+
+    if (!modelUsage.inputTokens && !modelUsage.outputTokens) {
+      return 0
+    }
+
+    const usage = {
+      input_tokens: parseInt(modelUsage.inputTokens || 0),
+      output_tokens: parseInt(modelUsage.outputTokens || 0),
+      cache_creation_input_tokens: parseInt(modelUsage.cacheCreateTokens || 0),
+      cache_read_input_tokens: parseInt(modelUsage.cacheReadTokens || 0)
+    }
+
+    // 添加 cache_creation 子对象以支持精确 ephemeral 定价
+    const eph5m = parseInt(modelUsage.ephemeral5mTokens) || 0
+    const eph1h = parseInt(modelUsage.ephemeral1hTokens) || 0
+    if (eph5m > 0 || eph1h > 0) {
+      usage.cache_creation = {
+        ephemeral_5m_input_tokens: eph5m,
+        ephemeral_1h_input_tokens: eph1h
+      }
+    }
+
+    return CostCalculator.calculateCost(usage, model).costs.total
+  }
+
   // 💰 计算账户的每日费用（基于模型使用，使用索引集合替代 KEYS）
   redisClient.getAccountDailyCost = async function (accountId) {
     const CostCalculator = require('../../utils/costCalculator')
@@ -245,30 +292,13 @@ function attach(redisClient) {
       const model = accountModels[i]
       const [err, modelUsage] = results[i]
 
-      if (!err && modelUsage && (modelUsage.inputTokens || modelUsage.outputTokens)) {
-        const usage = {
-          input_tokens: parseInt(modelUsage.inputTokens || 0),
-          output_tokens: parseInt(modelUsage.outputTokens || 0),
-          cache_creation_input_tokens: parseInt(modelUsage.cacheCreateTokens || 0),
-          cache_read_input_tokens: parseInt(modelUsage.cacheReadTokens || 0)
+      if (!err && modelUsage) {
+        const modelCost = this._resolveAccountModelCost(modelUsage, model, CostCalculator)
+        totalCost += modelCost
+
+        if (modelCost > 0) {
+          logger.debug(`💰 Account ${accountId} daily cost for model ${model}: $${modelCost}`)
         }
-
-        // 添加 cache_creation 子对象以支持精确 ephemeral 定价
-        const eph5m = parseInt(modelUsage.ephemeral5mTokens) || 0
-        const eph1h = parseInt(modelUsage.ephemeral1hTokens) || 0
-        if (eph5m > 0 || eph1h > 0) {
-          usage.cache_creation = {
-            ephemeral_5m_input_tokens: eph5m,
-            ephemeral_1h_input_tokens: eph1h
-          }
-        }
-
-        const costResult = CostCalculator.calculateCost(usage, model)
-        totalCost += costResult.costs.total
-
-        logger.debug(
-          `💰 Account ${accountId} daily cost for model ${model}: $${costResult.costs.total}`
-        )
       }
     }
 
@@ -343,26 +373,9 @@ function attach(redisClient) {
       const { accountId, model } = queryOrder[i]
       const [err, modelUsage] = results[i]
 
-      if (!err && modelUsage && (modelUsage.inputTokens || modelUsage.outputTokens)) {
-        const usage = {
-          input_tokens: parseInt(modelUsage.inputTokens || 0),
-          output_tokens: parseInt(modelUsage.outputTokens || 0),
-          cache_creation_input_tokens: parseInt(modelUsage.cacheCreateTokens || 0),
-          cache_read_input_tokens: parseInt(modelUsage.cacheReadTokens || 0)
-        }
-
-        // 添加 cache_creation 子对象以支持精确 ephemeral 定价
-        const eph5m = parseInt(modelUsage.ephemeral5mTokens) || 0
-        const eph1h = parseInt(modelUsage.ephemeral1hTokens) || 0
-        if (eph5m > 0 || eph1h > 0) {
-          usage.cache_creation = {
-            ephemeral_5m_input_tokens: eph5m,
-            ephemeral_1h_input_tokens: eph1h
-          }
-        }
-
-        const costResult = CostCalculator.calculateCost(usage, model)
-        costMap.set(accountId, costMap.get(accountId) + costResult.costs.total)
+      if (!err && modelUsage) {
+        const modelCost = this._resolveAccountModelCost(modelUsage, model, CostCalculator)
+        costMap.set(accountId, costMap.get(accountId) + modelCost)
       }
     }
 
@@ -395,27 +408,7 @@ function attach(redisClient) {
       const parts = key.split(':')
       const model = parts[4]
 
-      if (modelUsage.inputTokens || modelUsage.outputTokens) {
-        const usage = {
-          input_tokens: parseInt(modelUsage.inputTokens || 0),
-          output_tokens: parseInt(modelUsage.outputTokens || 0),
-          cache_creation_input_tokens: parseInt(modelUsage.cacheCreateTokens || 0),
-          cache_read_input_tokens: parseInt(modelUsage.cacheReadTokens || 0)
-        }
-
-        // 添加 cache_creation 子对象以支持精确 ephemeral 定价
-        const eph5m = parseInt(modelUsage.ephemeral5mTokens) || 0
-        const eph1h = parseInt(modelUsage.ephemeral1hTokens) || 0
-        if (eph5m > 0 || eph1h > 0) {
-          usage.cache_creation = {
-            ephemeral_5m_input_tokens: eph5m,
-            ephemeral_1h_input_tokens: eph1h
-          }
-        }
-
-        const costResult = CostCalculator.calculateCost(usage, model)
-        totalCost += costResult.costs.total
-      }
+      totalCost += this._resolveAccountModelCost(modelUsage, model, CostCalculator)
     }
 
     return totalCost

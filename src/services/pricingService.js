@@ -5,6 +5,7 @@ const http = require('http')
 const dns = require('dns')
 const crypto = require('crypto')
 const pricingSource = require('../../config/pricingSource')
+const pricingOverrides = require('../../config/pricingOverrides')
 const logger = require('../utils/logger')
 const redis = require('../models/redis')
 const { RedisKeys } = require('../constants/redisKeys')
@@ -181,6 +182,244 @@ class PricingService {
       fastModeBeta: 'fast-mode-2026-02-01',
       fastModeSpeed: 'fast'
     }
+
+    // [人工决策-2026-08-24 11:33:43] 覆盖层配置校验必须在构造期（= 模块加载期）做，
+    // 抛出的错误直接冒泡到 require，进程起不来。
+    //
+    // 不能放在 initialize()/loadPricingData() 里：那条链上每一层都有 catch —— 校验抛错会被
+    // loadPricingData 捕获后转 useFallbackPricing，fallback 再抛再被捕获，最终 pricingData={}，
+    // 而 initialize() 又吞掉异常照常返回。结果是「服务正常启动但定价表为空」，
+    // 所有请求落到静态/unknown 回退价，比它要防的静默改价更糟，且 fail-fast 形同虚设。
+    //
+    // 这是纯静态配置检查（不读网络/磁盘/Redis），没有"降级运行"的语义：配错就该起不来。
+    this._assertPricingOverridesSafe()
+  }
+
+  // 判断一个定价字段是否参与计费。覆盖层禁止改这类字段（见 _assertPricingOverridesSafe）。
+  //
+  // 用「模式匹配 + 默认拒绝」而不是列举允许项：定价源字段有 100+ 个且随上游增长，
+  // 白名单式列举漏一个就等于放开一个改价入口。反过来只要命中任一计费语义就拒绝：
+  // ① cost/price —— 全部 49 个单价字段；② provider_specific_entry —— Claude fast 倍率在此；
+  // ③ multiplier —— 区域加价等倍率；④ tier —— supports_service_tier 影响档位选择。
+  _isBillingRelevantPricingField(field) {
+    const name = String(field).toLowerCase()
+    return (
+      name.includes('cost') ||
+      name.includes('price') ||
+      name.includes('multiplier') ||
+      name.includes('tier') ||
+      name === 'provider_specific_entry'
+    )
+  }
+
+  // 校验覆盖层配置，命中计费字段直接抛错。
+  //
+  // 只在构造期调用（见构造函数末尾）——那是这条链上唯一没有 catch 包裹的位置，
+  // 抛错能冒泡到 require 真正阻止启动。放到加载路径里会被吞成「定价表为空」，见构造函数注释。
+  //
+  // [人工决策-2026-08-24 11:33:43] 「只允许非计费字段」必须是代码强制而非注释约定。
+  // 覆盖层跑在全部 4 条定价加载路径上，若容许改价字段，一次误填就会静默改写实收金额，
+  // 且因为定价表读的是同一份数据、展示与实收会一起错、无从对账发现。故：fail-fast 优于告警。
+  _assertPricingOverridesSafe() {
+    const violations = []
+    for (const [modelName, patch] of Object.entries(pricingOverrides)) {
+      if (!patch || typeof patch !== 'object') {
+        violations.push(`${modelName}: 覆盖内容必须是对象`)
+        continue
+      }
+      for (const field of Object.keys(patch)) {
+        if (this._isBillingRelevantPricingField(field)) {
+          violations.push(`${modelName}.${field}`)
+        }
+      }
+    }
+
+    if (violations.length > 0) {
+      throw new Error(
+        `config/pricingOverrides.js 禁止覆盖计费相关字段（定价源是价格的唯一权威源）：${violations.join(', ')}`
+      )
+    }
+  }
+
+  // 应用 config/pricingOverrides.js 的本地字段修正（原地改 jsonData）。
+  // 收口成单点：pricingData 有 4 个数据入口（远程下载/本地加载/fallback/文件监听重载），
+  // 逐个 merge 必然漏掉一处、导致「刷新后覆盖消失」这类偶发不一致。
+  // 只覆盖源里已存在的模型：源里没有的模型说明该条目已过期或写错了 key，补一个孤立条目
+  // 只会凭空造出定价表里不存在的行，不如报出来让人删。
+  _applyPricingOverrides(jsonData) {
+    if (!jsonData || typeof jsonData !== 'object') {
+      return jsonData
+    }
+
+    // 不在此处校验：本函数的 4 个调用点全都被 try/catch 包着，在这里抛错只会被吞成
+    // 「定价表为空」而非 fail-fast。校验已前移到构造期（见构造函数末尾），
+    // 那里抛错能真正阻止进程启动。配置是静态的，进程存续期内不会变，校验一次即足够。
+
+    const applied = []
+    const stale = []
+    for (const [modelName, patch] of Object.entries(pricingOverrides)) {
+      const target = jsonData[modelName]
+      if (!target || typeof target !== 'object') {
+        stale.push(modelName)
+        continue
+      }
+      const changedFields = []
+      for (const [field, value] of Object.entries(patch)) {
+        if (target[field] !== value) {
+          target[field] = value
+          changedFields.push(field)
+        }
+      }
+      // 源值已与覆盖值一致 = 覆盖变冗余，按下线条件提示可删
+      if (changedFields.length > 0) {
+        applied.push(`${modelName}(${changedFields.join(',')})`)
+      } else {
+        stale.push(`${modelName}(源值已一致)`)
+      }
+    }
+
+    if (applied.length > 0) {
+      logger.info(`💰 已应用本地定价修正: ${applied.join(' ')}`)
+    }
+    if (stale.length > 0) {
+      logger.warn(
+        `💰 本地定价修正有冗余条目(源中缺失或源值已一致)，可从 config/pricingOverrides.js 移除: ${stale.join(' ')}`
+      )
+    }
+    return jsonData
+  }
+
+  // OpenAI service_tier → 价格档后缀链（按优先级，命中即用；全缺则基础价）。
+  // 白名单判定（禁黑名单）：未知 tier 一律按基础价，避免上游新增档位被误当溢价档。
+  //
+  // priority/fast/scale 是同一溢价档的不同代次名字（官方 Priority 已更名 Fast mode，
+  // Codex 客户端写 fast，回包统一归一为 priority），只认 priority 会漏 fast 按基础价少收。
+  //
+  // [人工决策-2026-08-24 11:33:43] ultrafast 暂按 Fast(_priority) 同价计费。
+  // 官方已把 ultrafast 作为受控档（当前限 gpt-5.6-sol）、回包会带该值，但未公开任何价格，
+  // 定价源也还没有 *_ultrafast 字段。不进白名单会整单按基础价漏收，故先并入溢价档；
+  // 返回链把 _ultrafast 放在 _priority 之前——定价源日后补上该字段即自动生效，无需改码。
+  // 若官方实际 ultrafast 高于 Fast，此期间仍偏少收（已知取舍，优于按基础价漏收）。
+  _resolveServiceTierSuffix(serviceTier) {
+    const tier = typeof serviceTier === 'string' ? serviceTier.trim().toLowerCase() : ''
+    if (tier === 'ultrafast') {
+      return ['_ultrafast', '_priority']
+    }
+    if (tier === 'priority' || tier === 'fast' || tier === 'scale') {
+      return ['_priority']
+    }
+    if (tier === 'flex') {
+      return ['_flex']
+    }
+    return []
+  }
+
+  // usage 是否带 Claude 扩展计费信号（fast mode / 1M 上下文 beta）。
+  // 这类信号只有 calculateCost 的详细分支认，legacy 分支会整单漏掉倍率，
+  // 故 costCalculator 需据此判断走哪条分支——判定逻辑收口在此，避免两处各写一份
+  hasClaudeBillingSignal(usage) {
+    if (!usage || typeof usage !== 'object') {
+      return false
+    }
+    const betaFeatures = this.extractBetaFeatures(usage)
+    if (
+      betaFeatures.has(this.claudeFeatureFlags.fastModeBeta) ||
+      betaFeatures.has(this.claudeFeatureFlags.context1mBeta)
+    ) {
+      return true
+    }
+    const { responseSpeed, requestSpeed } = this.extractSpeedSignal(usage)
+    return (
+      responseSpeed === this.claudeFeatureFlags.fastModeSpeed ||
+      requestSpeed === this.claudeFeatureFlags.fastModeSpeed
+    )
+  }
+
+  // 定价源中最小的长上下文档阈值（当前 200k）。低于它的请求不可能命中任何档，
+  // 供 costCalculator 判断"是否需要走详细定价分支"，避免在那边写死具体阈值
+  get minContextTierThreshold() {
+    return 200000
+  }
+
+  // 从定价字段名里解析该模型有哪些长上下文档阈值（input_cost_per_token_above_272k_tokens → 272000）。
+  // 不写死 272000：阈值随模型变，从数据推导才不会漏掉上游新增的档位
+  _extractContextThresholds(pricing) {
+    const thresholds = new Set()
+    for (const field of Object.keys(pricing)) {
+      const matched = field.match(/_above_(\d+)k_tokens/)
+      if (matched) {
+        thresholds.add(Number(matched[1]) * 1000)
+      }
+    }
+    return Array.from(thresholds).sort((a, b) => b - a)
+  }
+
+  // 按「长上下文档 × service_tier 档」取价，逐级回退。litellm 的字段命名是
+  // <base>[_above_{N}k_tokens][_priority|_flex]，但组合并不齐全（272k 只有 _flex 变体、
+  // 200k 只有 _priority 变体），所以：
+  // ① 有完整组合字段直接用；② 两档都命中但无组合字段时，用「长上下文档 ÷ 基础价」的官方比率
+  //    去放大 tier 档价（两档是独立维度，对齐 sub2api 的 tier 价 × 长上下文倍率）；
+  // ③ 只命中一档取该档字段；④ 都没有回退基础价
+  //
+  // tierSuffixes 是按优先级排的后缀链（如 ultrafast → ['_ultrafast','_priority']），
+  // 取第一个在该模型定价里真实存在的后缀，故新档位只需登记链、无需等定价源补齐字段
+  _resolveTieredPrice(pricing, baseField, contextSuffix, tierSuffixes) {
+    const readField = (field) => {
+      const value = pricing[field]
+      return value === null || value === undefined ? null : value
+    }
+    const suffixes = Array.isArray(tierSuffixes) ? tierSuffixes : tierSuffixes ? [tierSuffixes] : []
+
+    const basePrice = readField(baseField)
+    if (!contextSuffix && suffixes.length === 0) {
+      return basePrice
+    }
+
+    // 组合字段优先：按后缀链顺序找「长上下文档 + tier 档」的完整组合
+    if (contextSuffix) {
+      for (const suffix of suffixes) {
+        const combined = readField(`${baseField}${contextSuffix}${suffix}`)
+        if (combined !== null) {
+          return combined
+        }
+      }
+    }
+
+    const contextPrice = contextSuffix ? readField(`${baseField}${contextSuffix}`) : null
+    let tierPrice = null
+    for (const suffix of suffixes) {
+      const candidate = readField(`${baseField}${suffix}`)
+      if (candidate !== null) {
+        tierPrice = candidate
+        break
+      }
+    }
+
+    if (contextPrice !== null && tierPrice !== null) {
+      // 比率法：基础价为 0 时比率无意义，退回两者较高者，避免长上下文请求被按低档少收
+      if (basePrice) {
+        return tierPrice * (contextPrice / basePrice)
+      }
+      return Math.max(contextPrice, tierPrice)
+    }
+
+    if (contextPrice !== null) {
+      return contextPrice
+    }
+    if (tierPrice !== null) {
+      return tierPrice
+    }
+    return basePrice
+  }
+
+  // 是否为 OpenAI 侧定价。长上下文档（272k）与 service_tier 档目前只对 OpenAI 生效：
+  // Claude 200k 档由本文件既有分支处理（且 Claude 官方为平价），gemini 走各自链路不传 service_tier
+  _isOpenAIPricing(modelName, pricing) {
+    if (pricing?.litellm_provider === 'openai') {
+      return true
+    }
+    const lowerName = typeof modelName === 'string' ? modelName.toLowerCase() : ''
+    return /(^|[^a-z])(gpt|codex|o1|o3|o4)/.test(lowerName)
   }
 
   // 按 URL 协议选 http/https 模块。校验层放行 http:// 就必须能真的发出 http 请求
@@ -654,7 +893,7 @@ class PricingService {
             this.persistLocalHash(buffer)
 
             // 更新内存中的数据
-            this.pricingData = jsonData
+            this.pricingData = this._applyPricingOverrides(jsonData)
             this.lastUpdated = new Date()
 
             logger.success(`Downloaded pricing data for ${Object.keys(jsonData).length} models`)
@@ -685,7 +924,7 @@ class PricingService {
     try {
       if (fs.existsSync(this.pricingFile)) {
         const data = fs.readFileSync(this.pricingFile, 'utf8')
-        this.pricingData = JSON.parse(data)
+        this.pricingData = this._applyPricingOverrides(JSON.parse(data))
 
         const stats = fs.statSync(this.pricingFile)
         this.lastUpdated = stats.mtime
@@ -720,7 +959,7 @@ class PricingService {
         this.persistLocalHash(formattedJson)
 
         // 更新内存中的数据
-        this.pricingData = jsonData
+        this.pricingData = this._applyPricingOverrides(jsonData)
         this.lastUpdated = new Date()
 
         // 设置或重新设置文件监听器
@@ -901,8 +1140,8 @@ class PricingService {
     return modelName.replace(/\[1m\]/gi, '').trim()
   }
 
-  // 计算使用费用
-  calculateCost(usage, modelName) {
+  // 计算使用费用。serviceTier 为客户端请求/上游回包中的 OpenAI service_tier（priority/fast/flex 等）
+  calculateCost(usage, modelName, serviceTier = null) {
     const normalizedModelName = this.stripLongContextSuffix(modelName)
 
     // 检查是否为 1M 上下文模型（用户通过 [1m] 后缀主动选择长上下文模式）
@@ -969,6 +1208,35 @@ class PricingService {
       }
     }
 
+    // OpenAI 侧档位：service_tier 溢价档 + 长上下文档（如 gpt-5.4/5.5/5.6 的 272k）。
+    // 两者是独立维度，可同时命中；阈值从定价字段推导，不写死
+    const isOpenAIPricing = this._isOpenAIPricing(normalizedModelName, pricing)
+    // 后缀链（数组）：空数组 = 未命中溢价档，判空必须看 length，不能靠真值
+    const tierSuffixes = isOpenAIPricing ? this._resolveServiceTierSuffix(serviceTier) : []
+    let contextSuffix = ''
+    let openaiContextThreshold = 0
+    if (isOpenAIPricing) {
+      for (const threshold of this._extractContextThresholds(pricing)) {
+        if (totalInputTokens > threshold) {
+          openaiContextThreshold = threshold
+          contextSuffix = `_above_${threshold / 1000}k_tokens`
+          break
+        }
+      }
+    }
+    const useOpenAITieredPricing = tierSuffixes.length > 0 || !!contextSuffix
+    if (openaiContextThreshold > 0) {
+      isLongContextRequest = true
+      logger.info(
+        `💰 OpenAI long-context pricing for ${modelName}: total input ${totalInputTokens.toLocaleString()} > ${openaiContextThreshold.toLocaleString()}`
+      )
+    }
+    if (tierSuffixes.length > 0) {
+      logger.info(
+        `💰 service_tier=${serviceTier} pricing tier ${tierSuffixes.join('>')} applied for ${normalizedModelName}`
+      )
+    }
+
     const isClaudeModel =
       (modelName && modelName.toLowerCase().includes('claude')) ||
       (typeof pricing?.litellm_provider === 'string' &&
@@ -982,6 +1250,25 @@ class PricingService {
       logger.warn(
         `⚠️ Fast mode request detected but no fast pricing found for ${normalizedModelName}; fallback to standard profile`
       )
+    }
+
+    // OpenAI 档位命中时整单改走档位价，跳过下方 Claude 200k 分支（两套阈值语义不同，互不叠加）
+    if (useOpenAITieredPricing) {
+      const tieredPrice = (baseField) =>
+        this._resolveTieredPrice(pricing, baseField, contextSuffix, tierSuffixes) || 0
+      const tieredInputPrice = tieredPrice('input_cost_per_token')
+      // OpenAI 多数模型不单列 cache-write 价，出现 cache creation token 时按输入价兜底（与 costCalculator 同口径）
+      const tieredCacheCreatePrice =
+        tieredPrice('cache_creation_input_token_cost') || tieredInputPrice
+      return this._buildCostResult(usage, {
+        inputPrice: tieredInputPrice,
+        outputPrice: tieredPrice('output_cost_per_token'),
+        cacheCreatePrice: tieredCacheCreatePrice,
+        cacheReadPrice: tieredPrice('cache_read_input_token_cost'),
+        ephemeral1hPrice:
+          tieredPrice('cache_creation_input_token_cost_above_1hr') || tieredCacheCreatePrice,
+        isLongContextRequest
+      })
     }
 
     const baseInputPrice = pricing.input_cost_per_token || 0
@@ -1063,37 +1350,39 @@ class PricingService {
       actualEphemeral1hPrice *= fastMultiplier
     }
 
-    // 计算各项费用
-    const inputCost = inputTokens * actualInputPrice
-    const outputCost = (usage.output_tokens || 0) * actualOutputPrice
+    return this._buildCostResult(usage, {
+      inputPrice: actualInputPrice,
+      outputPrice: actualOutputPrice,
+      cacheCreatePrice: actualCacheCreatePrice,
+      cacheReadPrice: actualCacheReadPrice,
+      ephemeral1hPrice: actualEphemeral1hPrice,
+      isLongContextRequest
+    })
+  }
 
-    // 处理缓存费用
+  // token 用量 × 单价 → 费用（纯函数）。单价由上游各档位分支算好后传入，
+  // 缓存分桶口径收口在此，杜绝各分支各写一份
+  _buildCostResult(usage, prices) {
+    const { inputPrice, outputPrice, cacheCreatePrice, cacheReadPrice, ephemeral1hPrice } = prices
+    const inputCost = (usage.input_tokens || 0) * inputPrice
+    const outputCost = (usage.output_tokens || 0) * outputPrice
+
     let ephemeral5mCost = 0
     let ephemeral1hCost = 0
     let cacheCreateCost = 0
-    let cacheReadCost = 0
 
     if (usage.cache_creation && typeof usage.cache_creation === 'object') {
-      // 有详细的缓存创建数据
-      const ephemeral5mTokens = usage.cache_creation.ephemeral_5m_input_tokens || 0
-      const ephemeral1hTokens = usage.cache_creation.ephemeral_1h_input_tokens || 0
-
-      // 5分钟缓存使用 cache_creation 价格
-      ephemeral5mCost = ephemeral5mTokens * actualCacheCreatePrice
-
-      // 1小时缓存使用 ephemeral_1h 价格
-      ephemeral1hCost = ephemeral1hTokens * actualEphemeral1hPrice
-
-      // 总的缓存创建费用
+      // 有详细的缓存创建数据：5m 走 cache_creation 价，1h 走 ephemeral_1h 价
+      ephemeral5mCost = (usage.cache_creation.ephemeral_5m_input_tokens || 0) * cacheCreatePrice
+      ephemeral1hCost = (usage.cache_creation.ephemeral_1h_input_tokens || 0) * ephemeral1hPrice
       cacheCreateCost = ephemeral5mCost + ephemeral1hCost
-    } else if (cacheCreationTokens) {
+    } else if (usage.cache_creation_input_tokens) {
       // 旧格式，所有缓存创建 tokens 都按 5 分钟价格计算（向后兼容）
-      cacheCreateCost = cacheCreationTokens * actualCacheCreatePrice
+      cacheCreateCost = usage.cache_creation_input_tokens * cacheCreatePrice
       ephemeral5mCost = cacheCreateCost
     }
 
-    // 缓存读取费用
-    cacheReadCost = cacheReadTokens * actualCacheReadPrice
+    const cacheReadCost = (usage.cache_read_input_tokens || 0) * cacheReadPrice
 
     return {
       inputCost,
@@ -1104,13 +1393,13 @@ class PricingService {
       ephemeral1hCost,
       totalCost: inputCost + outputCost + cacheCreateCost + cacheReadCost,
       hasPricing: true,
-      isLongContextRequest,
+      isLongContextRequest: prices.isLongContextRequest === true,
       pricing: {
-        input: actualInputPrice,
-        output: actualOutputPrice,
-        cacheCreate: actualCacheCreatePrice,
-        cacheRead: actualCacheReadPrice,
-        ephemeral1h: actualEphemeral1hPrice
+        input: inputPrice,
+        output: outputPrice,
+        cacheCreate: cacheCreatePrice,
+        cacheRead: cacheReadPrice,
+        ephemeral1h: ephemeral1hPrice
       }
     }
   }
@@ -1254,7 +1543,7 @@ class PricingService {
       }
 
       // 更新内存中的数据
-      this.pricingData = jsonData
+      this.pricingData = this._applyPricingOverrides(jsonData)
       this.lastUpdated = new Date()
 
       const modelCount = Object.keys(jsonData).length

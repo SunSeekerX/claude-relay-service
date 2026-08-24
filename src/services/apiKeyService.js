@@ -1989,7 +1989,9 @@ class ApiKeyService {
             0, // ephemeral5mTokens - recordUsage 不含详细缓存数据
             0, // ephemeral1hTokens - recordUsage 不含详细缓存数据
             model,
-            isLongContextRequest
+            isLongContextRequest,
+            // 传真实成本(未乘服务倍率)：账户日成本直读它，不再按聚合 token 反推档位价
+            realCost
           )
           logger.database(
             `📊 Recorded account usage: ${accountId} - ${totalTokens} tokens (API Key: ${keyId})`
@@ -2253,7 +2255,9 @@ class ApiKeyService {
             ephemeral5mTokens,
             ephemeral1hTokens,
             model,
-            costInfo.isLongContextRequest || false
+            costInfo.isLongContextRequest || false,
+            // 传真实成本(未乘服务倍率)：账户日成本直读它，不再按聚合 token 反推档位价
+            realCostWithDetails
           )
           logger.database(
             `📊 Recorded account usage: ${accountId} - ${totalTokens} tokens (API Key: ${keyId})`

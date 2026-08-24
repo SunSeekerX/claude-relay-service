@@ -18,7 +18,8 @@ const { getSafeMessage } = require('../utils/errorSanitizer')
 const { onClientDisconnect } = require('../utils/clientDisconnect')
 const {
   createRequestDetailMeta,
-  extractOpenAICacheReadTokens
+  extractOpenAICacheReadTokens,
+  resolveOpenAIServiceTier
 } = require('../utils/requestDetailHelper')
 const requestBodyRuleService = require('../services/requestBodyRuleService')
 const modelService = require('../services/modelService')
@@ -365,7 +366,9 @@ const handleResponses = async (req, res) => {
       }
     }
 
-    // 从最终请求体中提取 service_tier，用于后续费用计算
+    // 计费档取「出站实际值」而非客户端原始值：必须在所有改包之后读。
+    // applyCodexCliAdaptation 会删掉 service_tier，出站不带该字段则上游按基础档处理，
+    // 此时若按客户端原始的 fast 收费就是多收（对齐"上游怎么收、我们怎么计"）
     req._serviceTier = req.body?.service_tier || null
 
     // 从最终请求体中提取模型、会话 ID 和流式标志
@@ -716,6 +719,8 @@ const handleResponses = async (req, res) => {
     // 处理响应并捕获 usage 数据和真实的 model
     let usageData = null
     let actualModel = null
+    // 上游实际生效的 service_tier（response.completed 回包里带），供计费定档
+    let streamServiceTierFromUpstream = null
     let usageReported = false
     let rateLimitDetected = false
     let rateLimitResetsInSeconds = null
@@ -742,6 +747,11 @@ const handleResponses = async (req, res) => {
           // 计算实际输入token（总输入减去缓存部分）
           const actualInputTokens = Math.max(0, totalInputTokens - cacheReadTokens)
 
+          // 实际生效档以上游回包为准（请求 auto 时上游才定档），请求体兜底
+          const nonStreamServiceTier = resolveOpenAIServiceTier(
+            responseData?.service_tier ?? responseData?.response?.service_tier,
+            req._serviceTier
+          )
           const nonStreamCosts = await apiKeyService.recordUsage(
             apiKeyData.id,
             actualInputTokens, // 传递实际输入（不含缓存）
@@ -751,7 +761,7 @@ const handleResponses = async (req, res) => {
             actualModel,
             accountId,
             'openai',
-            req._serviceTier,
+            nonStreamServiceTier,
             createRequestDetailMeta(req, {
               requestBody: req.body,
               stream: false,
@@ -803,6 +813,11 @@ const handleResponses = async (req, res) => {
         if (eventData.response.model) {
           actualModel = eventData.response.model
           logger.debug(`📊 Captured actual model: ${actualModel}`)
+        }
+
+        if (eventData.response.service_tier) {
+          streamServiceTierFromUpstream = eventData.response.service_tier
+          logger.debug(`📊 Captured service_tier: ${streamServiceTierFromUpstream}`)
         }
 
         // 获取 usage 数据
@@ -867,6 +882,7 @@ const handleResponses = async (req, res) => {
           // 使用响应中的真实 model，如果没有则使用请求中的 model，最后回退到默认值
           const modelToRecord = actualModel || upstreamRequestedModel || 'gpt-4'
 
+          const streamServiceTier = resolveOpenAIServiceTier(streamServiceTierFromUpstream, req._serviceTier)
           const streamCosts = await apiKeyService.recordUsage(
             apiKeyData.id,
             actualInputTokens, // 传递实际输入（不含缓存）
@@ -876,7 +892,7 @@ const handleResponses = async (req, res) => {
             modelToRecord,
             accountId,
             'openai',
-            req._serviceTier,
+            streamServiceTier,
             createRequestDetailMeta(req, {
               requestBody: req.body,
               stream: true,
