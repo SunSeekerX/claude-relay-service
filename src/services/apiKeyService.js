@@ -1916,12 +1916,13 @@ class ApiKeyService {
         serviceTier
       )
 
-      // 检查是否为 1M 上下文请求
-      let isLongContextRequest = false
-      if (model && model.includes('[1m]')) {
-        const totalInputTokens = inputTokens + cacheCreateTokens + cacheReadTokens
-        isLongContextRequest = totalInputTokens > 200000
-      }
+      // 长上下文标记以计费结果为准，不在此重算。
+      // [人工决策-2026-08-24 11:33:43] 曾在此写死「模型名含 [1m] 且总输入 > 200K」，
+      // 与 pricingService 的真实判定漂移：OpenAI 侧阈值由定价字段推导（gpt-5.4/5.5/5.6 是 272K，
+      // 且不带 [1m] 后缀），于是这些请求按长上下文价扣了费，却以 false 写进
+      // API Key/账户的长上下文计数、usage record、请求详情与 billing event ——
+      // 金额对、账目不对。判定唯一真相在 pricingService.calculateCost，此处只消费结果。
+      const isLongContextRequest = costInfo.debug?.isLongContextRequest === true
 
       // 计算费用（应用服务倍率）
       realCost = costInfo.costs.total
@@ -1991,7 +1992,11 @@ class ApiKeyService {
             model,
             isLongContextRequest,
             // 传真实成本(未乘服务倍率)：账户日成本直读它，不再按聚合 token 反推档位价
-            realCost
+            realCost,
+            // 本路径的 calculateCost 未被 try 包裹，抛错会直接跳到外层 catch、走不到这里，
+            // 所以执行到此即表示算成功（零价模型算出 0 也是权威结果）。
+            // 仍显式要求金额有限：定价数据异常产出 NaN 时不得标记为权威
+            Number.isFinite(realCost)
           )
           logger.database(
             `📊 Recorded account usage: ${accountId} - ${totalTokens} tokens (API Key: ${keyId})`
@@ -2113,6 +2118,11 @@ class ApiKeyService {
       const totalTokens = inputTokens + outputTokens + cacheCreateTokens + cacheReadTokens
 
       // 计算费用统一走 CostCalculator，缺少动态价格时使用内置 unknown fallback。
+      // [人工决策-2026-08-24 11:33:43] costCalculated 区分「金额确实是 0」与「算失败留下的 0」：
+      // 下方 catch 只打日志、保留这份全零 costInfo 继续执行，若把它当权威零成本传给账户统计，
+      // 会写满 costed* 标记 → 读取侧判定无残量 → 账户日成本永久显示 $0，
+      // 连原本的 token 反推兜底也被剥夺。定价失败必须让位给反推，不能被静默固化。
+      let costCalculated = false
       let costInfo = {
         totalCost: 0,
         inputCost: 0,
@@ -2153,6 +2163,8 @@ class ApiKeyService {
             calculatedCost?.debug?.pricingSource ||
             (calculatedCost?.usingDynamicPricing ? 'dynamic' : 'unknown-fallback')
         }
+        // 走到这里说明金额是算出来的（可能合法为 0），才算权威
+        costCalculated = true
       } catch (pricingError) {
         logger.error(`❌ Failed to calculate cost for model ${model}:`, pricingError)
         logger.error(`   Usage object:`, JSON.stringify(usageObject))
@@ -2257,7 +2269,10 @@ class ApiKeyService {
             model,
             costInfo.isLongContextRequest || false,
             // 传真实成本(未乘服务倍率)：账户日成本直读它，不再按聚合 token 反推档位价
-            realCostWithDetails
+            realCostWithDetails,
+            // 仅在定价确实算成功时才标记为权威（零价模型算出 0 也算成功）；
+            // 算失败时传 false，让读取侧按 token 反推，而不是把失败固化成 $0
+            costCalculated
           )
           logger.database(
             `📊 Recorded account usage: ${accountId} - ${totalTokens} tokens (API Key: ${keyId})`

@@ -117,11 +117,13 @@ class CostCalculator {
   }
 
   // 溢价档判定（白名单，禁黑名单）：未知 tier 一律按基础价。
-  // ultrafast 同 pricingService._resolveServiceTierSuffix 口径——受控档、官方未公开价，
-  // 暂按 Fast(_priority) 计费；不认它会整单按基础价漏收。两处白名单必须同步改
+  // 与 pricingService._resolveServiceTierSuffix 同口径，两处白名单必须同步改：
+  // ① ultrafast 受控档、官方未公开价，暂按 Fast(_priority) 计费，不认它会整单按基础价漏收；
+  // ② scale 不是溢价档（Scale Tier 是预购 TPM/RPM 容量，与 Fast 独立计费、溢出也不转 Fast），
+  //    按基础价——理由详见 pricingService._resolveServiceTierSuffix 的人工决策注释
   static isPriorityServiceTier(serviceTier) {
     const tier = typeof serviceTier === 'string' ? serviceTier.trim().toLowerCase() : ''
-    return tier === 'priority' || tier === 'fast' || tier === 'scale' || tier === 'ultrafast'
+    return tier === 'priority' || tier === 'fast' || tier === 'ultrafast'
   }
 
   static isFlexServiceTier(serviceTier) {
@@ -236,7 +238,7 @@ class CostCalculator {
     let usingDynamicPricing = false
 
     if (pricingData) {
-      // 溢价档白名单：官方 Priority 已更名 Fast mode，priority/fast/scale 是同一档的不同代次名字。
+      // 溢价档白名单（判定见 isPriorityServiceTier：priority/fast/ultrafast，scale 不算）。
       // 不再要求 supports_service_tier——该字段在定价源里只有个别模型带，
       // 以它为门会让绝大多数已配 *_priority 价的模型按基础价少收；有档位价即视为支持
       const usePriority = this.isPriorityServiceTier(serviceTier)

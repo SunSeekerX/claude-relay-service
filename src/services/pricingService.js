@@ -292,8 +292,30 @@ class PricingService {
   // OpenAI service_tier → 价格档后缀链（按优先级，命中即用；全缺则基础价）。
   // 白名单判定（禁黑名单）：未知 tier 一律按基础价，避免上游新增档位被误当溢价档。
   //
-  // priority/fast/scale 是同一溢价档的不同代次名字（官方 Priority 已更名 Fast mode，
-  // Codex 客户端写 fast，回包统一归一为 priority），只认 priority 会漏 fast 按基础价少收。
+  // priority/fast 是同一溢价档的两个名字（官方 Priority 已更名 Fast mode，Codex 客户端写 fast，
+  // 回包统一归一为 priority），只认 priority 会漏 fast 按基础价少收。
+  //
+  // [人工决策-2026-08-24 11:33:43] scale 不是溢价档，一律按基础价：不得映射到 _priority，
+  // 也不得记为 0（两个方向都错过一次，这里把结论钉死，勿再改动）。
+  //
+  // 为什么不是 _priority：官方 Fast Mode 指南逐句排除了这种等价——
+  // 「Scale Tier and Fast mode are separate.」「Fast mode requests have separate billing and
+  // don't count against purchased Scale Tier TPM bundles.」「Scale Tier spillover traffic
+  // doesn't automatically move to Fast mode.」且能 opt-in Fast 的只有 fast / priority 两个值。
+  // 曾把 scale 当「同一档的旧代次名」并入 _priority，导致 Scale 请求系统性多收一倍。
+  //
+  // 为什么也不是 0（记 0 = 白送通道，是资损）：本服务的 service_tier 取值链是
+  // 「上游回包优先、请求体兜底」，而请求体的 service_tier 完全由客户端控制且无白名单校验；
+  // 官方响应的 service_tier 只会是 priority/default/fast/ultrafast/flex，从不回传 scale。
+  // 所以一旦 scale 记 0，任何客户端只要在请求体写 service_tier:"scale" 就能免费——
+  // realCost 直通 incrementDailyCost → usage:cost:total，而预付费余额正是由它派生
+  // （见 payment/balanceLedger.js），等于余额不扣、白用。
+  //
+  // 「额度内 Scale 流量不该按 token 计价」这个反驳在 OpenAI 账单口径上成立，但不适用本服务：
+  // usage:cost:total 记的是【中转服务对下游 API Key 的计价】（还要叠服务倍率与 Key 倍率），
+  // 不是 OpenAI 对账户主体的账单；本项目也不销售、不追踪 Scale Tier 容量包（无任何相关建模）。
+  // 推不出单请求真实成本时，按基础价与 default/未知 tier 同口径处理，是这里唯一安全的选择。
+  // 定价源也从来没有 *_scale 字段可依。
   //
   // [人工决策-2026-08-24 11:33:43] ultrafast 暂按 Fast(_priority) 同价计费。
   // 官方已把 ultrafast 作为受控档（当前限 gpt-5.6-sol）、回包会带该值，但未公开任何价格，
@@ -305,7 +327,7 @@ class PricingService {
     if (tier === 'ultrafast') {
       return ['_ultrafast', '_priority']
     }
-    if (tier === 'priority' || tier === 'fast' || tier === 'scale') {
+    if (tier === 'priority' || tier === 'fast') {
       return ['_priority']
     }
     if (tier === 'flex') {

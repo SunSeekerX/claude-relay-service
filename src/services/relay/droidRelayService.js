@@ -1374,8 +1374,9 @@ class DroidRelayService {
           0, // ephemeral1hTokens - Droid 不含详细缓存数据
           model,
           false
-          // realCost 不传：本分支是「无 API Key、只有账户」的兜底路径，没有走过计费、
-          // 手上没有可信金额。读取侧会回落 token 反推（Droid 不涉 service_tier 档，口径不变）
+          // realCost / costRecorded 都不传（默认 0 / false）：本分支是「无 API Key、只有账户」的
+          // 兜底路径，没有走过计费、手上没有可信金额。读取侧会按 token 反推
+          //（Droid 不涉 service_tier 档，口径与改动前一致）
         )
       } else {
         logger.warn('⚠️ 无法记录 Droid usage：缺少 API Key 和账户标识')

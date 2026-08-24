@@ -218,39 +218,62 @@ function attach(redisClient) {
   // (getAccountDailyCost / batchGetAccountDailyCost / getAccountDailyCostFallback) 共用，
   // 免得回落口径写三份、改一处漏两处。
   //
-  // [人工决策-2026-08-24 11:33:43] 优先直读写入时落盘的 cost 字段，不再按聚合 token 反推。
-  // 反推的固有缺陷：单价随 service_tier(fast/flex/ultrafast) 与长上下文档变化，而聚合 token
-  // 已经丢失「哪些 token 属于哪个档」「单次请求是否超阈值」，于是 Fast/ultrafast 必然低估、
-  // Flex 必然高估，且账户列表展示的日成本与实际扣费长期不一致、无从对账。
-  // 仅当 hash 里没有 cost 字段(本次改动前写入的存量当日数据)才回落 token 反推，
-  // 存量数据随当日过期自然消失，次日起全部走精确值。
+  // [人工决策-2026-08-24 11:33:43] 精确成本(cost) + 未被 cost 覆盖的 token 反推，两部分相加。
+  //
+  // 为什么不能「有 cost 就只读 cost」：升级发布当天，同一个 account:model:daily hash 里会混有
+  // 升级前的请求(只累加了 token、没有 cost)与升级后的请求(两者都有)。只读 cost 会漏掉升级前
+  // 那一段的全部成本；只按总 token 反推又会把已经精确计过的部分再按基础价算一遍。
+  // 所以写入侧同时累加 costedXxxTokens(已被 cost 覆盖的 token 量)，这里用
+  // 总 token − 已覆盖 token 得到「仅升级前」的残量，单独反推后与 cost 相加。
+  //
+  // 反推本身的固有缺陷(所以要尽量少用它)：单价随 service_tier(fast/flex/ultrafast) 与
+  // 长上下文档变化，聚合 token 已丢失「哪些 token 属于哪个档」「单次请求是否超阈值」，
+  // 于是 Fast/ultrafast 必然低估、Flex 必然高估。残量部分只能这样算(那些请求发生在升级前，
+  // 当时没记金额)，但它随当日/当月 key 过期自然消失，之后全部走精确值。
   redisClient._resolveAccountModelCost = function (modelUsage, model, CostCalculator) {
     if (!modelUsage) {
       return 0
     }
 
-    // 直读精确成本：写入侧按实际档位算好后累加
+    const toInt = (value) => {
+      const parsed = parseInt(value || 0)
+      return Number.isFinite(parsed) ? parsed : 0
+    }
+
+    // 写入侧已精确计费的金额。零价模型的请求没有 cost 字段但有 costed*（金额 0 也是权威结果），
+    // 此时 storedCost 保持 0、残量也为 0，结果正确等于 0 —— 不会被按读取时的价格追溯计费
+    let storedCost = 0
     if (modelUsage.cost !== undefined && modelUsage.cost !== null && modelUsage.cost !== '') {
-      const storedCost = parseFloat(modelUsage.cost)
-      if (Number.isFinite(storedCost) && storedCost > 0) {
-        return storedCost
+      const parsed = parseFloat(modelUsage.cost)
+      if (Number.isFinite(parsed) && parsed > 0) {
+        storedCost = parsed
       }
     }
 
-    if (!modelUsage.inputTokens && !modelUsage.outputTokens) {
-      return 0
+    // 未被 cost 覆盖的 token 残量（负值说明数据异常，按 0 处理，绝不倒扣）
+    const remaining = (totalField, costedField) =>
+      Math.max(0, toInt(modelUsage[totalField]) - toInt(modelUsage[costedField]))
+
+    const inputTokens = remaining('inputTokens', 'costedInputTokens')
+    const outputTokens = remaining('outputTokens', 'costedOutputTokens')
+    const cacheCreateTokens = remaining('cacheCreateTokens', 'costedCacheCreateTokens')
+    const cacheReadTokens = remaining('cacheReadTokens', 'costedCacheReadTokens')
+    const eph5m = remaining('ephemeral5mTokens', 'costedEphemeral5mTokens')
+    const eph1h = remaining('ephemeral1hTokens', 'costedEphemeral1hTokens')
+
+    // 残量为 0（常态：全部请求都精确计过费）直接返回，省掉一次定价计算
+    if (!inputTokens && !outputTokens && !cacheCreateTokens && !cacheReadTokens) {
+      return storedCost
     }
 
     const usage = {
-      input_tokens: parseInt(modelUsage.inputTokens || 0),
-      output_tokens: parseInt(modelUsage.outputTokens || 0),
-      cache_creation_input_tokens: parseInt(modelUsage.cacheCreateTokens || 0),
-      cache_read_input_tokens: parseInt(modelUsage.cacheReadTokens || 0)
+      input_tokens: inputTokens,
+      output_tokens: outputTokens,
+      cache_creation_input_tokens: cacheCreateTokens,
+      cache_read_input_tokens: cacheReadTokens
     }
 
     // 添加 cache_creation 子对象以支持精确 ephemeral 定价
-    const eph5m = parseInt(modelUsage.ephemeral5mTokens) || 0
-    const eph1h = parseInt(modelUsage.ephemeral1hTokens) || 0
     if (eph5m > 0 || eph1h > 0) {
       usage.cache_creation = {
         ephemeral_5m_input_tokens: eph5m,
@@ -258,7 +281,7 @@ function attach(redisClient) {
       }
     }
 
-    return CostCalculator.calculateCost(usage, model).costs.total
+    return storedCost + CostCalculator.calculateCost(usage, model).costs.total
   }
 
   // 💰 计算账户的每日费用（基于模型使用，使用索引集合替代 KEYS）

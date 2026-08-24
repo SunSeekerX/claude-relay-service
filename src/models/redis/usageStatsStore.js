@@ -359,7 +359,11 @@ function attach(redisClient) {
     isLongContextRequest = false,
     // 本次请求的真实成本（未乘服务倍率）。由调用方按实际生效的 service_tier / 长上下文档算出，
     // 落盘后账户日成本直接读它，不再按聚合 token 反推——反推在任何档位下都必然失真
-    realCost = 0
+    realCost = 0,
+    // 调用方是否确实算过本次成本（与金额大小无关：零价模型的 0 也是权威结果）。
+    // 只有 true 才把本次 token 记为「已精确计费」，false 表示手上没有可信金额、
+    // 交给读取侧按 token 反推（如 droid 的无 API Key 兜底路径）
+    costRecorded = false
   ) {
     const now = new Date()
     const today = getDateStringInTimezone(now)
@@ -402,6 +406,13 @@ function attach(redisClient) {
     // 非有限值(NaN/Infinity)会让 hincrbyfloat 报错并连带整个 pipeline 失败，按 0 处理
     const parsedRealCost = Number(realCost)
     const finalRealCost = Number.isFinite(parsedRealCost) && parsedRealCost > 0 ? parsedRealCost : 0
+    // [人工决策-2026-08-24 11:33:43]「是否已精确计费」与「金额是否大于 0」必须解耦。
+    // 定价源里有 9 个零价模型(实验版 gemini、grok-imagine 等)，它们的请求 realCost 合法为 0。
+    // 若以 realCost>0 作为「已计费」的判据，这些请求只留 token、不留 costed* 标记，
+    // 读取侧会把它们当未覆盖残量、按【读取时】的价格重算 —— 一旦定价源当日把某模型
+    // 从免费改为付费，已经发生的免费请求就会被追溯计费。故由调用方显式声明是否已算过成本，
+    // 零成本也照样写 costed*(只是不写 cost)，把这些 token 钉死为「已覆盖、金额 0」。
+    const costIsAuthoritative = costRecorded === true && Number.isFinite(parsedRealCost)
     const actualTotalTokens =
       finalInputTokens + finalOutputTokens + finalCacheCreateTokens + finalCacheReadTokens
     const coreTokens = finalInputTokens + finalOutputTokens
@@ -495,9 +506,13 @@ function attach(redisClient) {
       // 升级当天同一个 hash 里会混有升级前(只有 token、无 cost)与升级后(有 cost)的请求，
       // 只看 cost 会漏掉升级前那部分，只看 token 又会把已精确计过的重复反推。
       // 读取侧用 总token − 已覆盖token 得到未覆盖部分单独反推，再与 cost 相加。
-      ...(finalRealCost > 0
+      ...(costIsAuthoritative
         ? [
-            this.client.hincrbyfloat(accountModelDaily, 'cost', finalRealCost),
+            // 金额为 0 时不写 cost（hincrbyfloat 0 无意义），但 costed* 照写：
+            // 「已覆盖、金额 0」与「未覆盖」必须可区分，否则零价请求会被追溯计费
+            ...(finalRealCost > 0
+              ? [this.client.hincrbyfloat(accountModelDaily, 'cost', finalRealCost)]
+              : []),
             this.client.hincrby(accountModelDaily, 'costedInputTokens', finalInputTokens),
             this.client.hincrby(accountModelDaily, 'costedOutputTokens', finalOutputTokens),
             this.client.hincrby(
@@ -524,9 +539,11 @@ function attach(redisClient) {
       this.client.hincrby(accountModelMonthly, 'ephemeral1hTokens', finalEphemeral1hTokens),
       this.client.hincrby(accountModelMonthly, 'allTokens', actualTotalTokens),
       this.client.hincrby(accountModelMonthly, 'requests', 1),
-      ...(finalRealCost > 0
+      ...(costIsAuthoritative
         ? [
-            this.client.hincrbyfloat(accountModelMonthly, 'cost', finalRealCost),
+            ...(finalRealCost > 0
+              ? [this.client.hincrbyfloat(accountModelMonthly, 'cost', finalRealCost)]
+              : []),
             this.client.hincrby(accountModelMonthly, 'costedInputTokens', finalInputTokens),
             this.client.hincrby(accountModelMonthly, 'costedOutputTokens', finalOutputTokens),
             this.client.hincrby(
@@ -557,9 +574,11 @@ function attach(redisClient) {
       this.client.hincrby(accountModelHourly, 'ephemeral1hTokens', finalEphemeral1hTokens),
       this.client.hincrby(accountModelHourly, 'allTokens', actualTotalTokens),
       this.client.hincrby(accountModelHourly, 'requests', 1),
-      ...(finalRealCost > 0
+      ...(costIsAuthoritative
         ? [
-            this.client.hincrbyfloat(accountModelHourly, 'cost', finalRealCost),
+            ...(finalRealCost > 0
+              ? [this.client.hincrbyfloat(accountModelHourly, 'cost', finalRealCost)]
+              : []),
             this.client.hincrby(accountModelHourly, 'costedInputTokens', finalInputTokens),
             this.client.hincrby(accountModelHourly, 'costedOutputTokens', finalOutputTokens),
             this.client.hincrby(
