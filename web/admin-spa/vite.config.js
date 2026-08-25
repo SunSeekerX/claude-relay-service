@@ -2,7 +2,6 @@ import { defineConfig, loadEnv } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import AutoImport from 'unplugin-auto-import/vite'
 import Components from 'unplugin-vue-components/vite'
-import { ElementPlusResolver } from 'unplugin-vue-components/resolvers'
 import { fileURLToPath, URL } from 'node:url'
 
 export default defineConfig(({ mode }) => {
@@ -41,13 +40,11 @@ export default defineConfig(({ mode }) => {
       // 挂上它等于让格式问题（prettier 换行、全角空格这类）阻断发布流水线的前端构建，
       // 而那些问题不影响产物正确性。lint 手动跑：npm run lint / npm run format。
       AutoImport({
-        resolvers: [ElementPlusResolver()],
         imports: ['vue', 'vue-router', 'pinia']
       }),
       Components({
         // common 下全局组件自动注册（CustomDropdown 等），业务页无需手动 import
         dirs: ['src/components/common'],
-        resolvers: [ElementPlusResolver()]
       })
     ],
     resolve: {
@@ -104,9 +101,7 @@ export default defineConfig(({ mode }) => {
           manualChunks(id) {
             // 将 vue 相关的库打包到一起
             if (id.includes('node_modules')) {
-              if (id.includes('element-plus')) {
-                return 'element-plus'
-              }
+              
               if (id.includes('chart.js')) {
                 return 'chart'
               }

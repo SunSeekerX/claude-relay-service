@@ -121,7 +121,7 @@
           <div class="flex w-full flex-col gap-3 sm:w-auto sm:flex-row sm:items-center sm:gap-3">
             <!-- 账户统计按钮 -->
             <div class="relative">
-              <el-tooltip content="查看账户统计汇总" effect="dark" placement="bottom">
+              <AppTooltip content="查看账户统计汇总" placement="bottom">
                 <button
                   class="group relative flex items-center justify-center gap-2 rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm font-medium text-gray-700 shadow-sm transition-all duration-200 hover:border-gray-300 hover:shadow-md dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:border-gray-500 sm:w-auto"
                   @click="showAccountStatsModal = true"
@@ -132,14 +132,13 @@
                   <i class="fas fa-chart-bar relative text-violet-500" />
                   <span class="relative">统计</span>
                 </button>
-              </el-tooltip>
+              </AppTooltip>
             </div>
 
             <!-- 刷新按钮 -->
             <div class="relative">
-              <el-tooltip
+              <AppTooltip
                 content="刷新数据 (Ctrl/⌘+点击强制刷新所有缓存)"
-                effect="dark"
                 placement="bottom"
               >
                 <button
@@ -160,12 +159,12 @@
                   />
                   <span class="relative">刷新</span>
                 </button>
-              </el-tooltip>
+              </AppTooltip>
             </div>
 
             <!-- 刷新余额按钮 -->
             <div class="relative">
-              <el-tooltip :content="refreshBalanceTooltip" effect="dark" placement="bottom">
+              <AppTooltip :content="refreshBalanceTooltip" placement="bottom">
                 <button
                   class="group relative flex items-center justify-center gap-2 rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm font-medium text-gray-700 shadow-sm transition-all duration-200 hover:border-gray-300 hover:shadow-md disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:border-gray-500 sm:w-auto"
                   :disabled="accountsLoading || refreshingBalances || !canRefreshVisibleBalances"
@@ -182,7 +181,7 @@
                   />
                   <span class="relative">刷新余额</span>
                 </button>
-              </el-tooltip>
+              </AppTooltip>
             </div>
 
             <!-- 批量删除按钮 -->
@@ -317,7 +316,7 @@
                 >
                   <div class="flex items-center gap-2">
                     <span>会话窗口</span>
-                    <el-tooltip placement="top">
+                    <AppTooltip placement="top">
                       <template #content>
                         <div
                           class="w-[260px] space-y-3 text-sm leading-relaxed text-white dark:text-gray-800"
@@ -427,7 +426,7 @@
                       <i
                         class="fas fa-question-circle cursor-help text-sm text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-400"
                       />
-                    </el-tooltip>
+                    </AppTooltip>
                   </div>
                 </th>
                 <th
@@ -768,13 +767,12 @@
                           }}</span
                         >)
                       </span>
-                      <el-tooltip
+                      <AppTooltip
                         :content="getTempUnavailableTooltipContent(account.tempUnavailable)"
-                        effect="dark"
                         placement="top"
                       >
                         <i class="fas fa-info-circle ml-1 cursor-help" />
-                      </el-tooltip>
+                      </AppTooltip>
                     </span>
                     <span
                       v-if="account.schedulable === false"
@@ -782,14 +780,13 @@
                     >
                       <i class="fas fa-pause-circle mr-1" />
                       不可调度
-                      <el-tooltip
+                      <AppTooltip
                         v-if="getSchedulableReason(account)"
                         :content="getSchedulableReason(account)"
-                        effect="dark"
                         placement="top"
                       >
                         <i class="fas fa-question-circle ml-1 cursor-help text-gray-500" />
-                      </el-tooltip>
+                      </AppTooltip>
                     </span>
                     <span
                       v-if="
@@ -1670,14 +1667,14 @@
                 <div class="flex items-center justify-between text-sm">
                   <div class="flex items-center gap-1">
                     <span class="font-medium text-gray-600 dark:text-gray-300">会话窗口</span>
-                    <el-tooltip
+                    <AppTooltip
                       content="会话窗口进度不代表使用量，仅表示距离下一个5小时窗口的剩余时间"
                       placement="top"
                     >
                       <i
                         class="fas fa-question-circle cursor-help text-sm text-gray-400 hover:text-gray-600"
                       />
-                    </el-tooltip>
+                    </AppTooltip>
                   </div>
                   <span class="font-medium text-gray-700 dark:text-gray-200">
                     {{ account.sessionWindow.progress }}%
@@ -2092,12 +2089,19 @@
     />
 
     <!-- 账户统计弹窗 -->
-    <el-dialog
-      v-model="showAccountStatsModal"
-      :style="{ maxWidth: '1200px' }"
-      title="账户统计汇总"
-      width="90%"
+    <ModalTransition>
+    <div
+      v-if="showAccountStatsModal"
+      class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+      @click.self="showAccountStatsModal = false"
     >
+      <div class="modal-content max-h-[90vh] w-full max-w-[1200px] overflow-auto rounded-2xl bg-white p-5 shadow-xl dark:bg-gray-900">
+        <div class="mb-4 flex items-center justify-between">
+          <h3 class="text-lg font-bold text-gray-900 dark:text-gray-100">账户统计汇总</h3>
+          <button class="rounded-full p-2 text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800" type="button" @click="showAccountStatsModal = false">
+            <i class="fas fa-times" />
+          </button>
+        </div>
       <div class="space-y-4">
         <div class="overflow-x-auto">
           <table class="w-full border-collapse text-sm" style="min-width: 1000px">
@@ -2229,11 +2233,14 @@
           注：限流时间列表示剩余限流时间在指定范围内的账户数量
         </p>
       </div>
-    </el-dialog>
+      </div>
+    </div>
+    </ModalTransition>
   </div>
 </template>
 
 <script setup>
+import ModalTransition from '@/components/common/ModalTransition.vue'
 import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
@@ -2259,6 +2266,7 @@ import GroupManagementModal from '@/components/accounts/GroupManagementModal.vue
 import BalanceDisplay from '@/components/accounts/BalanceDisplay.vue'
 import AccountBalanceScriptModal from '@/components/accounts/AccountBalanceScriptModal.vue'
 import AccountMigrationModal from '@/components/accounts/AccountMigrationModal.vue'
+import AppTooltip from '@/components/common/AppTooltip.vue'
 
 // 确认弹窗状态
 const showConfirmModal = ref(false)

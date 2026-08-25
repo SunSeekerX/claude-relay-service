@@ -402,7 +402,7 @@ class GrokRelayService {
           apiKeyData,
           body?.model || originalChatModel || requestedModel,
           req,
-          { reverseBridgeToChat, originalChatModel }
+          { reverseBridgeToChat, originalChatModel, endpointKind }
         )
       }
 
@@ -416,7 +416,8 @@ class GrokRelayService {
         {
           reverseBridgeToChat,
           originalChatModel,
-          isCompact: endpointKind === 'responses_compact'
+          isCompact: endpointKind === 'responses_compact',
+          endpointKind
         }
       )
     } catch (error) {
@@ -488,25 +489,149 @@ class GrokRelayService {
     }
   }
 
+  // 与转发补模、计费查价共用：未传 model 时媒体端点的默认模型名
+  _defaultMediaModel(endpointKind) {
+    if (endpointKind === 'images_generations') return 'grok-imagine-image'
+    if (endpointKind === 'images_edits') return 'grok-imagine-edit'
+    if (String(endpointKind || '').startsWith('videos')) return 'grok-imagine-video-1.5'
+    return ''
+  }
+
+  // 计费模型：上游回包 model > 请求/补全后的 model > 媒体默认；禁止空串落到 unknown
+  _resolveBillingModel(responseModel, requestedModel, endpointKind) {
+    const pick = (value) =>
+      typeof value === 'string' && value.trim() ? value.trim() : ''
+    return (
+      pick(responseModel) ||
+      pick(requestedModel) ||
+      this._defaultMediaModel(endpointKind) ||
+      'unknown'
+    )
+  }
+
   _prepareBody(body, endpointKind) {
-    if (!body || typeof body !== 'object') {
-      return body
-    }
-    const next = { ...body }
+    // 无 body 时也要产出对象，否则媒体默认 model 补不进去、计费拿到空串
+    const next = body && typeof body === 'object' ? { ...body } : {}
     if (next.model) {
       next.model = xaiHelper.mapModel(next.model)
     }
-    // 媒体默认模型
+    // 媒体默认模型（转发与计费同一来源）
     if (!next.model) {
-      if (endpointKind === 'images_generations') {
-        next.model = 'grok-imagine-image'
-      } else if (endpointKind === 'images_edits') {
-        next.model = 'grok-imagine-edit'
-      } else if (String(endpointKind).startsWith('videos')) {
-        next.model = 'grok-imagine-video-1.5'
-      }
+      const fallback = this._defaultMediaModel(endpointKind)
+      if (fallback) next.model = fallback
     }
     return next
+  }
+
+
+  // 统计请求体中的输入图片张数（image / images / image_url 等）
+  _countInputImages(body) {
+    if (!body || typeof body !== 'object') return 0
+    let count = 0
+    const bump = (value) => {
+      if (value == null || value === '') return
+      if (Array.isArray(value)) {
+        count += value.filter((item) => item != null && item !== '').length
+        return
+      }
+      count += 1
+    }
+    bump(body.image)
+    bump(body.images)
+    bump(body.image_url)
+    bump(body.image_urls)
+    // OpenAI edits 风格
+    if (body.image_file) bump(body.image_file)
+    // reference images
+    bump(body.reference_images)
+    bump(body.ref_images)
+    return count
+  }
+
+  // 从媒体响应/请求推断非 token 计费量（张数、视频秒、分辨率/质量、输入媒体）
+  _buildMediaBillingUsage(data, req, endpointKind) {
+    const kind = String(endpointKind || '')
+    const body = req?.body || {}
+    const usage = {}
+
+    // 分辨率/质量：供 Grok 分档选价（pricingService.resolveGrokMediaUnitPrices）
+    if (body.size != null) usage.size = body.size
+    if (body.resolution != null) usage.resolution = body.resolution
+    if (body.quality != null) usage.quality = body.quality
+    if (body.image_size != null) usage.image_size = body.image_size
+    if (body.video_resolution != null) usage.video_resolution = body.video_resolution
+    // 响应回显优先
+    if (data?.size) usage.size = data.size
+    if (data?.quality) usage.quality = data.quality
+    if (data?.resolution) usage.resolution = data.resolution
+    if (data?.video?.resolution) usage.video_resolution = data.video.resolution
+
+    if (kind.startsWith('images')) {
+      let count = 0
+      if (Array.isArray(data?.data)) count = data.data.length
+      else if (Array.isArray(data?.images)) count = data.images.length
+      if (!count) {
+        const n = Number(body.n)
+        count = Number.isFinite(n) && n > 0 ? n : 1
+      }
+      usage.image_count = count
+      usage.image_size = usage.image_size || usage.size
+      usage.image_quality = usage.quality
+      // 编辑/参考图：输入图张数
+      const inputImages = this._countInputImages(body)
+      if (inputImages > 0) usage.input_image_count = inputImages
+    }
+
+    if (kind.startsWith('videos')) {
+      // 输出时长：优先响应，其次请求
+      const outCandidates = [
+        data?.seconds,
+        data?.duration,
+        data?.video?.seconds,
+        data?.video?.duration,
+        data?.data?.seconds,
+        data?.data?.duration,
+        body.seconds,
+        body.duration
+      ]
+      for (const value of outCandidates) {
+        const parsed = Number(value)
+        if (Number.isFinite(parsed) && parsed > 0) {
+          usage.video_output_seconds = parsed
+          break
+        }
+      }
+      if (usage.video_output_seconds == null) {
+        usage.request_count = 1
+      }
+      usage.video_resolution = usage.video_resolution || usage.resolution || usage.size
+      usage.video_size = usage.size
+
+      // 输入图（图生视频）
+      const inputImages = this._countInputImages(body)
+      if (inputImages > 0) usage.input_image_count = inputImages
+
+      // 输入视频秒（编辑/延长）：body 或响应
+      const inCandidates = [
+        body.input_seconds,
+        body.source_seconds,
+        body.video_input_seconds,
+        body.input_video_seconds,
+        data?.input_seconds,
+        data?.source?.seconds,
+        data?.video?.input_seconds
+      ]
+      // 若 body 带输入视频 URL/文件但无时长，无法臆造秒数；有明确字段才计
+      for (const value of inCandidates) {
+        const parsed = Number(value)
+        if (Number.isFinite(parsed) && parsed > 0) {
+          usage.video_input_seconds = parsed
+          break
+        }
+      }
+    }
+
+    return Object.keys(usage).length ? usage : null
   }
 
   async _handleNormalResponse(
@@ -535,20 +660,23 @@ class GrokRelayService {
     }
 
     const usage = data?.usage || response.data?.usage || null
-    if (usage && apiKeyData?.id) {
+    const mediaBilling = this._buildMediaBillingUsage(data, req, options.endpointKind)
+    // 媒体：即使上游不回 usage，也要按张数/秒落账
+    if (apiKeyData?.id && (usage || mediaBilling)) {
+      const usagePayload = {
+        input_tokens: usage?.prompt_tokens || usage?.input_tokens || 0,
+        output_tokens: usage?.completion_tokens || usage?.output_tokens || 0,
+        cache_creation_input_tokens: usage?.cache_creation_input_tokens || 0,
+        cache_read_input_tokens: usage?.cache_read_input_tokens || 0,
+        ...(mediaBilling || {})
+      }
+      const billModel = this._resolveBillingModel(
+        data?.model,
+        requestedModel,
+        options.endpointKind
+      )
       await apiKeyService
-        .recordUsage(
-          apiKeyData.id,
-          {
-            input_tokens: usage.prompt_tokens || usage.input_tokens || 0,
-            output_tokens: usage.completion_tokens || usage.output_tokens || 0,
-            cache_creation_input_tokens: usage.cache_creation_input_tokens || 0,
-            cache_read_input_tokens: usage.cache_read_input_tokens || 0
-          },
-          data?.model || requestedModel,
-          account.id,
-          'grok'
-        )
+        .recordUsage(apiKeyData.id, usagePayload, billModel, account.id, 'grok')
         .catch((e) => console.error(e))
     }
 
@@ -650,20 +778,22 @@ class GrokRelayService {
       res.end()
     }
 
-    if (usageData && apiKeyData?.id) {
+    const mediaBilling = this._buildMediaBillingUsage(null, req, options.endpointKind)
+    if (apiKeyData?.id && (usageData || mediaBilling)) {
+      const usagePayload = {
+        input_tokens: usageData?.prompt_tokens || usageData?.input_tokens || 0,
+        output_tokens: usageData?.completion_tokens || usageData?.output_tokens || 0,
+        cache_creation_input_tokens: usageData?.cache_creation_input_tokens || 0,
+        cache_read_input_tokens: usageData?.cache_read_input_tokens || 0,
+        ...(mediaBilling || {})
+      }
+      const billModel = this._resolveBillingModel(
+        actualModel,
+        requestedModel,
+        options.endpointKind
+      )
       await apiKeyService
-        .recordUsage(
-          apiKeyData.id,
-          {
-            input_tokens: usageData.prompt_tokens || usageData.input_tokens || 0,
-            output_tokens: usageData.completion_tokens || usageData.output_tokens || 0,
-            cache_creation_input_tokens: usageData.cache_creation_input_tokens || 0,
-            cache_read_input_tokens: usageData.cache_read_input_tokens || 0
-          },
-          actualModel,
-          account.id,
-          'grok'
-        )
+        .recordUsage(apiKeyData.id, usagePayload, billModel, account.id, 'grok')
         .catch((e) => console.error(e))
     }
   }

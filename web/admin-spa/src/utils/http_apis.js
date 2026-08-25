@@ -22,7 +22,24 @@ export const importModelsApi = (models) =>
   request({ url: '/admin/models/import', method: 'POST', data: { models } })
 export const removeImportedModelsApi = (models) =>
   request({ url: '/admin/models/import', method: 'DELETE', data: { models } })
-// 模型价格（公开只读，api-stats 用户页）
+// 内部完整计费模型（整模读写）
+export const getInternalModelApi = (name) =>
+  request({ url: `/admin/models/internal/${encodeURIComponent(name)}`, method: 'GET' })
+export const createInternalModelApi = (data) =>
+  request({ url: '/admin/models/internal', method: 'POST', data })
+export const buildInternalFromSeedApi = (name, asCopy = false) =>
+  request({
+    url: '/admin/models/internal/from-seed',
+    method: 'POST',
+    data: { name, asCopy: !!asCopy }
+  })
+export const saveInternalModelApi = (name, data) =>
+  request({
+    url: `/admin/models/internal/${encodeURIComponent(name)}`,
+    method: 'PUT',
+    data
+  })
+// 模型价格（公开只读，api-stats 用户页；内部优先）
 export const getPublicModelPricingApi = () =>
   request({ url: '/apiStats/model-pricing', method: 'GET' })
 

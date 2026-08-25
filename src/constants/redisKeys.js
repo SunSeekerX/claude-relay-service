@@ -377,8 +377,9 @@ const RedisKeys = {
   testModelConfig: 'test_model_config', // String(JSON): 连通性测试默认模型配置
   // String(JSON): 模型定价数据源(管理端可改,空/缺失回落 config/pricingSource.js)
   pricingSource: 'system:pricing_source',
-  // Hash: 管理端从定价源导入的模型目录(modelId -> JSON{provider,importedAt})
-  // 叠加在 modelService 内置列表之上,不覆盖内置项;删除仅删本 Hash 内的条目
+  // Hash: 内部计费/目录模型(modelId -> 完整 JSON)
+  // 完整记录含 pricing(llysc 对齐 $/M 结构)/capabilities 等；有完整 pricing 时计费与用户价表优先用它
+  // 旧瘦记录 {provider,mode,importedAt} 仍可读（仅目录，计费回落种子）；删除仅删本 Hash 内的条目
   importedModels: 'system:imported_models',
 
   // ========== 配额卡 / 兑换 ==========

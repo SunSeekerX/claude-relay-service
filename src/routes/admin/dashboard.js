@@ -545,7 +545,16 @@ router.get('/model-stats', authenticateAdmin, async (req, res) => {
           cacheReadTokens: 0,
           allTokens: 0,
           ephemeral5mTokens: 0,
-          ephemeral1hTokens: 0
+          ephemeral1hTokens: 0,
+          realCostMicro: 0,
+          ratedCostMicro: 0,
+          costedRequests: 0,
+          costedInputTokens: 0,
+          costedOutputTokens: 0,
+          costedCacheCreateTokens: 0,
+          costedCacheReadTokens: 0,
+          costedEphemeral5mTokens: 0,
+          costedEphemeral1hTokens: 0
         }
 
         stats.requests += parseInt(data.requests) || 0
@@ -556,6 +565,15 @@ router.get('/model-stats', authenticateAdmin, async (req, res) => {
         stats.allTokens += parseInt(data.allTokens) || 0
         stats.ephemeral5mTokens += parseInt(data.ephemeral5mTokens) || 0
         stats.ephemeral1hTokens += parseInt(data.ephemeral1hTokens) || 0
+        stats.realCostMicro += parseInt(data.realCostMicro) || 0
+        stats.ratedCostMicro += parseInt(data.ratedCostMicro) || 0
+        stats.costedRequests += parseInt(data.costedRequests) || 0
+        stats.costedInputTokens += parseInt(data.costedInputTokens) || 0
+        stats.costedOutputTokens += parseInt(data.costedOutputTokens) || 0
+        stats.costedCacheCreateTokens += parseInt(data.costedCacheCreateTokens) || 0
+        stats.costedCacheReadTokens += parseInt(data.costedCacheReadTokens) || 0
+        stats.costedEphemeral5mTokens += parseInt(data.costedEphemeral5mTokens) || 0
+        stats.costedEphemeral1hTokens += parseInt(data.costedEphemeral1hTokens) || 0
 
         modelStatsMap.set(normalizedModel, stats)
       }
@@ -580,8 +598,14 @@ router.get('/model-stats', authenticateAdmin, async (req, res) => {
         }
       }
 
-      // 计算费用
-      const costData = CostCalculator.calculateCost(usage, model)
+      // 混合桶：已结算 micro + 未结算 token 重算
+      const resolved = CostCalculator.resolveModelStatsCost(stats, model)
+      const costData = {
+        costs: resolved.costs,
+        formatted: resolved.formatted,
+        pricing: resolved.pricing
+      }
+      const costSource = resolved.source
 
       modelStats.push({
         model,
@@ -606,7 +630,8 @@ router.get('/model-stats', authenticateAdmin, async (req, res) => {
         },
         costs: costData.costs,
         formatted: costData.formatted,
-        pricing: costData.pricing
+        pricing: costData.pricing,
+        costSource
       })
     }
 

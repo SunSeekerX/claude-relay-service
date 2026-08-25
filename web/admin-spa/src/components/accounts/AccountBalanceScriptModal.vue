@@ -1,16 +1,17 @@
 <template>
-  <el-dialog
-    :append-to-body="true"
-    class="balance-script-dialog"
-    :close-on-click-modal="false"
-    :destroy-on-close="true"
-    :model-value="show"
-    :title="`配置余额脚本 - ${account?.name || ''}`"
-    top="5vh"
-    width="720px"
-    @close="emitClose"
-  >
-    <div class="space-y-4">
+  <ModalTransition>
+    <div
+      v-if="show"
+      class="balance-script-dialog fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-4 pt-[5vh]"
+      @click.self="emitClose"
+    >
+      <div class="modal-content w-full max-w-[720px] rounded-2xl bg-white shadow-xl dark:bg-gray-900">
+        <div class="border-b border-gray-200 px-5 py-4 dark:border-gray-700">
+          <h3 class="text-lg font-bold text-gray-900 dark:text-gray-100">
+            配置余额脚本 - {{ account?.name || '' }}
+          </h3>
+        </div>
+    <div class="space-y-4 px-5 py-4">
       <div class="grid gap-3 md:grid-cols-2">
         <div class="space-y-2">
           <label class="text-sm font-medium text-gray-700 dark:text-gray-200">API Key</label>
@@ -113,17 +114,18 @@
       </div>
     </div>
 
-    <template #footer>
-      <div class="flex items-center gap-2">
-        <el-button :loading="testing" @click="testScript">测试脚本</el-button>
-        <el-button :loading="saving" type="primary" @click="saveConfig">保存配置</el-button>
-        <el-button @click="emitClose">取消</el-button>
+    <div class="flex items-center gap-2 border-t border-gray-200 px-5 py-4 dark:border-gray-700">
+        <button class="rounded-lg border border-gray-200 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-700 dark:text-gray-200" :disabled="testing" type="button" @click="testScript"><i v-if="testing" class="fas fa-spinner fa-spin mr-1" />测试脚本</button>
+        <button class="rounded-lg bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50" :disabled="saving" type="button" @click="saveConfig"><i v-if="saving" class="fas fa-spinner fa-spin mr-1" />保存配置</button>
+        <button class="rounded-lg border border-gray-200 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-200" type="button" @click="emitClose">取消</button>
       </div>
-    </template>
-  </el-dialog>
+      </div>
+    </div>
+  </ModalTransition>
 </template>
 
 <script setup>
+import ModalTransition from '@/components/common/ModalTransition.vue'
 import { reactive, ref, watch } from 'vue'
 
 import {
@@ -271,21 +273,8 @@ watch(
 </script>
 
 <style scoped>
-:deep(.balance-script-dialog) {
-  max-height: 90vh;
-  display: flex;
-  flex-direction: column;
-}
 
-:deep(.balance-script-dialog .el-dialog__body) {
-  flex: 1 1 auto;
-  min-height: 0;
-  overflow: auto;
-}
 
-:deep(.balance-script-dialog .el-dialog__footer) {
-  border-top: 1px solid rgba(229, 231, 235, 0.7);
-}
 
 .input-text {
   @apply w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-800 shadow-sm transition focus:border-indigo-400 focus:outline-none focus:ring-2 focus:ring-indigo-200 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 dark:focus:border-indigo-500 dark:focus:ring-indigo-600;

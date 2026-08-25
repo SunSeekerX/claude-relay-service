@@ -60,7 +60,7 @@
                 <i class="fas fa-cog relative text-blue-500" />
                 <span class="relative">前往系统设置</span>
               </button>
-              <el-tooltip placement="top">
+              <AppTooltip placement="top">
                 <template #content>
                   <div class="max-w-xs text-sm leading-relaxed">
                     清理所有已保存的历史请求体预览数据；仅影响历史预览，不影响当前请求体预览开关设置
@@ -82,7 +82,7 @@
                   />
                   <span class="relative">清理历史预览</span>
                 </button>
-              </el-tooltip>
+              </AppTooltip>
             </div>
           </div>
         </div>
@@ -137,15 +137,10 @@
                     <div
                       class="toolbar-control-glow bg-gradient-to-r from-blue-500 to-purple-500"
                     ></div>
-                    <el-date-picker
+                    <AppDateRangePicker
                       v-model="filters.dateRange"
                       class="toolbar-element w-full"
                       clearable
-                      end-placeholder="结束时间"
-                      format="YYYY-MM-DD HH:mm:ss"
-                      start-placeholder="开始时间"
-                      type="datetimerange"
-                      unlink-panels
                     />
                   </div>
 
@@ -153,16 +148,15 @@
                     <div
                       class="toolbar-control-glow bg-gradient-to-r from-cyan-500 to-teal-500"
                     ></div>
-                    <el-input
-                      v-model="filters.keyword"
-                      class="toolbar-element w-full"
-                      clearable
-                      placeholder="搜索 Request ID / API Key / 账户 / 模型 / 接口"
-                    >
-                      <template #prefix>
-                        <i class="fas fa-search text-cyan-500" />
-                      </template>
-                    </el-input>
+                    <div class="toolbar-element relative w-full">
+                      <i class="fas fa-search absolute left-3 top-1/2 -translate-y-1/2 text-cyan-500" />
+                      <input
+                        v-model="filters.keyword"
+                        class="w-full rounded-lg border border-gray-200 bg-white py-2 pl-9 pr-3 text-sm text-gray-800 outline-none focus:border-cyan-400 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
+                        placeholder="搜索 Request ID / API Key / 账户 / 模型 / 接口"
+                        type="text"
+                      />
+                    </div>
                   </div>
                 </div>
 
@@ -273,7 +267,7 @@
                   <span class="relative">导出 CSV</span>
                 </button>
 
-                <el-tooltip placement="top">
+                <AppTooltip placement="top">
                   <template #content>
                     <div class="max-w-xs text-sm leading-relaxed">
                       清理所有已保存的历史请求体预览数据；仅影响历史预览，不影响当前请求体预览开关设置
@@ -295,7 +289,7 @@
                     />
                     <span class="relative">清理历史预览</span>
                   </button>
-                </el-tooltip>
+                </AppTooltip>
               </div>
             </div>
           </div>
@@ -523,11 +517,9 @@
             <div class="text-sm text-gray-500 dark:text-gray-400">
               共 {{ pagination.totalRecords }} 条记录
             </div>
-            <el-pagination
-              background
-              :current-page="pagination.currentPage"
-              layout="prev, pager, next, sizes"
-              :page-size="pagination.pageSize"
+            <AppPagination
+              v-model:current-page="pagination.currentPage"
+              v-model:page-size="pagination.pageSize"
               :page-sizes="[20, 50, 100, 200]"
               :total="pagination.totalRecords"
               @current-change="handlePageChange"
@@ -557,6 +549,9 @@ import {
 } from '@/utils/http_apis'
 import { showToast, formatDate, formatNumber, debounce } from '@/utils/tools'
 import RequestDetailModal from '@/components/admin/RequestDetailModal.vue'
+import AppTooltip from '@/components/common/AppTooltip.vue'
+import AppDateRangePicker from '@/components/common/AppDateRangePicker.vue'
+import AppPagination from '@/components/common/AppPagination.vue'
 
 const router = useRouter()
 
@@ -1044,8 +1039,7 @@ onMounted(() => {
   box-shadow: 0 10px 24px rgba(15, 23, 42, 0.04);
 }
 
-.dark .summary-card {
-  background: linear-gradient(135deg, rgba(31, 41, 55, 0.96), rgba(17, 24, 39, 0.94));
+.dark .summary-card { background: linear-gradient(135deg, rgba(31, 41, 55, 0.96), rgba(17, 24, 39, 0.94));
   border-color: rgba(75, 85, 99, 0.55);
 }
 
@@ -1114,31 +1108,9 @@ onMounted(() => {
   opacity: 0.16;
 }
 
-.toolbar-control :deep(.el-input__wrapper) {
-  min-height: 40px;
-  border-radius: 10px;
-  border: 1px solid rgb(229 231 235);
-  background: rgb(255 255 255);
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.05);
-}
 
-.toolbar-control :deep(.el-input__wrapper:hover) {
-  border-color: rgb(209 213 219);
-}
 
-.toolbar-control :deep(.el-input__wrapper.is-focus) {
-  border-color: rgb(6 182 212);
-  box-shadow: 0 0 0 1px rgba(6, 182, 212, 0.15);
-}
 
-.dark .toolbar-control :deep(.el-input__wrapper) {
-  border-color: rgb(75 85 99);
-  background: rgb(31 41 55);
-}
-
-.toolbar-control :deep(.el-date-editor) {
-  width: 100%;
-}
 
 .request-toolbar-actions {
   display: flex;
@@ -1198,34 +1170,27 @@ onMounted(() => {
   height: 8px;
 }
 
-.table-container::-webkit-scrollbar-track {
-  background: #f3f4f6;
+.table-container::-webkit-scrollbar-track { background: #f3f4f6;
   border-radius: 4px;
 }
 
-.table-container::-webkit-scrollbar-thumb {
-  background: #d1d5db;
+.table-container::-webkit-scrollbar-thumb { background: #d1d5db;
   border-radius: 4px;
 }
 
-.table-container::-webkit-scrollbar-thumb:hover {
-  background: #9ca3af;
+.table-container::-webkit-scrollbar-thumb:hover { background: #9ca3af;
 }
 
-.dark .table-container::-webkit-scrollbar-track {
-  background: rgba(31, 41, 55, 0.9);
+.dark .table-container::-webkit-scrollbar-track { background: rgba(31, 41, 55, 0.9);
 }
 
-.dark .table-container::-webkit-scrollbar-thumb {
-  background: rgba(107, 114, 128, 0.9);
+.dark .table-container::-webkit-scrollbar-thumb { background: rgba(107, 114, 128, 0.9);
 }
 
-.request-table tbody tr:nth-child(even) {
-  background: rgba(249, 250, 251, 0.65);
+.request-table tbody tr:nth-child(even) { background: rgba(249, 250, 251, 0.65);
 }
 
-.dark .request-table tbody tr:nth-child(even) {
-  background: rgba(31, 41, 55, 0.55);
+.dark .request-table tbody tr:nth-child(even) { background: rgba(31, 41, 55, 0.55);
 }
 
 @media (min-width: 768px) {

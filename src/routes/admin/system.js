@@ -417,16 +417,22 @@ router.post('/claude-code-version/clear', authenticateAdmin, async (req, res) =>
 
 const pricingService = require('../../services/pricingService')
 
-// 获取所有模型价格数据
+// 获取生效模型价格（内部完整计费模型优先覆盖种子）
 router.get('/models/pricing', authenticateAdmin, async (req, res) => {
   try {
     if (!pricingService.pricingData || Object.keys(pricingService.pricingData).length === 0) {
       await pricingService.loadPricingData()
     }
-    const data = pricingService.pricingData
+    const data = pricingService.getEffectivePricingData()
     res.json({
       success: true,
-      data: data || {}
+      data: data || {},
+      meta: {
+        seedModelCount: pricingService.pricingData
+          ? Object.keys(pricingService.pricingData).length
+          : 0,
+        effectiveModelCount: data ? Object.keys(data).length : 0
+      }
     })
   } catch (error) {
     logger.error('Failed to get model pricing:', error)
@@ -500,7 +506,8 @@ router.get('/models/importable', authenticateAdmin, async (req, res) => {
     if (!pricingService.pricingData || Object.keys(pricingService.pricingData).length === 0) {
       await pricingService.loadPricingData()
     }
-    const models = modelService.listImportableModels(pricingService.pricingData)
+    // 含 Grok 媒体兜底等 effective 条目，否则列表可见却无法导入
+    const models = modelService.listImportableModels(pricingService.getEffectivePricingData())
     res.json({ success: true, data: { models, total: models.length } })
   } catch (error) {
     logger.error('Failed to list importable models:', error)
@@ -516,7 +523,7 @@ router.post('/models/import', authenticateAdmin, async (req, res) => {
     if (!pricingService.pricingData || Object.keys(pricingService.pricingData).length === 0) {
       await pricingService.loadPricingData()
     }
-    const result = await modelService.importModels(models, pricingService.pricingData)
+    const result = await modelService.importModels(models, pricingService.getEffectivePricingData())
     res.json({ success: true, ...result })
   } catch (error) {
     logger.error('Failed to import models:', error)
@@ -538,20 +545,74 @@ router.delete('/models/import', authenticateAdmin, async (req, res) => {
   }
 })
 
-// 已导入的模型列表
+// 已导入的内部模型列表（含完整计费数据摘要）
 router.get('/models/imported', authenticateAdmin, async (req, res) => {
   try {
-    const models = [...modelService.importedModels.entries()].map(([id, meta]) => ({
-      id,
-      provider: meta.provider,
-      mode: meta.mode,
-      importedAt: meta.importedAt
-    }))
+    const models = modelService.listInternalModels()
     res.json({ success: true, data: { models, total: models.length } })
   } catch (error) {
     logger.error('Failed to list imported models:', error)
     console.error(error)
     res.status(500).json({ error: 'Failed to list imported models', message: error.message })
+  }
+})
+
+// 单个内部模型详情（完整记录，供编辑回填）
+router.get('/models/internal/:name', authenticateAdmin, async (req, res) => {
+  try {
+    const model = modelService.getInternalModel(req.params.name)
+    if (!model) {
+      return res.status(404).json({ error: 'Model not found', message: '内部模型不存在' })
+    }
+    res.json({ success: true, data: model })
+  } catch (error) {
+    logger.error('Failed to get internal model:', error)
+    console.error(error)
+    res.status(500).json({ error: 'Failed to get internal model', message: error.message })
+  }
+})
+
+// 从种子构建完整内部模型预览（不落库，供「加入内部」弹窗预填，保证分段/多模态完整）
+router.post('/models/internal/from-seed', authenticateAdmin, async (req, res) => {
+  try {
+    const { name, asCopy } = req.body || {}
+    if (!pricingService.pricingData || Object.keys(pricingService.pricingData).length === 0) {
+      await pricingService.loadPricingData()
+    }
+    // 与价表展示同源：种子 + Grok 兜底 + 已有内部覆盖
+    const model = modelService.buildFromSeed(name, pricingService.getEffectivePricingData(), {
+      asCopy: !!asCopy
+    })
+    res.json({ success: true, data: model })
+  } catch (error) {
+    logger.error('Failed to build internal model from seed:', error)
+    console.error(error)
+    res.status(400).json({ error: 'Failed to build from seed', message: error.message })
+  }
+})
+
+// 创建内部完整计费模型（手工）
+router.post('/models/internal', authenticateAdmin, async (req, res) => {
+  try {
+    const model = await modelService.createInternalModel(req.body || {})
+    res.json({ success: true, data: model })
+  } catch (error) {
+    logger.error('Failed to create internal model:', error)
+    console.error(error)
+    res.status(400).json({ error: 'Failed to create internal model', message: error.message })
+  }
+})
+
+// 整模保存/替换内部计费模型（完整数据，不是字段覆盖）
+router.put('/models/internal/:name', authenticateAdmin, async (req, res) => {
+  try {
+    const body = { ...(req.body || {}), name: req.params.name }
+    const model = await modelService.saveInternalModel(body)
+    res.json({ success: true, data: model })
+  } catch (error) {
+    logger.error('Failed to save internal model:', error)
+    console.error(error)
+    res.status(400).json({ error: 'Failed to save internal model', message: error.message })
   }
 })
 

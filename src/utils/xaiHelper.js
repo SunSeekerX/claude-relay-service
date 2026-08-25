@@ -35,6 +35,7 @@ const DEFAULT_MODELS = [
   { id: 'grok-4.20-multi-agent-0309', displayName: 'Grok 4.20 Multi Agent' },
   { id: 'grok-imagine', displayName: 'Grok Imagine' },
   { id: 'grok-imagine-image', displayName: 'Grok Imagine Image' },
+  { id: 'grok-imagine-image-2.0', displayName: 'Grok Imagine Image 2.0' },
   { id: 'grok-imagine-image-quality', displayName: 'Grok Imagine Image Quality' },
   { id: 'grok-imagine-edit', displayName: 'Grok Imagine Edit' },
   { id: 'grok-imagine-video', displayName: 'Grok Imagine Video' },

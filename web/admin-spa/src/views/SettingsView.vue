@@ -3,7 +3,7 @@
     <!-- 不再套内层 .card：外层 MainLayout 已是卡片，这里只做内容容器，避免卡片套卡片 -->
     <div>
       <!-- 设置分类导航（路由切换） -->
-      <div class="mb-6">
+      <div class="mb-4">
         <nav class="flex space-x-8 overflow-x-auto">
           <router-link
             v-for="tab in sectionTabs"
@@ -496,7 +496,7 @@
           <div v-else>
             <!-- Claude Code 客户端限制 -->
             <div
-              class="mb-6 border-b border-gray-100 pb-6 last:mb-0 last:border-b-0 dark:border-gray-700/60"
+              class="mb-4 border-b border-gray-100 pb-4 last:mb-0 last:border-b-0 dark:border-gray-700/60"
             >
               <div class="flex items-center justify-between">
                 <div>
@@ -536,7 +536,7 @@
                   ></div>
                 </label>
               </div>
-              <div class="mt-4 rounded-lg bg-amber-50 p-4 dark:bg-amber-900/20">
+              <div class="mt-3 rounded-lg bg-amber-50 p-3 dark:bg-amber-900/20">
                 <div class="flex">
                   <i class="fas fa-info-circle mt-0.5 text-amber-500"></i>
                   <div class="ml-3">
@@ -551,7 +551,7 @@
 
             <!-- 全局会话绑定 -->
             <div
-              class="mb-6 border-b border-gray-100 pb-6 last:mb-0 last:border-b-0 dark:border-gray-700/60"
+              class="mb-4 border-b border-gray-100 pb-4 last:mb-0 last:border-b-0 dark:border-gray-700/60"
             >
               <div class="flex items-center justify-between">
                 <div>
@@ -625,7 +625,7 @@
                 </div>
               </div>
 
-              <div class="mt-4 rounded-lg bg-purple-50 p-4 dark:bg-purple-900/20">
+              <div class="mt-3 rounded-lg bg-purple-50 p-3 dark:bg-purple-900/20">
                 <div class="flex">
                   <i class="fas fa-lightbulb mt-0.5 text-purple-500"></i>
                   <div class="ml-3">
@@ -649,7 +649,7 @@
 
             <!-- 用户消息串行队列 -->
             <div
-              class="mb-6 border-b border-gray-100 pb-6 last:mb-0 last:border-b-0 dark:border-gray-700/60"
+              class="mb-4 border-b border-gray-100 pb-4 last:mb-0 last:border-b-0 dark:border-gray-700/60"
             >
               <div class="flex items-center justify-between">
                 <div>
@@ -725,7 +725,7 @@
                 </div>
               </div>
 
-              <div class="mt-4 rounded-lg bg-teal-50 p-4 dark:bg-teal-900/20">
+              <div class="mt-3 rounded-lg bg-teal-50 p-3 dark:bg-teal-900/20">
                 <div class="flex">
                   <i class="fas fa-info-circle mt-0.5 text-teal-500"></i>
                   <div class="ml-3">
@@ -743,7 +743,7 @@
 
             <!-- 并发请求排队 -->
             <div
-              class="mb-6 border-b border-gray-100 pb-6 last:mb-0 last:border-b-0 dark:border-gray-700/60"
+              class="mb-4 border-b border-gray-100 pb-4 last:mb-0 last:border-b-0 dark:border-gray-700/60"
             >
               <div class="flex items-center justify-between">
                 <div class="flex items-center">
@@ -838,7 +838,7 @@
                 </div>
               </div>
 
-              <div class="mt-4 rounded-lg bg-blue-50 p-4 dark:bg-blue-900/20">
+              <div class="mt-3 rounded-lg bg-blue-50 p-3 dark:bg-blue-900/20">
                 <div class="flex">
                   <i class="fas fa-info-circle mt-0.5 text-blue-500"></i>
                   <div class="ml-3">
@@ -857,7 +857,7 @@
 
             <!-- 请求明细采集 -->
             <div
-              class="mb-6 border-b border-gray-100 pb-6 last:mb-0 last:border-b-0 dark:border-gray-700/60"
+              class="mb-4 border-b border-gray-100 pb-4 last:mb-0 last:border-b-0 dark:border-gray-700/60"
             >
               <div class="flex items-center justify-between">
                 <div class="flex items-center">
@@ -948,7 +948,7 @@
                 </div>
 
                 <div
-                  class="rounded-lg border border-gray-200 bg-gray-50/80 p-4 dark:border-gray-700 dark:bg-gray-900/30"
+                  class="rounded-lg border border-gray-200 bg-gray-50/80 p-3 dark:border-gray-700 dark:bg-gray-900/30"
                 >
                   <div class="flex items-start justify-between gap-4">
                     <div class="flex-1">
@@ -995,7 +995,7 @@
                 </div>
               </div>
 
-              <div class="mt-4 rounded-lg bg-cyan-50 p-4 dark:bg-cyan-900/20">
+              <div class="mt-3 rounded-lg bg-cyan-50 p-3 dark:bg-cyan-900/20">
                 <div class="flex">
                   <i class="fas fa-shield-alt mt-0.5 text-cyan-500"></i>
                   <div class="ml-3">
@@ -1014,7 +1014,7 @@
 
             <!-- 账号错误收集 -->
             <div
-              class="mb-6 border-b border-gray-100 pb-6 last:mb-0 last:border-b-0 dark:border-gray-700/60"
+              class="mb-4 border-b border-gray-100 pb-4 last:mb-0 last:border-b-0 dark:border-gray-700/60"
             >
               <div class="flex items-center justify-between">
                 <div class="flex items-center">
@@ -1050,7 +1050,7 @@
             <!-- 配置更新信息 -->
             <div
               v-if="claudeConfig.updatedAt"
-              class="rounded-lg bg-gray-50 p-4 text-sm text-gray-500 dark:bg-gray-700/50 dark:text-gray-400"
+              class="rounded-lg bg-gray-50 p-3 text-sm text-gray-500 dark:bg-gray-700/50 dark:text-gray-400"
             >
               <i class="fas fa-history mr-2"></i>
               最后更新：{{ formatDateTime(claudeConfig.updatedAt) }}
@@ -1096,7 +1096,7 @@
 
             <!-- 倍率配置表格 -->
             <div
-              class="mb-6 border-b border-gray-100 pb-6 last:mb-0 last:border-b-0 dark:border-gray-700/60"
+              class="mb-4 border-b border-gray-100 pb-4 last:mb-0 last:border-b-0 dark:border-gray-700/60"
             >
               <div class="mb-4 flex items-center justify-between">
                 <h2 class="text-lg font-semibold text-gray-800 dark:text-gray-200">
@@ -1182,7 +1182,7 @@
             <p class="text-gray-500 dark:text-gray-400">正在加载配置...</p>
           </div>
           <div v-else>
-            <div class="mb-6">
+            <div class="mb-4">
               <h2 class="text-lg font-semibold text-gray-800 dark:text-gray-200">
                 连通性测试默认模型
               </h2>

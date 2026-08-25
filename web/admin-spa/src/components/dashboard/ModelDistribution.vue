@@ -6,10 +6,18 @@
         模型使用分布
       </h2>
 
-      <el-radio-group v-model="modelPeriod" size="small" @change="handlePeriodChange">
-        <el-radio-button label="daily"> 今日 </el-radio-button>
-        <el-radio-button label="total"> 累计 </el-radio-button>
-      </el-radio-group>
+      <div class="inline-flex rounded-lg bg-gray-100 p-1 dark:bg-gray-700">
+        <button
+          :class="['rounded-md px-3 py-1 text-sm font-medium', modelPeriod === 'daily' ? 'bg-white text-blue-600 shadow-sm dark:bg-gray-800' : 'text-gray-600 dark:text-gray-300']"
+          type="button"
+          @click="modelPeriod = 'daily'; handlePeriodChange('daily')"
+        >今日</button>
+        <button
+          :class="['rounded-md px-3 py-1 text-sm font-medium', modelPeriod === 'total' ? 'bg-white text-blue-600 shadow-sm dark:bg-gray-800' : 'text-gray-600 dark:text-gray-300']"
+          type="button"
+          @click="modelPeriod = 'total'; handlePeriodChange('total')"
+        >累计</button>
+      </div>
     </div>
 
     <div

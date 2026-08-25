@@ -306,7 +306,14 @@ router.post('/api/user-stats', async (req, res) => {
                 ephemeral1hTokens: 0,
                 realCostMicro: 0,
                 ratedCostMicro: 0,
-                hasStoredCost: false
+                costedRequests: 0,
+                costedInputTokens: 0,
+                costedOutputTokens: 0,
+                costedCacheCreateTokens: 0,
+                costedCacheReadTokens: 0,
+                costedEphemeral5mTokens: 0,
+                costedEphemeral1hTokens: 0,
+                requests: 0
               })
             }
 
@@ -317,39 +324,23 @@ router.post('/api/user-stats', async (req, res) => {
             modelUsage.cacheReadTokens += parseInt(data.cacheReadTokens) || 0
             modelUsage.ephemeral5mTokens += parseInt(data.ephemeral5mTokens) || 0
             modelUsage.ephemeral1hTokens += parseInt(data.ephemeral1hTokens) || 0
-            if ('realCostMicro' in data || 'ratedCostMicro' in data) {
-              modelUsage.realCostMicro += parseInt(data.realCostMicro) || 0
-              modelUsage.ratedCostMicro += parseInt(data.ratedCostMicro) || 0
-              modelUsage.hasStoredCost = true
-            }
+            modelUsage.requests += parseInt(data.requests) || 0
+            modelUsage.realCostMicro += parseInt(data.realCostMicro) || 0
+            modelUsage.ratedCostMicro += parseInt(data.ratedCostMicro) || 0
+            modelUsage.costedRequests += parseInt(data.costedRequests) || 0
+            modelUsage.costedInputTokens += parseInt(data.costedInputTokens) || 0
+            modelUsage.costedOutputTokens += parseInt(data.costedOutputTokens) || 0
+            modelUsage.costedCacheCreateTokens += parseInt(data.costedCacheCreateTokens) || 0
+            modelUsage.costedCacheReadTokens += parseInt(data.costedCacheReadTokens) || 0
+            modelUsage.costedEphemeral5mTokens += parseInt(data.costedEphemeral5mTokens) || 0
+            modelUsage.costedEphemeral1hTokens += parseInt(data.costedEphemeral1hTokens) || 0
           }
         }
 
-        // 按模型计算费用并汇总
+        // 按模型计算费用并汇总（混合桶：已结算 micro + 未结算 token）
         for (const [model, usage] of modelUsageMap) {
-          if (usage.hasStoredCost) {
-            // 使用请求时已存储的费用（精确）
-            totalCost += usage.ratedCostMicro / 1000000
-          } else {
-            // Legacy fallback：旧数据没有存储费用，从 token 重算
-            const usageData = {
-              input_tokens: usage.inputTokens,
-              output_tokens: usage.outputTokens,
-              cache_creation_input_tokens: usage.cacheCreateTokens,
-              cache_read_input_tokens: usage.cacheReadTokens
-            }
-
-            // 如果有 ephemeral 5m/1h 拆分数据，添加 cache_creation 子对象以实现精确计费
-            if (usage.ephemeral5mTokens > 0 || usage.ephemeral1hTokens > 0) {
-              usageData.cache_creation = {
-                ephemeral_5m_input_tokens: usage.ephemeral5mTokens,
-                ephemeral_1h_input_tokens: usage.ephemeral1hTokens
-              }
-            }
-
-            const costResult = CostCalculator.calculateCost(usageData, model)
-            totalCost += costResult.costs.total
-          }
+          const resolved = CostCalculator.resolveModelStatsCost(usage, model)
+          totalCost += resolved.rated
         }
 
         // 如果没有模型级别的详细数据，回退到总体数据计算
@@ -1161,7 +1152,13 @@ router.post('/api/batch-model-stats', async (req, res) => {
                 allTokens: 0,
                 realCostMicro: 0,
                 ratedCostMicro: 0,
-                hasStoredCost: false
+                costedRequests: 0,
+                costedInputTokens: 0,
+                costedOutputTokens: 0,
+                costedCacheCreateTokens: 0,
+                costedCacheReadTokens: 0,
+                costedEphemeral5mTokens: 0,
+                costedEphemeral1hTokens: 0
               })
             }
 
@@ -1176,45 +1173,22 @@ router.post('/api/batch-model-stats', async (req, res) => {
             modelUsage.allTokens += parseInt(data.allTokens) || 0
             modelUsage.realCostMicro += parseInt(data.realCostMicro) || 0
             modelUsage.ratedCostMicro += parseInt(data.ratedCostMicro) || 0
-            // 检查 Redis 数据是否包含成本字段
-            if ('realCostMicro' in data || 'ratedCostMicro' in data) {
-              modelUsage.hasStoredCost = true
-            }
+            modelUsage.costedRequests += parseInt(data.costedRequests) || 0
+            modelUsage.costedInputTokens += parseInt(data.costedInputTokens) || 0
+            modelUsage.costedOutputTokens += parseInt(data.costedOutputTokens) || 0
+            modelUsage.costedCacheCreateTokens += parseInt(data.costedCacheCreateTokens) || 0
+            modelUsage.costedCacheReadTokens += parseInt(data.costedCacheReadTokens) || 0
+            modelUsage.costedEphemeral5mTokens += parseInt(data.costedEphemeral5mTokens) || 0
+            modelUsage.costedEphemeral1hTokens += parseInt(data.costedEphemeral1hTokens) || 0
           }
         }
       })
     )
 
-    // 转换为数组并处理费用
+    // 转换为数组并处理费用（混合桶）
     const modelStats = []
     for (const [model, usage] of modelUsageMap) {
-      const usageData = {
-        input_tokens: usage.inputTokens,
-        output_tokens: usage.outputTokens,
-        cache_creation_input_tokens: usage.cacheCreateTokens,
-        cache_read_input_tokens: usage.cacheReadTokens
-      }
-
-      // 如果有 ephemeral 5m/1h 拆分数据，添加 cache_creation 子对象以实现精确计费
-      if (usage.ephemeral5mTokens > 0 || usage.ephemeral1hTokens > 0) {
-        usageData.cache_creation = {
-          ephemeral_5m_input_tokens: usage.ephemeral5mTokens,
-          ephemeral_1h_input_tokens: usage.ephemeral1hTokens
-        }
-      }
-
-      // 优先使用存储的费用，否则回退到重新计算
-      const { hasStoredCost } = usage
-      const costData = CostCalculator.calculateCost(usageData, model)
-
-      // 如果有存储的费用，覆盖计算的费用
-      if (hasStoredCost) {
-        costData.costs.real = (usage.realCostMicro || 0) / 1000000
-        costData.costs.rated = (usage.ratedCostMicro || 0) / 1000000
-        costData.costs.total = costData.costs.real // 保持兼容
-        costData.formatted.total = `$${costData.costs.real.toFixed(6)}`
-      }
-
+      const resolved = CostCalculator.resolveModelStatsCost(usage, model)
       modelStats.push({
         model,
         requests: usage.requests,
@@ -1223,10 +1197,11 @@ router.post('/api/batch-model-stats', async (req, res) => {
         cacheCreateTokens: usage.cacheCreateTokens,
         cacheReadTokens: usage.cacheReadTokens,
         allTokens: usage.allTokens,
-        costs: costData.costs,
-        formatted: costData.formatted,
-        pricing: costData.pricing,
-        isLegacy: !hasStoredCost
+        costs: resolved.costs,
+        formatted: resolved.formatted,
+        pricing: resolved.pricing,
+        isLegacy: resolved.source === 'recalculated',
+        costSource: resolved.source
       })
     }
 
@@ -1758,19 +1733,32 @@ router.post('/api/user-model-stats', async (req, res) => {
           }
         }
 
-        // 优先使用存储的费用，否则回退到重新计算
-        // 检查字段是否存在（而非 > 0），以支持真正的零成本场景
-        const realCostMicro = parseInt(data.realCostMicro) || 0
-        const ratedCostMicro = parseInt(data.ratedCostMicro) || 0
-        const hasStoredCost = 'realCostMicro' in data || 'ratedCostMicro' in data
-        const costData = CostCalculator.calculateCost(usage, model)
-
-        // 如果有存储的费用，覆盖计算的费用
-        if (hasStoredCost) {
-          costData.costs.real = realCostMicro / 1000000
-          costData.costs.rated = ratedCostMicro / 1000000
-          costData.costs.total = costData.costs.real
-          costData.formatted.total = `$${costData.costs.real.toFixed(6)}`
+        // 混合桶解析：已结算 micro + 未结算 token
+        const resolved = CostCalculator.resolveModelStatsCost(
+          {
+            inputTokens: usage.input_tokens,
+            outputTokens: usage.output_tokens,
+            cacheCreateTokens: usage.cache_creation_input_tokens,
+            cacheReadTokens: usage.cache_read_input_tokens,
+            ephemeral5mTokens: ephemeral5m,
+            ephemeral1hTokens: ephemeral1h,
+            requests: parseInt(data.requests) || 0,
+            realCostMicro: parseInt(data.realCostMicro) || 0,
+            ratedCostMicro: parseInt(data.ratedCostMicro) || 0,
+            costedRequests: parseInt(data.costedRequests) || 0,
+            costedInputTokens: parseInt(data.costedInputTokens) || 0,
+            costedOutputTokens: parseInt(data.costedOutputTokens) || 0,
+            costedCacheCreateTokens: parseInt(data.costedCacheCreateTokens) || 0,
+            costedCacheReadTokens: parseInt(data.costedCacheReadTokens) || 0,
+            costedEphemeral5mTokens: parseInt(data.costedEphemeral5mTokens) || 0,
+            costedEphemeral1hTokens: parseInt(data.costedEphemeral1hTokens) || 0
+          },
+          model
+        )
+        const costData = {
+          costs: resolved.costs,
+          formatted: resolved.formatted,
+          pricing: resolved.pricing
         }
 
         // alltime 键不存储 allTokens，需要计算
@@ -1793,7 +1781,7 @@ router.post('/api/user-model-stats', async (req, res) => {
           costs: costData.costs,
           formatted: costData.formatted,
           pricing: costData.pricing,
-          isLegacy: !hasStoredCost
+          isLegacy: resolved.source === 'recalculated'
         })
       }
     }
@@ -1839,20 +1827,26 @@ router.get('/service-rates', async (req, res) => {
 })
 
 // 💰 获取模型价格列表（公开只读，用户统计页展示用）
+// 内部完整计费模型优先；无内部则回落外部种子
 router.get('/model-pricing', async (req, res) => {
   const pricingService = require('../services/pricingService')
+  const { toPublicPricingMap } = require('../utils/model_pricing_convert')
   try {
     if (!pricingService.pricingData || Object.keys(pricingService.pricingData).length === 0) {
       await pricingService.loadPricingData()
     }
     const status = pricingService.getStatus()
+    // 公开面只投影展示字段，禁止把内部 metadata 任意键暴露给未认证访客
+    const pricing = toPublicPricingMap(pricingService.getEffectivePricingData())
     res.json({
       success: true,
       data: {
-        pricing: pricingService.pricingData || {},
+        pricing: pricing || {},
         status: {
           lastUpdated: status.lastUpdated,
-          modelCount: status.modelCount
+          modelCount: status.modelCount,
+          seedModelCount: status.seedModelCount,
+          internalBillingModels: status.internalBillingModels
         }
       }
     })

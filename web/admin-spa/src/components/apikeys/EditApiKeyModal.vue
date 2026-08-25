@@ -568,7 +568,7 @@
                   <span class="block text-sm font-medium text-gray-700 dark:text-gray-300">
                     <span class="inline-flex items-center gap-1">
                       <span>非 Codex 请求兼容为 Codex 风格</span>
-                      <el-tooltip placement="top">
+                      <AppTooltip placement="top">
                         <template #content>
                           <div class="w-[250px] space-y-2 text-sm leading-relaxed">
                             <div>只对 `/openai/responses` 和 `/openai/v1/responses` 生效。</div>
@@ -587,7 +587,7 @@
                             class="fas fa-question-circle cursor-help text-sm text-gray-400 hover:text-gray-600"
                           />
                         </span>
-                      </el-tooltip>
+                      </AppTooltip>
                     </span>
                   </span>
                 </span>
@@ -603,7 +603,7 @@
                   <span class="block text-sm font-medium text-gray-700 dark:text-gray-300">
                     <span class="inline-flex items-center gap-1">
                       <span>启用 Payload 规则</span>
-                      <el-tooltip placement="top">
+                      <AppTooltip placement="top">
                         <template #content>
                           <div class="w-[240px] space-y-2 text-sm leading-relaxed">
                             <div>开启后会按顺序写入字段。</div>
@@ -615,7 +615,7 @@
                             class="fas fa-question-circle cursor-help text-sm text-gray-400 hover:text-gray-600"
                           />
                         </span>
-                      </el-tooltip>
+                      </AppTooltip>
                     </span>
                   </span>
                 </span>
@@ -630,7 +630,7 @@
                     class="flex items-center gap-1 text-sm font-medium text-gray-700 dark:text-gray-300"
                   >
                     <span>Payload 规则</span>
-                    <el-tooltip placement="top">
+                    <AppTooltip placement="top">
                       <template #content>
                         <div class="w-[240px] space-y-2 text-sm leading-relaxed">
                           <div>规则会按列表顺序依次执行，后面的规则可以覆盖前面的结果。</div>
@@ -642,7 +642,7 @@
                           class="fas fa-question-circle cursor-help text-sm text-gray-400 hover:text-gray-600"
                         />
                       </span>
-                    </el-tooltip>
+                    </AppTooltip>
                   </div>
                   <button
                     class="rounded-lg bg-emerald-500 px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-emerald-600"
@@ -1040,6 +1040,7 @@ import { useApiKeysStore } from '@/stores/apiKeys'
 import * as httpApis from '@/utils/http_apis'
 import AccountSelector from '@/components/common/AccountSelector.vue'
 import ConfirmModal from '@/components/common/ConfirmModal.vue'
+import AppTooltip from '@/components/common/AppTooltip.vue'
 
 const props = defineProps({
   apiKey: {

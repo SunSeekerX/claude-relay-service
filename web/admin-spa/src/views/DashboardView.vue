@@ -2,7 +2,7 @@
   <div>
     <!-- 主要统计 -->
     <div
-      class="mb-4 grid grid-cols-1 gap-3 sm:mb-6 sm:grid-cols-2 sm:gap-4 md:mb-8 md:gap-6 lg:grid-cols-4"
+      class="mb-3 grid grid-cols-1 gap-2 sm:mb-4 sm:grid-cols-2 sm:gap-3 md:mb-5 md:gap-4 lg:grid-cols-4"
     >
       <div class="stat-card">
         <div class="flex items-center justify-between">
@@ -211,7 +211,7 @@
     </div>
 
     <!-- 账户余额/配额汇总 -->
-    <div class="mb-4 grid grid-cols-1 gap-3 sm:mb-6 sm:grid-cols-2 sm:gap-4 md:mb-8 md:gap-6">
+    <div class="mb-3 grid grid-cols-1 gap-2 sm:mb-4 sm:grid-cols-2 sm:gap-3 md:mb-5 md:gap-4">
       <div class="stat-card">
         <div class="flex items-center justify-between">
           <div>
@@ -246,7 +246,7 @@
         </div>
       </div>
 
-      <div class="card p-4 sm:p-6">
+      <div class="card p-3 sm:p-4">
         <div class="mb-3 flex items-center justify-between">
           <h3 class="text-sm font-semibold text-gray-900 dark:text-gray-100">低余额账户</h3>
           <span class="text-sm text-gray-500 dark:text-gray-400">
@@ -311,7 +311,7 @@
 
     <!-- Token统计和性能指标 -->
     <div
-      class="mb-4 grid grid-cols-1 gap-3 sm:mb-6 sm:grid-cols-2 sm:gap-4 md:mb-8 md:gap-6 lg:grid-cols-4"
+      class="mb-3 grid grid-cols-1 gap-2 sm:mb-4 sm:grid-cols-2 sm:gap-3 md:mb-5 md:gap-4 lg:grid-cols-4"
     >
       <div class="stat-card">
         <div class="flex items-center justify-between">
@@ -473,8 +473,8 @@
     </div>
 
     <!-- 模型消费统计 -->
-    <div class="mb-8">
-      <div class="mb-4 flex flex-col gap-4 sm:mb-6">
+    <div class="mb-5">
+      <div class="mb-3 flex flex-col gap-3 sm:mb-4">
         <h3 class="text-lg font-bold text-gray-900 dark:text-gray-100 sm:text-xl">
           模型使用分布与Token使用趋势
         </h3>
@@ -526,19 +526,10 @@
 
           <!-- Element Plus 日期范围选择器 -->
           <div class="flex items-center gap-2">
-            <el-date-picker
+            <AppDateRangePicker
               v-model="dateFilter.customRange"
-              class="custom-date-picker w-full lg:w-auto"
-              :default-time="defaultTime"
-              :disabled-date="disabledDate"
-              end-placeholder="结束日期"
-              format="YYYY-MM-DD HH:mm:ss"
-              range-separator="至"
-              size="default"
-              start-placeholder="开始日期"
               style="max-width: 400px"
-              type="datetimerange"
-              value-format="YYYY-MM-DD HH:mm:ss"
+              value-
               @change="onCustomDateRangeChange"
             />
             <span v-if="trendGranularity === 'hour'" class="text-sm text-orange-600">
@@ -586,10 +577,10 @@
         </div>
       </div>
 
-      <div class="grid grid-cols-1 gap-6 lg:grid-cols-2">
+      <div class="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <!-- 饼图 -->
-        <div class="card p-4 sm:p-6">
-          <h4 class="mb-4 text-base font-semibold text-gray-800 dark:text-gray-200 sm:text-lg">
+        <div class="card p-3 sm:p-4">
+          <h4 class="mb-2 text-base font-semibold text-gray-800 dark:text-gray-200 sm:text-lg">
             Token使用分布
           </h4>
           <div class="relative" style="height: 250px">
@@ -598,8 +589,8 @@
         </div>
 
         <!-- 详细数据表格 -->
-        <div class="card p-4 sm:p-6">
-          <h4 class="mb-4 text-base font-semibold text-gray-800 dark:text-gray-200 sm:text-lg">
+        <div class="card p-3 sm:p-4">
+          <h4 class="mb-2 text-base font-semibold text-gray-800 dark:text-gray-200 sm:text-lg">
             详细统计数据
           </h4>
           <div v-if="dashboardModelStats.length === 0" class="py-8 text-center">
@@ -680,8 +671,8 @@
     </div>
 
     <!-- Token使用趋势图 -->
-    <div class="mb-4 sm:mb-6 md:mb-8">
-      <div class="card p-4 sm:p-6">
+    <div class="mb-3 sm:mb-4 md:mb-5">
+      <div class="card p-3 sm:p-4">
         <div class="sm:h-[300px]" style="height: 250px">
           <canvas ref="usageTrendChart" />
         </div>
@@ -689,9 +680,9 @@
     </div>
 
     <!-- API Keys 使用趋势图 -->
-    <div class="mb-4 sm:mb-6 md:mb-8">
-      <div class="card p-4 sm:p-6">
-        <div class="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+    <div class="mb-3 sm:mb-4 md:mb-5">
+      <div class="card p-3 sm:p-4">
+        <div class="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <h3 class="text-base font-semibold text-gray-900 dark:text-gray-100 sm:text-lg">
             API Keys 使用趋势
           </h3>
@@ -723,7 +714,7 @@
             </button>
           </div>
         </div>
-        <div class="mb-4 text-sm text-gray-600 dark:text-gray-400 sm:text-sm">
+        <div class="mb-2 text-sm text-gray-600 dark:text-gray-400 sm:text-sm">
           <span v-if="apiKeysTrendData.totalApiKeys > 10">
             共 {{ apiKeysTrendData.totalApiKeys }} 个 API Key，显示使用量前 10 个
           </span>
@@ -736,9 +727,9 @@
     </div>
 
     <!-- 账号使用趋势图 -->
-    <div class="mb-4 sm:mb-6 md:mb-8">
-      <div class="card p-4 sm:p-6">
-        <div class="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+    <div class="mb-3 sm:mb-4 md:mb-5">
+      <div class="card p-3 sm:p-4">
+        <div class="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <div class="flex flex-col gap-1 sm:flex-row sm:items-center sm:gap-3">
             <h3 class="text-base font-semibold text-gray-900 dark:text-gray-100 sm:text-lg">
               账号使用趋势
@@ -766,7 +757,7 @@
           </div>
         </div>
         <div
-          class="mb-4 flex flex-wrap items-center gap-2 text-sm text-gray-600 dark:text-gray-400 sm:text-sm"
+          class="mb-2 flex flex-wrap items-center gap-2 text-sm text-gray-600 dark:text-gray-400 sm:text-sm"
         >
           <span>共 {{ accountUsageTrendData.totalAccounts || 0 }} 个账号</span>
           <span
@@ -799,6 +790,7 @@ import { useThemeStore } from '@/stores/theme'
 import { formatNumber, showToast } from '@/utils/tools'
 
 import { getBalanceSummaryApi } from '@/utils/http_apis'
+import AppDateRangePicker from '@/components/common/AppDateRangePicker.vue'
 
 const dashboardStore = useDashboardStore()
 const themeStore = useThemeStore()

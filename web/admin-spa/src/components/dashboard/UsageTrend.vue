@@ -7,10 +7,18 @@
       </h2>
 
       <div class="flex items-center gap-3">
-        <el-radio-group v-model="granularity" size="small" @change="handleGranularityChange">
-          <el-radio-button label="day"> 按天 </el-radio-button>
-          <el-radio-button label="hour"> 按小时 </el-radio-button>
-        </el-radio-group>
+        <div class="inline-flex rounded-lg bg-gray-100 p-1 dark:bg-gray-700">
+          <button
+            :class="['rounded-md px-3 py-1 text-sm font-medium', granularity === 'day' ? 'bg-white text-blue-600 shadow-sm dark:bg-gray-800' : 'text-gray-600 dark:text-gray-300']"
+            type="button"
+            @click="granularity = 'day'; handleGranularityChange('day')"
+          >按天</button>
+          <button
+            :class="['rounded-md px-3 py-1 text-sm font-medium', granularity === 'hour' ? 'bg-white text-blue-600 shadow-sm dark:bg-gray-800' : 'text-gray-600 dark:text-gray-300']"
+            type="button"
+            @click="granularity = 'hour'; handleGranularityChange('hour')"
+          >按小时</button>
+        </div>
 
         <div class="w-[130px]">
           <CustomDropdown

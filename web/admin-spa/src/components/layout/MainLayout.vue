@@ -1,11 +1,11 @@
 <template>
-  <div class="flex min-h-screen flex-col p-3 sm:p-4 md:p-6">
+  <div class="flex min-h-screen flex-col p-2 sm:p-3 md:p-4">
     <!-- 顶部导航 -->
     <AppHeader />
 
     <!-- 主内容区域：flex-1 自动填满 header 之外的剩余高度，避免魔数算高导致页面恒定溢出 -->
     <div
-      class="glass-strong flex-1 rounded-xl p-3 shadow-xl sm:rounded-2xl sm:p-4 md:rounded-3xl md:p-6"
+      class="glass-strong flex-1 rounded-xl p-2 shadow-xl sm:rounded-2xl sm:p-3 md:rounded-2xl md:p-4"
       style="z-index: 1"
     >
       <!-- 标签栏 -->

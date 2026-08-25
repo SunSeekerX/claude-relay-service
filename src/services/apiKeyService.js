@@ -1895,6 +1895,37 @@ class ApiKeyService {
     serviceTier = null,
     requestMeta = null
   ) {
+    // 重载：recordUsage(keyId, usageObject, model, accountId, accountType, serviceTier?, requestMeta?)
+    // usageObject 可含 input_tokens / image_count / audio_input_seconds 等，供媒体路由一次传入
+    let usageExtras = null
+    if (inputTokens && typeof inputTokens === 'object' && !Array.isArray(inputTokens)) {
+      const usageObject = inputTokens
+      usageExtras = usageObject
+      const maybeModel = outputTokens
+      const maybeAccountId = cacheCreateTokens
+      const maybeAccountType = cacheReadTokens
+      const maybeServiceTierOrMeta = model
+      const maybeMeta = accountId
+
+      inputTokens = usageObject.input_tokens || usageObject.prompt_tokens || 0
+      outputTokens = usageObject.output_tokens || usageObject.completion_tokens || 0
+      cacheCreateTokens =
+        usageObject.cache_creation_input_tokens || usageObject.cache_creation_tokens || 0
+      cacheReadTokens = usageObject.cache_read_input_tokens || usageObject.cache_read_tokens || 0
+      model = typeof maybeModel === 'string' ? maybeModel : 'unknown'
+      accountId = maybeAccountId || null
+      accountType = maybeAccountType || null
+
+      // 第 6 参可能是 serviceTier(string) 或 requestMeta(object)
+      if (maybeServiceTierOrMeta && typeof maybeServiceTierOrMeta === 'object') {
+        serviceTier = null
+        requestMeta = maybeServiceTierOrMeta
+      } else {
+        serviceTier = maybeServiceTierOrMeta || null
+        requestMeta = maybeMeta && typeof maybeMeta === 'object' ? maybeMeta : null
+      }
+    }
+
     // 计费要素提升到 try 外：catch 中完整记录（含 costRecorded 区分计费是否已落，供对账补账）
     let realCost = 0
     let ratedCost = 0
@@ -1905,12 +1936,48 @@ class ApiKeyService {
 
       // 计算费用
       const CostCalculator = require('../utils/costCalculator')
+      // billingUsage：按图张数/音频秒等非 token 计费量（由路由经 requestMeta 传入）
+      const billingUsage =
+        finalizedRequestMeta &&
+        finalizedRequestMeta.billingUsage &&
+        typeof finalizedRequestMeta.billingUsage === 'object'
+          ? finalizedRequestMeta.billingUsage
+          : null
+      // usage 对象重载里的非 token 字段也并入（image_count / video_input_seconds 等）
+      const usageUnitFields = {}
+      if (usageExtras && typeof usageExtras === 'object') {
+        for (const key of [
+          'image_count',
+          'num_images',
+          'output_images',
+          'input_image_count',
+          'input_images',
+          'request_count',
+          'num_requests',
+          'query_count',
+          'num_queries',
+          'audio_input_seconds',
+          'input_audio_seconds',
+          'audio_output_seconds',
+          'output_audio_seconds',
+          'video_input_seconds',
+          'input_video_seconds',
+          'video_output_seconds',
+          'output_video_seconds'
+        ]) {
+          if (usageExtras[key] != null && usageExtras[key] !== '') {
+            usageUnitFields[key] = usageExtras[key]
+          }
+        }
+      }
       const costInfo = CostCalculator.calculateCost(
         {
           input_tokens: inputTokens,
           output_tokens: outputTokens,
           cache_creation_input_tokens: cacheCreateTokens,
-          cache_read_input_tokens: cacheReadTokens
+          cache_read_input_tokens: cacheReadTokens,
+          ...usageUnitFields,
+          ...(billingUsage || {})
         },
         model,
         serviceTier
@@ -2137,7 +2204,16 @@ class ApiKeyService {
       }
       try {
         const CostCalculator = require('../utils/costCalculator')
-        const calculatedCost = CostCalculator.calculateCost(usageObject, model)
+        const billingUsage =
+          finalizedRequestMeta &&
+          finalizedRequestMeta.billingUsage &&
+          typeof finalizedRequestMeta.billingUsage === 'object'
+            ? finalizedRequestMeta.billingUsage
+            : null
+        const calculatedCost = CostCalculator.calculateCost(
+          billingUsage ? { ...usageObject, ...billingUsage } : usageObject,
+          model
+        )
         const costs = calculatedCost?.costs || {}
         const totalCost = Number(costs.total ?? calculatedCost?.totalCost ?? 0)
 

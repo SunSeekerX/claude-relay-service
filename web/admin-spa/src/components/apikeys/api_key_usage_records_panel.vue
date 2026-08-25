@@ -72,16 +72,11 @@
         </div>
 
         <div class="flex flex-wrap items-center gap-3">
-          <el-date-picker
+          <AppDateRangePicker
             v-model="filters.dateRange"
             class="w-full sm:w-[360px] lg:w-[390px]"
             clearable
-            end-placeholder="结束时间"
-            format="YYYY-MM-DD HH:mm:ss"
-            start-placeholder="开始时间"
-            type="datetimerange"
-            unlink-panels
-            value-format="YYYY-MM-DD HH:mm:ss"
+            value-
           />
 
           <div class="w-[180px]">
@@ -118,10 +113,8 @@
             />
           </div>
 
-          <el-button @click="resetFilters"> <i class="fas fa-undo mr-2" /> 重置 </el-button>
-          <el-button :loading="exporting" type="primary" @click="exportCsv">
-            <i class="fas fa-file-export mr-2" /> 导出 CSV
-          </el-button>
+          <button class="rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200" type="button" @click="resetFilters"><i class="fas fa-undo mr-2" />重置</button>
+          <button class="rounded-lg bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50" :disabled="exporting" type="button" @click="exportCsv"><i :class="['fas mr-2', exporting ? 'fa-spinner fa-spin' : 'fa-file-export']" />导出 CSV</button>
         </div>
       </div>
     </div>
@@ -249,7 +242,7 @@
                     {{ record.costFormatted || formatCost(record.cost) }}
                   </td>
                   <td class="whitespace-nowrap px-4 py-3 text-right text-sm">
-                    <el-button size="small" @click="openDetail(record)">详情</el-button>
+                    <button class="rounded-md border border-gray-200 px-2 py-1 text-sm text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800" type="button" @click="openDetail(record)">详情</button>
                   </td>
                 </tr>
               </tbody>
@@ -280,7 +273,7 @@
                     {{ record.accountTypeName || '未知渠道' }} · {{ record.model }}
                   </p>
                 </div>
-                <el-button size="small" @click="openDetail(record)">详情</el-button>
+                <button class="rounded-md border border-gray-200 px-2 py-1 text-sm text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800" type="button" @click="openDetail(record)">详情</button>
               </div>
               <div class="mt-3 grid grid-cols-2 gap-2 text-sm text-gray-700 dark:text-gray-300">
                 <div>输入：{{ formatNumber(record.inputTokens) }}</div>
@@ -299,11 +292,9 @@
             <div class="text-sm text-gray-500 dark:text-gray-400">
               共 {{ pagination.totalRecords }} 条记录
             </div>
-            <el-pagination
-              background
-              :current-page="pagination.currentPage"
-              layout="prev, pager, next, sizes"
-              :page-size="pagination.pageSize"
+            <AppPagination
+              v-model:current-page="pagination.currentPage"
+              v-model:page-size="pagination.pageSize"
               :page-sizes="[20, 50, 100, 200]"
               :total="pagination.totalRecords"
               @current-change="handlePageChange"
@@ -325,6 +316,8 @@ import dayjs from 'dayjs'
 import RecordDetailModal from '@/components/apikeys/RecordDetailModal.vue'
 import { showToast, formatNumber, formatDate } from '@/utils/tools'
 import { formatLocalDateTime } from '@/utils/time'
+import AppDateRangePicker from '@/components/common/AppDateRangePicker.vue'
+import AppPagination from '@/components/common/AppPagination.vue'
 
 const props = defineProps({
   keyId: {

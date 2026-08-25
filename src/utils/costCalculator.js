@@ -89,13 +89,31 @@ class CostCalculator {
       (usage.cache_creation_input_tokens || 0) +
       (usage.cache_read_input_tokens || 0)
 
+    const hasUnitUsage =
+      Number(usage.image_count) > 0 ||
+      Number(usage.num_images) > 0 ||
+      Number(usage.output_images) > 0 ||
+      Number(usage.input_image_count) > 0 ||
+      Number(usage.request_count) > 0 ||
+      Number(usage.query_count) > 0 ||
+      Number(usage.audio_input_seconds) > 0 ||
+      Number(usage.input_audio_seconds) > 0 ||
+      Number(usage.audio_output_seconds) > 0 ||
+      Number(usage.output_audio_seconds) > 0 ||
+      Number(usage.video_input_seconds) > 0 ||
+      Number(usage.input_video_seconds) > 0 ||
+      Number(usage.video_output_seconds) > 0 ||
+      Number(usage.output_video_seconds) > 0
+
     return (
       (usage.cache_creation && typeof usage.cache_creation === 'object') ||
       (typeof model === 'string' && model.includes('[1m]')) ||
       (typeof serviceTier === 'string' && serviceTier.trim() !== '') ||
       totalInputTokens > pricingService.minContextTierThreshold ||
       // Claude fast mode / 1M beta 信号只有详细分支认，漏判会整单丢掉倍率
-      pricingService.hasClaudeBillingSignal(usage)
+      pricingService.hasClaudeBillingSignal(usage) ||
+      // 按图/按次等非 token 量走详细分支，保证与 pricingService 单价字段一致
+      hasUnitUsage
     )
   }
 
@@ -198,6 +216,9 @@ class CostCalculator {
         cacheRead: result.cacheReadCost,
         ephemeral5m: result.ephemeral5mCost || 0,
         ephemeral1h: result.ephemeral1hCost || 0,
+        imageOutput: result.imageOutputCost || 0,
+        imageInput: result.imageInputCost || 0,
+        unit: result.unitCost || 0,
         total: result.totalCost
       },
       formatted: {
@@ -276,12 +297,63 @@ class CostCalculator {
       pricing = MODEL_PRICING[safeModel] || MODEL_PRICING['unknown']
     }
 
+    // 图片模型常见：只有 output_cost_per_image_token，无 output_cost_per_token
+    if ((!pricing.output || pricing.output === 0) && pricingData?.output_cost_per_image_token) {
+      pricing.output = pricingData.output_cost_per_image_token * 1000000
+    }
+    if ((!pricing.input || pricing.input === 0) && pricingData?.input_cost_per_image_token) {
+      pricing.input = pricingData.input_cost_per_image_token * 1000000
+    }
+
     const inputCost = (inputTokens / 1000000) * pricing.input
     const outputCost = (outputTokens / 1000000) * pricing.output
     const cacheWriteCost = (cacheCreateTokens / 1000000) * pricing.cacheWrite
     const cacheReadCost = (cacheReadTokens / 1000000) * pricing.cacheRead
 
-    const totalCost = inputCost + outputCost + cacheWriteCost + cacheReadCost
+    // 非 token 单价（与 pricingService._buildCostResult 对齐）
+    const countOf = (...keys) => {
+      for (const key of keys) {
+        const num = Number(usage[key])
+        if (Number.isFinite(num) && num > 0) return num
+      }
+      return 0
+    }
+    const imageOutCount = countOf('image_count', 'num_images', 'output_images')
+    const imageInCount = countOf('input_image_count', 'input_images')
+    const requestCount = countOf('request_count', 'num_requests')
+    const queryCount = countOf('query_count', 'num_queries')
+    const audioInSec = countOf('audio_input_seconds', 'input_audio_seconds')
+    const audioOutSec = countOf('audio_output_seconds', 'output_audio_seconds')
+    const videoInSec = countOf('video_input_seconds', 'input_video_seconds')
+    const videoOutSec = countOf('video_output_seconds', 'output_video_seconds')
+    const imageOutputCost = imageOutCount * (Number(pricingData?.output_cost_per_image) || 0)
+    const imageInputCost = imageInCount * (Number(pricingData?.input_cost_per_image) || 0)
+    const requestCost = requestCount * (Number(pricingData?.input_cost_per_request) || 0)
+    const queryCost = queryCount * (Number(pricingData?.input_cost_per_query) || 0)
+    const audioInputCost =
+      audioInSec *
+      (Number(pricingData?.input_cost_per_audio_per_second ?? pricingData?.input_cost_per_second) ||
+        0)
+    const audioOutputCost =
+      audioOutSec *
+      (Number(
+        pricingData?.output_cost_per_audio_per_second ?? pricingData?.output_cost_per_second
+      ) || 0)
+    const videoInputCost =
+      videoInSec * (Number(pricingData?.input_cost_per_video_per_second) || 0)
+    const videoOutputCost =
+      videoOutSec * (Number(pricingData?.output_cost_per_video_per_second) || 0)
+    const unitCost =
+      imageOutputCost +
+      imageInputCost +
+      requestCost +
+      queryCost +
+      audioInputCost +
+      audioOutputCost +
+      videoInputCost +
+      videoOutputCost
+
+    const totalCost = inputCost + outputCost + cacheWriteCost + cacheReadCost + unitCost
 
     return {
       model: safeModel,
@@ -292,6 +364,7 @@ class CostCalculator {
         outputTokens,
         cacheCreateTokens,
         cacheReadTokens,
+        imageOutCount,
         totalTokens: inputTokens + outputTokens + cacheCreateTokens + cacheReadTokens
       },
       costs: {
@@ -302,6 +375,9 @@ class CostCalculator {
         cacheRead: cacheReadCost,
         ephemeral5m: 0,
         ephemeral1h: 0,
+        imageOutput: imageOutputCost,
+        imageInput: imageInputCost,
+        unit: unitCost,
         total: totalCost
       },
       formatted: {
@@ -434,7 +510,152 @@ class CostCalculator {
    * @param {number} decimals - 小数位数
    * @returns {string} 格式化的费用字符串
    */
-  static formatCost(cost, decimals = 6) {
+
+  // 从模型用量聚合桶解析费用（支持混合桶）
+  // stats: tokens 合计 + realCostMicro/ratedCostMicro + costedRequests + costedXxxTokens
+  // 返回 { real, rated, total, source: recorded|hybrid|recalculated, costs, formatted }
+  static resolveModelStatsCost(stats, model = 'unknown') {
+    const toInt = (v) => parseInt(v, 10) || 0
+    const inputTokens = toInt(stats.inputTokens)
+    const outputTokens = toInt(stats.outputTokens)
+    const cacheCreateTokens = toInt(stats.cacheCreateTokens)
+    const cacheReadTokens = toInt(stats.cacheReadTokens)
+    const ephemeral5mTokens = toInt(stats.ephemeral5mTokens)
+    const ephemeral1hTokens = toInt(stats.ephemeral1hTokens)
+    const requests = toInt(stats.requests)
+    const realCostMicro = toInt(stats.realCostMicro)
+    const ratedCostMicro = toInt(stats.ratedCostMicro)
+    const costedRequests = toInt(stats.costedRequests)
+    const costedInputTokens = toInt(stats.costedInputTokens)
+    const costedOutputTokens = toInt(stats.costedOutputTokens)
+    const costedCacheCreateTokens = toInt(stats.costedCacheCreateTokens)
+    const costedCacheReadTokens = toInt(stats.costedCacheReadTokens)
+    const costedEphemeral5mTokens = toInt(stats.costedEphemeral5mTokens)
+    const costedEphemeral1hTokens = toInt(stats.costedEphemeral1hTokens)
+
+    const recordedReal = realCostMicro / 1000000
+    const recordedRated = ratedCostMicro > 0 ? ratedCostMicro / 1000000 : recordedReal
+    const hasMicro = realCostMicro > 0 || ratedCostMicro > 0
+    const totalTokenSum =
+      inputTokens + outputTokens + cacheCreateTokens + cacheReadTokens
+    const costedTokenSum =
+      costedInputTokens +
+      costedOutputTokens +
+      costedCacheCreateTokens +
+      costedCacheReadTokens +
+      costedEphemeral5mTokens +
+      costedEphemeral1hTokens
+
+    const buildUsage = (input, output, cacheCreate, cacheRead, eph5m, eph1h) => {
+      const usage = {
+        input_tokens: Math.max(0, input),
+        output_tokens: Math.max(0, output),
+        cache_creation_input_tokens: Math.max(0, cacheCreate),
+        cache_read_input_tokens: Math.max(0, cacheRead)
+      }
+      if (eph5m > 0 || eph1h > 0) {
+        usage.cache_creation = {
+          ephemeral_5m_input_tokens: Math.max(0, eph5m),
+          ephemeral_1h_input_tokens: Math.max(0, eph1h)
+        }
+      }
+      return usage
+    }
+
+    const pack = (real, rated, source, extra = {}) => ({
+      real,
+      rated,
+      total: real,
+      source,
+      formatted: { total: this.formatCost(real) },
+      pricing: extra.pricing || null,
+      costs: {
+        input: 0,
+        output: 0,
+        cacheCreate: 0,
+        cacheWrite: 0,
+        cacheRead: 0,
+        ephemeral5m: 0,
+        ephemeral1h: 0,
+        total: real,
+        real,
+        rated,
+        ...(extra.costs || {})
+      }
+    })
+
+    const fullRecalc = () => {
+      const result = this.calculateCost(
+        buildUsage(
+          inputTokens,
+          outputTokens,
+          cacheCreateTokens,
+          cacheReadTokens,
+          ephemeral5mTokens,
+          ephemeral1hTokens
+        ),
+        model
+      )
+      const total = result.costs.total
+      return pack(total, total, 'recalculated', {
+        pricing: result.pricing,
+        costs: result.costs
+      })
+    }
+
+    // 有 costed 标记（含纯媒体：costedRequests>0 且 costed token 全 0）→ 拆未结算 token
+    // 关键：历史文本无标记 + 新图片只写 micro/costedRequests → 不得整桶只认 micro
+    if (costedRequests > 0 || costedTokenSum > 0) {
+      let uncostedIn
+      let uncostedOut
+      let uncostedCc
+      let uncostedCr
+      let uncosted5m
+      let uncosted1h
+
+      if (costedTokenSum > 0) {
+        // 有 token 台账：未结算 = 合计 − 已结算
+        uncostedIn = Math.max(0, inputTokens - costedInputTokens)
+        uncostedOut = Math.max(0, outputTokens - costedOutputTokens)
+        uncostedCc = Math.max(0, cacheCreateTokens - costedCacheCreateTokens)
+        uncostedCr = Math.max(0, cacheReadTokens - costedCacheReadTokens)
+        uncosted5m = Math.max(0, ephemeral5mTokens - costedEphemeral5mTokens)
+        uncosted1h = Math.max(0, ephemeral1hTokens - costedEphemeral1hTokens)
+      } else {
+        // 纯媒体等「已结算但 0 token」：桶内全部 token 都是升级前未标记历史
+        uncostedIn = inputTokens
+        uncostedOut = outputTokens
+        uncostedCc = cacheCreateTokens
+        uncostedCr = cacheReadTokens
+        uncosted5m = ephemeral5mTokens
+        uncosted1h = ephemeral1hTokens
+      }
+
+      const uncostedTokenSum = uncostedIn + uncostedOut + uncostedCc + uncostedCr
+      let uncostedTotal = 0
+      if (uncostedTokenSum > 0 || uncosted5m > 0 || uncosted1h > 0) {
+        uncostedTotal = this.calculateCost(
+          buildUsage(uncostedIn, uncostedOut, uncostedCc, uncostedCr, uncosted5m, uncosted1h),
+          model
+        ).costs.total
+      }
+
+      const real = recordedReal + uncostedTotal
+      const rated = recordedRated + uncostedTotal
+      const source =
+        uncostedTokenSum > 0 || uncosted5m > 0 || uncosted1h > 0 ? 'hybrid' : 'recorded'
+      return pack(real, rated, source)
+    }
+
+    // 旧数据：只有 micro（当时 realCost>0 才写）→ 整桶按已存费用
+    if (hasMicro) {
+      return pack(recordedReal, recordedRated, 'recorded')
+    }
+
+    return fullRecalc()
+  }
+
+static formatCost(cost, decimals = 6) {
     if (cost >= 1) {
       return `$${cost.toFixed(2)}`
     } else if (cost >= 0.001) {

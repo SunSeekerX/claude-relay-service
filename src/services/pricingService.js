@@ -1,5 +1,9 @@
 const fs = require('fs')
 const path = require('path')
+const {
+  GROK_MEDIA_FALLBACK_PRICING,
+  resolveGrokMediaUnitPrices
+} = require('../constants/grok_media_pricing')
 const https = require('https')
 const http = require('http')
 const dns = require('dns')
@@ -10,6 +14,7 @@ const logger = require('../utils/logger')
 const redis = require('../models/redis')
 const { RedisKeys } = require('../constants/redisKeys')
 const { createEncryptor } = require('../utils/commonHelper')
+const { internalToLiteLLM, modelNameBasename } = require('../utils/model_pricing_convert')
 
 // 定价源 URL 的 query 可能带私有 token（私有仓库 raw 链接、带签名的 CDN 地址），
 // 按项目约定敏感值必须 AES 加密存储：落 Redis 时只加密 query，origin+path 保持明文以便运维排查。
@@ -1004,9 +1009,51 @@ class PricingService {
     }
   }
 
-  // 获取模型价格信息
+  // 解析内部完整计费模型（延迟 require 避免启动环依赖）
+  _getInternalBillingLiteLLM(modelName) {
+    if (!modelName) {
+      return null
+    }
+    try {
+      const modelService = require('./modelService')
+      const internal = modelService.getInternalBillingModel(modelName)
+      if (!internal) {
+        return null
+      }
+      const converted = internalToLiteLLM(internal)
+      if (!converted) {
+        return null
+      }
+      logger.debug(`💰 Using internal billing model for ${modelName}`)
+      return this.ensureCachePricing(converted)
+    } catch (error) {
+      logger.warn(`⚠️ Failed to resolve internal billing model for ${modelName}`)
+      console.error(error)
+      return null
+    }
+  }
+
+  // [人工决策-2026-08-24 20:52:04] 计费查价：内部完整模型整模优先，否则回落外部种子；禁止字段级 merge
   getModelPricing(modelName) {
-    if (!this.pricingData || !modelName) {
+    if (!modelName) {
+      return null
+    }
+
+    const internalPricing = this._getInternalBillingLiteLLM(modelName)
+    if (internalPricing) {
+      return internalPricing
+    }
+
+    // 区域前缀模型：先试去前缀的内部名
+    if (modelName.includes('.anthropic.') || modelName.includes('.claude')) {
+      const withoutRegion = modelName.replace(/^(us|eu|apac)\./, '')
+      const internalWithoutRegion = this._getInternalBillingLiteLLM(withoutRegion)
+      if (internalWithoutRegion) {
+        return internalWithoutRegion
+      }
+    }
+
+    if (!this.pricingData) {
       return null
     }
 
@@ -1014,6 +1061,23 @@ class PricingService {
     if (this.pricingData[modelName]) {
       logger.debug(`💰 Found exact pricing match for ${modelName}`)
       return this.pricingData[modelName]
+    }
+
+    // basename 双查（vendor/foo → foo）
+    const baseName = modelNameBasename(modelName)
+    if (baseName && baseName !== modelName && this.pricingData[baseName]) {
+      logger.debug(`💰 Found pricing for ${modelName} via basename: ${baseName}`)
+      return this.pricingData[baseName]
+    }
+    if (baseName && baseName !== modelName && GROK_MEDIA_FALLBACK_PRICING[baseName]) {
+      logger.debug(`💰 Using bundled Grok media fallback pricing for basename ${baseName}`)
+      return this.ensureCachePricing({ ...GROK_MEDIA_FALLBACK_PRICING[baseName] })
+    }
+
+    // Grok Imagine 媒体：LiteLLM 种子未收录时的官方价兜底（内部模型优先已在上方处理）
+    if (GROK_MEDIA_FALLBACK_PRICING[modelName]) {
+      logger.debug(`💰 Using bundled Grok media fallback pricing for ${modelName}`)
+      return this.ensureCachePricing({ ...GROK_MEDIA_FALLBACK_PRICING[modelName] })
     }
 
     // 特殊处理：gpt-5.5 回退到 gpt-5
@@ -1162,6 +1226,47 @@ class PricingService {
     return modelName.replace(/\[1m\]/gi, '').trim()
   }
 
+
+  // LiteLLM / Grok 分档 非 token 单价（$/张、$/次、$/秒）
+  // usage 可带 image_size/image_quality/video_resolution，用于 xAI 分档选价
+  _unitPricesFromPricing(pricing, usage = null) {
+    if (!pricing || typeof pricing !== 'object') {
+      return {
+        imageOutputPrice: 0,
+        imageInputPrice: 0,
+        requestPrice: 0,
+        queryPrice: 0,
+        audioInputPerSecond: 0,
+        audioOutputPerSecond: 0,
+        videoInputPerSecond: 0,
+        videoOutputPerSecond: 0
+      }
+    }
+    // Grok Imagine：仅当定价对象自身带分档表时按分辨率/质量选价
+    // （内部模型反转不会带回 metadata 里的 xai_*_tiers，避免盖掉管理员扁平改价）
+    if (pricing.xai_image_output_tiers || pricing.xai_video_output_tiers) {
+      return resolveGrokMediaUnitPrices(pricing, usage || {})
+    }
+    const num = (v) => {
+      const n = Number(v)
+      return Number.isFinite(n) && n >= 0 ? n : 0
+    }
+    return {
+      imageOutputPrice: num(pricing.output_cost_per_image),
+      imageInputPrice: num(pricing.input_cost_per_image),
+      requestPrice: num(pricing.input_cost_per_request),
+      queryPrice: num(pricing.input_cost_per_query),
+      audioInputPerSecond: num(
+        pricing.input_cost_per_audio_per_second ?? pricing.input_cost_per_second
+      ),
+      audioOutputPerSecond: num(
+        pricing.output_cost_per_audio_per_second ?? pricing.output_cost_per_second
+      ),
+      videoInputPerSecond: num(pricing.input_cost_per_video_per_second),
+      videoOutputPerSecond: num(pricing.output_cost_per_video_per_second)
+    }
+  }
+
   // 计算使用费用。serviceTier 为客户端请求/上游回包中的 OpenAI service_tier（priority/fast/flex 等）
   calculateCost(usage, modelName, serviceTier = null) {
     const normalizedModelName = this.stripLongContextSuffix(modelName)
@@ -1282,18 +1387,24 @@ class PricingService {
       // OpenAI 多数模型不单列 cache-write 价，出现 cache creation token 时按输入价兜底（与 costCalculator 同口径）
       const tieredCacheCreatePrice =
         tieredPrice('cache_creation_input_token_cost') || tieredInputPrice
+      const tieredOutputPrice =
+        tieredPrice('output_cost_per_token') || tieredPrice('output_cost_per_image_token') || 0
       return this._buildCostResult(usage, {
-        inputPrice: tieredInputPrice,
-        outputPrice: tieredPrice('output_cost_per_token'),
+        inputPrice: tieredInputPrice || tieredPrice('input_cost_per_image_token') || 0,
+        outputPrice: tieredOutputPrice,
         cacheCreatePrice: tieredCacheCreatePrice,
-        cacheReadPrice: tieredPrice('cache_read_input_token_cost'),
+        cacheReadPrice:
+          tieredPrice('cache_read_input_token_cost') ||
+          tieredPrice('cache_read_input_image_token_cost') ||
+          0,
         ephemeral1hPrice:
           tieredPrice('cache_creation_input_token_cost_above_1hr') || tieredCacheCreatePrice,
-        isLongContextRequest
+        isLongContextRequest,
+        ...this._unitPricesFromPricing(pricing, usage)
       })
     }
 
-    const baseInputPrice = pricing.input_cost_per_token || 0
+    const baseInputPrice = pricing.input_cost_per_token || pricing.input_cost_per_image_token || 0
     const hasInput200kPrice =
       pricing.input_cost_per_token_above_200k_tokens !== null &&
       pricing.input_cost_per_token_above_200k_tokens !== undefined
@@ -1308,7 +1419,9 @@ class PricingService {
           : baseInputPrice
       : baseInputPrice
 
-    const baseOutputPrice = pricing.output_cost_per_token || 0
+    // 图片模型常只有 output_cost_per_image_token，无 output_cost_per_token
+    const baseOutputPrice =
+      pricing.output_cost_per_token || pricing.output_cost_per_image_token || 0
     const hasOutput200kPrice =
       pricing.output_cost_per_token_above_200k_tokens !== null &&
       pricing.output_cost_per_token_above_200k_tokens !== undefined
@@ -1378,12 +1491,23 @@ class PricingService {
       cacheCreatePrice: actualCacheCreatePrice,
       cacheReadPrice: actualCacheReadPrice,
       ephemeral1hPrice: actualEphemeral1hPrice,
-      isLongContextRequest
+      isLongContextRequest,
+      ...this._unitPricesFromPricing(pricing, usage)
     })
   }
 
   // token 用量 × 单价 → 费用（纯函数）。单价由上游各档位分支算好后传入，
   // 缓存分桶口径收口在此，杜绝各分支各写一份
+  // 从 usage 取非负有限数量（张数/秒/次数）
+  _usageCount(usage, keys) {
+    if (!usage || typeof usage !== 'object') return 0
+    for (const key of keys) {
+      const num = Number(usage[key])
+      if (Number.isFinite(num) && num > 0) return num
+    }
+    return 0
+  }
+
   _buildCostResult(usage, prices) {
     const { inputPrice, outputPrice, cacheCreatePrice, cacheReadPrice, ephemeral1hPrice } = prices
     const inputCost = (usage.input_tokens || 0) * inputPrice
@@ -1406,6 +1530,34 @@ class PricingService {
 
     const cacheReadCost = (usage.cache_read_input_tokens || 0) * cacheReadPrice
 
+    // 非 token 单价：按图/请求/查询/音视频秒（usage 有量才计；路由需传入 image_count 等）
+    const imageOutCount = this._usageCount(usage, ['image_count', 'num_images', 'output_images'])
+    const imageInCount = this._usageCount(usage, ['input_image_count', 'input_images'])
+    const requestCount = this._usageCount(usage, ['request_count', 'num_requests'])
+    const queryCount = this._usageCount(usage, ['query_count', 'num_queries'])
+    const audioInSec = this._usageCount(usage, ['audio_input_seconds', 'input_audio_seconds'])
+    const audioOutSec = this._usageCount(usage, ['audio_output_seconds', 'output_audio_seconds'])
+    const videoInSec = this._usageCount(usage, ['video_input_seconds', 'input_video_seconds'])
+    const videoOutSec = this._usageCount(usage, ['video_output_seconds', 'output_video_seconds'])
+
+    const imageOutputCost = imageOutCount * (prices.imageOutputPrice || 0)
+    const imageInputCost = imageInCount * (prices.imageInputPrice || 0)
+    const requestCost = requestCount * (prices.requestPrice || 0)
+    const queryCost = queryCount * (prices.queryPrice || 0)
+    const audioInputCost = audioInSec * (prices.audioInputPerSecond || 0)
+    const audioOutputCost = audioOutSec * (prices.audioOutputPerSecond || 0)
+    const videoInputCost = videoInSec * (prices.videoInputPerSecond || 0)
+    const videoOutputCost = videoOutSec * (prices.videoOutputPerSecond || 0)
+    const unitCost =
+      imageOutputCost +
+      imageInputCost +
+      requestCost +
+      queryCost +
+      audioInputCost +
+      audioOutputCost +
+      videoInputCost +
+      videoOutputCost
+
     return {
       inputCost,
       outputCost,
@@ -1413,7 +1565,16 @@ class PricingService {
       cacheReadCost,
       ephemeral5mCost,
       ephemeral1hCost,
-      totalCost: inputCost + outputCost + cacheCreateCost + cacheReadCost,
+      imageOutputCost,
+      imageInputCost,
+      requestCost,
+      queryCost,
+      audioInputCost,
+      audioOutputCost,
+      videoInputCost,
+      videoOutputCost,
+      unitCost,
+      totalCost: inputCost + outputCost + cacheCreateCost + cacheReadCost + unitCost,
       hasPricing: true,
       isLongContextRequest: prices.isLongContextRequest === true,
       pricing: {
@@ -1421,7 +1582,11 @@ class PricingService {
         output: outputPrice,
         cacheCreate: cacheCreatePrice,
         cacheRead: cacheReadPrice,
-        ephemeral1h: ephemeral1hPrice
+        ephemeral1h: ephemeral1hPrice,
+        imageOutput: prices.imageOutputPrice || 0,
+        imageInput: prices.imageInputPrice || 0,
+        request: prices.requestPrice || 0,
+        query: prices.queryPrice || 0
       }
     }
   }
@@ -1444,11 +1609,50 @@ class PricingService {
   }
 
   // 获取服务状态。source 段回显当前生效源,供管理端展示"数据从哪来"
+  // 生效价表：外部种子为底，内部完整计费模型整模覆盖（不是字段 merge）
+  getEffectivePricingData() {
+    const seed = this.pricingData && typeof this.pricingData === 'object' ? this.pricingData : {}
+    const effective = { ...seed }
+    // 种子未收录的 Grok 媒体默认模型：补进生效价表，管理端可见、可导入内部
+    for (const [name, pricing] of Object.entries(GROK_MEDIA_FALLBACK_PRICING)) {
+      if (!effective[name]) {
+        effective[name] = { ...pricing }
+      }
+    }
+    try {
+      const modelService = require('./modelService')
+      for (const item of modelService.listInternalModels()) {
+        if (!item.hasBilling) {
+          continue
+        }
+        const record = modelService.getInternalBillingModel(item.id)
+        const converted = internalToLiteLLM(record)
+        if (converted) {
+          effective[item.id] = converted
+        }
+      }
+    } catch (error) {
+      logger.warn('⚠️ Failed to merge internal billing models into effective pricing')
+      console.error(error)
+    }
+    return effective
+  }
+
   getStatus() {
+    let internalBillingModels = 0
+    try {
+      const modelService = require('./modelService')
+      internalBillingModels = modelService.getStatus().internalBillingModels || 0
+    } catch (_error) {
+      internalBillingModels = 0
+    }
+    const effective = this.getEffectivePricingData()
     return {
       initialized: this.pricingData !== null,
       lastUpdated: this.lastUpdated,
-      modelCount: this.pricingData ? Object.keys(this.pricingData).length : 0,
+      modelCount: Object.keys(effective).length,
+      seedModelCount: this.pricingData ? Object.keys(this.pricingData).length : 0,
+      internalBillingModels,
       nextUpdate: this.lastUpdated
         ? new Date(this.lastUpdated.getTime() + this.updateInterval)
         : null,

@@ -1332,15 +1332,21 @@ async function handleImages(req, res) {
         })
       }
 
-      // 记录使用统计
-      if (usageData) {
+      // 记录使用统计：有图产出或有上游 usage 都落账。
+      // image_count 必须传入，否则仅配置了 output_cost_per_image 的模型会 0 元。
+      const producedImageCount = keys.length
+      if (usageData || producedImageCount > 0) {
         try {
-          const totalInputTokens = usageData.input_tokens || 0
-          const outputTokens = usageData.output_tokens || 0
-          const cacheReadTokens = extractOpenAICacheReadTokens(usageData)
+          const totalInputTokens = (usageData && usageData.input_tokens) || 0
+          const outputTokens = (usageData && usageData.output_tokens) || 0
+          const cacheReadTokens = usageData ? extractOpenAICacheReadTokens(usageData) : 0
           // 计算实际输入token（总输入减去缓存部分）
           const actualInputTokens = Math.max(0, totalInputTokens - cacheReadTokens)
-          const modelToRecord = actualModel || imageModel
+          // [计费模型] 必须用客户端请求的 gpt-image-*，禁止用上游桥接宿主 model（固定 gpt-5.4-mini）
+          // actualModel 仅日志；否则管理员配置的 gpt-image 内部价永远不生效
+          const modelToRecord = imageModel
+          // 张数：实际产出优先，否则回落请求 n
+          const imageCount = producedImageCount > 0 ? producedImageCount : n || 1
 
           const imageCosts = await apiKeyService.recordUsage(
             apiKeyData.id,
@@ -1355,12 +1361,13 @@ async function handleImages(req, res) {
             createRequestDetailMeta(req, {
               requestBody: req.body,
               stream: false,
-              statusCode: res.statusCode
+              statusCode: res.statusCode,
+              billingUsage: { image_count: imageCount }
             })
           )
 
           logger.info(
-            `📊 Recorded OpenAI images usage - Input: ${totalInputTokens}(actual:${actualInputTokens}+cached:${cacheReadTokens}), Output: ${outputTokens}, Model: ${modelToRecord}`
+            `📊 Recorded OpenAI images usage - Input: ${totalInputTokens}(actual:${actualInputTokens}+cached:${cacheReadTokens}), Output: ${outputTokens}, Images: ${imageCount}, BillModel: ${modelToRecord}, UpstreamModel: ${actualModel || '-'}`
           )
 
           await applyRateLimitTracking(

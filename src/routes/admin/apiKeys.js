@@ -1292,7 +1292,13 @@ async function calculateKeyStats(keyId, timeRange, startDate, endDate) {
         requests: 0,
         realCostMicro: 0,
         ratedCostMicro: 0,
-        hasStoredCost: false
+        costedRequests: 0,
+        costedInputTokens: 0,
+        costedOutputTokens: 0,
+        costedCacheCreateTokens: 0,
+        costedCacheReadTokens: 0,
+        costedEphemeral5mTokens: 0,
+        costedEphemeral1hTokens: 0
       })
     }
 
@@ -1308,13 +1314,15 @@ async function calculateKeyStats(keyId, timeRange, startDate, endDate) {
     stats.ephemeral1hTokens +=
       parseInt(data.totalEphemeral1hTokens) || parseInt(data.ephemeral1hTokens) || 0
     stats.requests += parseInt(data.totalRequests) || parseInt(data.requests) || 0
-
-    // 累加已存储的费用（微美元）
-    if ('realCostMicro' in data || 'ratedCostMicro' in data) {
-      stats.realCostMicro += parseInt(data.realCostMicro) || 0
-      stats.ratedCostMicro += parseInt(data.ratedCostMicro) || 0
-      stats.hasStoredCost = true
-    }
+    stats.realCostMicro += parseInt(data.realCostMicro) || 0
+    stats.ratedCostMicro += parseInt(data.ratedCostMicro) || 0
+    stats.costedRequests += parseInt(data.costedRequests) || 0
+    stats.costedInputTokens += parseInt(data.costedInputTokens) || 0
+    stats.costedOutputTokens += parseInt(data.costedOutputTokens) || 0
+    stats.costedCacheCreateTokens += parseInt(data.costedCacheCreateTokens) || 0
+    stats.costedCacheReadTokens += parseInt(data.costedCacheReadTokens) || 0
+    stats.costedEphemeral5mTokens += parseInt(data.costedEphemeral5mTokens) || 0
+    stats.costedEphemeral1hTokens += parseInt(data.costedEphemeral1hTokens) || 0
 
     totalRequests += parseInt(data.totalRequests) || parseInt(data.requests) || 0
   }
@@ -1333,30 +1341,9 @@ async function calculateKeyStats(keyId, timeRange, startDate, endDate) {
     cacheCreateTokens += stats.cacheCreateTokens
     cacheReadTokens += stats.cacheReadTokens
 
-    if (stats.hasStoredCost) {
-      // 使用请求时已计算并存储的费用（精确，包含 1M 上下文、特殊计费等）
-      totalRatedCost += stats.ratedCostMicro / 1000000
-      totalRealCost += stats.realCostMicro / 1000000
-    } else {
-      // Legacy fallback：旧数据没有存储费用，从 token 重算（不精确但聊胜于无）
-      const costUsage = {
-        input_tokens: stats.inputTokens,
-        output_tokens: stats.outputTokens,
-        cache_creation_input_tokens: stats.cacheCreateTokens,
-        cache_read_input_tokens: stats.cacheReadTokens
-      }
-
-      if (stats.ephemeral5mTokens > 0 || stats.ephemeral1hTokens > 0) {
-        costUsage.cache_creation = {
-          ephemeral_5m_input_tokens: stats.ephemeral5mTokens,
-          ephemeral_1h_input_tokens: stats.ephemeral1hTokens
-        }
-      }
-
-      const costResult = CostCalculator.calculateCost(costUsage, model)
-      totalRatedCost += costResult.costs.total
-      totalRealCost += costResult.costs.total
-    }
+    const resolved = CostCalculator.resolveModelStatsCost(stats, model)
+    totalRatedCost += resolved.rated
+    totalRealCost += resolved.real
   }
 
   const tokens = inputTokens + outputTokens + cacheCreateTokens + cacheReadTokens

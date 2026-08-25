@@ -177,7 +177,7 @@ export const calcViewportBottomReserve = (el, safety = 8) => {
 }
 
 // 防抖：延迟 wait 毫秒执行 fn，期间再次触发则重新计时；返回函数带 .cancel() 取消挂起的调用。
-// 替代 lodash-es 的 debounce（原为 element-plus 的间接依赖，直接引用会导致前端构建无法 resolve）
+// 替代 lodash-es 的 debounce（避免依赖会消失的间接包）
 export const debounce = (fn, wait = 300) => {
   let timer = null
   const debounced = (...args) => {

@@ -156,6 +156,20 @@ function attach(redisClient) {
     // 详细缓存类型统计
     pipeline.hincrby(modelDaily, 'ephemeral5mTokens', ephemeral5mTokens)
     pipeline.hincrby(modelDaily, 'ephemeral1hTokens', ephemeral1hTokens)
+    // 全局模型费用 + costed*（混合桶：已结算 micro + 未结算 token 差分重算）
+    pipeline.hincrby(modelDaily, 'costedRequests', 1)
+    pipeline.hincrby(modelDaily, 'costedInputTokens', finalInputTokens)
+    pipeline.hincrby(modelDaily, 'costedOutputTokens', finalOutputTokens)
+    pipeline.hincrby(modelDaily, 'costedCacheCreateTokens', finalCacheCreateTokens)
+    pipeline.hincrby(modelDaily, 'costedCacheReadTokens', finalCacheReadTokens)
+    pipeline.hincrby(modelDaily, 'costedEphemeral5mTokens', ephemeral5mTokens)
+    pipeline.hincrby(modelDaily, 'costedEphemeral1hTokens', ephemeral1hTokens)
+    if (realCost > 0) {
+      pipeline.hincrby(modelDaily, 'realCostMicro', Math.round(realCost * 1000000))
+    }
+    if (ratedCost > 0) {
+      pipeline.hincrby(modelDaily, 'ratedCostMicro', Math.round(ratedCost * 1000000))
+    }
 
     // 按模型统计 - 每月
     pipeline.hincrby(modelMonthly, 'inputTokens', finalInputTokens)
@@ -167,6 +181,19 @@ function attach(redisClient) {
     // 详细缓存类型统计
     pipeline.hincrby(modelMonthly, 'ephemeral5mTokens', ephemeral5mTokens)
     pipeline.hincrby(modelMonthly, 'ephemeral1hTokens', ephemeral1hTokens)
+    pipeline.hincrby(modelMonthly, 'costedRequests', 1)
+    pipeline.hincrby(modelMonthly, 'costedInputTokens', finalInputTokens)
+    pipeline.hincrby(modelMonthly, 'costedOutputTokens', finalOutputTokens)
+    pipeline.hincrby(modelMonthly, 'costedCacheCreateTokens', finalCacheCreateTokens)
+    pipeline.hincrby(modelMonthly, 'costedCacheReadTokens', finalCacheReadTokens)
+    pipeline.hincrby(modelMonthly, 'costedEphemeral5mTokens', ephemeral5mTokens)
+    pipeline.hincrby(modelMonthly, 'costedEphemeral1hTokens', ephemeral1hTokens)
+    if (realCost > 0) {
+      pipeline.hincrby(modelMonthly, 'realCostMicro', Math.round(realCost * 1000000))
+    }
+    if (ratedCost > 0) {
+      pipeline.hincrby(modelMonthly, 'ratedCostMicro', Math.round(ratedCost * 1000000))
+    }
 
     // API Key级别的模型统计 - 每日
     pipeline.hincrby(keyModelDaily, 'inputTokens', finalInputTokens)
@@ -178,6 +205,14 @@ function attach(redisClient) {
     // 详细缓存类型统计
     pipeline.hincrby(keyModelDaily, 'ephemeral5mTokens', ephemeral5mTokens)
     pipeline.hincrby(keyModelDaily, 'ephemeral1hTokens', ephemeral1hTokens)
+    // 权威结算标记（含 $0）：costed* 与 total 差分可拆「已结算 / 未结算」混合桶
+    pipeline.hincrby(keyModelDaily, 'costedRequests', 1)
+    pipeline.hincrby(keyModelDaily, 'costedInputTokens', finalInputTokens)
+    pipeline.hincrby(keyModelDaily, 'costedOutputTokens', finalOutputTokens)
+    pipeline.hincrby(keyModelDaily, 'costedCacheCreateTokens', finalCacheCreateTokens)
+    pipeline.hincrby(keyModelDaily, 'costedCacheReadTokens', finalCacheReadTokens)
+    pipeline.hincrby(keyModelDaily, 'costedEphemeral5mTokens', ephemeral5mTokens)
+    pipeline.hincrby(keyModelDaily, 'costedEphemeral1hTokens', ephemeral1hTokens)
     // 费用统计（使用整数存储，单位：微美元，1美元=1000000微美元）
     if (realCost > 0) {
       pipeline.hincrby(keyModelDaily, 'realCostMicro', Math.round(realCost * 1000000))
@@ -196,6 +231,13 @@ function attach(redisClient) {
     // 详细缓存类型统计
     pipeline.hincrby(keyModelMonthly, 'ephemeral5mTokens', ephemeral5mTokens)
     pipeline.hincrby(keyModelMonthly, 'ephemeral1hTokens', ephemeral1hTokens)
+    pipeline.hincrby(keyModelMonthly, 'costedRequests', 1)
+    pipeline.hincrby(keyModelMonthly, 'costedInputTokens', finalInputTokens)
+    pipeline.hincrby(keyModelMonthly, 'costedOutputTokens', finalOutputTokens)
+    pipeline.hincrby(keyModelMonthly, 'costedCacheCreateTokens', finalCacheCreateTokens)
+    pipeline.hincrby(keyModelMonthly, 'costedCacheReadTokens', finalCacheReadTokens)
+    pipeline.hincrby(keyModelMonthly, 'costedEphemeral5mTokens', ephemeral5mTokens)
+    pipeline.hincrby(keyModelMonthly, 'costedEphemeral1hTokens', ephemeral1hTokens)
     // 费用统计
     if (realCost > 0) {
       pipeline.hincrby(keyModelMonthly, 'realCostMicro', Math.round(realCost * 1000000))
@@ -214,6 +256,13 @@ function attach(redisClient) {
     // 详细缓存类型统计
     pipeline.hincrby(keyModelAlltime, 'ephemeral5mTokens', ephemeral5mTokens)
     pipeline.hincrby(keyModelAlltime, 'ephemeral1hTokens', ephemeral1hTokens)
+    pipeline.hincrby(keyModelAlltime, 'costedRequests', 1)
+    pipeline.hincrby(keyModelAlltime, 'costedInputTokens', finalInputTokens)
+    pipeline.hincrby(keyModelAlltime, 'costedOutputTokens', finalOutputTokens)
+    pipeline.hincrby(keyModelAlltime, 'costedCacheCreateTokens', finalCacheCreateTokens)
+    pipeline.hincrby(keyModelAlltime, 'costedCacheReadTokens', finalCacheReadTokens)
+    pipeline.hincrby(keyModelAlltime, 'costedEphemeral5mTokens', ephemeral5mTokens)
+    pipeline.hincrby(keyModelAlltime, 'costedEphemeral1hTokens', ephemeral1hTokens)
     // 费用统计
     if (realCost > 0) {
       pipeline.hincrby(keyModelAlltime, 'realCostMicro', Math.round(realCost * 1000000))
@@ -255,6 +304,13 @@ function attach(redisClient) {
     // 详细缓存类型统计
     pipeline.hincrby(keyModelHourly, 'ephemeral5mTokens', ephemeral5mTokens)
     pipeline.hincrby(keyModelHourly, 'ephemeral1hTokens', ephemeral1hTokens)
+    pipeline.hincrby(keyModelHourly, 'costedRequests', 1)
+    pipeline.hincrby(keyModelHourly, 'costedInputTokens', finalInputTokens)
+    pipeline.hincrby(keyModelHourly, 'costedOutputTokens', finalOutputTokens)
+    pipeline.hincrby(keyModelHourly, 'costedCacheCreateTokens', finalCacheCreateTokens)
+    pipeline.hincrby(keyModelHourly, 'costedCacheReadTokens', finalCacheReadTokens)
+    pipeline.hincrby(keyModelHourly, 'costedEphemeral5mTokens', ephemeral5mTokens)
+    pipeline.hincrby(keyModelHourly, 'costedEphemeral1hTokens', ephemeral1hTokens)
     // 费用统计
     if (realCost > 0) {
       pipeline.hincrby(keyModelHourly, 'realCostMicro', Math.round(realCost * 1000000))

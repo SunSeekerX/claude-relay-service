@@ -1,46 +1,33 @@
 const logger = require('../utils/logger')
 const redis = require('../models/redis')
 const { RedisKeys, LIMITS } = require('../constants/redisKeys')
-
-// litellm_provider -> OpenAI /v1/models 的 owned_by。
-// 纯函数:输入 litellm 的 provider 字符串,输出归一名;未识别的原样返回
-const normalizeProvider = (litellmProvider) => {
-  // 类型防御：定价源是管理端可配的任意远端 JSON（系统边界），
-  // litellm_provider 可能是数字/数组/对象。直接调 .startsWith() 会抛 TypeError，
-  // 让「可导入模型」接口 500、管理页整块加载失败。
-  if (typeof litellmProvider !== 'string' || !litellmProvider) {
-    return 'imported'
-  }
-  // vertex_ai-language-models / vertex_ai-embedding-models 等一律归 google
-  if (litellmProvider.startsWith('vertex_ai')) {
-    return 'google'
-  }
-  const alias = {
-    gemini: 'google',
-    'text-completion-openai': 'openai'
-  }
-  return alias[litellmProvider] || litellmProvider
-}
-
-// 只导入对话类模型:embedding/audio/image 走不同的请求形态,放进 /v1/models 会误导客户端
-const IMPORTABLE_MODES = new Set(['chat', 'responses', 'completion'])
+const {
+  cleanModelName,
+  modelNameBasename,
+  normalizeProvider,
+  litellmToInternalModel,
+  emptyInternalModel,
+  hasBillingPricing,
+  assertAndSanitizePricing,
+  sanitizeMetadataForStore,
+  isImportableMode
+} = require('../utils/model_pricing_convert')
 
 /**
  * 模型服务
- * 管理系统支持的 AI 模型列表
- * 与 pricingService 独立，专注于"支持哪些模型"而不是"如何计费"
+ * - 内置模型目录（/v1/models）
+ * - 内部计费模型（从定价种子导入的完整模型数据，可编辑；有则计费优先）
+ *
+ * [人工决策-2026-08-24 20:52:04] 内部模型存完整记录（llysc 对齐的 pricing 结构），不是字段覆盖。
+ * 外部 model_pricing.json 只作种子；计费/用户可见价：内部有完整 pricing 则用内部，否则回落种子。
  */
 class ModelService {
   constructor() {
     this.supportedModels = this.getDefaultModels()
-    // 管理端从定价源导入的模型(modelId -> { provider })。
-    // L1 内存快照,权威源在 Redis system:imported_models;条目有 LIMITS.importedModels 上界。
+    // modelId -> 完整内部模型记录（或旧版瘦记录 {provider,mode,importedAt}）
     this.importedModels = new Map()
   }
 
-  /**
-   * 初始化模型服务
-   */
   async initialize() {
     await this.loadImportedModels()
 
@@ -48,42 +35,43 @@ class ModelService {
       (sum, config) => sum + config.models.length,
       0
     )
+    const billingCount = [...this.importedModels.values()].filter((record) =>
+      hasBillingPricing(record)
+    ).length
     logger.success(
-      `Model service initialized with ${totalModels} built-in + ${this.importedModels.size} imported models`
+      `Model service initialized with ${totalModels} built-in + ${this.importedModels.size} internal models (${billingCount} with billing pricing)`
     )
   }
 
-  /**
-   * 从 Redis 载入导入的模型目录。
-   * Redis 不可用时留空即可——内置列表照常可用,不为此中断启动
-   */
   async loadImportedModels() {
     try {
       const client = redis.getClient()
       if (!client) {
-        logger.warn('⚠️ Redis 未连接，跳过导入模型目录加载')
+        logger.warn('⚠️ Redis 未连接，跳过内部模型目录加载')
         return
       }
       const stored = await client.hgetall(RedisKeys.importedModels)
       this.importedModels = new Map()
       for (const [modelId, raw] of Object.entries(stored || {})) {
         try {
-          this.importedModels.set(modelId, JSON.parse(raw))
+          const parsed = JSON.parse(raw)
+          // 兼容旧瘦记录：补 name，无 pricing 则不计费优先
+          if (parsed && typeof parsed === 'object' && !parsed.name) {
+            parsed.name = modelId
+          }
+          this.importedModels.set(modelId, parsed)
         } catch (error) {
-          logger.warn(`⚠️ 导入模型条目解析失败，跳过 modelId=${modelId}`)
+          logger.warn(`⚠️ 内部模型条目解析失败，跳过 modelId=${modelId}`)
           console.error(error)
         }
       }
-      logger.info(`📋 已载入 ${this.importedModels.size} 个导入模型`)
+      logger.info(`📋 已载入 ${this.importedModels.size} 个内部模型`)
     } catch (error) {
-      logger.error('❌ 载入导入模型目录失败:', error)
+      logger.error('❌ 载入内部模型目录失败:', error)
       console.error(error)
     }
   }
 
-  /**
-   * 获取支持的模型配置
-   */
   getDefaultModels() {
     return {
       claude: {
@@ -134,9 +122,16 @@ class ModelService {
     }
   }
 
-  /**
-   * 获取所有支持的模型（OpenAI API 格式）
-   */
+  getBuiltInModelIds() {
+    const builtIn = new Set()
+    for (const config of Object.values(this.supportedModels)) {
+      for (const modelId of config.models) {
+        builtIn.add(modelId)
+      }
+    }
+    return builtIn
+  }
+
   getAllModels() {
     const models = []
     const now = Math.floor(Date.now() / 1000)
@@ -154,7 +149,6 @@ class ModelService {
       }
     }
 
-    // 叠加导入模型:内置项优先,同名不重复(内置的 provider 归类更准)
     for (const [modelId, meta] of this.importedModels) {
       if (seen.has(modelId)) {
         continue
@@ -169,7 +163,6 @@ class ModelService {
     }
 
     return models.sort((a, b) => {
-      // 先按 provider 排序，再按 model id 排序
       if (a.owned_by !== b.owned_by) {
         return a.owned_by.localeCompare(b.owned_by)
       }
@@ -177,59 +170,124 @@ class ModelService {
     })
   }
 
-  /**
-   * 按 provider 获取模型
-   * @param {string} provider - 'anthropic', 'openai', 'google' 等
-   */
   getModelsByProvider(provider) {
-    return this.getAllModels().filter((m) => m.owned_by === provider)
+    return this.getAllModels().filter((model) => model.owned_by === provider)
   }
 
-  /**
-   * 检查模型是否被支持
-   * @param {string} modelId - 模型 ID
-   */
   isModelSupported(modelId) {
     if (!modelId) {
       return false
     }
-    return this.getAllModels().some((m) => m.id === modelId)
+    return this.getAllModels().some((model) => model.id === modelId)
   }
 
-  /**
-   * 获取模型的 provider
-   * @param {string} modelId - 模型 ID
-   */
   getModelProvider(modelId) {
-    const model = this.getAllModels().find((m) => m.id === modelId)
+    const model = this.getAllModels().find((item) => item.id === modelId)
     return model ? model.owned_by : null
   }
 
+  // 取内部完整计费记录（无完整 pricing 返回 null，计费回落种子）
+  getInternalBillingModel(modelName) {
+    if (!modelName) {
+      return null
+    }
+    let record = this.importedModels.get(modelName)
+    if (!hasBillingPricing(record)) {
+      // 全名未命中时试 basename（兼容历史只存 basename 的内部模型）
+      const base = modelNameBasename(modelName)
+      if (base && base !== modelName) {
+        record = this.importedModels.get(base)
+      }
+    }
+    if (!hasBillingPricing(record)) {
+      return null
+    }
+    return record
+  }
+
+  // 列出全部内部模型（含瘦记录），管理端用
+  listInternalModels() {
+    return [...this.importedModels.entries()]
+      .map(([id, record]) => ({
+        id,
+        name: record.name || id,
+        provider: record.provider || 'imported',
+        mode: record.mode || 'chat',
+        modelGroup: record.modelGroup || null,
+        deprecationDate: record.deprecationDate || null,
+        maxInputTokens: record.maxInputTokens ?? null,
+        maxOutputTokens: record.maxOutputTokens ?? null,
+        pricing: record.pricing || null,
+        capabilities: record.capabilities || null,
+        hasBilling: hasBillingPricing(record),
+        importedAt: record.importedAt || null,
+        updatedAt: record.updatedAt || null
+      }))
+      .sort((a, b) => {
+        if (a.provider !== b.provider) {
+          return a.provider.localeCompare(b.provider)
+        }
+        return a.id.localeCompare(b.id)
+      })
+  }
+
+  getInternalModel(modelId) {
+    let record = this.importedModels.get(modelId)
+    if (!record) {
+      const base = modelNameBasename(modelId)
+      if (base && base !== modelId) {
+        record = this.importedModels.get(base)
+      }
+    }
+    if (!record) {
+      return null
+    }
+    return {
+      id: modelId,
+      name: record.name || modelId,
+      provider: record.provider || 'imported',
+      mode: record.mode || 'chat',
+      modelGroup: record.modelGroup || null,
+      deprecationDate: record.deprecationDate || null,
+      maxInputTokens: record.maxInputTokens ?? null,
+      maxOutputTokens: record.maxOutputTokens ?? null,
+      pricing: record.pricing || null,
+      capabilities: record.capabilities || null,
+      metadata: record.metadata || null,
+      hasBilling: hasBillingPricing(record),
+      importedAt: record.importedAt || null,
+      updatedAt: record.updatedAt || null
+    }
+  }
+
   /**
-   * 列出定价源里「可导入」的模型:定价数据有、但当前目录还没有的对话类模型。
-   * 管理端据此挑选后调 importModels —— 对应 llysc 的「远端导入模型」流程。
+   * 可导入：种子里有、内部还没有完整计费数据的对话类模型。
+   * 已有瘦记录（旧版只进目录）也算可导入，导入会升级为完整计费模型。
    */
   listImportableModels(pricingData) {
-    const existing = new Set(this.getAllModels().map((m) => m.id))
     const candidates = []
 
     for (const [modelId, meta] of Object.entries(pricingData || {})) {
       if (!meta || typeof meta !== 'object') {
         continue
       }
-      if (!IMPORTABLE_MODES.has(meta.mode)) {
+      if (!isImportableMode(meta.mode)) {
         continue
       }
-      if (existing.has(modelId)) {
+      const existing = this.importedModels.get(modelId)
+      if (hasBillingPricing(existing)) {
         continue
       }
+      // 内置名也允许导入完整计费数据（覆盖仅目录语义，计费用内部）
       candidates.push({
         id: modelId,
         provider: normalizeProvider(meta.litellm_provider),
         mode: meta.mode,
         maxTokens: meta.max_tokens || null,
+        maxInputTokens: meta.max_input_tokens ?? null,
         inputCostPerToken: meta.input_cost_per_token ?? null,
-        outputCostPerToken: meta.output_cost_per_token ?? null
+        outputCostPerToken: meta.output_cost_per_token ?? null,
+        upgrade: !!existing && !hasBillingPricing(existing)
       })
     }
 
@@ -242,52 +300,49 @@ class ModelService {
   }
 
   /**
-   * 导入指定模型到目录(写 Redis + 刷内存)。
-   * 幂等:已存在的跳过;内置已有的不导入(内置优先)
+   * 从定价种子导入完整模型数据（整模写入，不是字段覆盖）
+   * 幂等：已有完整计费数据的跳过；瘦记录会被升级
    */
   async importModels(modelIds, pricingData) {
     if (!Array.isArray(modelIds) || modelIds.length === 0) {
       throw new Error('请至少选择一个模型')
     }
 
-    const builtIn = new Set()
-    for (const config of Object.values(this.supportedModels)) {
-      for (const modelId of config.models) {
-        builtIn.add(modelId)
-      }
-    }
-
     const toWrite = {}
     const skipped = []
-    // 非对话类模型被服务端拒收,与"已存在跳过"区分开,便于管理端看清原因
     const rejected = []
+    const upgraded = []
     const now = new Date().toISOString()
 
     for (const modelId of new Set(modelIds)) {
-      const trimmed = String(modelId || '').trim()
+      const trimmed = cleanModelName(modelId)
       if (!trimmed) {
         continue
       }
-      if (builtIn.has(trimmed) || this.importedModels.has(trimmed)) {
-        skipped.push(trimmed)
-        continue
-      }
-      const meta = pricingData?.[trimmed]
+      const meta = pricingData?.[trimmed] || pricingData?.[modelId]
       if (!meta) {
         skipped.push(trimmed)
         continue
       }
-      // 服务端复验 mode：listImportableModels 的过滤是给界面用的，
-      // 接口可被直接调用，不能只信入参——否则 embedding/audio/image 会被写进目录并暴露给客户端
-      if (!IMPORTABLE_MODES.has(meta.mode)) {
+      if (!isImportableMode(meta.mode)) {
         rejected.push(trimmed)
         continue
       }
-      toWrite[trimmed] = JSON.stringify({
-        provider: normalizeProvider(meta.litellm_provider),
-        mode: meta.mode || 'chat',
-        importedAt: now
-      })
+      const existing = this.importedModels.get(trimmed)
+      if (hasBillingPricing(existing)) {
+        skipped.push(trimmed)
+        continue
+      }
+
+      const internal = litellmToInternalModel(trimmed, meta)
+      // 批量导入同样消毒 metadata，禁止外部价源敏感字段原样进 Redis
+      internal.metadata = sanitizeMetadataForStore(internal.metadata)
+      internal.importedAt = existing?.importedAt || now
+      internal.updatedAt = now
+      toWrite[trimmed] = JSON.stringify(internal)
+      if (existing && !hasBillingPricing(existing)) {
+        upgraded.push(trimmed)
+      }
     }
 
     const writeCount = Object.keys(toWrite).length
@@ -297,82 +352,182 @@ class ModelService {
         imported: 0,
         skipped: skipped.length,
         rejected: rejected.length,
+        upgraded: 0,
         message: `没有可导入的新模型${reason}`
       }
     }
 
-    // 确认真有要写的再取连接:纯参数问题不该表现为"Redis 未连接"
     const client = redis.getClientSafe()
 
-    if (this.importedModels.size + writeCount > LIMITS.importedModels) {
+    // 已有条目升级不增加条数
+    const newKeys = Object.keys(toWrite).filter((key) => !this.importedModels.has(key))
+    if (this.importedModels.size + newKeys.length > LIMITS.importedModels) {
       throw new Error(
         `导入后将超过模型目录上限 ${LIMITS.importedModels}（当前 ${this.importedModels.size}）`
       )
     }
 
-    // 单次 hset 批量写入,不在循环里逐条往返
     await client.hset(RedisKeys.importedModels, toWrite)
     await this.loadImportedModels()
 
     logger.info(
-      `📋 导入模型 ${writeCount} 个，跳过 ${skipped.length} 个，拒收 ${rejected.length} 个非对话类`
+      `📋 导入内部计费模型 ${writeCount} 个（升级 ${upgraded.length}），跳过 ${skipped.length}，拒收 ${rejected.length}`
     )
     const rejectedNote = rejected.length > 0 ? `，拒收 ${rejected.length} 个非对话类模型` : ''
+    const upgradeNote = upgraded.length > 0 ? `，升级 ${upgraded.length} 个旧目录项` : ''
     return {
       imported: writeCount,
       skipped: skipped.length,
       rejected: rejected.length,
-      message: `导入 ${writeCount} 个，跳过 ${skipped.length} 个${rejectedNote}`
+      upgraded: upgraded.length,
+      message: `导入 ${writeCount} 个完整计费模型，跳过 ${skipped.length} 个${upgradeNote}${rejectedNote}`
     }
   }
 
   /**
-   * 移除导入的模型(只能删导入项,内置列表不可删)
+   * 整模保存（创建或替换）。body 必须是完整内部模型，不是字段 patch。
    */
+  async saveInternalModel(modelInput) {
+    if (!modelInput || typeof modelInput !== 'object') {
+      throw new Error('模型数据无效')
+    }
+    const name = cleanModelName(modelInput.name || modelInput.id)
+    if (!name) {
+      throw new Error('模型名称不能为空')
+    }
+    if (!modelInput.pricing || typeof modelInput.pricing !== 'object') {
+      throw new Error('pricing 不能为空，请提交完整模型数据')
+    }
+    // 校验数字字段，禁止 abc/NaN 抢占种子价
+    const sanitizedPricing = assertAndSanitizePricing(modelInput.pricing)
+
+    const now = new Date().toISOString()
+    const existing = this.importedModels.get(name)
+    const record = {
+      name,
+      provider: modelInput.provider || existing?.provider || 'imported',
+      mode: modelInput.mode || existing?.mode || 'chat',
+      modelGroup: modelInput.modelGroup ?? existing?.modelGroup ?? null,
+      deprecationDate: modelInput.deprecationDate ?? existing?.deprecationDate ?? null,
+      maxInputTokens:
+        modelInput.maxInputTokens !== undefined
+          ? modelInput.maxInputTokens
+          : (existing?.maxInputTokens ?? null),
+      maxOutputTokens:
+        modelInput.maxOutputTokens !== undefined
+          ? modelInput.maxOutputTokens
+          : (existing?.maxOutputTokens ?? null),
+      // 整模替换 pricing / capabilities
+      pricing: sanitizedPricing,
+      capabilities: modelInput.capabilities ?? existing?.capabilities ?? {},
+      metadata:
+        modelInput.metadata !== undefined
+          ? sanitizeMetadataForStore(modelInput.metadata)
+          : (existing?.metadata ?? null),
+      hasBilling: true,
+      importedAt: existing?.importedAt || now,
+      updatedAt: now
+    }
+
+    const client = redis.getClientSafe()
+    if (!existing && this.importedModels.size + 1 > LIMITS.importedModels) {
+      throw new Error(`超过模型目录上限 ${LIMITS.importedModels}`)
+    }
+
+    await client.hset(RedisKeys.importedModels, name, JSON.stringify(record))
+    this.importedModels.set(name, record)
+    logger.info(`📋 保存内部计费模型 name=${name}`)
+    return this.getInternalModel(name)
+  }
+
+  async createInternalModel(modelInput) {
+    const name = cleanModelName(modelInput?.name || modelInput?.id)
+    if (!name) {
+      throw new Error('模型名称不能为空')
+    }
+    if (this.importedModels.has(name) && hasBillingPricing(this.importedModels.get(name))) {
+      throw new Error(`模型已存在: ${name}`)
+    }
+    const base = emptyInternalModel(name)
+    return this.saveInternalModel({
+      ...base,
+      ...modelInput,
+      name,
+      pricing: modelInput?.pricing || base.pricing
+    })
+  }
+
+  /**
+   * 从种子 LiteLLM 条目构建完整内部模型（不落库），供前端编辑弹窗预填。
+   * 走 litellmToInternalModel，保证分段/Priority/多模态不丢。
+   */
+  buildFromSeed(modelName, pricingData, { asCopy = false } = {}) {
+    const trimmed = cleanModelName(modelName)
+    if (!trimmed) throw new Error('模型名称不能为空')
+    const meta = pricingData?.[trimmed] || pricingData?.[modelName]
+    if (!meta || typeof meta !== 'object') {
+      throw new Error(`种子价表中没有模型: ${trimmed}`)
+    }
+    const internal = litellmToInternalModel(trimmed, meta)
+    if (asCopy) {
+      internal.name = `${internal.name}-copy`
+    }
+    // 返回编辑器可用形态
+    return {
+      name: internal.name,
+      provider: internal.provider,
+      mode: internal.mode,
+      modelGroup: internal.modelGroup,
+      deprecationDate: internal.deprecationDate,
+      maxInputTokens: internal.maxInputTokens,
+      maxOutputTokens: internal.maxOutputTokens,
+      pricing: internal.pricing,
+      capabilities: internal.capabilities || {},
+      metadata: sanitizeMetadataForStore(internal.metadata || meta),
+      hasBilling: true
+    }
+  }
+
   async removeImportedModels(modelIds) {
     if (!Array.isArray(modelIds) || modelIds.length === 0) {
       throw new Error('请至少选择一个模型')
     }
 
-    const targets = [...new Set(modelIds.map((id) => String(id || '').trim()))].filter(
+    const targets = [...new Set(modelIds.map((id) => cleanModelName(id)))].filter(
       (id) => id && this.importedModels.has(id)
     )
 
     if (targets.length === 0) {
-      return { removed: 0, message: '没有可移除的导入模型' }
+      return { removed: 0, message: '没有可移除的内部模型' }
     }
 
     const client = redis.getClientSafe()
-
-    // 一条 hdel 删完,不逐条往返
     await client.hdel(RedisKeys.importedModels, ...targets)
     await this.loadImportedModels()
 
-    logger.info(`📋 移除导入模型 ${targets.length} 个`)
+    logger.info(`📋 移除内部模型 ${targets.length} 个`)
     return { removed: targets.length, message: `已移除 ${targets.length} 个模型` }
   }
 
-  /**
-   * 获取服务状态
-   */
   getStatus() {
     const totalModels = Object.values(this.supportedModels).reduce(
       (sum, config) => sum + config.models.length,
       0
     )
+    const billingCount = [...this.importedModels.values()].filter((record) =>
+      hasBillingPricing(record)
+    ).length
 
     return {
       initialized: true,
       builtInModels: totalModels,
       importedModels: this.importedModels.size,
+      internalBillingModels: billingCount,
       totalModels: this.getAllModels().length,
       providers: Object.keys(this.supportedModels)
     }
   }
 
-  /**
-   * 清理资源（保留接口兼容性）
-   */
   cleanup() {
     logger.debug('📋 Model service cleanup (no-op)')
   }

@@ -65,21 +65,10 @@
 
               <!-- 自定义日期范围选择器 - 在选择自定义时显示 -->
               <div v-if="globalDateFilter.type === 'custom'" class="flex items-center">
-                <el-date-picker
-                  class="api-key-date-picker custom-date-range-picker"
+                <AppDateRangePicker
                   :clearable="true"
-                  :default-time="defaultTime"
-                  :disabled-date="disabledDate"
-                  end-placeholder="结束日期"
-                  format="YYYY-MM-DD HH:mm:ss"
                   :model-value="globalDateFilter.customRange"
-                  range-separator="至"
-                  size="small"
-                  start-placeholder="开始日期"
                   style="width: 320px; height: 38px"
-                  type="datetimerange"
-                  :unlink-panels="false"
-                  value-format="YYYY-MM-DD HH:mm:ss"
                   @update:model-value="onGlobalCustomDateRangeChange"
                 />
               </div>
@@ -1042,21 +1031,11 @@
                                 </div>
 
                                 <!-- Element Plus 日期范围选择器 -->
-                                <el-date-picker
+                                <AppDateRangePicker
                                   class="api-key-date-picker"
                                   :clearable="true"
-                                  :default-time="defaultTime"
-                                  :disabled-date="disabledDate"
-                                  end-placeholder="结束日期"
-                                  format="YYYY-MM-DD HH:mm:ss"
                                   :model-value="getApiKeyDateFilter(key.id).customRange"
-                                  range-separator="至"
-                                  size="small"
-                                  start-placeholder="开始日期"
                                   style="width: 280px"
-                                  type="datetimerange"
-                                  :unlink-panels="false"
-                                  value-format="YYYY-MM-DD HH:mm:ss"
                                   @update:model-value="
                                     (value) => onApiKeyCustomDateRangeChange(key.id, value)
                                   "
@@ -1710,7 +1689,6 @@
                     accent="blue"
                     :options="pageSizeOptions"
                     placeholder="条数"
-                    size="sm"
                   />
                 </div>
                 <span class="text-sm text-gray-600 dark:text-gray-400 sm:text-sm">条</span>
@@ -2205,7 +2183,6 @@
                       accent="blue"
                       :options="pageSizeOptions"
                       placeholder="条数"
-                      size="sm"
                     />
                   </div>
                   <span class="text-sm text-gray-600 dark:text-gray-400 sm:text-sm">条</span>
@@ -2367,6 +2344,7 @@ import TagManagementModal from '@/components/apikeys/TagManagementModal.vue'
 import LimitProgressBar from '@/components/apikeys/LimitProgressBar.vue'
 import CustomDropdown from '@/components/common/CustomDropdown.vue'
 import ConfirmModal from '@/components/common/ConfirmModal.vue'
+import AppDateRangePicker from '@/components/common/AppDateRangePicker.vue'
 
 // 响应式数据
 const authStore = useAuthStore()
@@ -5422,26 +5400,7 @@ onUnmounted(() => {
   }
 }
 
-.api-key-date-picker :deep(.el-input__inner) {
-  @apply border-gray-300 bg-white focus:border-blue-500 focus:ring-blue-500;
-}
 
-.api-key-date-picker :deep(.el-range-separator) {
-  @apply text-gray-500;
-}
 
 /* 自定义日期范围选择器高度对齐 */
-.custom-date-range-picker :deep(.el-input__wrapper) {
-  @apply h-[38px] rounded-lg border border-gray-200 bg-white shadow-sm transition-all duration-200 hover:border-gray-300 hover:shadow-md dark:border-gray-600 dark:bg-gray-800;
-}
-.custom-date-range-picker :deep(.el-input__inner) {
-  @apply h-full py-2 text-sm font-medium text-gray-700 dark:text-gray-200;
-}
-.custom-date-range-picker :deep(.el-input__prefix),
-.custom-date-range-picker :deep(.el-input__suffix) {
-  @apply flex items-center;
-}
-.custom-date-range-picker :deep(.el-range-separator) {
-  @apply mx-2 text-gray-500;
-}
 </style>

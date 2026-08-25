@@ -1,17 +1,17 @@
 <template>
-  <el-dialog
-    :append-to-body="true"
-    class="request-detail-modal"
-    :close-on-click-modal="false"
-    :destroy-on-close="true"
-    :fullscreen="isMobileViewport"
-    :model-value="show"
-    :show-close="false"
-    top="6vh"
-    width="960px"
-    @close="emitClose"
-  >
-    <template #header>
+  <ModalTransition>
+    <div
+      v-if="show"
+      class="request-detail-modal fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-2 pt-[6vh] sm:p-4"
+      @click.self="emitClose"
+    >
+      <div
+        :class="[
+          'modal-content w-full rounded-2xl bg-white shadow-xl dark:bg-gray-900',
+          isMobileViewport ? 'min-h-[100dvh] max-w-none rounded-none' : 'max-w-[960px]'
+        ]"
+      >
+    <div class="border-b border-gray-200 px-5 py-4 dark:border-gray-700">
       <div class="flex flex-wrap items-start justify-between gap-3 sm:flex-nowrap sm:items-center">
         <div class="min-w-0 flex-1">
           <h3 class="text-lg font-bold text-gray-900 dark:text-gray-100">
@@ -22,17 +22,29 @@
           </p>
         </div>
         <div class="flex items-center gap-2 self-start sm:self-center">
-          <el-tag v-if="detail" effect="dark" :type="statusTagType(detail.statusCode)">
+          <span
+            v-if="detail"
+            :class="[
+              'rounded-full px-2 py-0.5 text-sm font-semibold text-white',
+              statusTagType(detail.statusCode) === 'success'
+                ? 'bg-green-600'
+                : statusTagType(detail.statusCode) === 'warning'
+                  ? 'bg-amber-500'
+                  : statusTagType(detail.statusCode) === 'danger'
+                    ? 'bg-red-600'
+                    : 'bg-gray-600'
+            ]"
+          >
             {{ detail.statusCode || 200 }}
-          </el-tag>
+          </span>
           <button aria-label="关闭" class="modal-close-button" type="button" @click="emitClose">
             <i class="fas fa-times" />
           </button>
         </div>
       </div>
-    </template>
+    </div>
 
-    <div v-loading="loading" class="space-y-4">
+    <div class="relative space-y-4 px-5 py-4" :class="{ 'opacity-60': loading }">
       <div
         v-if="!loading && !detail"
         class="rounded-xl border border-dashed border-gray-300 p-8 text-center text-sm text-gray-500 dark:border-gray-700 dark:text-gray-400"
@@ -185,9 +197,9 @@
         >
           <div class="mb-3 flex items-center justify-between gap-3">
             <h4 class="section-title mb-0">Request Body 快照</h4>
-            <el-button v-if="hasRequestBodySnapshot" size="small" @click="copySnapshot">
+            <button v-if="hasRequestBodySnapshot" class="rounded-md border border-gray-200 px-2 py-1 text-sm text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-200" type="button" @click="copySnapshot">
               复制 JSON
-            </el-button>
+            </button>
           </div>
           <div v-if="hasRequestBodySnapshot" class="snapshot-panel">
             <pre>{{ formattedSnapshot }}</pre>
@@ -207,11 +219,14 @@
         </div>
       </template>
     </div>
-  </el-dialog>
+  </div>
+    </div>
+  </ModalTransition>
 </template>
 
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import ModalTransition from '@/components/common/ModalTransition.vue'
 import { getRequestDetailApi } from '@/utils/http_apis'
 import { showToast, formatNumber } from '@/utils/tools'
 import { formatLocalDateTime } from '@/utils/time'
@@ -474,51 +489,8 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
-.request-detail-modal :deep(.el-dialog) {
-  width: min(960px, calc(100vw - 32px));
-  max-width: calc(100vw - 32px);
-  margin: 0 auto;
-  overflow: hidden;
-  border-radius: 24px;
-}
 
-.request-detail-modal :deep(.el-dialog__header) {
-  margin: 0;
-  padding: 18px 20px 0;
-  position: sticky;
-  top: 0;
-  z-index: 3;
-  background: rgba(255, 255, 255, 0.98);
-  backdrop-filter: blur(10px);
-}
 
-.dark .request-detail-modal :deep(.el-dialog__header) {
-  background: rgba(17, 24, 39, 0.98);
-}
-
-.request-detail-modal :deep(.el-dialog__body) {
-  padding: 12px 20px 20px;
-  max-height: min(78vh, 920px);
-  overflow-y: auto;
-}
-
-.request-detail-modal :deep(.el-dialog.is-fullscreen) {
-  width: 100vw !important;
-  max-width: none;
-  height: 100vh;
-  margin: 0;
-  border-radius: 0;
-}
-
-.request-detail-modal :deep(.el-dialog.is-fullscreen .el-dialog__header) {
-  padding: 14px 16px 0;
-}
-
-.request-detail-modal :deep(.el-dialog.is-fullscreen .el-dialog__body) {
-  padding: 12px 16px 24px;
-  max-height: none;
-  height: calc(100vh - 76px);
-}
 
 .modal-close-button {
   display: inline-flex;
@@ -634,15 +606,8 @@ onBeforeUnmount(() => {
 }
 
 @media (max-width: 767px) {
-  .request-detail-modal :deep(.el-dialog__header) {
-    padding: 14px 16px 0;
-  }
-
-  .request-detail-modal :deep(.el-dialog__body) {
-    padding: 12px 16px 20px;
-    max-height: calc(100vh - 88px);
-  }
-
+  
+  
   .info-card {
     padding: 14px;
   }

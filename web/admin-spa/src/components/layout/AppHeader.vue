@@ -1,10 +1,10 @@
 <template>
   <!-- 顶部导航 -->
   <div
-    class="glass-strong mb-6 rounded-xl p-3 shadow-xl sm:rounded-2xl sm:p-4 md:mb-8 md:rounded-3xl md:p-6"
+    class="glass-strong mb-3 rounded-xl p-2 shadow-xl sm:rounded-2xl sm:p-3 md:mb-4 md:rounded-2xl md:p-4"
     style="z-index: 10; position: relative"
   >
-    <div class="flex flex-col items-center justify-between gap-3 sm:flex-row sm:gap-4">
+    <div class="flex flex-col items-center justify-between gap-2 sm:flex-row sm:gap-3">
       <div
         class="flex w-full items-center justify-center gap-2 sm:w-auto sm:justify-start sm:gap-3 md:gap-4"
       >

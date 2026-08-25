@@ -152,7 +152,6 @@ desktop.ini
 *.backup.*
 .env.backup.*
 config.js.backup.*
-*~
 
 # Archive files (unless specifically needed)
 *.7z
@@ -194,7 +193,6 @@ grafana/
 
 # Test files and coverage
 test-results/
-coverage/
 .nyc_output/
 
 # Documentation build
@@ -232,7 +230,6 @@ uploads/
 files/
 
 # Cache directories
-.cache/
 cache/
 
 # Build artifacts
@@ -251,3 +248,9 @@ web/apiStats/
 web/admin-spa/dist/
 
 .serena/
+
+# local prod ssh password for dev_tools
+dev_tools/.prod_ssh_pass
+
+# dev_tools local secrets
+dev_tools/.env

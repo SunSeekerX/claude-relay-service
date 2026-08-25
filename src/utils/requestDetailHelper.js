@@ -572,7 +572,7 @@ function createRequestDetailMeta(req, overrides = {}) {
   const effectiveStart = requestStartedAt ?? reqStartedAt
   const requestBody = overrides.requestBody !== undefined ? overrides.requestBody : req?.body
 
-  return {
+  const meta = {
     requestId: overrides.requestId || req?.requestId || null,
     endpoint: overrides.endpoint || getRequestEndpoint(req),
     method: overrides.method || req?.method || null,
@@ -585,6 +585,11 @@ function createRequestDetailMeta(req, overrides = {}) {
     requestStartedAt: effectiveStart ? new Date(effectiveStart).toISOString() : null,
     requestBody
   }
+  // 计费附加量（按图张数/音频秒等），仅透传给 recordUsage → calculateCost，不进请求体快照语义
+  if (overrides.billingUsage && typeof overrides.billingUsage === 'object') {
+    meta.billingUsage = overrides.billingUsage
+  }
+  return meta
 }
 
 function finalizeRequestDetailMeta(requestMeta = null) {
