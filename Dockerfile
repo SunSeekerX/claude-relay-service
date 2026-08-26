@@ -1,32 +1,44 @@
-# 🎯 后端依赖阶段 (与前端构建并行)
+# 后端依赖阶段 (与前端构建并行)
 FROM node:24-alpine AS backend-deps
 
 WORKDIR /app
 
+# Docker/CI 无 TTY：pnpm 禁止交互确认（含 modules 目录清理）
+ENV CI=true
+
 RUN corepack enable && corepack prepare pnpm@11.24.0 --activate
 
-COPY package.json pnpm-lock.yaml ./
+# pnpm-workspace.yaml 必须与 lock 同步进层：配置差异会触发 verify-deps 重装
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 
+# package-import-method=copy：store 在 cache mount 上时硬链接跨挂载点不可靠
 RUN --mount=type=cache,target=/root/.local/share/pnpm/store \
-    pnpm install --frozen-lockfile --prod
+    pnpm config set package-import-method copy \
+    && pnpm install --frozen-lockfile --prod
 
-# 🎯 前端构建阶段 (与后端依赖并行)
+# 前端构建阶段 (与后端依赖并行)
 FROM node:24-alpine AS frontend-builder
 
 WORKDIR /app/web/admin-spa
 
+ENV CI=true
+
 RUN corepack enable && corepack prepare pnpm@11.24.0 --activate
 
-COPY web/admin-spa/package.json web/admin-spa/pnpm-lock.yaml ./
+COPY web/admin-spa/package.json web/admin-spa/pnpm-lock.yaml web/admin-spa/pnpm-workspace.yaml ./
 
 RUN --mount=type=cache,target=/root/.local/share/pnpm/store \
-    pnpm install --frozen-lockfile
+    pnpm config set package-import-method copy \
+    && pnpm install --frozen-lockfile
 
 COPY web/admin-spa/ ./
 
-RUN pnpm run build
+# 源码 COPY 后可能触发 deps 校验；带 store cache + CI 再 ensure 一次再 build
+RUN --mount=type=cache,target=/root/.local/share/pnpm/store \
+    pnpm install --frozen-lockfile \
+    && pnpm run build
 
-# 🐳 主应用阶段
+# 主应用阶段
 FROM node:24-alpine
 
 LABEL org.opencontainers.image.source="https://github.com/SunSeekerX/claude-relay-service"
