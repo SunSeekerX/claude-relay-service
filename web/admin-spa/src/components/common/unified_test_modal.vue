@@ -1,0 +1,626 @@
+<template>
+  <ModalTransition>
+    <div
+      v-if="show"
+      class="fixed inset-0 z-[1050] flex items-center justify-center bg-gray-900/40 backdrop-blur-sm"
+    >
+      <div class="absolute inset-0" @click="handleClose" />
+      <div
+        class="modal-panel relative z-10 mx-3 flex w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-gray-200/70 bg-white/95 shadow-2xl ring-1 ring-black/5 transition-all dark:border-gray-700/60 dark:bg-gray-900/95 dark:ring-white/10 sm:mx-4"
+      >
+        <!-- 顶部栏 -->
+        <div
+          class="flex items-center justify-between border-b border-gray-100 bg-white/80 px-5 py-4 backdrop-blur dark:border-gray-800 dark:bg-gray-900/80"
+        >
+          <div class="flex items-center gap-3">
+            <div
+              :class="[
+                'flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl text-white shadow-lg',
+                headerIconBgClass
+              ]"
+            >
+              <i
+                :class="[
+                  state.testStatus.value === 'idle'
+                    ? 'i-lucide-flask-conical'
+                    : state.testStatus.value === 'testing'
+                      ? 'i-lucide-loader-circle animate-spin'
+                      : state.testStatus.value === 'success'
+                        ? 'i-lucide-check'
+                        : 'i-lucide-x'
+                ]"
+              />
+            </div>
+            <div>
+              <h3 class="text-lg font-semibold text-gray-900 dark:text-gray-100">
+                {{ modalTitle }}
+              </h3>
+              <p class="text-sm text-gray-500 dark:text-gray-400">
+                {{ modalSubtitle }}
+              </p>
+            </div>
+          </div>
+          <button
+            class="flex h-9 w-9 items-center justify-center rounded-full bg-gray-100 text-gray-500 transition hover:bg-gray-200 hover:text-gray-700 dark:bg-gray-800 dark:text-gray-400 dark:hover:bg-gray-700 dark:hover:text-gray-200"
+            :disabled="state.testStatus.value === 'testing'"
+            @click="handleClose"
+          >
+            <i class="i-lucide-x text-sm" />
+          </button>
+        </div>
+
+        <!-- 内容区域 -->
+        <div class="max-h-[70vh] overflow-y-auto px-5 py-4">
+          <!-- [apikey] API Key 显示 -->
+          <div v-if="mode === 'apikey'" class="mb-4">
+            <label class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
+              API Key
+            </label>
+            <div class="relative">
+              <input
+                class="form-input w-full"
+                readonly
+                type="text"
+                :value="maskedApiKey"
+              />
+              <div class="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400">
+                <i class="i-lucide-lock text-sm" />
+              </div>
+            </div>
+          </div>
+
+          <!-- 测试信息 -->
+          <div class="mb-4 space-y-2">
+            <!-- [account] 平台类型 -->
+            <div v-if="mode === 'account'" class="flex items-center justify-between text-sm">
+              <span class="text-gray-500 dark:text-gray-400">平台类型</span>
+              <span
+                :class="[
+                  'inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-sm font-medium',
+                  platformBadgeClass
+                ]"
+              >
+                <i :class="platformIcon" />
+                {{ platformLabel }}
+              </span>
+            </div>
+            <!-- [account+bedrock] 凭证类型 -->
+            <div
+              v-if="mode === 'account' && account?.platform === 'bedrock'"
+              class="flex items-center justify-between text-sm"
+            >
+              <span class="text-gray-500 dark:text-gray-400">账号类型</span>
+              <span
+                :class="[
+                  'inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-sm font-medium',
+                  credentialTypeBadgeClass
+                ]"
+              >
+                <i :class="credentialTypeIcon" />
+                {{ credentialTypeLabel }}
+              </span>
+            </div>
+            <!-- [apikey] 测试端点 -->
+            <div v-if="mode === 'apikey'" class="flex items-center justify-between text-sm">
+              <span class="text-gray-500 dark:text-gray-400">测试端点</span>
+              <span
+                class="inline-flex items-center gap-1.5 rounded-full bg-blue-100 px-2.5 py-0.5 text-sm font-medium text-blue-700 dark:bg-blue-500/20 dark:text-blue-300"
+              >
+                <i class="i-lucide-link" />
+                {{ apikeyServiceConfig.displayEndpoint }}
+              </span>
+            </div>
+            <!-- 测试模型（两种模式都有） -->
+            <div class="text-sm">
+              <div class="mb-1 flex items-center justify-between">
+                <span class="text-gray-500 dark:text-gray-400">测试模型</span>
+                <ModelSelector
+                  v-model="selectedModel"
+                  :disabled="state.testStatus.value === 'testing'"
+                  :models="availableModels"
+                />
+              </div>
+              <div class="text-right text-sm text-gray-400 dark:text-gray-500">
+                {{ selectedModel }}
+              </div>
+            </div>
+            <!-- [apikey] 最大输出 Token -->
+            <div v-if="mode === 'apikey'" class="text-sm">
+              <div class="mb-1 flex items-center justify-between gap-3">
+                <span class="text-gray-500 dark:text-gray-400">最大输出 Token</span>
+                <div class="w-28">
+                  <CustomDropdown
+                    v-model="maxTokens"
+                    accent="blue"
+                    :options="maxTokensOptions"
+                    placeholder="Token"
+                    size="sm"
+                  />
+                </div>
+              </div>
+            </div>
+            <!-- [apikey] 测试服务 -->
+            <div v-if="mode === 'apikey'" class="flex items-center justify-between text-sm">
+              <span class="text-gray-500 dark:text-gray-400">测试服务</span>
+              <span class="font-medium text-gray-700 dark:text-gray-300">
+                {{ apikeyServiceConfig.name }}
+              </span>
+            </div>
+          </div>
+
+          <!-- [apikey] 提示词输入 -->
+          <div v-if="mode === 'apikey'" class="mb-4">
+            <label class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
+              提示词
+            </label>
+            <textarea
+              v-model="testPrompt"
+              class="form-input w-full"
+              placeholder="输入测试提示词..."
+              rows="2"
+            />
+          </div>
+
+          <!-- 状态指示 -->
+          <div
+            :class="[
+              'mb-4 rounded-xl border p-4 transition-all duration-300',
+              state.statusCardClass.value
+            ]"
+          >
+            <div class="flex items-center gap-3">
+              <div
+                :class="[
+                  'flex h-8 w-8 items-center justify-center rounded-lg',
+                  state.statusIconBgClass.value
+                ]"
+              >
+                <i :class="['text-sm', state.statusIcon.value, state.statusIconClass.value]" />
+              </div>
+              <div>
+                <p :class="['font-medium', state.statusTextClass.value]">
+                  {{ state.statusTitle.value }}
+                </p>
+                <p class="text-sm text-gray-500 dark:text-gray-400">{{ statusDescription }}</p>
+              </div>
+            </div>
+          </div>
+
+          <!-- 响应内容区域 -->
+          <div
+            v-if="state.testStatus.value !== 'idle'"
+            class="mb-4 overflow-hidden rounded-xl border border-gray-200 bg-gray-50 dark:border-gray-700 dark:bg-gray-800/50"
+          >
+            <div
+              class="flex items-center justify-between border-b border-gray-200 bg-gray-100 px-3 py-2 dark:border-gray-700 dark:bg-gray-800"
+            >
+              <span class="text-sm font-medium text-gray-600 dark:text-gray-400">AI 响应</span>
+              <span
+                v-if="state.responseText.value"
+                class="text-sm text-gray-500 dark:text-gray-500"
+              >
+                {{ state.responseText.value.length }} 字符
+              </span>
+            </div>
+            <div class="max-h-40 overflow-y-auto p-3">
+              <p
+                v-if="state.responseText.value"
+                class="whitespace-pre-wrap text-sm text-gray-700 dark:text-gray-300"
+              >
+                {{ state.responseText.value }}
+                <span
+                  v-if="state.testStatus.value === 'testing'"
+                  class="inline-block h-4 w-1 animate-pulse bg-blue-500"
+                />
+              </p>
+              <p
+                v-else-if="state.testStatus.value === 'testing'"
+                class="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400"
+              >
+                <i class="i-lucide-loader-circle animate-spin" />
+                等待响应中...
+              </p>
+              <p
+                v-else-if="state.testStatus.value === 'error' && state.errorMessage.value"
+                class="text-sm text-red-600 dark:text-red-400"
+              >
+                {{ state.errorMessage.value }}
+              </p>
+            </div>
+          </div>
+
+          <!-- 测试时间 -->
+          <div
+            v-if="state.testDuration.value > 0"
+            class="mb-4 flex items-center justify-center gap-2 text-sm text-gray-500 dark:text-gray-400"
+          >
+            <i class="i-lucide-clock" />
+            <span>耗时 {{ (state.testDuration.value / 1000).toFixed(2) }} 秒</span>
+          </div>
+        </div>
+
+        <!-- 底部操作栏 -->
+        <div
+          class="flex items-center justify-end gap-3 border-t border-gray-100 bg-gray-50/80 px-5 py-3 dark:border-gray-800 dark:bg-gray-900/50"
+        >
+          <button
+            class="rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm font-medium text-gray-700 shadow-sm transition hover:bg-gray-50 hover:shadow dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
+            :disabled="state.testStatus.value === 'testing'"
+            @click="handleClose"
+          >
+            关闭
+          </button>
+          <button
+            :class="[
+              'flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium shadow-sm transition',
+              state.testStatus.value === 'testing' || disableTest
+                ? 'cursor-not-allowed bg-gray-200 text-gray-400 dark:bg-gray-700 dark:text-gray-500'
+                : 'bg-gradient-to-r from-blue-500 to-indigo-500 text-white hover:from-blue-600 hover:to-indigo-600 hover:shadow-md'
+            ]"
+            :disabled="state.testStatus.value === 'testing' || disableTest"
+            @click="startTest"
+          >
+            <i
+              :class="[
+                state.testStatus.value === 'testing' ? 'i-lucide-loader-circle animate-spin' : 'i-lucide-play'
+              ]"
+            />
+            {{
+              state.testStatus.value === 'testing'
+                ? '测试中...'
+                : state.testStatus.value === 'idle'
+                  ? '开始测试'
+                  : '重新测试'
+            }}
+          </button>
+        </div>
+      </div>
+    </div>
+  </ModalTransition>
+</template>
+
+<script setup>
+import { ref, computed, watch, onMounted } from 'vue'
+import ModalTransition from '@/components/common/modal_transition.vue'
+import CustomDropdown from '@/components/common/custom_dropdown.vue'
+import { APP_CONFIG } from '@/libs/tools'
+import { getModelsApi } from '@/libs/http_apis'
+import { useTestState } from '@/libs/use_test_state'
+import ModelSelector from '@/components/common/model_selector.vue'
+
+const props = defineProps({
+  show: { type: Boolean, default: false },
+  mode: { type: String, default: 'account' }, // 'account' | 'apikey'
+  // account 模式
+  account: { type: Object, default: null },
+  // apikey 模式
+  apiKeyValue: { type: String, default: '' },
+  apiKeyName: { type: String, default: '' },
+  serviceType: { type: String, default: 'claude' }
+})
+
+const emit = defineEmits(['close'])
+const state = useTestState()
+
+// ========== 模型相关 ==========
+const selectedModel = ref('')
+const modelsFromApi = ref({
+  claude: [],
+  gemini: [],
+  openai: [],
+  platforms: {},
+  defaultModels: null
+})
+
+// 后台配置的默认测试模型（account 模式按平台，apikey 模式按服务）
+const configuredDefault = computed(() => {
+  const cfg = modelsFromApi.value.defaultModels
+  if (!cfg) return null
+  if (props.mode === 'account') {
+    return cfg.account?.[props.account?.platform] || null
+  }
+  return cfg.apikey?.[props.serviceType] || null
+})
+
+// 标记模型配置是否已成功加载（弹窗常驻挂载、onMounted 只跑一次，失败需在打开时重试）
+const modelsLoaded = ref(false)
+
+const loadModels = async () => {
+  const result = await getModelsApi()
+  if (result.success && result.data) {
+    modelsFromApi.value = result.data
+    modelsLoaded.value = true
+  }
+}
+
+onMounted(loadModels)
+
+// 把默认模型钉在列表首位（保证可选中、是默认值、"返回列表"也回到它）
+const pinDefaultModel = (list, defaultModel, defaultLabel) => {
+  if (!defaultModel) return list
+  const rest = list.filter((m) => m.value !== defaultModel)
+  const head = list.find((m) => m.value === defaultModel) || {
+    value: defaultModel,
+    label: defaultLabel || defaultModel
+  }
+  return [head, ...rest]
+}
+
+const availableModels = computed(() => {
+  if (props.mode === 'account') {
+    const platform = props.account?.platform
+    if (!platform) return []
+    // azure-openai 使用 deploymentName（AccountsView 标准化成 azure_openai，两种写法都兼容）
+    if (platform === 'azure-openai' || platform === 'azure_openai') {
+      return [{ value: props.account.deploymentName, label: props.account.deploymentName }]
+    }
+    const list = modelsFromApi.value.platforms?.[platform] || []
+    // 后台配置了默认模型则钉到首位（defaultModel 取 models[0] 即用它）
+    return pinDefaultModel(list, configuredDefault.value)
+  }
+  // apikey 模式: 仅用后台配置的默认置顶（未加载时无默认、列表为空，由 watch 在加载后回填）
+  const list = modelsFromApi.value[props.serviceType] || []
+  return pinDefaultModel(list, configuredDefault.value)
+})
+
+const defaultModel = computed(() => {
+  // azure 用账户的 deploymentName（不在测试模型配置内）
+  const accountPlatform = props.account?.platform
+  if (
+    props.mode === 'account' &&
+    (accountPlatform === 'azure-openai' || accountPlatform === 'azure_openai')
+  ) {
+    return props.account?.deploymentName || ''
+  }
+  // 其余取已加载列表首项（后台配置默认已置顶）；未加载时为空，由 watch 在加载后回填
+  // 不保留任何前端硬编码 fallback：避免在 /apiStats/models 返回前把旧默认绕过后端发出
+  return availableModels.value[0]?.value || ''
+})
+
+// ========== apikey 模式专用 ==========
+const testPrompt = ref('hi')
+const maxTokens = ref(1000)
+const maxTokensOptions = [
+  { value: 100, label: '100' },
+  { value: 500, label: '500' },
+  { value: 1000, label: '1000' },
+  { value: 2000, label: '2000' },
+  { value: 4096, label: '4096' }
+]
+
+// 默认模型不在此硬编码：统一由后台"测试模型"配置（/apiStats/models 的 defaultModels）提供
+const apikeyServiceConfigs = {
+  claude: {
+    name: 'Claude',
+    endpoint: '/api-key/test',
+    displayEndpoint: '/api/v1/messages'
+  },
+  gemini: {
+    name: 'Gemini',
+    endpoint: '/api-key/test-gemini',
+    displayEndpoint: '/gemini/v1/models/:model:streamGenerateContent'
+  },
+  openai: {
+    name: 'OpenAI (Codex)',
+    endpoint: '/api-key/test-openai',
+    displayEndpoint: '/openai/responses'
+  }
+}
+
+const apikeyServiceConfig = computed(
+  () => apikeyServiceConfigs[props.serviceType] || apikeyServiceConfigs.claude
+)
+
+const maskedApiKey = computed(() => {
+  const key = props.apiKeyValue
+  if (!key) return ''
+  if (key.length <= 10) return '****'
+  return key.substring(0, 6) + '****' + key.substring(key.length - 4)
+})
+
+// selectedModel 为空 = 后台测试模型配置尚未加载完；此时禁用测试，避免发出未经后台解析的请求
+const disableTest = computed(
+  () => !selectedModel.value || (props.mode === 'apikey' && !props.apiKeyValue)
+)
+
+// ========== account 模式 - 平台信息 ==========
+const platformConfigs = {
+  claude: {
+    label: 'Claude OAuth',
+    icon: 'i-lucide-brain',
+    badge: 'bg-indigo-100 text-indigo-700 dark:bg-indigo-500/20 dark:text-indigo-300'
+  },
+  'claude-console': {
+    label: 'Claude Console',
+    icon: 'i-lucide-brain',
+    badge: 'bg-purple-100 text-purple-700 dark:bg-purple-500/20 dark:text-purple-300'
+  },
+  bedrock: {
+    label: 'AWS Bedrock',
+    icon: 'i-logos-aws',
+    badge: 'bg-orange-100 text-orange-700 dark:bg-orange-500/20 dark:text-orange-300'
+  },
+  gemini: {
+    label: 'Gemini',
+    icon: 'i-lucide-gem',
+    badge: 'bg-blue-100 text-blue-700 dark:bg-blue-500/20 dark:text-blue-300'
+  },
+  'gemini-api': {
+    label: 'Gemini API',
+    icon: 'i-lucide-gem',
+    badge: 'bg-blue-100 text-blue-700 dark:bg-blue-500/20 dark:text-blue-300'
+  },
+  'openai-responses': {
+    label: 'OpenAI Responses',
+    icon: 'i-lucide-code',
+    badge: 'bg-green-100 text-green-700 dark:bg-green-500/20 dark:text-green-300'
+  },
+  'azure-openai': {
+    label: 'Azure OpenAI',
+    icon: 'i-logos-microsoft-icon',
+    badge: 'bg-cyan-100 text-cyan-700 dark:bg-cyan-500/20 dark:text-cyan-300'
+  },
+  droid: {
+    label: 'Droid',
+    icon: 'i-lucide-bot',
+    badge: 'bg-pink-100 text-pink-700 dark:bg-pink-500/20 dark:text-pink-300'
+  },
+  ccr: {
+    label: 'CCR',
+    icon: 'i-lucide-key',
+    badge: 'bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300'
+  }
+}
+
+const platformConfig = computed(
+  () =>
+    platformConfigs[props.account?.platform] || {
+      label: '未知',
+      icon: 'i-lucide-circle-question-mark',
+      badge: 'bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300'
+    }
+)
+const platformLabel = computed(() => platformConfig.value.label)
+const platformIcon = computed(() => platformConfig.value.icon)
+const platformBadgeClass = computed(() => platformConfig.value.badge)
+
+const credentialTypeLabel = computed(() => {
+  const ct = props.account?.credentialType
+  if (ct === 'access_key') return 'Access Key'
+  if (ct === 'bearer_token') return 'Bearer Token'
+  return 'Unknown'
+})
+const credentialTypeIcon = computed(() => {
+  const ct = props.account?.credentialType
+  if (ct === 'access_key') return 'i-lucide-key'
+  if (ct === 'bearer_token') return 'i-lucide-ticket'
+  return 'i-lucide-circle-question-mark'
+})
+const credentialTypeBadgeClass = computed(() => {
+  const ct = props.account?.credentialType
+  if (ct === 'access_key') return 'bg-blue-100 text-blue-700 dark:bg-blue-500/20 dark:text-blue-300'
+  if (ct === 'bearer_token')
+    return 'bg-green-100 text-green-700 dark:bg-green-500/20 dark:text-green-300'
+  return 'bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300'
+})
+
+// ========== 通用计算属性 ==========
+const modalTitle = computed(() =>
+  props.mode === 'account' ? '账户连通性测试' : 'API Key 端点测试'
+)
+const modalSubtitle = computed(() => {
+  if (props.mode === 'account') return props.account?.name || '未知账户'
+  return props.apiKeyName || '当前 API Key'
+})
+
+const headerIconBgClass = computed(() => {
+  const s = state.testStatus.value
+  if (s === 'success') return 'bg-gradient-to-br from-green-500 to-emerald-500'
+  if (s === 'error') return 'bg-gradient-to-br from-red-500 to-pink-500'
+  return 'bg-gradient-to-br from-blue-500 to-indigo-500'
+})
+
+const statusDescription = computed(() => {
+  const s = state.testStatus.value
+  const apiName = props.mode === 'account' ? platformLabel.value : apikeyServiceConfig.value.name
+  if (s === 'idle')
+    return props.mode === 'account'
+      ? '点击下方按钮开始测试账户连通性'
+      : '点击下方按钮开始测试 API Key 连通性'
+  if (s === 'testing') return '正在发送测试请求并等待响应'
+  if (s === 'success')
+    return props.mode === 'account' ? `账户可以正常访问 ${apiName}` : 'API Key 可以正常访问服务'
+  if (s === 'error') return state.errorMessage.value || `无法连接到 ${apiName}`
+  return ''
+})
+
+// ========== 测试逻辑 ==========
+const getAccountEndpoint = () => {
+  if (!props.account) return ''
+  const platform = props.account.platform
+  const endpoints = {
+    claude: `${APP_CONFIG.apiPrefix}/admin/claude-accounts/${props.account.id}/test`,
+    'claude-console': `${APP_CONFIG.apiPrefix}/admin/claude-console-accounts/${props.account.id}/test`,
+    bedrock: `${APP_CONFIG.apiPrefix}/admin/bedrock-accounts/${props.account.id}/test`,
+    gemini: `${APP_CONFIG.apiPrefix}/admin/gemini-accounts/${props.account.id}/test`,
+    'gemini-api': `${APP_CONFIG.apiPrefix}/admin/gemini-api-accounts/${props.account.id}/test`,
+    'openai-responses': `${APP_CONFIG.apiPrefix}/admin/openai-responses-accounts/${props.account.id}/test`,
+    'azure-openai': `${APP_CONFIG.apiPrefix}/admin/azure-openai-accounts/${props.account.id}/test`,
+    azure_openai: `${APP_CONFIG.apiPrefix}/admin/azure-openai-accounts/${props.account.id}/test`,
+    droid: `${APP_CONFIG.apiPrefix}/admin/droid-accounts/${props.account.id}/test`,
+    ccr: `${APP_CONFIG.apiPrefix}/admin/ccr-accounts/${props.account.id}/test`
+  }
+  return endpoints[platform] || ''
+}
+
+const startTest = () => {
+  if (props.mode === 'account') {
+    const endpoint = getAccountEndpoint()
+    if (!endpoint) return
+    const authToken = localStorage.getItem('authToken')
+    const useSSE = ['claude', 'claude-console', 'bedrock', 'gemini-api'].includes(
+      props.account.platform
+    )
+    state.sendTestRequest(
+      endpoint,
+      { model: selectedModel.value },
+      {
+        useSSE,
+        headers: authToken ? { Authorization: `Bearer ${authToken}` } : {}
+      }
+    )
+  } else {
+    const endpoint = `${APP_CONFIG.apiPrefix}/apiStats${apikeyServiceConfig.value.endpoint}`
+    state.sendTestRequest(
+      endpoint,
+      {
+        apiKey: props.apiKeyValue,
+        model: selectedModel.value,
+        prompt: testPrompt.value,
+        maxTokens: maxTokens.value
+      },
+      { useSSE: true }
+    )
+  }
+}
+
+const handleClose = () => {
+  if (state.testStatus.value === 'testing') return
+  state.cleanup()
+  state.resetState()
+  emit('close')
+}
+
+// ========== 监听 ==========
+watch(
+  () => props.show,
+  (newVal) => {
+    if (newVal) {
+      state.resetState()
+      // 首轮加载失败时每次打开重试拉取（成功后由 watch(defaultModel) 回填 selectedModel、解除按钮禁用）
+      if (!modelsLoaded.value) loadModels()
+      selectedModel.value = defaultModel.value
+      if (props.mode === 'apikey') {
+        testPrompt.value = 'hi'
+        maxTokens.value = 1000
+      }
+    }
+  }
+)
+
+watch(
+  () => [props.account, props.serviceType],
+  () => {
+    selectedModel.value = defaultModel.value
+  },
+  { deep: true }
+)
+
+// /apiStats/models 异步返回、后台配置默认加载完成后回填默认选择：
+// 仅当弹窗打开且用户尚未选择（selectedModel 为空）时同步，避免覆盖手动选择
+watch(defaultModel, (newVal) => {
+  if (props.show && newVal && !selectedModel.value) {
+    selectedModel.value = newVal
+  }
+})
+</script>

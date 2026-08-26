@@ -1,22 +1,278 @@
-@import 'tailwindcss/base';
-@import 'tailwindcss/components';
-@import 'tailwindcss/utilities';
+/* 全局样式入口：原子类 / 图标由 UnoCSS virtual:uno.css 提供，不在此 @import tailwind */
 @import './variables.css';
+@import './theme_utils.css';
 @import './components.css';
 
-/* Font Awesome 图标 */
-@import '@fortawesome/fontawesome-free/css/all.css';
+
+/* ========== 全局盒模型：一律 border-box（等价 Uno box-border） ========== */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+/* 全局按钮重置：去掉 UA 默认边框/浅色底，避免暗色下露白边 */
+button,
+[type='button'],
+[type='submit'],
+[type='reset'] {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  line-height: inherit;
+  padding: 0;
+  margin: 0;
+  -webkit-appearance: none;
+  appearance: none;
+  cursor: pointer;
+}
+
+button:disabled,
+[type='button']:disabled,
+[type='submit']:disabled {
+  cursor: not-allowed;
+}
+
+
+/* ========== 可爱复选框（全局 input[type=checkbox]） ========== */
+input[type='checkbox'] {
+  -webkit-appearance: none;
+  appearance: none;
+  box-sizing: border-box;
+  width: 1.125rem;
+  height: 1.125rem;
+  margin: 0;
+  padding: 0;
+  flex-shrink: 0;
+  vertical-align: middle;
+  border: 1.5px solid color-mix(in srgb, var(--text-muted, #9ca3af) 75%, transparent);
+  border-radius: 0.35rem;
+  background: var(--input-bg, var(--surface-color, #fff));
+  color: var(--primary-color, #3b82f6);
+  box-shadow: inset 0 1px 2px rgba(15, 23, 42, 0.04);
+  cursor: pointer;
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease,
+    box-shadow 0.15s ease,
+    transform 0.12s ease;
+  /* 对勾 */
+  display: inline-grid;
+  place-content: center;
+}
+
+input[type='checkbox']::before {
+  content: '';
+  width: 0.65rem;
+  height: 0.65rem;
+  transform: scale(0);
+  transition: transform 0.12s ease-in-out;
+  box-shadow: inset 1em 1em #fff;
+  /* 圆角对勾形状 */
+  clip-path: polygon(14% 44%, 0 65%, 50% 100%, 100% 16%, 80% 0%, 43% 62%);
+  background-color: #fff;
+}
+
+input[type='checkbox']:hover {
+  border-color: color-mix(in srgb, var(--primary-color, #3b82f6) 55%, var(--text-muted, #9ca3af));
+  box-shadow:
+    inset 0 1px 2px rgba(15, 23, 42, 0.04),
+    0 0 0 3px color-mix(in srgb, var(--primary-color, #3b82f6) 12%, transparent);
+}
+
+input[type='checkbox']:focus,
+input[type='checkbox']:focus-visible {
+  outline: none;
+  border-color: var(--primary-color, #3b82f6);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary-color, #3b82f6) 22%, transparent);
+}
+
+input[type='checkbox']:checked {
+  border-color: transparent;
+  background: linear-gradient(
+    135deg,
+    var(--primary-color, #3b82f6) 0%,
+    var(--secondary-color, #6366f1) 100%
+  );
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--primary-color, #3b82f6) 35%, transparent);
+}
+
+input[type='checkbox']:checked::before {
+  transform: scale(1);
+}
+
+input[type='checkbox']:checked:hover {
+  filter: brightness(1.05);
+  box-shadow:
+    0 2px 10px color-mix(in srgb, var(--primary-color, #3b82f6) 40%, transparent),
+    0 0 0 3px color-mix(in srgb, var(--primary-color, #3b82f6) 14%, transparent);
+}
+
+input[type='checkbox']:active {
+  transform: scale(0.94);
+}
+
+input[type='checkbox']:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+  box-shadow: none;
+  filter: grayscale(0.2);
+}
+
+/* 覆盖 utility 里常见的 h-4 w-4，保持可爱尺寸一致；需要更大可加 .checkbox-lg */
+input[type='checkbox'].h-4,
+input[type='checkbox'].w-4 {
+  width: 1.125rem;
+  height: 1.125rem;
+}
+
+input[type='checkbox'].checkbox-lg {
+  width: 1.25rem;
+  height: 1.25rem;
+  border-radius: 0.4rem;
+}
+
+input[type='checkbox'].checkbox-lg::before {
+  width: 0.72rem;
+  height: 0.72rem;
+}
+
+/* 输入框内装饰图标（搜索/箭头）：固定 1em，不抢布局 */
+.input-affix-icon {
+  position: absolute;
+  top: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1rem;
+  height: 1rem;
+  margin: 0;
+  padding: 0;
+  border: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  color: var(--text-muted, rgb(156 163 175));
+  transform: translateY(-50%);
+  pointer-events: none;
+  line-height: 1;
+}
+
+.input-affix-icon--left {
+  left: 0.75rem;
+}
+
+.input-affix-icon--right {
+  right: 0.75rem;
+  pointer-events: auto;
+}
+
+.input-affix-icon i {
+  display: block !important;
+  width: 1em !important;
+  height: 1em !important;
+  font-size: 1em;
+  line-height: 1;
+  background-color: currentColor;
+}
+
+
+/* ========== 全局字体（对齐 llysc） ==========
+ * Inter 本地包 + 默认字重 500 + tnum 等宽数字
+ * * 选择器不带 !important，便于 font-semibold / font-bold 覆盖
+ */
+html {
+  height: 100%;
+  font-family: var(--font-family);
+  font-weight: var(--font-weight);
+  letter-spacing: var(--letter-spacing);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+  font-family: var(--font-family);
+  font-weight: var(--font-weight);
+}
+
+/* 全局默认 Medium + tnum；一律继承 Inter（对齐 llysc） */
+*,
+*::before,
+*::after {
+  font-family: inherit;
+  font-feature-settings: var(--font-feature-settings);
+  font-variant-numeric: tabular-nums;
+}
+
+/* UnoCSS 单色图标默认 1em；用 :where 降低特异性，h-4/w-4 等 utility 可正常覆盖 */
+:where(i[class*='i-lucide-'], span[class*='i-lucide-']) {
+  display: inline-block;
+  width: 1em;
+  height: 1em;
+  flex-shrink: 0;
+  vertical-align: middle;
+  background-color: currentColor;
+  line-height: 1;
+}
+
+/* 真·等宽：仅代码块/键盘/采样输出（教程命令、脚本编辑器） */
+code,
+kbd,
+pre,
+samp,
+.font-code {
+  font-family: var(--font-mono);
+  font-feature-settings: var(--font-feature-settings);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Tailwind font-mono：本项目改为 Inter + tnum，避免输入框/模型 ID 跳出全局字体 */
+.font-mono {
+  font-family: var(--font-family) !important;
+  font-feature-settings: var(--font-feature-settings);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 数字/金额专用 */
+.font-num,
+.tabular-nums,
+.amount {
+  font-family: var(--font-family);
+  font-feature-settings: var(--font-feature-settings);
+  font-variant-numeric: tabular-nums;
+  font-weight: var(--font-weight-medium);
+}
+
+/* 表单控件强制走全局 Inter（覆盖浏览器/组件库默认） */
+input,
+textarea,
+select,
+button,
+.form-input,
+.el-input__inner,
+.el-textarea__inner {
+  font-family: var(--font-family) !important;
+  font-weight: var(--font-weight);
+  font-feature-settings: var(--font-feature-settings);
+  font-variant-numeric: tabular-nums;
+}
 
 /* 全局样式 */
 body {
-  font-family:
-    'Inter',
-    -apple-system,
-    BlinkMacSystemFont,
-    'Segoe UI',
-    Helvetica,
-    Arial,
-    sans-serif;
+  font-family: var(--font-family);
+  font-weight: var(--font-weight);
+  font-size: 14px;
+  font-feature-settings: var(--font-feature-settings);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: var(--letter-spacing);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  color: var(--text-primary);
   background: linear-gradient(
     135deg,
     var(--primary-color) 0%,
@@ -24,10 +280,12 @@ body {
     var(--accent-color) 100%
   );
   background-attachment: fixed;
-  min-height: 100vh;
+  /* 高度跟 html 100% 走；页面自己用 min-h-dvh/h-dvh。避免 body 再叠 100dvh 双高度 */
+  height: 100%;
+  min-height: 100%;
   margin: 0;
-  /* clip 不触发「另一轴 visible→auto」规则；hidden 会把 overflow-y 算成 auto，登录页 100vh 时易冒出竖向滚动条 */
-  overflow-x: clip;
+  padding: 0;
+  overflow: hidden;
 }
 
 body::before {
@@ -79,46 +337,59 @@ h6 {
   opacity: 0.9;
 }
 
-/* 自定义滚动条样式 */
-.custom-scrollbar {
+/* ========== 主题滚动条（全局 + .custom-scrollbar） ========== */
+* {
   scrollbar-width: thin;
-  scrollbar-color: rgba(var(--primary-rgb), 0.3) rgba(var(--primary-rgb), 0.05);
+  scrollbar-color: color-mix(in srgb, var(--primary-color) 45%, transparent)
+    color-mix(in srgb, var(--primary-color) 8%, transparent);
 }
 
-.custom-scrollbar::-webkit-scrollbar {
+*::-webkit-scrollbar {
   width: 8px;
   height: 8px;
 }
 
-.custom-scrollbar::-webkit-scrollbar-track {
-  background: rgba(var(--primary-rgb), 0.05);
-  border-radius: 10px;
+*::-webkit-scrollbar-track {
+  background: color-mix(in srgb, var(--primary-color) 8%, transparent);
+  border-radius: 999px;
 }
 
-.custom-scrollbar::-webkit-scrollbar-thumb {
+*::-webkit-scrollbar-thumb {
   background: linear-gradient(
     135deg,
-    rgba(var(--primary-rgb), 0.4) 0%,
-    rgba(var(--secondary-rgb), 0.4) 100%
+    color-mix(in srgb, var(--primary-color) 55%, transparent) 0%,
+    color-mix(in srgb, var(--secondary-color) 55%, transparent) 100%
   );
-  border-radius: 10px;
-  transition: background 0.3s ease;
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
 }
 
-.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+*::-webkit-scrollbar-thumb:hover {
   background: linear-gradient(
     135deg,
-    rgba(var(--primary-rgb), 0.6) 0%,
-    rgba(var(--secondary-rgb), 0.6) 100%
+    color-mix(in srgb, var(--primary-color) 75%, transparent) 0%,
+    color-mix(in srgb, var(--secondary-color) 75%, transparent) 100%
+  );
+  background-clip: padding-box;
+}
+
+*::-webkit-scrollbar-thumb:active {
+  background: linear-gradient(
+    135deg,
+    var(--primary-color) 0%,
+    var(--secondary-color) 100%
   );
 }
 
-.custom-scrollbar::-webkit-scrollbar-thumb:active {
-  background: linear-gradient(
-    135deg,
-    rgba(var(--primary-rgb), 0.8) 0%,
-    rgba(var(--secondary-rgb), 0.8) 100%
-  );
+*::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+.custom-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--primary-color) 45%, transparent)
+    color-mix(in srgb, var(--primary-color) 8%, transparent);
 }
 
 /* Vue过渡动画 */
@@ -168,3 +439,4 @@ h6 {
     max-height: calc(85vh - 120px);
   }
 }
+

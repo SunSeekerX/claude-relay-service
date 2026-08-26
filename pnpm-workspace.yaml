@@ -1,0 +1,6 @@
+# monorepo 未启用 packages 时仅作 pnpm 配置容器；禁止放开全部依赖生命周期脚本
+dangerouslyAllowAllBuilds: false
+blockExoticSubdeps: false
+# unrs-resolver: eslint 链上的原生 binding 辅助；仅白名单这一只，不放开全部 lifecycle
+allowBuilds:
+  unrs-resolver: true

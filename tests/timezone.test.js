@@ -1,12 +1,4 @@
-const {
-  getDateInTimezone,
-  getDateStringInTimezone,
-  getHourInTimezone,
-  getWeekStringInTimezone,
-  getPeriodString,
-  getNextResetTime,
-  getPeriodStartDate
-} = require('../src/utils/timezone')
+import { getDateInTimezone, getDateStringInTimezone, getHourInTimezone, getWeekStringInTimezone, getPeriodString, getNextResetTime, getPeriodStartDate } from '../src/common/timezone.js'
 
 describe('timezone utils', () => {
   test('getDateInTimezone shifts utc date by offset hours', () => {

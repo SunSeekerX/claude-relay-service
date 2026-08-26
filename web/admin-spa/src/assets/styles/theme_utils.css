@@ -1,0 +1,330 @@
+/* 主题语义工具类：业务 UI 优先用这些，少写死 gray-* */
+
+/* 文字 */
+.t-text {
+  color: var(--text-primary);
+}
+.t-text-secondary {
+  color: var(--text-secondary);
+}
+.t-text-muted {
+  color: var(--text-muted);
+}
+.t-text-primary {
+  color: var(--primary-color);
+}
+
+/* 表面 */
+.t-surface {
+  background: var(--surface-color);
+}
+.t-surface-muted {
+  background: var(--surface-muted);
+}
+.t-divider {
+  border-color: var(--divider-color);
+}
+/* 配合 Tailwind divide-y：子项分隔线用主题色 */
+.divide-y.t-divider > :not([hidden]) ~ :not([hidden]) {
+  border-color: var(--divider-color);
+}
+.t-border {
+  border-color: var(--border-color);
+}
+
+/* 页面分区头 */
+.t-page-head {
+  margin-bottom: 1.25rem;
+  padding-bottom: 0.875rem;
+  border-bottom: 1px solid var(--divider-color);
+}
+.t-page-head__row {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+}
+.t-page-head__bar {
+  margin-top: 0.2rem;
+  width: 3px;
+  height: 1.15rem;
+  flex-shrink: 0;
+  border-radius: 999px;
+  background: linear-gradient(
+    180deg,
+    var(--primary-color) 0%,
+    var(--secondary-color) 100%
+  );
+  box-shadow: 0 0 0 3px var(--primary-soft);
+}
+.t-page-head__text {
+  min-width: 0;
+  flex: 1;
+}
+.t-page-head__title {
+  margin: 0;
+  font-size: 1.125rem;
+  font-weight: 600;
+  line-height: 1.35;
+  letter-spacing: -0.015em;
+  color: var(--text-primary);
+}
+.t-page-head__hint {
+  margin: 0.35rem 0 0;
+  font-size: 0.875rem;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+
+/* 设置行列表容器 */
+.t-setting-stack {
+  display: block;
+}
+
+/* 设置行：左说明右控件 */
+.t-setting-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.875rem 0;
+  border-bottom: 1px solid var(--divider-color);
+}
+.t-setting-row:last-child {
+  border-bottom: none;
+}
+@media (min-width: 640px) {
+  .t-setting-row {
+    flex-direction: row;
+    align-items: flex-start;
+    gap: 1.5rem;
+  }
+}
+.t-setting-row__label {
+  flex-shrink: 0;
+}
+@media (min-width: 640px) {
+  .t-setting-row__label {
+    width: 13rem;
+  }
+}
+.t-setting-row__title {
+  font-size: 0.875rem;
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--text-primary);
+}
+.t-setting-row__desc {
+  margin-top: 0.2rem;
+  font-size: 0.875rem;
+  line-height: 1.45;
+  color: var(--text-secondary);
+}
+.t-setting-row__control {
+  min-width: 0;
+  flex: 1;
+}
+
+/* 侧栏导航
+ * 注意：display 不要写死在这里——模板用 hidden/md:flex 控制显隐；
+ * 若此处写 display:flex，会压过 md:hidden，导致移动端横滑条在桌面也露出来。
+ */
+.t-side-nav {
+  flex-direction: column;
+  gap: 0.2rem;
+}
+.t-side-nav__brand {
+  padding: 0.15rem 0.65rem 0.75rem;
+}
+.t-side-nav__brand-title {
+  margin: 0;
+  font-size: 0.875rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--text-primary);
+}
+.t-side-nav__brand-sub {
+  margin: 0.2rem 0 0;
+  font-size: 0.875rem;
+  color: var(--text-muted);
+}
+.t-side-nav__item {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  border-radius: var(--radius-sm);
+  padding: 0.55rem 0.65rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  line-height: 1.3;
+  color: var(--text-secondary);
+  text-decoration: none;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  transition:
+    background 0.15s ease,
+    color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+.t-side-nav__item:hover {
+  background: var(--nav-item-hover);
+  color: var(--text-primary);
+}
+.t-side-nav__item.is-active {
+  background: var(--nav-item-active-bg);
+  color: var(--nav-item-active-fg);
+  box-shadow: inset 3px 0 0 var(--primary-color);
+}
+.t-side-nav__icon {
+  display: inline-flex;
+  height: 1.75rem;
+  width: 1.75rem;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  border-radius: 0.45rem;
+  background: var(--surface-muted);
+  color: var(--text-secondary);
+  font-size: 0.8rem;
+}
+.t-side-nav__item.is-active .t-side-nav__icon {
+  background: var(--primary-color);
+  color: var(--text-on-primary);
+  box-shadow: 0 2px 8px rgba(var(--primary-rgb), 0.35);
+}
+.t-side-nav__label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 移动端横滑胶囊（display 由模板 flex + md:hidden 控制） */
+.t-side-nav-mobile {
+  gap: 0.35rem;
+  overflow-x: auto;
+  padding-bottom: 0.5rem;
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.t-side-nav-mobile::-webkit-scrollbar {
+  display: none;
+}
+.t-side-nav-mobile__item {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 0.4rem;
+  border-radius: var(--radius-sm);
+  padding: 0.4rem 0.75rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  text-decoration: none;
+  color: var(--text-secondary);
+  background: var(--surface-muted);
+  border: 1px solid transparent;
+  transition:
+    background 0.15s ease,
+    color 0.15s ease,
+    border-color 0.15s ease;
+}
+.t-side-nav-mobile__item.is-active {
+  color: var(--text-on-primary);
+  background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
+  border-color: transparent;
+  box-shadow: 0 2px 10px rgba(var(--primary-rgb), 0.3);
+}
+.t-side-nav-mobile__item i {
+  color: inherit;
+  background-color: currentColor;
+}
+.t-side-nav__item i {
+  color: inherit;
+  background-color: currentColor;
+}
+.t-side-nav__item.is-active .t-side-nav__icon i {
+  color: var(--text-on-primary);
+  background-color: currentColor;
+}
+
+
+/* ========== 表格操作列按钮（统一尺寸/间距/主题色） ========== */
+.t-table-actions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.25rem;
+}
+
+.t-table-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.25rem;
+  height: 1.75rem;
+  padding: 0 0.5rem;
+  border: 0;
+  border-radius: 0.375rem;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 0.875rem;
+  font-weight: 500;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.t-table-action:hover:not(:disabled) {
+  background: var(--nav-item-hover);
+  color: var(--text-primary);
+}
+
+.t-table-action:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.t-table-action i {
+  display: inline-block;
+  width: 0.875rem;
+  height: 0.875rem;
+  flex-shrink: 0;
+  background-color: currentColor;
+  line-height: 1;
+}
+
+.t-table-action--primary {
+  color: var(--primary-color);
+}
+
+.t-table-action--primary:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--primary-color) 12%, transparent);
+  color: var(--primary-color);
+}
+
+.t-table-action--success {
+  color: var(--success-color, #10b981);
+}
+
+.t-table-action--success:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--success-color, #10b981) 12%, transparent);
+  color: var(--success-color, #10b981);
+}
+
+.t-table-action--danger {
+  color: var(--error-color, #ef4444);
+}
+
+.t-table-action--danger:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--error-color, #ef4444) 12%, transparent);
+  color: var(--error-color, #ef4444);
+}
+
+.t-table-action--muted {
+  color: var(--text-muted);
+}

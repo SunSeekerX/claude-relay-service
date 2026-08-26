@@ -1,4 +1,8 @@
 #!/usr/bin/env node
+import { redis } from '../src/infra/redis.js'
+import { apiKeyService } from '../src/modules/apikey/apikey_service.js'
+import { logger } from '../src/common/logger.js'
+import readline from 'node:readline'
 
 /**
  * 数据迁移脚本：为现有 API Key 设置默认有效期
@@ -10,11 +14,6 @@
  * --days: 设置默认有效期天数（默认30天）
  * --dry-run: 仅模拟运行，不实际修改数据
  */
-
-const redis = require('../src/models/redis')
-const apiKeyService = require('../src/services/apiKeyService')
-const logger = require('../src/utils/logger')
-const readline = require('readline')
 
 // 解析命令行参数
 const args = process.argv.slice(2)
@@ -30,7 +29,7 @@ const DRY_RUN = params['dry-run'] === true
 // 创建 readline 接口用于用户确认
 const rl = readline.createInterface({
   input: process.stdin,
-  output: process.stdout
+  output: process.stdout,
 })
 
 async function askConfirmation(question) {
@@ -61,7 +60,7 @@ async function migrateApiKeys() {
       needsMigration: 0,
       alreadyHasExpiry: 0,
       migrated: 0,
-      errors: 0
+      errors: 0,
     }
 
     // 需要迁移的 Keys
@@ -76,9 +75,7 @@ async function migrateApiKeys() {
       } else {
         stats.alreadyHasExpiry++
         const expiryDate = new Date(key.expiresAt)
-        logger.info(
-          `✓ API Key "${key.name}" (${key.id}) already has expiry: ${expiryDate.toLocaleString()}`
-        )
+        logger.info(`✓ API Key "${key.name}" (${key.id}) already has expiry: ${expiryDate.toLocaleString()}`)
       }
     }
 
@@ -100,7 +97,7 @@ async function migrateApiKeys() {
     // 如果不是 dry run，请求确认
     if (!DRY_RUN) {
       const confirmed = await askConfirmation(
-        `⚠️  This will set expiry dates for ${keysToMigrate.length} API Keys. Continue?`
+        `⚠️  This will set expiry dates for ${keysToMigrate.length} API Keys. Continue?`,
       )
 
       if (!confirmed) {

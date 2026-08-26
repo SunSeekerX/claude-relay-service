@@ -1,28 +1,24 @@
 #!/usr/bin/env node
+import { fileURLToPath } from 'node:url'
+import fs from 'node:fs'
+import path from 'node:path'
+import { redis } from '../src/infra/redis.js'
+import { RedisKeys } from '../src/infra/redis_key.js'
+
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = path.dirname(__filename)
+
 // 支付子集导出：订单 / 审计 / 商品 / 渠道实例 / 全局配置 / 余额账本。
 // 用途：Redis 硬化备份（支付证据）；不解密渠道密钥字段的密文原样导出。
 // 用法：node scripts/export-payment.js [outDir]
 // 环境：依赖项目 .env 的 REDIS_* / ENCRYPTION_KEY（与主服务一致）
 
-'use strict'
-
-const fs = require('fs')
-const path = require('path')
+;('use strict')
 
 // 启动引导：与其它 scripts 一致，先加载 env
-require('dotenv').config({ path: path.join(__dirname, '..', '.env') })
-
-const redis = require('../src/models/redis')
-const { RedisKeys } = require('../src/constants/redisKeys')
-
 const outDir = process.argv[2]
   ? path.resolve(process.argv[2])
-  : path.join(
-      __dirname,
-      '..',
-      'data',
-      `payment-export-${new Date().toISOString().replace(/[:.]/g, '-')}`
-    )
+  : path.join(__dirname, '..', 'data', `payment-export-${new Date().toISOString().replace(/[:.]/g, '-')}`)
 
 const writeJson = (name, data) => {
   fs.writeFileSync(path.join(outDir, name), JSON.stringify(data, null, 2), 'utf8')
@@ -103,13 +99,7 @@ const main = async () => {
   const balances = []
   let cursor = '0'
   do {
-    const [next, keys] = await redis.client.scan(
-      cursor,
-      'MATCH',
-      'payment:balance:credit:*',
-      'COUNT',
-      200
-    )
+    const [next, keys] = await redis.client.scan(cursor, 'MATCH', 'payment:balance:credit:*', 'COUNT', 200)
     cursor = next
     for (const key of keys) {
       const keyId = key.replace('payment:balance:credit:', '')
@@ -119,7 +109,7 @@ const main = async () => {
         redis.client.get(RedisKeys.payment.balanceBaseline(keyId)),
         redis.client.smembers(RedisKeys.payment.balanceApplied(keyId)),
         redis.client.hgetall(RedisKeys.payment.balanceReversed(keyId)),
-        redis.client.lrange(RedisKeys.payment.balanceTx(keyId), 0, -1)
+        redis.client.lrange(RedisKeys.payment.balanceTx(keyId), 0, -1),
       ])
       balances.push({
         keyId,
@@ -134,7 +124,7 @@ const main = async () => {
           } catch (e) {
             return line
           }
-        })
+        }),
       })
     }
   } while (cursor !== '0')
@@ -149,7 +139,7 @@ const main = async () => {
     note:
       'provider.config 为 AES 密文；恢复需同 ENCRYPTION_KEY。' +
       'balances 含 credit/refunded/baseline/applied/reversed/tx，可支撑退款幂等与 unreverse 恢复。' +
-      '订单/审计 key 无 TTL，本导出作灾备。'
+      '订单/审计 key 无 TTL，本导出作灾备。',
   })
 
   console.log(`[export-payment] done → ${outDir}`)

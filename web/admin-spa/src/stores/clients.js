@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { getSupportedClientsApi } from '@/utils/http_apis'
+import { getSupportedClientsApi } from '@/libs/http_apis'
 
 export const useClientsStore = defineStore('clients', {
   state: () => ({

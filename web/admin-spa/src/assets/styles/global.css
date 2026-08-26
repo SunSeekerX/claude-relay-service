@@ -47,69 +47,69 @@
   --table-hover: rgba(129, 140, 248, 0.1);
 }
 
-/* 覆盖 Tailwind v3 的暗黑模式背景色使用主题色 */
+/* 覆盖原子 CSS（UnoCSS） 的暗黑模式背景色使用主题色 */
 .dark .bg-gray-800,
-.dark\:bg-gray-800:is(.dark *) {
+.dark .dark\:bg-gray-800 {
   background-color: var(--glass-strong-color) !important;
 }
 
 /* 排除开关（toggle）轨道：它用 dark:bg-gray-700 作关态底色，需让 peer-checked:bg-* 在选中时变色，
    不能被本条 !important 钉死，否则暗黑模式下开/关同色（见各 *View 的 peer 开关） */
 .dark .bg-gray-700:not([class*='peer-checked:bg-']),
-.dark\:bg-gray-700:is(.dark *):not([class*='peer-checked:bg-']) {
+.dark .dark\:bg-gray-700:not([class*='peer-checked:bg-']) {
   background-color: var(--bg-gradient-mid) !important;
 }
 
 .dark .bg-gray-900,
-.dark\:bg-gray-900:is(.dark *) {
+.dark .dark\:bg-gray-900 {
   background-color: var(--bg-gradient-start) !important;
 }
 
 /* 覆盖带透明度的背景色 */
-.dark\:bg-gray-800\/40:is(.dark *) {
+.dark .dark\:bg-gray-800\/40 {
   background-color: color-mix(in srgb, var(--glass-strong-color) 40%, transparent) !important;
 }
 
-.dark\:bg-gray-700\/30:is(.dark *) {
+.dark .dark\:bg-gray-700\/30 {
   background-color: color-mix(in srgb, var(--bg-gradient-mid) 30%, transparent) !important;
 }
 
-/* 覆盖 Tailwind v3 的暗黑模式渐变色 */
-.dark\:from-gray-700:is(.dark *) {
-  --tw-gradient-from: var(--bg-gradient-mid) !important;
-  --tw-gradient-to: var(--bg-gradient-mid) !important;
-  --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to) !important;
+/* 覆盖原子 CSS（UnoCSS） 的暗黑模式渐变色 */
+.dark .dark\:from-gray-700 {
+  --un-gradient-from: var(--bg-gradient-mid) !important;
+  --un-gradient-to: var(--bg-gradient-mid) !important;
+  --un-gradient-stops: var(--un-gradient-from), var(--un-gradient-to) !important;
 }
 
-.dark\:to-gray-800\/90:is(.dark *) {
-  --tw-gradient-to: var(--glass-strong-color) !important;
+.dark .dark\:to-gray-800\/90 {
+  --un-gradient-to: var(--glass-strong-color) !important;
 }
 
-/* 覆盖 Tailwind v3 的暗黑模式悬停背景色 */
-.dark\:hover\:bg-gray-600:is(.dark *):hover {
+/* 覆盖原子 CSS（UnoCSS） 的暗黑模式悬停背景色 */
+.dark .dark\:hover\:bg-gray-600:hover {
   background-color: var(--bg-gradient-end) !important;
 }
 
-.dark\:hover\:bg-gray-700:is(.dark *):hover {
+.dark .dark\:hover\:bg-gray-700:hover {
   background-color: var(--bg-gradient-mid) !important;
 }
 
-.dark\:hover\:bg-gray-500:is(.dark *):hover {
+.dark .dark\:hover\:bg-gray-500:hover {
   background-color: var(--text-secondary) !important;
 }
 
 .dark .border-gray-700,
-.dark\:border-gray-700:is(.dark *) {
+.dark .dark\:border-gray-700 {
   border-color: var(--border-color) !important;
 }
 
 .dark .border-gray-600,
-.dark\:border-gray-600:is(.dark *) {
+.dark .dark\:border-gray-600 {
   border-color: var(--border-color) !important;
 }
 
 /* 覆盖悬停边框色 */
-.dark\:hover\:border-gray-500:is(.dark *):hover {
+.dark .dark\:hover\:border-gray-500:hover {
   border-color: var(--border-color) !important;
 }
 
@@ -134,16 +134,11 @@ textarea {
 }
 
 body {
-  font-family:
-    'Inter',
-    -apple-system,
-    BlinkMacSystemFont,
-    'Segoe UI',
-    Helvetica,
-    Arial,
-    sans-serif;
-  font-weight: 500;
-  font-feature-settings: 'tnum';
+  /* 字体主定义在 main.css（llysc 同款）；此处只补主题色相关，避免双源冲突 */
+  font-family: var(--font-family);
+  font-weight: var(--font-weight);
+  font-feature-settings: var(--font-feature-settings);
+  font-variant-numeric: tabular-nums;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   background: linear-gradient(
@@ -153,9 +148,10 @@ body {
     var(--bg-gradient-end) 100%
   );
   background-attachment: fixed;
-  min-height: 100vh;
+  min-height: 100%;
   margin: 0;
-  /* clip 不触发「另一轴 visible→auto」规则；hidden 会把 overflow-y 算成 auto，登录页 100vh 时易冒出竖向滚动条 */
+  padding: 0;
+  /* clip 不触发「另一轴 visible→auto」规则 */
   overflow-x: clip;
   color: var(--text-primary);
   transition:
@@ -222,9 +218,15 @@ body::before {
 .tab-btn {
   position: relative;
   overflow: hidden;
+  border: 0;
   border-radius: 12px;
+  background: transparent;
   font-weight: 500;
   letter-spacing: 0.025em;
+  color: var(--text-secondary);
+  cursor: pointer;
+  -webkit-appearance: none;
+  appearance: none;
 }
 
 .tab-btn::before {
@@ -244,11 +246,16 @@ body::before {
 
 .tab-btn.active {
   background: linear-gradient(135deg, var(--primary-color) 0%, var(--secondary-color) 100%);
-  color: white;
+  color: #fff;
   box-shadow:
     0 10px 15px -3px rgba(var(--primary-rgb), 0.3),
     0 4px 6px -2px rgba(var(--primary-rgb), 0.05);
   transform: translateY(-1px);
+}
+
+.tab-btn.active i {
+  color: #fff;
+  background-color: currentColor;
 }
 
 /* 按钮样式 */
@@ -261,6 +268,7 @@ body::before {
   position: relative;
   overflow: hidden;
   letter-spacing: 0.025em;
+  white-space: nowrap;
 }
 
 .btn::before {
@@ -331,8 +339,11 @@ body::before {
 /* 表单输入框样式 */
 .form-input {
   background: var(--input-bg);
-  border: 2px solid var(--input-border);
+  border: 1px solid transparent;
   border-radius: 12px;
+  /* focus ring 3px，左右留边避免被父级 overflow 裁切 */
+  margin-left: 3px;
+  margin-right: 3px;
   padding: 16px;
   font-size: 16px;
   color: var(--text-primary);
@@ -343,14 +354,17 @@ body::before {
   /* 移除模糊效果 */
 }
 
+.form-input.w-full {
+  width: calc(100% - 6px);
+  max-width: calc(100% - 6px);
+}
+
 .form-input:focus {
   outline: none;
-  border-color: var(--primary-color);
-  box-shadow:
-    0 0 0 3px rgba(var(--primary-rgb), 0.1),
-    0 10px 15px -3px rgba(0, 0, 0, 0.1);
-  background: rgba(255, 255, 255, 0.95);
-  color: #1f2937;
+  border-color: transparent;
+  box-shadow: 0 0 0 3px rgba(var(--primary-rgb), 0.18);
+  background: var(--input-bg, rgba(255, 255, 255, 0.95));
+  color: var(--text-primary, #1f2937);
 }
 
 .dark .form-input:focus {
@@ -393,39 +407,66 @@ body::before {
 
 .stat-card {
   background: linear-gradient(135deg, var(--surface-color) 0%, var(--glass-strong-color) 100%);
-  border-radius: 20px;
-  border: 1px solid var(--border-color);
-  padding: 14px;
+  border: 1px solid rgba(229, 231, 235, 0.95);
+  border-radius: 12px;
+  padding: 10px 12px;
   position: relative;
   overflow: hidden;
+  min-height: 0;
   transition:
-    transform 0.3s ease,
-    box-shadow 0.3s ease;
+    transform 0.2s ease,
+    box-shadow 0.2s ease;
 }
 
 .dark .stat-card {
   background: linear-gradient(135deg, var(--glass-strong-color) 0%, var(--bg-gradient-start) 100%);
+  border-color: rgba(75, 85, 99, 0.85);
 }
 
 .stat-card:hover {
-  transform: translateY(-4px);
-  box-shadow:
-    0 20px 25px -5px rgba(0, 0, 0, 0.1),
-    0 10px 10px -5px rgba(0, 0, 0, 0.04);
+  transform: translateY(-2px);
+  box-shadow: 0 10px 16px -6px rgba(0, 0, 0, 0.14);
 }
 
 .stat-icon {
-  width: 56px;
-  height: 56px;
-  border-radius: 16px;
-  display: flex;
+  width: 40px;
+  height: 40px;
+  min-width: 40px;
+  min-height: 40px;
+  border-radius: 10px;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: 24px;
-  color: white;
-  box-shadow:
-    0 10px 15px -3px rgba(0, 0, 0, 0.1),
-    0 4px 6px -2px rgba(0, 0, 0, 0.05);
+  flex-shrink: 0;
+  font-size: 18px;
+  line-height: 1;
+  color: #fff;
+  box-shadow: 0 3px 10px -2px rgba(0, 0, 0, 0.2);
+}
+
+.stat-icon i {
+  display: block !important;
+  width: 18px !important;
+  height: 18px !important;
+  font-size: 18px !important;
+  line-height: 1 !important;
+  color: #fff;
+  background-color: currentColor;
+}
+
+.stat-card > .flex {
+  gap: 0.75rem;
+  align-items: center;
+}
+
+.stat-card p {
+  margin-top: 0;
+  margin-bottom: 0;
+  line-height: 1.3;
+}
+
+.stat-card p + p {
+  margin-top: 0.2rem;
 }
 
 .btn {
@@ -437,6 +478,7 @@ body::before {
   position: relative;
   overflow: hidden;
   letter-spacing: 0.025em;
+  white-space: nowrap;
 }
 
 .btn::before {
@@ -506,8 +548,11 @@ body::before {
 
 .form-input {
   background: var(--input-bg);
-  border: 2px solid var(--input-border);
+  border: 1px solid transparent;
   border-radius: 12px;
+  /* focus ring 3px，左右留边避免被父级 overflow 裁切 */
+  margin-left: 3px;
+  margin-right: 3px;
   padding: 16px;
   font-size: 16px;
   color: var(--text-primary);
@@ -520,12 +565,10 @@ body::before {
 
 .form-input:focus {
   outline: none;
-  border-color: var(--primary-color);
-  box-shadow:
-    0 0 0 3px rgba(var(--primary-rgb), 0.1),
-    0 10px 15px -3px rgba(0, 0, 0, 0.1);
-  background: rgba(255, 255, 255, 0.95);
-  color: #1f2937;
+  border-color: transparent;
+  box-shadow: 0 0 0 3px rgba(var(--primary-rgb), 0.18);
+  background: var(--input-bg, rgba(255, 255, 255, 0.95));
+  color: var(--text-primary, #1f2937);
 }
 
 .dark .form-input:focus {
@@ -737,43 +780,19 @@ body::before {
 }
 
 .toast {
-  position: fixed;
-  top: 80px;
-  right: 20px;
-  z-index: 1000;
-  min-width: 320px;
-  max-width: 500px;
-  transform: translateX(100%);
-  transition: transform 0.3s ease-in-out;
+  /* legacy; use .app-toast */
 }
 
-.toast.show {
-  transform: translateX(0);
-}
+.toast.show { }
 
-.toast-success {
-  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
-  color: white;
-  border: 1px solid rgba(16, 185, 129, 0.3);
-}
 
-.toast-error {
-  background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
-  color: white;
-  border: 1px solid rgba(239, 68, 68, 0.3);
-}
+.toast-success { /* legacy */ }
 
-.toast-info {
-  background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
-  color: white;
-  border: 1px solid rgba(59, 130, 246, 0.3);
-}
+.toast-error { /* legacy */ }
 
-.toast-warning {
-  background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
-  color: white;
-  border: 1px solid rgba(245, 158, 11, 0.3);
-}
+.toast-info { /* legacy */ }
+
+.toast-warning { /* legacy */ }
 
 [v-cloak] {
   display: none;
@@ -868,7 +887,7 @@ body::before {
   }
 
   .stat-card {
-    padding: 12px;
+    padding: 10px 12px;
   }
 
   .tab-btn {
@@ -928,4 +947,45 @@ body::before {
     opacity: 1;
     transform: translateY(0);
   }
+}
+
+
+/* 表格单元格：上下居中、默认居左 */
+table th,
+table td {
+  vertical-align: middle !important;
+  text-align: left !important;
+}
+table th.text-right,
+table td.text-right {
+  text-align: right !important;
+}
+table th.text-center,
+table td.text-center {
+  text-align: center !important;
+}
+td.operations-column,
+th.operations-column,
+.operations-cell {
+  text-align: left !important;
+}
+
+
+/* 链接默认无下划线：router-link/按钮式链接避免浏览器蓝字下划线 */
+a,
+a:hover,
+a:focus,
+a:active,
+.router-link-active,
+.router-link-exact-active {
+  text-decoration: none;
+}
+
+/* 操作按钮文字不换行；按钮本身仍可 flex-wrap 换行排布 */
+button,
+.btn,
+[type='button'],
+[type='submit'],
+[type='reset'] {
+  white-space: nowrap;
 }

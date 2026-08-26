@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+import { redis } from '../src/infra/redis.js'
+import { logger } from '../src/common/logger.js'
 
 /**
  * 数据迁移脚本：修复历史使用统计数据
@@ -11,10 +13,6 @@
  * 使用方法：
  * node scripts/fix-usage-stats.js [--dry-run]
  */
-
-require('dotenv').config()
-const redis = require('../src/models/redis')
-const logger = require('../src/utils/logger')
 
 // 解析命令行参数
 const args = process.argv.slice(2)
@@ -40,7 +38,7 @@ async function fixUsageStats() {
       fixedDailyKeys: 0,
       fixedMonthlyKeys: 0,
       fixedModelKeys: 0,
-      errors: 0
+      errors: 0,
     }
 
     // 1. 修复 API Key 级别的总统计
@@ -146,7 +144,7 @@ async function fixUsageStats() {
       'usage:model:daily:*',
       'usage:model:monthly:*',
       'usage:*:model:daily:*',
-      'usage:*:model:monthly:*'
+      'usage:*:model:monthly:*',
     ]
 
     for (const pattern of modelPatterns) {
@@ -162,8 +160,7 @@ async function fixUsageStats() {
             const cacheReadTokens = parseInt(data.cacheReadTokens) || 0
             const currentAllTokens = parseInt(data.allTokens) || 0
 
-            const correctAllTokens =
-              inputTokens + outputTokens + cacheCreateTokens + cacheReadTokens
+            const correctAllTokens = inputTokens + outputTokens + cacheCreateTokens + cacheReadTokens
 
             if (currentAllTokens !== correctAllTokens && correctAllTokens > 0) {
               if (!isDryRun) {

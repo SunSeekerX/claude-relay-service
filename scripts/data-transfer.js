@@ -1,4 +1,8 @@
 #!/usr/bin/env node
+import _fs_ns from 'node:fs'
+import { redis } from '../src/infra/redis.js'
+import { logger } from '../src/common/logger.js'
+import readline from 'node:readline'
 
 /**
  * 数据导出/导入工具
@@ -14,10 +18,7 @@
  * --skip-conflicts: 导入时跳过冲突的数据
  */
 
-const fs = require('fs').promises
-const redis = require('../src/models/redis')
-const logger = require('../src/utils/logger')
-const readline = require('readline')
+const fs = _fs_ns.promises
 
 // 解析命令行参数
 const args = process.argv.slice(2)
@@ -32,7 +33,7 @@ args.slice(1).forEach((arg) => {
 // 创建 readline 接口
 const rl = readline.createInterface({
   input: process.stdin,
-  output: process.stdout
+  output: process.stdout,
 })
 
 async function askConfirmation(question) {
@@ -139,7 +140,7 @@ const CSV_FIELD_MAPPING = {
   userUsername: '用户名',
 
   // 其他信息
-  icon: '图标'
+  icon: '图标',
 }
 
 // 数据格式化函数
@@ -203,7 +204,7 @@ function formatCSVValue(key, value, shouldSanitize = false) {
             day: '2-digit',
             hour: '2-digit',
             minute: '2-digit',
-            second: '2-digit'
+            second: '2-digit',
           })
         } catch {
           return value
@@ -303,9 +304,9 @@ async function exportData() {
         version: '1.0',
         exportDate: new Date().toISOString(),
         sanitized: shouldSanitize,
-        types
+        types,
       },
-      data: {}
+      data: {},
     }
 
     // 导出 API Keys
@@ -459,9 +460,7 @@ async function importData() {
 
     logger.info('🔄 Starting data import...')
     logger.info(`📁 Input file: ${inputFile}`)
-    logger.info(
-      `⚡ Mode: ${forceOverwrite ? 'FORCE OVERWRITE' : skipConflicts ? 'SKIP CONFLICTS' : 'ASK ON CONFLICT'}`
-    )
+    logger.info(`⚡ Mode: ${forceOverwrite ? 'FORCE OVERWRITE' : skipConflicts ? 'SKIP CONFLICTS' : 'ASK ON CONFLICT'}`)
 
     // 读取文件
     const fileContent = await fs.readFile(inputFile, 'utf8')
@@ -517,7 +516,7 @@ async function importData() {
     const stats = {
       imported: 0,
       skipped: 0,
-      errors: 0
+      errors: 0,
     }
 
     // 导入 API Keys
@@ -533,9 +532,7 @@ async function importData() {
               stats.skipped++
               continue
             } else {
-              const overwrite = await askConfirmation(
-                `API Key "${apiKey.name}" (${apiKey.id}) exists. Overwrite?`
-              )
+              const overwrite = await askConfirmation(`API Key "${apiKey.name}" (${apiKey.id}) exists. Overwrite?`)
               if (!overwrite) {
                 stats.skipped++
                 continue
@@ -578,7 +575,7 @@ async function importData() {
               continue
             } else {
               const overwrite = await askConfirmation(
-                `Claude account "${account.name}" (${account.id}) exists. Overwrite?`
+                `Claude account "${account.name}" (${account.id}) exists. Overwrite?`,
               )
               if (!overwrite) {
                 stats.skipped++
@@ -621,7 +618,7 @@ async function importData() {
               continue
             } else {
               const overwrite = await askConfirmation(
-                `Gemini account "${account.name}" (${account.id}) exists. Overwrite?`
+                `Gemini account "${account.name}" (${account.id}) exists. Overwrite?`,
               )
               if (!overwrite) {
                 stats.skipped++

@@ -1,4 +1,6 @@
-jest.mock('../../src/utils/logger', () => ({
+import * as runner from '../../src/infra/migration_runner.js'
+import { registry } from '../../src/infra/migration_registry.js'
+jest.mock('../../src/common/logger.js', () => ({
   info: jest.fn(),
   success: jest.fn(),
   warn: jest.fn(),
@@ -6,7 +8,7 @@ jest.mock('../../src/utils/logger', () => ({
 }))
 
 // 真实 registry 当前为空(两个真迁移走原生幂等)。用测试 registry 覆盖,验证 runMarker 通用逻辑。
-jest.mock('../../src/migrations/registry', () => ({
+jest.mock('../../src/infra/migration_registry.js', () => ({
   registry: [
     {
       id: 'test_marker_v1',
@@ -16,8 +18,6 @@ jest.mock('../../src/migrations/registry', () => ({
   ]
 }))
 
-const runner = require('../../src/migrations/runner')
-const { registry } = require('../../src/migrations/registry')
 
 // 内存版 client mock:普通 key(get/set) + applied hash(hexists/hset)
 const makeClient = (initialStore) => {

@@ -1,15 +1,13 @@
 #!/usr/bin/env node
-
+import fs from 'node:fs'
+import path from 'node:path'
+import https from 'node:https'
+import crypto from 'node:crypto'
+import { pricingSource } from '../config/pricingSource.js'
 /**
  * 手动更新模型价格数据脚本
  * 从价格镜像分支下载最新的模型价格和上下文窗口信息
  */
-
-const fs = require('fs')
-const path = require('path')
-const https = require('https')
-const crypto = require('crypto')
-const pricingSource = require('../config/pricingSource')
 
 // 颜色输出
 const colors = {
@@ -19,7 +17,7 @@ const colors = {
   green: '\x1b[32m',
   yellow: '\x1b[33m',
   blue: '\x1b[36m',
-  magenta: '\x1b[35m'
+  magenta: '\x1b[35m',
 }
 
 // 日志函数
@@ -27,7 +25,7 @@ const log = {
   info: (msg) => console.log(`${colors.blue}[INFO]${colors.reset} ${msg}`),
   success: (msg) => console.log(`${colors.green}[SUCCESS]${colors.reset} ${msg}`),
   error: (msg) => console.error(`${colors.red}[ERROR]${colors.reset} ${msg}`),
-  warn: (msg) => console.warn(`${colors.yellow}[WARNING]${colors.reset} ${msg}`)
+  warn: (msg) => console.warn(`${colors.yellow}[WARNING]${colors.reset} ${msg}`),
 }
 
 // 配置
@@ -36,14 +34,9 @@ const config = {
   pricingFile: path.join(process.cwd(), 'data', 'model_pricing.json'),
   hashFile: path.join(process.cwd(), 'data', 'model_pricing.sha256'),
   pricingUrl: pricingSource.pricingUrl,
-  fallbackFile: path.join(
-    process.cwd(),
-    'resources',
-    'model-pricing',
-    'model_prices_and_context_window.json'
-  ),
+  fallbackFile: path.join(process.cwd(), 'resources', 'model-pricing', 'model_prices_and_context_window.json'),
   backupFile: path.join(process.cwd(), 'data', 'model_pricing.backup.json'),
-  timeout: 30000 // 30秒超时
+  timeout: 30000, // 30秒超时
 }
 
 // 创建数据目录
@@ -192,12 +185,10 @@ function showCurrentStatus() {
     const ageInHours = Math.round(fileAge / (60 * 60 * 1000))
     const ageInDays = Math.floor(ageInHours / 24)
 
-    let ageString = ''
-    if (ageInDays > 0) {
-      ageString = `${ageInDays} day${ageInDays > 1 ? 's' : ''} and ${ageInHours % 24} hour${ageInHours % 24 !== 1 ? 's' : ''}`
-    } else {
-      ageString = `${ageInHours} hour${ageInHours !== 1 ? 's' : ''}`
-    }
+    const ageString =
+      ageInDays > 0
+        ? `${ageInDays} day${ageInDays > 1 ? 's' : ''} and ${ageInHours % 24} hour${ageInHours % 24 !== 1 ? 's' : ''}`
+        : `${ageInHours} hour${ageInHours !== 1 ? 's' : ''}`
 
     log.info(`Current pricing file age: ${ageString}`)
 
@@ -216,9 +207,7 @@ function showCurrentStatus() {
 async function main() {
   console.log(`${colors.bright}${colors.blue}======================================${colors.reset}`)
   console.log(`${colors.bright}  Model Pricing Update Tool${colors.reset}`)
-  console.log(
-    `${colors.bright}${colors.blue}======================================${colors.reset}\n`
-  )
+  console.log(`${colors.bright}${colors.blue}======================================${colors.reset}\n`)
 
   // 显示当前状态
   showCurrentStatus()
@@ -254,9 +243,7 @@ async function main() {
 
     // 尝试使用 fallback
     if (useFallback()) {
-      console.log(
-        `\n${colors.yellow}⚠️  Using fallback data (update completed with warnings)${colors.reset}`
-      )
+      console.log(`\n${colors.yellow}⚠️  Using fallback data (update completed with warnings)${colors.reset}`)
       process.exit(0)
     } else {
       console.log(`\n${colors.red}❌ Failed to update model pricing${colors.reset}`)

@@ -1,12 +1,17 @@
-const fs = require('fs')
-const path = require('path')
-const crypto = require('crypto')
-const chalk = require('chalk')
-const ora = require('ora')
+import { fileURLToPath } from 'node:url'
+import fs from 'node:fs'
+import path from 'node:path'
+import crypto from 'node:crypto'
+import chalk from 'chalk'
+import ora from 'ora'
+import { config } from '../config/config.js'
+import { pathToFileURL } from 'node:url'
+import { env } from '../config/env.js'
 
-const config = require('../config/config')
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = path.dirname(__filename)
 
-async function setup() {
+export async function setup() {
   console.log(chalk.blue.bold('\n🚀 Claude Relay Service 初始化设置\n'))
 
   const spinner = ora('正在进行初始化设置...').start()
@@ -38,10 +43,9 @@ async function setup() {
     }
 
     // 3. 生成或使用环境变量中的管理员凭据
-    const adminUsername =
-      process.env.ADMIN_USERNAME || `cr_admin_${crypto.randomBytes(4).toString('hex')}`
+    const adminUsername = env.ADMIN_USERNAME || `cr_admin_${crypto.randomBytes(4).toString('hex')}`
     const adminPassword =
-      process.env.ADMIN_PASSWORD ||
+      env.ADMIN_PASSWORD ||
       crypto
         .randomBytes(16)
         .toString('base64')
@@ -49,7 +53,7 @@ async function setup() {
         .substring(0, 16)
 
     // 如果使用了环境变量，显示提示
-    if (process.env.ADMIN_USERNAME || process.env.ADMIN_PASSWORD) {
+    if (env.ADMIN_USERNAME || env.ADMIN_PASSWORD) {
       console.log(chalk.yellow('\n📌 使用环境变量中的管理员凭据'))
     }
 
@@ -58,13 +62,10 @@ async function setup() {
       initializedAt: new Date().toISOString(),
       adminUsername,
       adminPassword,
-      version: '1.0.0'
+      version: '1.0.0',
     }
 
-    fs.writeFileSync(
-      path.join(__dirname, '..', 'data', 'init.json'),
-      JSON.stringify(initData, null, 2)
-    )
+    fs.writeFileSync(path.join(__dirname, '..', 'data', 'init.json'), JSON.stringify(initData, null, 2))
 
     spinner.succeed('初始化设置完成')
 
@@ -74,13 +75,9 @@ async function setup() {
     console.log(`   管理员密码:   ${chalk.cyan(adminPassword)}`)
 
     // 如果是自动生成的凭据，强调需要保存
-    if (!process.env.ADMIN_USERNAME && !process.env.ADMIN_PASSWORD) {
+    if (!env.ADMIN_USERNAME && !env.ADMIN_PASSWORD) {
       console.log(chalk.red('\n⚠️  请立即保存这些凭据！首次登录后建议修改密码。'))
-      console.log(
-        chalk.yellow(
-          '\n💡 提示: 也可以通过环境变量 ADMIN_USERNAME 和 ADMIN_PASSWORD 预设管理员凭据。\n'
-        )
-      )
+      console.log(chalk.yellow('\n💡 提示: 也可以通过环境变量 ADMIN_USERNAME 和 ADMIN_PASSWORD 预设管理员凭据。\n'))
     } else {
       console.log(chalk.green('\n✅ 已使用预设的管理员凭据。\n'))
     }
@@ -102,7 +99,7 @@ async function setup() {
 }
 
 // 检查是否已初始化
-function checkInitialized() {
+export function checkInitialized() {
   const initFile = path.join(__dirname, '..', 'data', 'init.json')
   if (fs.existsSync(initFile)) {
     const initData = JSON.parse(fs.readFileSync(initFile, 'utf8'))
@@ -119,10 +116,8 @@ function checkInitialized() {
   return false
 }
 
-if (require.main === module) {
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   if (!checkInitialized()) {
     setup()
   }
 }
-
-module.exports = { setup, checkInitialized }

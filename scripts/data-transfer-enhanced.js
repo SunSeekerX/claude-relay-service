@@ -1,16 +1,16 @@
 #!/usr/bin/env node
-
+import _fs_ns from 'node:fs'
+import crypto from 'node:crypto'
+import { redis } from '../src/infra/redis.js'
+import { logger } from '../src/common/logger.js'
+import readline from 'node:readline'
+import { config } from '../config/config.js'
 /**
  * 增强版数据导出/导入工具
  * 支持加密数据的处理
  */
 
-const fs = require('fs').promises
-const crypto = require('crypto')
-const redis = require('../src/models/redis')
-const logger = require('../src/utils/logger')
-const readline = require('readline')
-const config = require('../config/config')
+const fs = _fs_ns.promises
 
 // 解析命令行参数
 const args = process.argv.slice(2)
@@ -25,7 +25,7 @@ args.slice(1).forEach((arg) => {
 // 创建 readline 接口
 const rl = readline.createInterface({
   input: process.stdin,
-  output: process.stdout
+  output: process.stdout,
 })
 
 async function askConfirmation(question) {
@@ -159,7 +159,7 @@ async function exportUsageStats(keyId) {
       costMonthly: {},
       costHourly: {},
       opusTotal: null,
-      opusWeekly: {}
+      opusWeekly: {},
     }
 
     // 导出总统计（Hash）
@@ -497,9 +497,9 @@ async function exportData() {
         exportDate: new Date().toISOString(),
         sanitized: shouldSanitize,
         decrypted: shouldDecrypt,
-        types
+        types,
       },
-      data: {}
+      data: {},
     }
 
     // 导出 API Keys
@@ -641,7 +641,7 @@ async function exportData() {
         monthlyMonths: [], // usage:model:monthly:months Set
         globalTotal: null, // usage:global:total Hash
         globalDaily: {}, // usage:global:daily:* Hash
-        globalMonthly: {} // usage:global:monthly:* Hash
+        globalMonthly: {}, // usage:global:monthly:* Hash
       }
 
       // 导出月份索引
@@ -845,9 +845,7 @@ async function importData() {
 
     logger.info('🔄 Starting data import...')
     logger.info(`📁 Input file: ${inputFile}`)
-    logger.info(
-      `⚡ Mode: ${forceOverwrite ? 'FORCE OVERWRITE' : skipConflicts ? 'SKIP CONFLICTS' : 'ASK ON CONFLICT'}`
-    )
+    logger.info(`⚡ Mode: ${forceOverwrite ? 'FORCE OVERWRITE' : skipConflicts ? 'SKIP CONFLICTS' : 'ASK ON CONFLICT'}`)
 
     // 读取文件
     const fileContent = await fs.readFile(inputFile, 'utf8')
@@ -904,7 +902,7 @@ async function importData() {
     const stats = {
       imported: 0,
       skipped: 0,
-      errors: 0
+      errors: 0,
     }
 
     // 导入 API Keys
@@ -920,9 +918,7 @@ async function importData() {
               stats.skipped++
               continue
             } else {
-              const overwrite = await askConfirmation(
-                `API Key "${apiKey.name}" (${apiKey.id}) exists. Overwrite?`
-              )
+              const overwrite = await askConfirmation(`API Key "${apiKey.name}" (${apiKey.id}) exists. Overwrite?`)
               if (!overwrite) {
                 stats.skipped++
                 continue
@@ -967,9 +963,7 @@ async function importData() {
           // 更新哈希映射：hash_map的key必须是哈希值
           if (!importDataObj.metadata.sanitized && hashedApiKey) {
             await redis.client.hset('apikey:hash_map', hashedApiKey, apiKey.id)
-            logger.info(
-              `📝 Updated hash mapping: ${hashedApiKey.substring(0, 8)}... -> ${apiKey.id}`
-            )
+            logger.info(`📝 Updated hash mapping: ${hashedApiKey.substring(0, 8)}... -> ${apiKey.id}`)
           }
 
           // 导入使用统计数据
@@ -1000,7 +994,7 @@ async function importData() {
               continue
             } else {
               const overwrite = await askConfirmation(
-                `Claude account "${account.name}" (${account.id}) exists. Overwrite?`
+                `Claude account "${account.name}" (${account.id}) exists. Overwrite?`,
               )
               if (!overwrite) {
                 stats.skipped++
@@ -1073,7 +1067,7 @@ async function importData() {
               continue
             } else {
               const overwrite = await askConfirmation(
-                `Gemini account "${account.name}" (${account.id}) exists. Overwrite?`
+                `Gemini account "${account.name}" (${account.id}) exists. Overwrite?`,
               )
               if (!overwrite) {
                 stats.skipped++
@@ -1133,9 +1127,7 @@ async function importData() {
               stats.skipped++
               continue
             } else {
-              const overwrite = await askConfirmation(
-                `Admin "${admin.username}" (${admin.id}) exists. Overwrite?`
-              )
+              const overwrite = await askConfirmation(`Admin "${admin.username}" (${admin.id}) exists. Overwrite?`)
               if (!overwrite) {
                 stats.skipped++
                 continue
@@ -1193,9 +1185,7 @@ async function importData() {
               pipeline.hset(`usage:global:daily:${date}`, field, value)
             }
           }
-          logger.info(
-            `📥 Importing ${Object.keys(globalStats.globalDaily).length} global daily stats`
-          )
+          logger.info(`📥 Importing ${Object.keys(globalStats.globalDaily).length} global daily stats`)
         }
 
         // 导入全局每月统计
@@ -1205,9 +1195,7 @@ async function importData() {
               pipeline.hset(`usage:global:monthly:${month}`, field, value)
             }
           }
-          logger.info(
-            `📥 Importing ${Object.keys(globalStats.globalMonthly).length} global monthly stats`
-          )
+          logger.info(`📥 Importing ${Object.keys(globalStats.globalMonthly).length} global monthly stats`)
         }
 
         // 导入每日统计

@@ -1,16 +1,19 @@
 #!/usr/bin/env node
+import { spawn, exec as execChild } from 'node:child_process'
+import fs from 'node:fs'
+import path from 'node:path'
+import process from 'node:process'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 
-const { spawn, exec } = require('child_process')
-const fs = require('fs')
-const path = require('path')
-const process = require('process')
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = path.dirname(__filename)
 
 const PID_FILE = path.join(__dirname, '..', 'claude-relay-service.pid')
 const LOG_FILE = path.join(__dirname, '..', 'logs', 'service.log')
 const ERROR_LOG_FILE = path.join(__dirname, '..', 'logs', 'service-error.log')
 const APP_FILE = path.join(__dirname, '..', 'src', 'app.js')
 
-class ServiceManager {
+export class ServiceManager {
   constructor() {
     this.ensureLogDir()
   }
@@ -82,7 +85,6 @@ class ServiceManager {
 
     if (daemon) {
       // 后台运行模式 - 使用nohup实现真正的后台运行
-      const { exec: execChild } = require('child_process')
 
       const command = `nohup node "${APP_FILE}" > "${LOG_FILE}" 2> "${ERROR_LOG_FILE}" & echo $!`
 
@@ -111,7 +113,7 @@ class ServiceManager {
     } else {
       // 前台运行模式
       const child = spawn('node', [APP_FILE], {
-        stdio: 'inherit'
+        stdio: 'inherit',
       })
 
       console.log(`🔄 服务已启动 (PID: ${child.pid})`)
@@ -200,7 +202,7 @@ class ServiceManager {
       console.log(`✅ 服务正在运行 (PID: ${status.pid})`)
 
       // 显示进程信息
-      exec(`ps -p ${status.pid} -o pid,ppid,pcpu,pmem,etime,cmd --no-headers`, (error, stdout) => {
+      execChild(`ps -p ${status.pid} -o pid,ppid,pcpu,pmem,etime,cmd --no-headers`, (error, stdout) => {
         if (!error && stdout.trim()) {
           console.log('\n📊 进程信息:')
           console.log('PID\tPPID\tCPU%\tMEM%\tTIME\t\tCOMMAND')
@@ -216,7 +218,7 @@ class ServiceManager {
   logs(lines = 50) {
     console.log(`📖 最近 ${lines} 行日志:\n`)
 
-    exec(`tail -n ${lines} ${LOG_FILE}`, (error, stdout) => {
+    execChild(`tail -n ${lines} ${LOG_FILE}`, (error, stdout) => {
       if (error) {
         console.error('读取日志失败:', error.message)
         return
@@ -326,8 +328,6 @@ function main() {
   }
 }
 
-if (require.main === module) {
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   main()
 }
-
-module.exports = ServiceManager

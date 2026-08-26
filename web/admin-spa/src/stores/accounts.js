@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 
-import * as httpApis from '@/utils/http_apis'
+import * as httpApis from '@/libs/http_apis'
 
 // 平台配置映射
 const PLATFORM_CONFIG = {

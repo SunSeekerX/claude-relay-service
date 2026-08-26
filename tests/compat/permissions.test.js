@@ -1,4 +1,4 @@
-const { normalizePermissions, hasPermission } = require('../../src/compat/permissions')
+import { normalizePermissions, hasPermission } from '../../src/common/compat_permissions.js'
 
 describe('compat/permissions normalizePermissions', () => {
   test('空值 → 空数组(全部服务)', () => {

@@ -1,8 +1,8 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 
-import { getOemSettingsApi, updateOemSettingsApi } from '@/utils/http_apis'
-import { formatLocalDateTime } from '@/utils/time'
+import { getOemSettingsApi, updateOemSettingsApi } from '@/libs/http_apis'
+import { formatLocalDateTime } from '@/libs/time'
 
 export const useSettingsStore = defineStore('settings', () => {
   // 状态

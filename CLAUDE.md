@@ -1,8 +1,20 @@
-<260603.9>
+- 禁止使用 emoji 除非我指定
 
-# CLAUDE.md
-
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+## JS/TS 通用
+- 变量完整拼写：groupId/channelId/channelKeyId，禁止 gid/cid/ckid；迭代变量用集合名单数（for (const row of rows)）禁单字母；作用域越大名字越完整，单行 lambda 参数可短名；修旧代码顺手改缩写
+- 文件名小写，用 _ 连接
+- 定义方法用 const 不用 function
+- 注释都用单行注释
+- 函数能一行返回就一行返回
+- 禁止过度封装：一次性逻辑直接内联
+- 禁止 || 加默认值（除非是外部输入/API），内部配置缺失应直接报错
+- 禁止 (xxx as any).prop = value 绕过类型检查
+- API 函数必须以 Api 结尾：getXxxApi、createXxxApi、updateXxxApi、deleteXxxApi
+- 库导入放顶部，项目内导入放下面，中间空一行
+- 第三方基础库（时间/精度等）统一放在 lib 入口文件导出，业务代码从 lib 取；具体选型由项目规定
+- 项目内导入超 3 项用命名空间导入：import * as dtos from './upstream_account.dto'，引用处 dtos.CreateXxxDto（npm 库不适用）。两个例外保持命名导入：被本文件 export {} re-export 的桥接、Vue 组件在模板作标签。禁止以"导入列表长"为由拆分被导入的文件，导入写法问题用命名空间导入解决
+- 导出风格 inline：本地符号在定义处直接 export，禁止文件尾聚合 export { a, b, c }；唯一例外是 lib 入口 re-export 第三方库（export { X } from 'pkg'）
+- 环境变量单一入口：process.env/import.meta.env 只在单一配置模块读取并导出 env 对象，业务代码一律从 env 取值，禁止散落 process.env.X（及其 || 默认）；含 OS 环境（HOME/USERPROFILE/APPDATA/XDG_*）与 worker 身份（NODE_APP_INSTANCE/WORKER_COUNT/pm_id/NODE_ENV），派生量从 env 再算；新增配置加 env 模块并按需 fail-fast。后端仅两类例外可直接 process.env：① dotenv 启动引导（早于配置模块）② 子进程环境按白名单动态枚举拷贝；process.pid 是进程 API 不受约束
 
 ## 项目概述
 
@@ -39,36 +51,6 @@ Claude Relay Service — 多平台 AI API 中转服务，作为客户端与上�
 - 客户端断开时必须通过 AbortController 清理资源和并发计数
 - 日志中禁止输出完整 token，使用 `tokenMask.js` 脱敏
 
-## 项目结构
-
-```
-src/
-├── routes/              # HTTP 路由
-│   ├── api.js           # Claude API 主路由
-│   ├── admin/           # 管理后台路由（24个子文件）
-│   ├── geminiRoutes.js, standardGeminiRoutes.js
-│   ├── openaiRoutes.js, openaiClaudeRoutes.js, openaiGeminiRoutes.js
-│   ├── azureOpenaiRoutes.js, droidRoutes.js
-│   ├── userRoutes.js, webhook.js, unified.js, apiStats.js, web.js
-├── middleware/           # auth.js(认证/权限/限流), browserFallback.js
-├── handlers/             # geminiHandlers.js
-├── services/             # 业务服务
-│   ├── relay/                 # 各平台转发服务（9个）
-│   ├── account/               # 各平台账户管理（11个）
-│   ├── scheduler/             # 统一调度器（4个）
-│   ├── apiKeyService.js       # API Key 管理
-│   ├── pricingService.js      # 定价和成本
-│   └── ...                    # 其余 ~30 个业务服务
-├── models/redis.js       # Redis 数据模型
-├── constants/redisKeys.js # Redis key/TTL/LIMITS 统一注册表（单一权威源）
-├── utils/                # 35+ 工具文件（logger, proxy, oauth, cache, stream...）
-config/config.js          # 主配置
-scripts/                  # 运维脚本
-cli/                      # CLI 工具
-web/admin-spa/            # Vue SPA 管理界面
-data/init.json            # 管理员凭据
-```
-
 ## 核心请求流程
 
 ```
@@ -94,7 +76,7 @@ data/init.json            # 管理员凭据
 - 强制 `const`（`no-var`、`prefer-const`），严格相等（`eqeqeq`）
 - 下划线前缀变量 `_var` 可豁免 unused 检查
 - **格式化/lint/测试由人工在提交前触发**，AI 编码过程中禁止自行跑 `prettier` / `lint` / `test`
-- 前端额外安装了 `prettier-plugin-tailwindcss`
+- 前端样式原子类由 UnoCSS 生成（Tailwind 兼容写法）；不使用 `prettier-plugin-tailwindcss`
 
 ### 开发工作流
 
@@ -111,12 +93,14 @@ data/init.json            # 管理员凭据
 
 ### 前端要求
 
-- 技术栈：Vue 3 Composition API + Pinia + Element Plus + Tailwind CSS
-- 响应式设计：Tailwind CSS 响应式前缀（sm:、md:、lg:、xl:）
-- 暗黑模式：所有组件必须兼容，使用 `dark:` 前缀
+- 技术栈：Vue 3 Composition API + Pinia + UnoCSS + Vite；包管理器 `pnpm`（`web/admin-spa`）
+- 原子 CSS：UnoCSS `presetUno`（Tailwind 兼容 class / `sm:` `md:` `lg:` `xl:` 响应式前缀）
+- 图标：UnoCSS `presetIcons` + 离线 `@iconify-json/lucide|logos|simple-icons`；模板用 `i-lucide-*` / `i-logos-*` / `i-si-*` class，OpenAI 品牌保留自定义 `icon-openai`
+- 暗黑模式：所有组件必须兼容，使用 `dark:` 前缀；`darkMode` 为 class（`html.dark`）
 - 主题切换：`web/admin-spa/src/stores/theme.js` 的 `useThemeStore()`
 - 保持现有玻璃态设计风格
 - 最小字体 14px：用 `text-sm`(14px) 及以上，禁止 `text-xs`(12px)、`text-[Npx]`(N<14) 及 CSS `font-size` 小于 14px（含 `rem`<0.875）。全站已一次性全量替换到位（`text-xs`/`text-[<14px]`→`text-sm`、`font-size`<14px→14px、`<0.875rem`→0.875rem），新代码强制遵守，禁止再引入
+- lint/format：ESLint flat config + Prettier 分离（`pnpm lint` / `pnpm format`），eslint 不跑格式规则
 
 暗黑模式配色对照：
 
@@ -154,7 +138,7 @@ data/init.json            # 管理员凭据
   - 新增周相关逻辑时，不得默认依赖第三方库 locale 的隐式周起始
 - **展示层统一走公共 formatter**：
   - 前端禁止在业务组件里散落 `toLocaleString()` / `new Date()` / `dayjs()` 混用
-  - 优先复用 `web/admin-spa/src/utils/time.js` / `web/admin-spa/src/utils/tools.js`
+  - 优先复用 `web/admin-spa/src/libs/time.js` / `web/admin-spa/src/libs/tools.js`
 - **新增/修改时间逻辑必须补边界验证**：
   - 至少检查 UTC+8 零点前后
   - 周切换
@@ -182,9 +166,9 @@ npm run data:debug              # 调试 Redis 键
 ### 前端命令
 
 ```bash
-npm run install:web             # 安装前端依赖
-npm run build:web               # 构建前端（生成 dist）
-cd web/admin-spa && npm run dev # 前端开发模式（Vite HMR）
+npm run install:web             # 安装前端依赖（根脚本转调 web/admin-spa 的 pnpm install）
+npm run build:web               # 构建前端（根脚本转调 pnpm run build，产物 dist）
+cd web/admin-spa && pnpm dev    # 前端开发模式（Vite HMR；包管理器必须 pnpm）
 ```
 
 ## 环境变量（必须）
@@ -350,12 +334,3 @@ cd web/admin-spa && npm run dev # 前端开发模式（Vite HMR）
 
 - 用户确认决策时，必须在相关代码处添加带时间戳的 `[人工决策-...]` 注释，时间戳用 `TZ=Asia/Shanghai date` 取当前北京时间精确到秒
 - 修改涉及相关代码时，必须先提醒用户确认决策是否仍然有效，不得自行变更
-
-> "Implement the simplest solution that works. Follow KISS and YAGNI strictly. No over-engineering, no speculative features, no unnecessary defensive code, error handling, validation, or boilerplate unless explicitly required."
-
-# important-instruction-reminders
-
-Do what has been asked; nothing more, nothing less.
-NEVER create files unless they're absolutely necessary for achieving your goal.
-ALWAYS prefer editing an existing file to creating a new one.
-NEVER proactively create documentation files (\*.md) or README files. Only create documentation files if explicitly requested by the User.

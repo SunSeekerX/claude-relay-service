@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 
-import { createHttp } from '@/utils/http'
-import { showToast, APP_CONFIG } from '@/utils/tools'
+import { createHttp } from '@/libs/http'
+import { showToast, APP_CONFIG } from '@/libs/tools'
 
 // 清除前台用户的本地存储
 const clearUserStorage = () => {

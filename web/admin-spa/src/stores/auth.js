@@ -2,7 +2,7 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import router from '@/router'
 
-import { loginApi, getAuthUserApi, getOemSettingsApi } from '@/utils/http_apis'
+import { loginApi, getAuthUserApi, getOemSettingsApi } from '@/libs/http_apis'
 
 export const useAuthStore = defineStore('auth', () => {
   // 状态
@@ -103,7 +103,7 @@ export const useAuthStore = defineStore('auth', () => {
     }
 
     if (data.siteName) {
-      document.title = `${data.siteName} - 管理后台`
+      document.title = data.siteName
     }
   }
 

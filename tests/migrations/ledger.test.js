@@ -1,5 +1,4 @@
-const ledger = require('../../src/migrations/ledger')
-
+import * as ledger from '../../src/infra/migration_ledger.js'
 describe('migrations/ledger', () => {
   test('markApplied 写入 applied 台账字段(值转字符串)', async () => {
     const hset = jest.fn(() => Promise.resolve(1))

@@ -1,8 +1,7 @@
 #!/usr/bin/env node
-
-const fs = require('fs')
-const path = require('path')
-
+import fs from 'node:fs'
+import path from 'node:path'
+import { pricingService } from '../src/modules/pricing/pricing_service.js'
 // 测试定价服务的fallback机制
 async function testPricingFallback() {
   console.log('🧪 Testing pricing service fallback mechanism...\n')
@@ -29,8 +28,7 @@ async function testPricingFallback() {
     console.log('🚀 Initializing pricing service...\n')
 
     // 清除require缓存以确保重新加载
-    delete require.cache[require.resolve('../src/services/pricingService')]
-    const pricingService = require('../src/services/pricingService')
+    delete require.cache[require.resolve('../src/modules/pricing/pricing_service.js')]
 
     // 模拟网络失败，强制使用fallback
     const originalDownload = pricingService._downloadFromRemote

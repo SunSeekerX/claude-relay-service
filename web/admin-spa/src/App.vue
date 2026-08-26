@@ -1,5 +1,5 @@
 <template>
-  <div id="app">
+  <div class="app-root">
     <router-view />
 
     <!-- 全局组件 -->
@@ -11,7 +11,7 @@
 import { onMounted, ref } from 'vue'
 import { useAuthStore } from '@/stores/auth'
 import { useThemeStore } from '@/stores/theme'
-import ToastNotification from '@/components/common/ToastNotification.vue'
+import ToastNotification from '@/components/common/toast_notification.vue'
 
 const authStore = useAuthStore()
 const themeStore = useThemeStore()
@@ -33,7 +33,9 @@ onMounted(() => {
 </script>
 
 <style scoped>
-#app {
-  min-height: 100vh;
+.app-root {
+  height: 100%;
+  min-height: 100%;
+  overflow: hidden;
 }
 </style>

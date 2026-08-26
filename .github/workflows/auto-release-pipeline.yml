@@ -211,6 +211,12 @@ jobs:
         git commit -m "chore: sync VERSION file with release ${{ steps.next_version.outputs.new_tag }} [skip ci]"
 
     # 构建前端并推送到 web-dist 分支
+    - name: Setup pnpm
+      if: steps.check.outputs.needs_bump == 'true'
+      uses: pnpm/action-setup@v4
+      with:
+        version: 11.24.0
+
     - name: Setup Node.js
       if: steps.check.outputs.needs_bump == 'true'
       uses: actions/setup-node@v7
@@ -218,16 +224,16 @@ jobs:
         # 仅前端构建；运行时镜像见 Dockerfile 的 node:24-alpine
         # 2026-08 官方 Active LTS = 24（Krypton）；勿写 lts/*，避免无声跳大版本
         node-version: '24'
-        cache: 'npm'
-        cache-dependency-path: web/admin-spa/package-lock.json
+        cache: 'pnpm'
+        cache-dependency-path: web/admin-spa/pnpm-lock.yaml
 
     - name: Build Frontend
       if: steps.check.outputs.needs_bump == 'true'
       run: |
         echo "Building frontend for version ${{ steps.next_version.outputs.new_version }}..."
         cd web/admin-spa
-        npm ci
-        npm run build
+        pnpm install --frozen-lockfile
+        pnpm run build
         echo "Frontend build completed"
 
     # 前端产物先暂存到工作区外，【不推送】。

@@ -1,29 +1,42 @@
 import { defineConfig, loadEnv } from 'vite'
 import vue from '@vitejs/plugin-vue'
+import UnoCSS from 'unocss/vite'
 import AutoImport from 'unplugin-auto-import/vite'
 import Components from 'unplugin-vue-components/vite'
+import { existsSync } from 'node:fs'
 import { fileURLToPath, URL } from 'node:url'
+import { join } from 'node:path'
+
+// unplugin 默认 pascalCase 不拆下划线：custom_dropdown → Custom_dropdown
+// 模板写 <CustomDropdown> 对不上。补 resolver：PascalCase → snake_case 文件
+// from 必须用 @/ 别名（或正斜杠），Windows 绝对路径反斜杠会被当成 escape 吃掉
+const commonComponentsDir = fileURLToPath(new URL('./src/components/common', import.meta.url))
+const pascalToSnake = (name) =>
+  name
+    .replace(/([a-z0-9])([A-Z])/g, '$1_$2')
+    .replace(/([A-Z])([A-Z][a-z])/g, '$1_$2')
+    .toLowerCase()
+const snakeCaseCommonResolver = (componentName) => {
+  if (!componentName) return
+  const snake = pascalToSnake(componentName)
+  if (!existsSync(join(commonComponentsDir, `${snake}.vue`))) return
+  return { name: 'default', from: `@/components/common/${snake}.vue` }
+}
 
 export default defineConfig(({ mode }) => {
-  // 加载环境变量
   const env = loadEnv(mode, process.cwd(), '')
   const apiTarget = env.VITE_API_TARGET || 'http://localhost:3000'
   const httpProxy = env.VITE_HTTP_PROXY || env.HTTP_PROXY || env.http_proxy
-  // 使用环境变量配置基础路径，如果未设置则使用默认值
   const basePath = env.VITE_APP_BASE_URL || (mode === 'development' ? '/admin/' : '/admin-next/')
 
-  // 创建代理配置
   const proxyConfig = {
     target: apiTarget,
     changeOrigin: true,
     secure: false
   }
 
-  // 如果设置了代理，动态导入并配置 agent（仅在开发模式下）
   if (httpProxy && mode === 'development') {
     console.log(`Using HTTP proxy: ${httpProxy}`)
-    // Vite 的 proxy 使用 http-proxy，它支持通过环境变量自动使用代理
-    // 设置环境变量让 http-proxy 使用代理
     process.env.HTTP_PROXY = httpProxy
     process.env.HTTPS_PROXY = httpProxy
   }
@@ -35,16 +48,26 @@ export default defineConfig(({ mode }) => {
   return {
     base: basePath,
     plugins: [
+      // UnoCSS 放 vue 前，保证原子类与图标在 SFC 中可用
+      UnoCSS(),
       vue(),
       // 这里【不挂 vite-plugin-checker】：lint 不参与构建。
-      // 挂上它等于让格式问题（prettier 换行、全角空格这类）阻断发布流水线的前端构建，
-      // 而那些问题不影响产物正确性。lint 手动跑：npm run lint / npm run format。
+      // 挂上它等于让格式问题阻断发布流水线的前端构建。
+      // lint 手动跑：pnpm lint / pnpm format。
       AutoImport({
-        imports: ['vue', 'vue-router', 'pinia']
+        imports: ['vue', 'vue-router', 'pinia'],
+        dts: 'auto-imports.d.ts',
+        eslintrc: {
+          enabled: true,
+          filepath: './.eslintrc-auto-import.json'
+        }
       }),
       Components({
-        // common 下全局组件自动注册（CustomDropdown 等），业务页无需手动 import
+        // common 下全局组件自动注册；dirs + resolver 双注册，兼容 CustomDropdown / Custom_dropdown
         dirs: ['src/components/common'],
+        dts: 'components.d.ts',
+        allowOverrides: true,
+        resolvers: [snakeCaseCommonResolver]
       })
     ],
     resolve: {
@@ -57,10 +80,9 @@ export default defineConfig(({ mode }) => {
       host: true,
       open: false,
       proxy: {
-        // 统一的 API 代理规则 - 开发环境所有 API 请求都加 /webapi 前缀
         '/webapi': {
           ...proxyConfig,
-          rewrite: (path) => path.replace(/^\/webapi/, ''), // 转发时去掉 /webapi 前缀
+          rewrite: (path) => path.replace(/^\/webapi/, ''),
           configure: (proxy, options) => {
             proxy.on('proxyReq', (proxyReq, req) => {
               console.log(
@@ -76,7 +98,6 @@ export default defineConfig(({ mode }) => {
             })
           }
         },
-        // API Stats 专用代理规则
         '/apiStats': {
           ...proxyConfig,
           configure: (proxy, options) => {
@@ -99,17 +120,22 @@ export default defineConfig(({ mode }) => {
       rollupOptions: {
         output: {
           manualChunks(id) {
-            // 将 vue 相关的库打包到一起
-            if (id.includes('node_modules')) {
-              
-              if (id.includes('chart.js')) {
-                return 'chart'
-              }
-              if (id.includes('vue') || id.includes('pinia') || id.includes('vue-router')) {
-                return 'vue-vendor'
-              }
-              return 'vendor'
+            if (!id.includes('node_modules')) return
+            if (id.includes('chart.js')) return 'chart'
+            if (
+              id.includes('/vue/') ||
+              id.includes('/vue-router/') ||
+              id.includes('/pinia/') ||
+              id.includes('\\vue\\') ||
+              id.includes('\\vue-router\\') ||
+              id.includes('\\pinia\\')
+            ) {
+              return 'vue-vendor'
             }
+            if (id.includes('@iconify-json') || id.includes('/unocss/') || id.includes('\\unocss\\')) {
+              return 'icons'
+            }
+            return 'vendor'
           }
         }
       }

@@ -1,0 +1,5428 @@
+<template>
+  <div class="tab-content">
+    <!-- 去掉内层 .card：外层 MainLayout 已是卡片，避免卡片套卡片 -->
+    <div class="relative">
+      <div class="mb-3 flex flex-col gap-2 sm:gap-3">
+        <!-- 页面标题与主 Tab「API Keys」重复，已移除 -->
+        <!-- Tab Navigation -->
+        <SegmentedTabs
+          :model-value="activeTab"
+          variant="underline"
+          :tabs="apiKeySectionTabs"
+          @update:model-value="onApiKeyTabChange"
+        />
+
+        <!-- Tab Content -->
+        <!-- 活跃 API Keys Tab Panel -->
+        <div v-if="activeTab === 'active'" class="tab-panel">
+          <!-- 工具栏区域 - 添加 mb-4 增加与表格的间距 -->
+          <div class="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <!-- 左侧：查询筛选器组 -->
+            <div class="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:gap-3">
+              <!-- 时间范围筛选 -->
+              <div class="min-w-[140px]">
+                <CustomDropdown
+                  v-model="globalDateFilter.preset"
+                  accent="blue"
+                  icon="i-lucide-calendar-days"
+                  :options="timeRangeDropdownOptions"
+                  placeholder="选择时间范围"
+                  @change="handleTimeRangeChange"
+                />
+              </div>
+
+              <!-- 自定义日期范围选择器 - 在选择自定义时显示 -->
+              <div v-if="globalDateFilter.type === 'custom'" class="flex items-center">
+                <AppDateRangePicker
+                  :clearable="true"
+                  :model-value="globalDateFilter.customRange"
+                  class="w-[320px]"
+                  :presets="false"
+                  size="sm"
+                  @update:model-value="onGlobalCustomDateRangeChange"
+                />
+              </div>
+
+              <!-- 标签筛选器 -->
+              <div class="min-w-[140px]">
+                <CustomDropdown
+                  v-model="selectedTagFilter"
+                  accent="purple"
+                  icon="i-lucide-tags"
+                  :options="tagOptions"
+                  placeholder="所有标签"
+                />
+              </div>
+
+              <!-- 模型筛选器 -->
+              <div class="min-w-[140px]">
+                <CustomDropdown
+                  v-model="selectedModels"
+                  accent="orange"
+                  icon="i-lucide-box"
+                  :multiple="true"
+                  :options="modelOptions"
+                  placeholder="所有模型"
+                />
+              </div>
+
+              <!-- 搜索模式与搜索框 -->
+              <div class="flex min-w-[240px] flex-col gap-2 sm:flex-row sm:items-center">
+                <div class="sm:w-44">
+                  <CustomDropdown
+                    v-model="searchMode"
+                    accent="cyan"
+                    icon="i-lucide-filter"
+                    :options="searchModeOptions"
+                    placeholder="选择搜索类型"
+                  />
+                </div>
+                <div class="toolbar-search-wrap group">
+                  <div class="relative flex items-center">
+                    <input
+                      v-model="searchKeyword"
+                      class="toolbar-search-input"
+                      :placeholder="
+                        searchMode === 'bindingAccount'
+                          ? '搜索所属账号...'
+                          : isLdapEnabled
+                            ? '搜索名称或所有者...'
+                            : '搜索名称...'
+                      "
+                      type="text"
+                    />
+                    <i class="input-affix-icon input-affix-icon--left i-lucide-search text-cyan-500" />
+                    <button
+                      v-if="searchKeyword"
+                      class="absolute right-2 flex h-5 w-5 items-center justify-center rounded-full text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-700 dark:hover:text-gray-300"
+                      @click="clearSearch"
+                    >
+                      <i class="i-lucide-x text-sm" />
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- 右侧：操作按钮组 -->
+            <div class="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:gap-3">
+              <!-- 刷新按钮 -->
+              <button
+                class="group relative flex items-center justify-center gap-2 rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm font-medium text-gray-700 shadow-sm transition-all duration-200 hover:border-gray-300 hover:shadow-md disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200 dark:hover:border-gray-500 sm:w-auto"
+                :disabled="apiKeysLoading"
+                @click="loadApiKeys()"
+              >
+                <div
+                  class="absolute -inset-0.5 rounded-lg bg-gradient-to-r from-green-500 to-teal-500 opacity-0 blur transition duration-300 group-hover:opacity-20"
+                ></div>
+                <i
+                  :class="[
+                    'relative text-green-500',
+                    apiKeysLoading ? 'i-lucide-loader-circle animate-spin' : 'i-lucide-refresh-cw'
+                  ]"
+                />
+                <span class="relative">刷新</span>
+              </button>
+
+              <!-- 选择/取消选择按钮 -->
+              <button
+                class="flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm font-medium text-gray-700 shadow-sm transition-all duration-200 hover:border-gray-300 hover:bg-gray-50 hover:shadow-md dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
+                @click="toggleSelectionMode"
+              >
+                <i :class="showCheckboxes ? 'i-lucide-x' : 'i-lucide-square-check'"></i>
+                <span>{{ showCheckboxes ? '取消选择' : '选择' }}</span>
+              </button>
+
+              <!-- 导出数据按钮 -->
+              <button
+                class="group relative flex items-center justify-center gap-2 rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm font-medium text-gray-700 shadow-sm transition-all duration-200 hover:border-gray-300 hover:shadow-md dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200 dark:hover:border-gray-500 sm:w-auto"
+                @click="exportToExcel"
+              >
+                <div
+                  class="absolute -inset-0.5 rounded-lg bg-gradient-to-r from-emerald-500 to-green-500 opacity-0 blur transition duration-300 group-hover:opacity-20"
+                ></div>
+                <i class="i-lucide-file-spreadsheet relative text-emerald-500" />
+                <span class="relative">导出数据</span>
+              </button>
+
+              <!-- 管理标签按钮 -->
+              <button
+                class="group relative flex items-center justify-center gap-2 rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm font-medium text-gray-700 shadow-sm transition-all duration-200 hover:border-gray-300 hover:shadow-md dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200 dark:hover:border-gray-500 sm:w-auto"
+                @click="showTagManagementModal = true"
+              >
+                <div
+                  class="absolute -inset-0.5 rounded-lg bg-gradient-to-r from-purple-500 to-pink-500 opacity-0 blur transition duration-300 group-hover:opacity-20"
+                ></div>
+                <i class="i-lucide-tags relative text-purple-500" />
+                <span class="relative">管理标签</span>
+              </button>
+
+              <!-- 批量编辑按钮 - 移到刷新按钮旁边 -->
+              <button
+                v-if="selectedApiKeys.length > 0"
+                class="group relative flex items-center justify-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-4 py-2 text-sm font-medium text-blue-700 shadow-sm transition-all duration-200 hover:border-blue-300 hover:bg-blue-100 hover:shadow-md dark:border-blue-700 dark:bg-blue-900/30 dark:text-blue-300 dark:hover:bg-blue-900/50 sm:w-auto"
+                @click="openBatchEditModal()"
+              >
+                <div
+                  class="absolute -inset-0.5 rounded-lg bg-gradient-to-r from-blue-500 to-indigo-500 opacity-0 blur transition duration-300 group-hover:opacity-20"
+                ></div>
+                <i class="i-lucide-pen-line relative text-blue-600 dark:text-blue-400" />
+                <span class="relative">编辑选中 ({{ selectedApiKeys.length }})</span>
+              </button>
+
+              <!-- 批量删除按钮 - 移到刷新按钮旁边 -->
+              <button
+                v-if="selectedApiKeys.length > 0"
+                class="group relative flex items-center justify-center gap-2 rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-sm font-medium text-red-700 shadow-sm transition-all duration-200 hover:border-red-300 hover:bg-red-100 hover:shadow-md dark:border-red-700 dark:bg-red-900/30 dark:text-red-300 dark:hover:bg-red-900/50 sm:w-auto"
+                @click="batchDeleteApiKeys()"
+              >
+                <div
+                  class="absolute -inset-0.5 rounded-lg bg-gradient-to-r from-red-500 to-pink-500 opacity-0 blur transition duration-300 group-hover:opacity-20"
+                ></div>
+                <i class="i-lucide-trash-2 relative text-red-600 dark:text-red-400" />
+                <span class="relative">删除选中 ({{ selectedApiKeys.length }})</span>
+              </button>
+
+              <!-- 创建按钮 -->
+              <button
+                class="flex w-full items-center justify-center gap-2 rounded-lg bg-gradient-to-r from-blue-500 to-blue-600 px-5 py-2 text-sm font-medium text-white shadow-md transition-all duration-200 hover:from-blue-600 hover:to-blue-700 hover:shadow-lg sm:w-auto"
+                @click.stop="openCreateApiKeyModal"
+              >
+                <i class="i-lucide-plus"></i>
+                <span>创建新 Key</span>
+              </button>
+            </div>
+          </div>
+
+          <div v-if="apiKeysLoading" class="py-12 text-center">
+            <div class="loading-spinner mx-auto mb-4" />
+            <p class="text-gray-500 dark:text-gray-400">正在加载 API Keys...</p>
+          </div>
+
+          <div v-else-if="apiKeys.length === 0" class="py-12 text-center">
+            <div
+              class="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-gray-100 dark:bg-gray-700"
+            >
+              <i class="i-lucide-key text-xl text-gray-400" />
+            </div>
+            <p class="text-lg text-gray-500 dark:text-gray-400">暂无 API Keys</p>
+            <p class="mt-2 text-sm text-gray-400">点击上方按钮创建您的第一个 API Key</p>
+          </div>
+
+          <!-- 桌面端表格视图 -->
+          <div v-else class="table-wrapper hidden md:block">
+            <div
+              ref="mainTableScrollRef"
+              class="table-container table-container--scroll"
+              :style="{ maxHeight: mainTableMaxHeight }"
+            >
+              <table class="w-full">
+                <thead
+                  class="sticky top-0 z-20 bg-gradient-to-b from-gray-50 to-gray-100 dark:from-gray-700 dark:to-gray-800"
+                >
+                  <tr>
+                    <th
+                      v-if="shouldShowCheckboxes"
+                      class="checkbox-column sticky left-0 z-20 min-w-[50px] px-3 py-4 text-left"
+                    >
+                      <div class="flex items-center">
+                        <input
+                          v-model="selectAllChecked"
+                          class="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                          :indeterminate="isIndeterminate"
+                          type="checkbox"
+                          @change="handleSelectAll"
+                        />
+                      </div>
+                    </th>
+                    <th
+                      class="name-column sticky z-20 min-w-[140px] cursor-pointer px-3 py-4 text-left text-sm font-bold uppercase tracking-wider text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-600"
+                      :class="shouldShowCheckboxes ? 'left-[50px]' : 'left-0'"
+                      @click="sortApiKeys('name')"
+                    >
+                      名称
+                      <i
+                        v-if="apiKeysSortBy === 'name'"
+                        :class="[
+                          apiKeysSortOrder === 'asc' ? 'i-lucide-arrow-up' : 'i-lucide-arrow-down',
+                          'ml-1'
+                        ]"
+                      />
+                      <i v-else class="i-lucide-arrow-up-down ml-1 text-gray-400" />
+                    </th>
+                    <th
+                      class="min-w-[140px] px-3 py-4 text-left text-sm font-bold uppercase tracking-wider text-gray-700 dark:text-gray-300"
+                    >
+                      所属账号
+                    </th>
+                    <th
+                      class="min-w-[100px] px-3 py-4 text-left text-sm font-bold uppercase tracking-wider text-gray-700 dark:text-gray-300"
+                    >
+                      标签
+                    </th>
+                    <th
+                      class="min-w-[80px] cursor-pointer px-3 py-4 text-left text-sm font-bold uppercase tracking-wider text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-600"
+                      @click="sortApiKeys('status')"
+                    >
+                      状态
+                      <i
+                        v-if="apiKeysSortBy === 'status'"
+                        :class="[
+                          apiKeysSortOrder === 'asc' ? 'i-lucide-arrow-up' : 'i-lucide-arrow-down',
+                          'ml-1'
+                        ]"
+                      />
+                      <i v-else class="i-lucide-arrow-up-down ml-1 text-gray-400" />
+                    </th>
+                    <th
+                      class="min-w-[70px] px-3 py-4 text-right text-sm font-bold uppercase tracking-wider text-gray-700 dark:text-gray-300"
+                      :class="{
+                        'cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-600': canSortByCost,
+                        'cursor-not-allowed opacity-60': !canSortByCost
+                      }"
+                      :title="costSortTooltip"
+                      @click="sortApiKeys('cost')"
+                    >
+                      费用
+                      <i
+                        v-if="apiKeysSortBy === 'cost'"
+                        :class="[
+                          apiKeysSortOrder === 'asc' ? 'i-lucide-arrow-up' : 'i-lucide-arrow-down',
+                          'ml-1'
+                        ]"
+                      />
+                      <i v-else-if="canSortByCost" class="i-lucide-arrow-up-down ml-1 text-gray-400" />
+                      <i v-else class="i-lucide-clock ml-1 text-gray-400" title="索引更新中" />
+                    </th>
+                    <th
+                      class="min-w-[180px] px-3 py-4 text-left text-sm font-bold uppercase tracking-wider text-gray-700 dark:text-gray-300"
+                    >
+                      限制
+                    </th>
+                    <th
+                      class="min-w-[80px] px-3 py-4 text-right text-sm font-bold uppercase tracking-wider text-gray-700 dark:text-gray-300"
+                    >
+                      Token
+                    </th>
+                    <th
+                      class="min-w-[80px] px-3 py-4 text-right text-sm font-bold uppercase tracking-wider text-gray-700 dark:text-gray-300"
+                    >
+                      请求数
+                    </th>
+                    <th
+                      class="min-w-[100px] cursor-pointer px-3 py-4 text-left text-sm font-bold uppercase tracking-wider text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-600"
+                      @click="sortApiKeys('lastUsedAt')"
+                    >
+                      最后使用
+                      <i
+                        v-if="apiKeysSortBy === 'lastUsedAt'"
+                        :class="[
+                          apiKeysSortOrder === 'asc' ? 'i-lucide-arrow-up' : 'i-lucide-arrow-down',
+                          'ml-1'
+                        ]"
+                      />
+                      <i v-else class="i-lucide-arrow-up-down ml-1 text-gray-400" />
+                    </th>
+                    <th
+                      class="min-w-[100px] cursor-pointer px-3 py-4 text-left text-sm font-bold uppercase tracking-wider text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-600"
+                      @click="sortApiKeys('createdAt')"
+                    >
+                      创建时间
+                      <i
+                        v-if="apiKeysSortBy === 'createdAt'"
+                        :class="[
+                          apiKeysSortOrder === 'asc' ? 'i-lucide-arrow-up' : 'i-lucide-arrow-down',
+                          'ml-1'
+                        ]"
+                      />
+                      <i v-else class="i-lucide-arrow-up-down ml-1 text-gray-400" />
+                    </th>
+                    <th
+                      class="min-w-[100px] cursor-pointer px-3 py-4 text-left text-sm font-bold uppercase tracking-wider text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-600"
+                      @click="sortApiKeys('expiresAt')"
+                    >
+                      过期时间
+                      <i
+                        v-if="apiKeysSortBy === 'expiresAt'"
+                        :class="[
+                          apiKeysSortOrder === 'asc' ? 'i-lucide-arrow-up' : 'i-lucide-arrow-down',
+                          'ml-1'
+                        ]"
+                      />
+                      <i v-else class="i-lucide-arrow-up-down ml-1 text-gray-400" />
+                    </th>
+                    <th
+                      class="operations-column sticky right-0 min-w-[120px] px-3 py-4 text-left text-sm font-bold uppercase tracking-wider text-gray-700 dark:text-gray-300"
+                    >
+                      操作
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <template v-for="key in paginatedApiKeys" :key="key.id">
+                    <!-- API Key 主行 - 添加斑马条纹和增强分隔 -->
+                    <tr
+                      :class="[
+                        'table-row',
+                        'border-b-2 border-gray-200/80 dark:border-gray-700/50',
+                        'hover:shadow-sm'
+                      ]"
+                    >
+                      <td
+                        v-if="shouldShowCheckboxes"
+                        class="checkbox-column sticky left-0 z-10 px-3 py-3"
+                      >
+                        <div class="flex items-center">
+                          <input
+                            v-model="selectedApiKeys"
+                            class="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                            type="checkbox"
+                            :value="key.id"
+                            @change="updateSelectAllState"
+                          />
+                        </div>
+                      </td>
+                      <td
+                        class="name-column sticky z-10 px-3 py-3"
+                        :class="shouldShowCheckboxes ? 'left-[50px]' : 'left-0'"
+                      >
+                        <div class="min-w-0">
+                          <!-- 名称 -->
+                          <div
+                            class="cursor-pointer truncate text-sm font-semibold text-gray-900 hover:text-blue-600 dark:text-gray-100 dark:hover:text-blue-400"
+                            title="点击复制"
+                            @click.stop="copyText(key.name)"
+                          >
+                            {{ key.name }}
+                          </div>
+                          <!-- 显示所有者信息 -->
+                          <div
+                            v-if="isLdapEnabled && key.ownerDisplayName"
+                            class="mt-1 text-sm text-red-600"
+                          >
+                            <i class="i-lucide-user mr-1" />
+                            {{ key.ownerDisplayName }}
+                          </div>
+                        </div>
+                      </td>
+                      <!-- 所属账号列 -->
+                      <td class="px-3 py-3">
+                        <div class="space-y-1">
+                          <!-- 账号数据加载中 -->
+                          <div
+                            v-if="accountsLoading && hasAnyBinding(key)"
+                            class="flex items-center gap-1 text-sm text-gray-400 dark:text-gray-500"
+                          >
+                            <i class="i-lucide-loader-circle animate-spin mr-1"></i>
+                            加载中...
+                          </div>
+                          <!-- 账号数据已加载或无绑定 -->
+                          <template v-else>
+                            <!-- Claude 绑定 -->
+                            <div
+                              v-if="key.claudeAccountId || key.claudeConsoleAccountId"
+                              class="flex items-center gap-1 text-sm"
+                            >
+                              <span
+                                class="inline-flex items-center rounded bg-indigo-100 px-1.5 py-0.5 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300"
+                              >
+                                <i class="i-lucide-brain mr-1 text-sm" />
+                                Claude
+                              </span>
+                              <span class="truncate text-gray-600 dark:text-gray-400">
+                                {{ getClaudeBindingInfo(key) }}
+                              </span>
+                            </div>
+                            <!-- Gemini 绑定 -->
+                            <div v-if="key.geminiAccountId" class="flex items-center gap-1 text-sm">
+                              <span
+                                class="inline-flex items-center rounded bg-yellow-100 px-1.5 py-0.5 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-300"
+                              >
+                                <i class="i-lucide-bot mr-1 text-sm" />
+                                Gemini
+                              </span>
+                              <span class="truncate text-gray-600 dark:text-gray-400">
+                                {{ getGeminiBindingInfo(key) }}
+                              </span>
+                            </div>
+                            <!-- OpenAI 绑定 -->
+                            <div v-if="key.openaiAccountId" class="flex items-center gap-1 text-sm">
+                              <span
+                                class="inline-flex items-center rounded bg-gray-100 px-1.5 py-0.5 text-gray-700 dark:bg-gray-700 dark:text-gray-300"
+                              >
+                                <i class="icon-openai mr-1 text-sm" />
+                                OpenAI
+                              </span>
+                              <span class="truncate text-gray-600 dark:text-gray-400">
+                                {{ getOpenAIBindingInfo(key) }}
+                              </span>
+                            </div>
+                            <!-- Bedrock 绑定 -->
+                            <div
+                              v-if="key.bedrockAccountId"
+                              class="flex items-center gap-1 text-sm"
+                            >
+                              <span
+                                class="inline-flex items-center rounded bg-orange-100 px-1.5 py-0.5 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300"
+                              >
+                                <i class="i-lucide-cloud mr-1 text-sm" />
+                                Bedrock
+                              </span>
+                              <span class="truncate text-gray-600 dark:text-gray-400">
+                                {{ getBedrockBindingInfo(key) }}
+                              </span>
+                            </div>
+                            <!-- Droid 绑定 -->
+                            <div v-if="key.droidAccountId" class="flex items-center gap-1 text-sm">
+                              <span
+                                class="inline-flex items-center rounded bg-cyan-100 px-1.5 py-0.5 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-300"
+                              >
+                                <i class="i-lucide-bot mr-1 text-sm" />
+                                Droid
+                              </span>
+                              <span class="truncate text-gray-600 dark:text-gray-400">
+                                {{ getDroidBindingInfo(key) }}
+                              </span>
+                            </div>
+                            <!-- 共享池 -->
+                            <div
+                              v-if="
+                                !key.claudeAccountId &&
+                                !key.claudeConsoleAccountId &&
+                                !key.geminiAccountId &&
+                                !key.openaiAccountId &&
+                                !key.bedrockAccountId &&
+                                !key.droidAccountId
+                              "
+                              class="text-sm text-gray-500 dark:text-gray-400"
+                            >
+                              <i class="i-lucide-share-2 mr-1" />
+                              共享池
+                            </div>
+                          </template>
+                        </div>
+                      </td>
+                      <!-- 标签列 -->
+                      <td class="px-3 py-3">
+                        <div class="flex flex-wrap gap-1">
+                          <span
+                            v-for="tag in key.tags || []"
+                            :key="tag"
+                            class="inline-flex items-center rounded-full bg-blue-100 px-2 py-0.5 text-sm text-blue-800 dark:bg-blue-900/30 dark:text-blue-300"
+                          >
+                            {{ tag }}
+                          </span>
+                          <span
+                            v-if="!key.tags || key.tags.length === 0"
+                            class="text-sm text-gray-400"
+                            >无标签</span
+                          >
+                        </div>
+                      </td>
+                      <td class="whitespace-nowrap px-3 py-3">
+                        <div class="flex items-center gap-2">
+                          <AppSwitch
+                            :model-value="!!key.isActive"
+                            color="green"
+                            size="sm"
+                            :title="key.isActive ? '点击禁用' : '点击激活'"
+                            @change="toggleApiKeyStatus(key)"
+                          />
+                          <span
+                            :class="[
+                              'text-sm font-semibold',
+                              key.isActive
+                                ? 'text-green-700 dark:text-green-400'
+                                : 'text-red-600 dark:text-red-400'
+                            ]"
+                          >
+                            {{ key.isActive ? '活跃' : '禁用' }}
+                          </span>
+                        </div>
+                      </td>
+                      <!-- 费用 -->
+                      <td class="whitespace-nowrap px-3 py-3 text-right" style="font-size: 14px">
+                        <!-- 加载中状态 - 骨架屏 -->
+                        <template v-if="isStatsLoading(key.id)">
+                          <div class="flex items-center justify-end">
+                            <div
+                              class="h-5 w-14 animate-pulse rounded bg-gradient-to-r from-gray-200 via-gray-300 to-gray-200 dark:from-gray-700 dark:via-gray-600 dark:to-gray-700"
+                            />
+                          </div>
+                        </template>
+                        <!-- 已加载状态 -->
+                        <template v-else-if="getCachedStats(key.id)">
+                          <span
+                            class="font-semibold text-blue-600 dark:text-blue-400"
+                            style="font-size: 14px"
+                          >
+                            {{ getCachedStats(key.id).formattedCost || '$0.00' }}
+                          </span>
+                        </template>
+                        <!-- 未加载状态 -->
+                        <template v-else>
+                          <span class="text-gray-400">-</span>
+                        </template>
+                      </td>
+                      <!-- 限制 -->
+                      <td class="px-2 py-2" style="font-size: 14px">
+                        <div class="flex flex-col gap-2">
+                          <!-- 加载中状态 - 骨架屏（仅在有费用限制配置时显示） -->
+                          <template
+                            v-if="
+                              isStatsLoading(key.id) &&
+                              (key.weeklyOpusCostLimit > 0 ||
+                                key.dailyCostLimit > 0 ||
+                                key.totalCostLimit > 0 ||
+                                (key.rateLimitWindow > 0 && key.rateLimitCost > 0))
+                            "
+                          >
+                            <div class="space-y-2">
+                              <div
+                                class="h-4 w-full animate-pulse rounded bg-gradient-to-r from-gray-200 via-gray-300 to-gray-200 dark:from-gray-700 dark:via-gray-600 dark:to-gray-700"
+                              />
+                              <div
+                                class="h-3 w-2/3 animate-pulse rounded bg-gradient-to-r from-gray-200 via-gray-300 to-gray-200 dark:from-gray-700 dark:via-gray-600 dark:to-gray-700"
+                              />
+                            </div>
+                          </template>
+                          <!-- 已加载状态 -->
+                          <template v-else>
+                            <!-- Claude 周额度限制 - 独立显示 -->
+                            <LimitProgressBar
+                              v-if="key.weeklyOpusCostLimit > 0"
+                              :current="getCachedStats(key.id)?.weeklyOpusCost || 0"
+                              label="Claude 周限制"
+                              :limit="key.weeklyOpusCostLimit"
+                              type="opus"
+                              variant="compact"
+                            />
+
+                            <!-- 每日费用限制进度条 -->
+                            <LimitProgressBar
+                              v-if="key.dailyCostLimit > 0"
+                              :current="getCachedStats(key.id)?.dailyCost || 0"
+                              label="每日限制"
+                              :limit="key.dailyCostLimit"
+                              type="daily"
+                              variant="compact"
+                            />
+
+                            <!-- 总费用限制进度条（无每日限制时展示） -->
+                            <LimitProgressBar
+                              v-else-if="key.totalCostLimit > 0"
+                              :current="getCachedStats(key.id)?.allTimeCost || 0"
+                              label="总费用限制"
+                              :limit="key.totalCostLimit"
+                              type="total"
+                              variant="compact"
+                            />
+
+                            <!-- 时间窗口费用限制（无每日和总费用限制时展示） -->
+                            <div
+                              v-else-if="
+                                key.rateLimitWindow > 0 &&
+                                key.rateLimitCost > 0 &&
+                                (!key.dailyCostLimit || key.dailyCostLimit === 0) &&
+                                (!key.totalCostLimit || key.totalCostLimit === 0)
+                              "
+                              class="space-y-1.5"
+                            >
+                              <!-- 费用进度条 -->
+                              <LimitProgressBar
+                                :current="getCachedStats(key.id)?.currentWindowCost || 0"
+                                label="窗口费用"
+                                :limit="key.rateLimitCost"
+                                type="window"
+                                variant="compact"
+                              />
+                              <!-- 重置倒计时 -->
+                              <div class="flex items-center justify-between text-sm">
+                                <div class="flex items-center gap-1 text-sky-600 dark:text-sky-300">
+                                  <i class="i-lucide-clock text-sm" />
+                                  <span class="font-medium">{{ key.rateLimitWindow }}分钟窗口</span>
+                                </div>
+                                <span
+                                  class="font-bold"
+                                  :class="
+                                    (getCachedStats(key.id)?.windowRemainingSeconds || 0) > 0
+                                      ? 'text-sky-700 dark:text-sky-300'
+                                      : 'text-gray-400 dark:text-gray-500'
+                                  "
+                                >
+                                  {{
+                                    (getCachedStats(key.id)?.windowRemainingSeconds || 0) > 0
+                                      ? formatWindowTime(
+                                          getCachedStats(key.id)?.windowRemainingSeconds || 0
+                                        )
+                                      : '未激活'
+                                  }}
+                                </span>
+                              </div>
+                            </div>
+
+                            <!-- 如果没有任何限制 -->
+                            <div
+                              v-if="
+                                !(key.weeklyOpusCostLimit > 0) &&
+                                !(key.dailyCostLimit > 0) &&
+                                !(key.totalCostLimit > 0) &&
+                                !(key.rateLimitWindow > 0 && key.rateLimitCost > 0)
+                              "
+                              class="flex items-center justify-center gap-1.5 py-2 text-gray-500 dark:text-gray-400"
+                            >
+                              <i class="i-lucide-infinity text-base" />
+                              <span class="text-sm font-medium">无限制</span>
+                            </div>
+                          </template>
+                        </div>
+                      </td>
+                      <!-- Token数量 -->
+                      <td class="whitespace-nowrap px-3 py-3 text-right" style="font-size: 14px">
+                        <!-- 加载中状态 - 骨架屏 -->
+                        <template v-if="isStatsLoading(key.id)">
+                          <div class="flex items-center justify-end">
+                            <div
+                              class="h-5 w-16 animate-pulse rounded bg-gradient-to-r from-gray-200 via-gray-300 to-gray-200 dark:from-gray-700 dark:via-gray-600 dark:to-gray-700"
+                            />
+                          </div>
+                        </template>
+                        <!-- 已加载状态 -->
+                        <template v-else-if="getCachedStats(key.id)">
+                          <div class="flex items-center justify-end gap-1">
+                            <span
+                              class="font-medium text-purple-600 dark:text-purple-400"
+                              style="font-size: 14px"
+                            >
+                              {{ formatTokenCount(getCachedStats(key.id).tokens || 0) }}
+                            </span>
+                          </div>
+                        </template>
+                        <!-- 未加载状态 -->
+                        <template v-else>
+                          <span class="text-gray-400">-</span>
+                        </template>
+                      </td>
+                      <!-- 请求数 -->
+                      <td class="whitespace-nowrap px-3 py-3 text-right" style="font-size: 14px">
+                        <!-- 加载中状态 - 骨架屏 -->
+                        <template v-if="isStatsLoading(key.id)">
+                          <div class="flex items-center justify-end">
+                            <div
+                              class="h-5 w-12 animate-pulse rounded bg-gradient-to-r from-gray-200 via-gray-300 to-gray-200 dark:from-gray-700 dark:via-gray-600 dark:to-gray-700"
+                            />
+                          </div>
+                        </template>
+                        <!-- 已加载状态 -->
+                        <template v-else-if="getCachedStats(key.id)">
+                          <div class="flex items-center justify-end gap-1">
+                            <span
+                              class="font-medium text-gray-900 dark:text-gray-100"
+                              style="font-size: 14px"
+                            >
+                              {{ formatNumber(getCachedStats(key.id).requests || 0) }}
+                            </span>
+                            <span class="text-sm text-gray-500">次</span>
+                          </div>
+                        </template>
+                        <!-- 未加载状态 -->
+                        <template v-else>
+                          <span class="text-gray-400">-</span>
+                        </template>
+                      </td>
+                      <!-- 最后使用 -->
+                      <td
+                        class="whitespace-nowrap px-3 py-3 text-gray-700 dark:text-gray-300"
+                        style="font-size: 14px"
+                      >
+                        <div class="flex flex-col leading-tight">
+                          <span
+                            v-if="key.lastUsedAt"
+                            class="cursor-help"
+                            style="font-size: 14px"
+                            :title="formatLocalDateTime(key.lastUsedAt) || ''"
+                          >
+                            {{ formatLastUsed(key.lastUsedAt) }}
+                          </span>
+                          <span v-else class="text-gray-400" style="font-size: 14px">从未使用</span>
+                          <!-- 最后使用账号 loading 状态 -->
+                          <span
+                            v-if="key.lastUsedAt && isLastUsageLoading(key.id)"
+                            class="mt-1 text-sm text-gray-400 dark:text-gray-500"
+                          >
+                            <i class="i-lucide-loader-circle animate-spin mr-1"></i>
+                            加载中...
+                          </span>
+                          <span
+                            v-else-if="hasLastUsageAccount(key)"
+                            class="mt-1 text-sm text-gray-500 dark:text-gray-400"
+                            :title="getLastUsageFullName(key)"
+                          >
+                            {{ getLastUsageDisplayName(key) }}
+                            <span
+                              v-if="!isLastUsageDeleted(key)"
+                              class="ml-1 text-gray-400 dark:text-gray-500"
+                            >
+                              ({{ getLastUsageTypeLabel(key) }})
+                            </span>
+                          </span>
+                          <span v-else class="mt-1 text-sm text-gray-400 dark:text-gray-500">
+                            暂无使用账号
+                          </span>
+                        </div>
+                      </td>
+                      <!-- 创建时间 -->
+                      <td
+                        class="whitespace-nowrap px-3 py-3 text-gray-700 dark:text-gray-300"
+                        style="font-size: 14px"
+                      >
+                        {{ formatLocalDate(key.createdAt) || '' }}
+                      </td>
+                      <td
+                        class="whitespace-nowrap px-3 py-3 text-sm text-gray-700 dark:text-gray-300"
+                      >
+                        <div class="inline-flex items-center gap-1.5">
+                          <!-- 未激活状态 -->
+                          <span
+                            v-if="key.expirationMode === 'activation' && !key.isActivated"
+                            class="inline-flex items-center text-blue-600 dark:text-blue-400"
+                            style="font-size: 14px"
+                          >
+                            <i class="i-lucide-circle-pause mr-1 text-sm" />
+                            未激活 (
+                            {{ key.activationDays || (key.activationUnit === 'hours' ? 24 : 30)
+                            }}{{ key.activationUnit === 'hours' ? '小时' : '天' }})
+                          </span>
+                          <!-- 已设置过期时间 -->
+                          <span v-else-if="key.expiresAt">
+                            <span
+                              v-if="isApiKeyExpired(key.expiresAt)"
+                              class="inline-flex cursor-pointer items-center text-red-600 hover:underline"
+                              style="font-size: 14px"
+                              @click.stop="startEditExpiry(key)"
+                            >
+                              <i class="i-lucide-circle-alert mr-1 text-sm" />
+                              已过期
+                            </span>
+                            <span
+                              v-else-if="isApiKeyExpiringSoon(key.expiresAt)"
+                              class="inline-flex cursor-pointer items-center text-orange-600 hover:underline"
+                              style="font-size: 14px"
+                              @click.stop="startEditExpiry(key)"
+                            >
+                              <i class="i-lucide-clock mr-1 text-sm" />
+                              {{ formatExpireDate(key.expiresAt) }}
+                            </span>
+                            <span
+                              v-else
+                              class="cursor-pointer text-gray-600 hover:underline dark:text-gray-400"
+                              style="font-size: 14px"
+                              @click.stop="startEditExpiry(key)"
+                            >
+                              {{ formatExpireDate(key.expiresAt) }}
+                            </span>
+                          </span>
+                          <!-- 永不过期 -->
+                          <span
+                            v-else
+                            class="inline-flex cursor-pointer items-center text-gray-400 hover:underline dark:text-gray-500"
+                            style="font-size: 14px"
+                            @click.stop="startEditExpiry(key)"
+                          >
+                            <i class="i-lucide-infinity mr-1 text-sm" />
+                            永不过期
+                          </span>
+                        </div>
+                      </td>
+                      <td
+                        class="operations-column operations-cell px-3 py-3"
+                        style="font-size: 14px"
+                      >
+                        <!-- 操作按钮：自动换行平铺 -->
+                        <div class="flex max-w-[260px] flex-wrap items-center gap-1">
+                          <button
+                            class="rounded px-2 py-1 text-sm font-medium text-purple-600 transition-colors hover:bg-purple-50 hover:text-purple-900 dark:hover:bg-purple-900/20"
+                            title="查看详细统计"
+                            @click="showUsageDetails(key)"
+                          >
+                            <i class="i-lucide-chart-line" />
+                            <span class="ml-1">详情</span>
+                          </button>
+                          <button
+                            class="rounded px-2 py-1 text-sm font-medium text-cyan-600 transition-colors hover:bg-cyan-50 hover:text-cyan-900 dark:hover:bg-cyan-900/20"
+                            title="查看请求时间线"
+                            @click="openTimeline(key.id)"
+                          >
+                            <i class="i-lucide-clock" />
+                            <span class="ml-1">时间线</span>
+                          </button>
+                          <button
+                            v-if="key && key.id"
+                            class="rounded px-2 py-1 text-sm font-medium text-indigo-600 transition-colors hover:bg-indigo-50 hover:text-indigo-900 dark:hover:bg-indigo-900/20"
+                            title="模型使用分布"
+                            @click="toggleApiKeyModelStats(key.id)"
+                          >
+                            <i
+                              :class="[
+                                expandedApiKeys[key.id] ? 'i-lucide-chevron-up' : 'i-lucide-chevron-down'
+                              ]"
+                            />
+                            <span class="ml-1">模型</span>
+                          </button>
+                          <button
+                            class="rounded px-2 py-1 text-sm font-medium text-blue-600 transition-colors hover:bg-blue-50 hover:text-blue-900 dark:hover:bg-blue-900/20"
+                            title="编辑"
+                            @click="openEditApiKeyModal(key)"
+                          >
+                            <i class="i-lucide-pen-line" />
+                            <span class="ml-1">编辑</span>
+                          </button>
+                          <button
+                            class="rounded px-2 py-1 text-sm font-medium text-amber-600 transition-colors hover:bg-amber-50 hover:text-amber-900 dark:hover:bg-amber-900/20"
+                            title="快捷调整额度/有效期"
+                            @click="openQuickAdjustModal(key)"
+                          >
+                            <i class="i-lucide-zap" />
+                            <span class="ml-1">调整</span>
+                          </button>
+                          <button
+                            class="rounded px-2 py-1 text-sm font-medium text-purple-600 transition-colors hover:bg-purple-50 hover:text-purple-900 dark:hover:bg-purple-900/20"
+                            title="变更记录"
+                            @click="openChangeHistoryModal(key)"
+                          >
+                            <i class="i-lucide-scroll-text" />
+                            <span class="ml-1">记录</span>
+                          </button>
+                          <button
+                            v-if="
+                              key.expiresAt &&
+                              (isApiKeyExpired(key.expiresAt) ||
+                                isApiKeyExpiringSoon(key.expiresAt))
+                            "
+                            class="rounded px-2 py-1 text-sm font-medium text-green-600 transition-colors hover:bg-green-50 hover:text-green-900 dark:hover:bg-green-900/20"
+                            title="续期"
+                            @click="openRenewApiKeyModal(key)"
+                          >
+                            <i class="i-lucide-clock" />
+                            <span class="ml-1">续期</span>
+                          </button>
+                          <button
+                            :class="[
+                              key.isActive
+                                ? 'text-orange-600 hover:bg-orange-50 hover:text-orange-900 dark:hover:bg-orange-900/20'
+                                : 'text-green-600 hover:bg-green-50 hover:text-green-900 dark:hover:bg-green-900/20',
+                              'rounded px-2 py-1 text-sm font-medium transition-colors'
+                            ]"
+                            :title="key.isActive ? '禁用' : '激活'"
+                            @click="toggleApiKeyStatus(key)"
+                          >
+                            <i :class="[key.isActive ? 'i-lucide-ban' : 'i-lucide-circle-check']" />
+                            <span class="ml-1">{{ key.isActive ? '禁用' : '激活' }}</span>
+                          </button>
+                          <button
+                            class="rounded px-2 py-1 text-sm font-medium text-red-600 transition-colors hover:bg-red-50 hover:text-red-900 dark:hover:bg-red-900/20"
+                            title="删除"
+                            @click="deleteApiKey(key.id)"
+                          >
+                            <i class="i-lucide-trash-2" />
+                            <span class="ml-1">删除</span>
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+
+                    <!-- 模型统计展开区域 -->
+                    <tr v-if="key && key.id && expandedApiKeys[key.id]">
+                      <td class="bg-gray-50 px-3 py-3 dark:bg-gray-700" colspan="13">
+                        <div v-if="!apiKeyModelStats[key.id]" class="py-4 text-center">
+                          <div class="loading-spinner mx-auto" />
+                          <p class="mt-2 text-sm text-gray-500 dark:text-gray-400">
+                            加载模型统计...
+                          </p>
+                        </div>
+                        <div class="space-y-4">
+                          <!-- 通用的标题和时间筛选器，无论是否有数据都显示 -->
+                          <div class="mb-4 flex items-center justify-between">
+                            <h5
+                              class="flex items-center text-sm font-semibold text-gray-700 dark:text-gray-300"
+                            >
+                              <i class="i-lucide-chart-pie mr-2 text-indigo-500" />
+                              模型使用分布
+                            </h5>
+                            <div class="flex items-center gap-2">
+                              <span
+                                v-if="
+                                  apiKeyModelStats[key.id] && apiKeyModelStats[key.id].length > 0
+                                "
+                                class="rounded-full bg-gray-100 px-2 py-1 text-sm text-gray-500 dark:bg-gray-700 dark:text-gray-400"
+                              >
+                                {{ apiKeyModelStats[key.id].length }} 个模型
+                              </span>
+
+                              <!-- API Keys日期筛选器 -->
+                              <div class="flex items-center gap-1">
+                                <!-- 快捷日期选择 -->
+                                <div class="flex gap-1 rounded bg-gray-100 p-1 dark:bg-gray-700">
+                                  <button
+                                    v-for="option in getApiKeyDateFilter(key.id).presetOptions"
+                                    :key="option.value"
+                                    :class="[
+                                      'rounded px-2 py-1 text-sm font-medium transition-colors',
+                                      getApiKeyDateFilter(key.id).preset === option.value &&
+                                      getApiKeyDateFilter(key.id).type === 'preset'
+                                        ? 'bg-white text-blue-600 shadow-sm dark:bg-gray-800'
+                                        : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200'
+                                    ]"
+                                    @click="setApiKeyDateFilterPreset(option.value, key.id)"
+                                  >
+                                    {{ option.label }}
+                                  </button>
+                                </div>
+
+                                <!-- Element Plus 日期范围选择器 -->
+                                <AppDateRangePicker
+                                  class="api-key-date-picker w-[280px]"
+                                  :clearable="true"
+                                  :model-value="getApiKeyDateFilter(key.id).customRange"
+                                  :presets="false"
+                                  size="sm"
+                                  @update:model-value="
+                                    (value) => onApiKeyCustomDateRangeChange(key.id, value)
+                                  "
+                                />
+                              </div>
+                            </div>
+                          </div>
+
+                          <!-- 数据展示区域 -->
+                          <div
+                            v-if="apiKeyModelStats[key.id] && apiKeyModelStats[key.id].length === 0"
+                            class="py-5 text-center"
+                          >
+                            <div class="mb-3 flex items-center justify-center gap-2">
+                              <i class="i-lucide-chart-line text-lg text-gray-400" />
+                              <p class="text-sm text-gray-500 dark:text-gray-400">
+                                暂无模型使用数据
+                              </p>
+                              <button
+                                class="ml-2 flex items-center gap-1 text-sm text-blue-500 transition-colors hover:text-blue-700"
+                                title="重置筛选条件并刷新"
+                                @click="resetApiKeyDateFilter(key.id)"
+                              >
+                                <i class="i-lucide-refresh-cw text-sm" />
+                                <span class="text-sm">刷新</span>
+                              </button>
+                            </div>
+                            <p class="text-sm text-gray-400">
+                              尝试调整时间范围或点击刷新重新加载数据
+                            </p>
+                          </div>
+                          <div
+                            v-else-if="
+                              apiKeyModelStats[key.id] && apiKeyModelStats[key.id].length > 0
+                            "
+                            class="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3"
+                          >
+                            <div
+                              v-for="stat in apiKeyModelStats[key.id]"
+                              :key="stat.model"
+                              class="rounded-xl border border-gray-200 bg-gradient-to-br from-white to-gray-50 p-4 transition-all duration-200 hover:border-indigo-300 hover:shadow-lg dark:border-gray-600 dark:from-gray-800 dark:to-gray-700 dark:hover:border-indigo-500"
+                            >
+                              <div class="mb-3 flex items-start justify-between">
+                                <div class="flex-1">
+                                  <span
+                                    class="mb-1 block text-sm font-semibold text-gray-800 dark:text-gray-200"
+                                    >{{ stat.model }}</span
+                                  >
+                                  <span
+                                    class="rounded-full bg-blue-50 px-2 py-1 text-sm text-gray-500 dark:bg-blue-900/30 dark:text-gray-400"
+                                    >{{ stat.requests }} 次请求</span
+                                  >
+                                </div>
+                              </div>
+
+                              <div class="mb-3 space-y-2">
+                                <div class="flex items-center justify-between text-sm">
+                                  <span class="flex items-center text-gray-600 dark:text-gray-400">
+                                    <i class="i-lucide-coins mr-1 text-sm text-yellow-500" />
+                                    总Token:
+                                  </span>
+                                  <span class="font-semibold text-gray-900 dark:text-gray-100">{{
+                                    formatTokenCount(stat.allTokens)
+                                  }}</span>
+                                </div>
+                                <div class="flex items-center justify-between text-sm">
+                                  <span class="flex items-center text-gray-600 dark:text-gray-400">
+                                    <i class="i-lucide-dollar-sign mr-1 text-sm text-green-500" />
+                                    费用:
+                                  </span>
+                                  <span class="font-semibold text-green-600">{{
+                                    calculateModelCost(stat)
+                                  }}</span>
+                                </div>
+                                <div
+                                  class="mt-2 border-t border-gray-100 pt-2 dark:border-gray-600"
+                                >
+                                  <div
+                                    class="flex items-center justify-between text-sm text-gray-500 dark:text-gray-400"
+                                  >
+                                    <span class="flex items-center">
+                                      <i class="i-lucide-arrow-down mr-1 text-green-500" />
+                                      输入:
+                                    </span>
+                                    <span class="font-medium">{{
+                                      formatTokenCount(stat.inputTokens)
+                                    }}</span>
+                                  </div>
+                                  <div
+                                    class="flex items-center justify-between text-sm text-gray-500 dark:text-gray-400"
+                                  >
+                                    <span class="flex items-center">
+                                      <i class="i-lucide-arrow-up mr-1 text-blue-500" />
+                                      输出:
+                                    </span>
+                                    <span class="font-medium">{{
+                                      formatTokenCount(stat.outputTokens)
+                                    }}</span>
+                                  </div>
+                                  <div
+                                    v-if="stat.cacheCreateTokens > 0"
+                                    class="flex items-center justify-between text-sm text-purple-600"
+                                  >
+                                    <span class="flex items-center">
+                                      <i class="i-lucide-save mr-1" />
+                                      缓存创建:
+                                    </span>
+                                    <span class="font-medium">{{
+                                      formatTokenCount(stat.cacheCreateTokens)
+                                    }}</span>
+                                  </div>
+                                  <div
+                                    v-if="stat.cacheReadTokens > 0"
+                                    class="flex items-center justify-between text-sm text-purple-600"
+                                  >
+                                    <span class="flex items-center">
+                                      <i class="i-lucide-download mr-1" />
+                                      缓存读取:
+                                    </span>
+                                    <span class="font-medium">{{
+                                      formatTokenCount(stat.cacheReadTokens)
+                                    }}</span>
+                                  </div>
+                                </div>
+                              </div>
+
+                              <!-- 进度条 -->
+                              <div
+                                class="mt-3 h-2 w-full rounded-full bg-gray-200 dark:bg-gray-700"
+                              >
+                                <div
+                                  class="h-2 rounded-full bg-gradient-to-r from-indigo-500 to-purple-600 transition-all duration-500"
+                                  :style="{
+                                    width:
+                                      calculateApiKeyModelPercentage(
+                                        stat.allTokens,
+                                        apiKeyModelStats[key.id]
+                                      ) + '%'
+                                  }"
+                                />
+                              </div>
+                              <div class="mt-1 text-right">
+                                <span class="text-sm font-medium text-indigo-600">
+                                  {{
+                                    calculateApiKeyModelPercentage(
+                                      stat.allTokens,
+                                      apiKeyModelStats[key.id]
+                                    )
+                                  }}%
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+
+                          <!-- 总计统计，仅在有数据时显示 -->
+                          <div
+                            v-if="apiKeyModelStats[key.id] && apiKeyModelStats[key.id].length > 0"
+                            class="mt-4 rounded-lg border border-indigo-100 bg-gradient-to-r from-indigo-50 to-purple-50 p-3 dark:border-indigo-700 dark:from-indigo-900/20 dark:to-purple-900/20"
+                          >
+                            <div class="flex items-center justify-between text-sm">
+                              <span
+                                class="flex items-center font-semibold text-gray-700 dark:text-gray-300"
+                              >
+                                <i class="i-lucide-calculator mr-2 text-indigo-500" />
+                                总计统计
+                              </span>
+                              <div class="flex gap-4 text-sm">
+                                <span class="text-gray-600 dark:text-gray-400">
+                                  总请求:
+                                  <span class="font-semibold text-gray-800 dark:text-gray-200">{{
+                                    apiKeyModelStats[key.id].reduce(
+                                      (sum, stat) => sum + stat.requests,
+                                      0
+                                    )
+                                  }}</span>
+                                </span>
+                                <span class="text-gray-600 dark:text-gray-400">
+                                  总Token:
+                                  <span class="font-semibold text-gray-800 dark:text-gray-200">{{
+                                    formatTokenCount(
+                                      apiKeyModelStats[key.id].reduce(
+                                        (sum, stat) => sum + stat.allTokens,
+                                        0
+                                      )
+                                    )
+                                  }}</span>
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </td>
+                    </tr>
+                  </template>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- 移动端卡片视图 -->
+          <div v-if="!apiKeysLoading && sortedApiKeys.length > 0" class="space-y-3 md:hidden">
+            <div
+              v-for="key in paginatedApiKeys"
+              :key="key.id"
+              class="card p-4 transition-shadow hover:shadow-lg"
+            >
+              <!-- 卡片头部 -->
+              <div class="mb-3 flex items-start justify-between">
+                <div class="flex items-center gap-3">
+                  <input
+                    v-if="shouldShowCheckboxes"
+                    v-model="selectedApiKeys"
+                    class="mt-1 h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                    type="checkbox"
+                    :value="key.id"
+                    @change="updateSelectAllState"
+                  />
+                  <div>
+                    <h4
+                      class="cursor-pointer text-sm font-semibold text-gray-900 hover:text-blue-600 dark:text-gray-100 dark:hover:text-blue-400"
+                      title="点击复制"
+                      @click.stop="copyText(key.name)"
+                    >
+                      {{ key.name }}
+                    </h4>
+                    <p class="mt-0.5 text-sm text-gray-500 dark:text-gray-400">
+                      {{ key.id }}
+                    </p>
+                  </div>
+                </div>
+                <span
+                  :class="[
+                    'inline-flex items-center rounded-full px-2 py-1 text-sm font-semibold',
+                    key.isActive
+                      ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300'
+                      : 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300'
+                  ]"
+                >
+                  <div
+                    :class="[
+                      'mr-1.5 h-1.5 w-1.5 rounded-full',
+                      key.isActive ? 'bg-green-500' : 'bg-red-500'
+                    ]"
+                  />
+                  {{ key.isActive ? '活跃' : '已停用' }}
+                </span>
+              </div>
+
+              <!-- 账户绑定信息 -->
+              <div class="mb-3 space-y-1.5">
+                <!-- Claude 绑定 -->
+                <div
+                  v-if="key.claudeAccountId || key.claudeConsoleAccountId"
+                  class="flex flex-wrap items-center gap-1 text-sm"
+                >
+                  <span
+                    class="inline-flex items-center rounded bg-indigo-100 px-2 py-0.5 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300"
+                  >
+                    <i class="i-lucide-brain mr-1" />
+                    Claude
+                  </span>
+                  <span class="text-gray-600 dark:text-gray-400">
+                    {{ getClaudeBindingInfo(key) }}
+                  </span>
+                </div>
+                <!-- Gemini 绑定 -->
+                <div v-if="key.geminiAccountId" class="flex flex-wrap items-center gap-1 text-sm">
+                  <span
+                    class="inline-flex items-center rounded bg-yellow-100 px-2 py-0.5 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-300"
+                  >
+                    <i class="i-lucide-bot mr-1" />
+                    Gemini
+                  </span>
+                  <span class="text-gray-600 dark:text-gray-400">
+                    {{ getGeminiBindingInfo(key) }}
+                  </span>
+                </div>
+                <!-- OpenAI 绑定 -->
+                <div v-if="key.openaiAccountId" class="flex flex-wrap items-center gap-1 text-sm">
+                  <span
+                    class="inline-flex items-center rounded bg-gray-100 px-2 py-0.5 text-gray-700 dark:bg-gray-700 dark:text-gray-300"
+                  >
+                    <i class="icon-openai mr-1" />
+                    OpenAI
+                  </span>
+                  <span class="text-gray-600 dark:text-gray-400">
+                    {{ getOpenAIBindingInfo(key) }}
+                  </span>
+                </div>
+                <!-- Bedrock 绑定 -->
+                <div v-if="key.bedrockAccountId" class="flex flex-wrap items-center gap-1 text-sm">
+                  <span
+                    class="inline-flex items-center rounded bg-orange-100 px-2 py-0.5 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300"
+                  >
+                    <i class="i-lucide-cloud mr-1" />
+                    Bedrock
+                  </span>
+                  <span class="text-gray-600 dark:text-gray-400">
+                    {{ getBedrockBindingInfo(key) }}
+                  </span>
+                </div>
+                <!-- Droid 绑定 -->
+                <div v-if="key.droidAccountId" class="flex flex-wrap items-center gap-1 text-sm">
+                  <span
+                    class="inline-flex items-center rounded bg-cyan-100 px-2 py-0.5 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-300"
+                  >
+                    <i class="i-lucide-bot mr-1" />
+                    Droid
+                  </span>
+                  <span class="text-gray-600 dark:text-gray-400">
+                    {{ getDroidBindingInfo(key) }}
+                  </span>
+                </div>
+                <!-- 无绑定时显示共享池 -->
+                <div
+                  v-if="
+                    !key.claudeAccountId &&
+                    !key.claudeConsoleAccountId &&
+                    !key.geminiAccountId &&
+                    !key.openaiAccountId &&
+                    !key.bedrockAccountId &&
+                    !key.droidAccountId
+                  "
+                  class="text-sm text-gray-500 dark:text-gray-400"
+                >
+                  <i class="i-lucide-share-2 mr-1" />
+                  使用共享池
+                </div>
+                <!-- 显示所有者信息 -->
+                <div v-if="isLdapEnabled && key.ownerDisplayName" class="text-sm text-red-600">
+                  <i class="i-lucide-user mr-1" />
+                  {{ key.ownerDisplayName }}
+                </div>
+              </div>
+
+              <!-- 统计信息 -->
+              <div class="mb-3 space-y-2">
+                <!-- 今日使用 -->
+                <div class="rounded-lg bg-gray-50 p-3 dark:bg-gray-700">
+                  <div class="mb-2 flex items-center justify-between">
+                    <span class="text-sm text-gray-600 dark:text-gray-400">{{
+                      globalDateFilter.type === 'custom' ? '累计统计' : '今日使用'
+                    }}</span>
+                    <button
+                      class="text-sm text-blue-600 hover:text-blue-800"
+                      @click="showUsageDetails(key)"
+                    >
+                      <i class="i-lucide-chart-line mr-1" />详情
+                    </button>
+                  </div>
+                  <div class="grid grid-cols-2 gap-3">
+                    <div>
+                      <!-- 请求数 - 使用缓存统计 -->
+                      <template v-if="isStatsLoading(key.id)">
+                        <div
+                          class="h-5 w-12 animate-pulse rounded bg-gradient-to-r from-gray-200 via-gray-300 to-gray-200 dark:from-gray-700 dark:via-gray-600 dark:to-gray-700"
+                        />
+                      </template>
+                      <template v-else-if="getCachedStats(key.id)">
+                        <p class="text-sm font-semibold text-gray-900 dark:text-gray-100">
+                          {{ formatNumber(getCachedStats(key.id).requests || 0) }} 次
+                        </p>
+                      </template>
+                      <template v-else>
+                        <p class="text-sm font-semibold text-gray-400">-</p>
+                      </template>
+                      <p class="text-sm text-gray-500 dark:text-gray-400">请求</p>
+                    </div>
+                    <div>
+                      <!-- 费用 - 使用缓存统计 -->
+                      <template v-if="isStatsLoading(key.id)">
+                        <div
+                          class="h-5 w-14 animate-pulse rounded bg-gradient-to-r from-gray-200 via-gray-300 to-gray-200 dark:from-gray-700 dark:via-gray-600 dark:to-gray-700"
+                        />
+                      </template>
+                      <template v-else-if="getCachedStats(key.id)">
+                        <p class="text-sm font-semibold text-green-600">
+                          {{ getCachedStats(key.id).formattedCost || '$0.00' }}
+                        </p>
+                      </template>
+                      <template v-else>
+                        <p class="text-sm font-semibold text-gray-400">-</p>
+                      </template>
+                      <p class="text-sm text-gray-500 dark:text-gray-400">费用</p>
+                    </div>
+                  </div>
+                  <div class="mt-2 text-sm text-gray-600 dark:text-gray-400">
+                    <div class="flex items-center justify-between">
+                      <span>最后使用</span>
+                      <span class="font-medium text-gray-700 dark:text-gray-300">
+                        {{ key.lastUsedAt ? formatLastUsed(key.lastUsedAt) : '从未使用' }}
+                      </span>
+                    </div>
+                    <div class="mt-1 flex items-center justify-between">
+                      <span>账号</span>
+                      <!-- 最后使用账号 loading 状态 -->
+                      <span
+                        v-if="key.lastUsedAt && isLastUsageLoading(key.id)"
+                        class="text-gray-400 dark:text-gray-500"
+                      >
+                        <i class="i-lucide-loader-circle animate-spin mr-1"></i>
+                        加载中...
+                      </span>
+                      <span
+                        v-else-if="hasLastUsageAccount(key)"
+                        class="truncate text-gray-500 dark:text-gray-400"
+                        style="max-width: 180px"
+                        :title="getLastUsageFullName(key)"
+                      >
+                        {{ getLastUsageDisplayName(key) }}
+                        <span
+                          v-if="!isLastUsageDeleted(key)"
+                          class="ml-1 text-gray-400 dark:text-gray-500"
+                        >
+                          ({{ getLastUsageTypeLabel(key) }})
+                        </span>
+                      </span>
+                      <span v-else class="text-gray-400 dark:text-gray-500">暂无使用账号</span>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- 限制进度条 -->
+                <div class="space-y-2">
+                  <!-- 加载中状态 - 骨架屏（仅在有费用限制配置时显示） -->
+                  <template
+                    v-if="
+                      isStatsLoading(key.id) &&
+                      (key.dailyCostLimit > 0 ||
+                        key.totalCostLimit > 0 ||
+                        (key.rateLimitWindow > 0 && key.rateLimitCost > 0))
+                    "
+                  >
+                    <div class="space-y-2">
+                      <div
+                        class="h-4 w-full animate-pulse rounded bg-gradient-to-r from-gray-200 via-gray-300 to-gray-200 dark:from-gray-700 dark:via-gray-600 dark:to-gray-700"
+                      />
+                      <div
+                        class="h-3 w-2/3 animate-pulse rounded bg-gradient-to-r from-gray-200 via-gray-300 to-gray-200 dark:from-gray-700 dark:via-gray-600 dark:to-gray-700"
+                      />
+                    </div>
+                  </template>
+                  <!-- 已加载状态 -->
+                  <template v-else>
+                    <!-- 每日费用限制 -->
+                    <LimitProgressBar
+                      v-if="key.dailyCostLimit > 0"
+                      :current="getCachedStats(key.id)?.dailyCost || 0"
+                      label="每日限制"
+                      :limit="key.dailyCostLimit"
+                      type="daily"
+                      variant="compact"
+                    />
+
+                    <!-- 总费用限制（无每日限制时展示） -->
+                    <LimitProgressBar
+                      v-else-if="key.totalCostLimit > 0"
+                      :current="getCachedStats(key.id)?.allTimeCost || 0"
+                      label="总费用限制"
+                      :limit="key.totalCostLimit"
+                      type="total"
+                      variant="compact"
+                    />
+
+                    <!-- 时间窗口费用限制（无每日和总费用限制时展示） -->
+                    <div
+                      v-else-if="
+                        key.rateLimitWindow > 0 &&
+                        key.rateLimitCost > 0 &&
+                        (!key.dailyCostLimit || key.dailyCostLimit === 0) &&
+                        (!key.totalCostLimit || key.totalCostLimit === 0)
+                      "
+                      class="space-y-2"
+                    >
+                      <!-- 费用进度条 -->
+                      <LimitProgressBar
+                        :current="getCachedStats(key.id)?.currentWindowCost || 0"
+                        label="窗口费用"
+                        :limit="key.rateLimitCost"
+                        type="window"
+                        variant="compact"
+                      />
+                      <!-- 重置倒计时 -->
+                      <div class="flex items-center justify-between text-sm">
+                        <div class="flex items-center gap-1.5 text-sky-600 dark:text-sky-300">
+                          <i class="i-lucide-clock text-sm" />
+                          <span class="font-medium">{{ key.rateLimitWindow }}分钟窗口</span>
+                        </div>
+                        <span
+                          class="font-bold"
+                          :class="
+                            (getCachedStats(key.id)?.windowRemainingSeconds || 0) > 0
+                              ? 'text-sky-700 dark:text-sky-300'
+                              : 'text-gray-400 dark:text-gray-500'
+                          "
+                        >
+                          {{
+                            (getCachedStats(key.id)?.windowRemainingSeconds || 0) > 0
+                              ? formatWindowTime(
+                                  getCachedStats(key.id)?.windowRemainingSeconds || 0
+                                )
+                              : '未激活'
+                          }}
+                        </span>
+                      </div>
+                    </div>
+
+                    <!-- 无限制显示 -->
+                    <div
+                      v-else
+                      class="flex items-center justify-center gap-1.5 py-2 text-gray-500 dark:text-gray-400"
+                    >
+                      <i class="i-lucide-infinity text-base" />
+                      <span class="text-sm font-medium">无限制</span>
+                    </div>
+                  </template>
+                </div>
+              </div>
+
+              <!-- 时间信息 -->
+              <div class="mb-3 text-sm text-gray-500 dark:text-gray-400">
+                <div class="mb-1 flex justify-between">
+                  <span>创建时间</span>
+                  <span>{{ formatDate(key.createdAt) }}</span>
+                </div>
+                <div class="flex items-center justify-between">
+                  <span>过期时间</span>
+                  <div class="flex items-center gap-1">
+                    <span
+                      :class="
+                        isApiKeyExpiringSoon(key.expiresAt) ? 'font-semibold text-orange-600' : ''
+                      "
+                    >
+                      {{ key.expiresAt ? formatDate(key.expiresAt) : '永不过期' }}
+                    </span>
+                    <button
+                      class="inline-flex h-5 w-5 items-center justify-center rounded text-gray-300 transition-all duration-200 hover:bg-blue-50 hover:text-blue-500 dark:hover:bg-blue-900/20"
+                      title="编辑过期时间"
+                      @click.stop="startEditExpiry(key)"
+                    >
+                      <svg class="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path
+                          d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                          stroke-width="2"
+                        ></path>
+                      </svg>
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <!-- 标签 -->
+              <div v-if="key.tags && key.tags.length > 0" class="mb-3 flex flex-wrap gap-1">
+                <span
+                  v-for="tag in key.tags"
+                  :key="tag"
+                  class="inline-flex items-center rounded-full bg-blue-100 px-2 py-0.5 text-sm text-blue-800 dark:bg-blue-900/30 dark:text-blue-300"
+                >
+                  {{ tag }}
+                </span>
+              </div>
+
+              <!-- 操作按钮 -->
+              <div
+                class="mt-3 flex flex-wrap gap-2 border-t border-gray-100 pt-3 dark:border-gray-600"
+              >
+                <button
+                  class="flex flex-1 items-center justify-center gap-1 rounded-lg bg-blue-50 px-3 py-1.5 text-sm text-blue-600 transition-colors hover:bg-blue-100 dark:bg-blue-900/30 dark:hover:bg-blue-900/50"
+                  @click="showUsageDetails(key)"
+                >
+                  <i class="i-lucide-chart-line" />
+                  详情
+                </button>
+                <button
+                  class="flex flex-1 items-center justify-center gap-1 rounded-lg bg-cyan-50 px-3 py-1.5 text-sm text-cyan-600 transition-colors hover:bg-cyan-100 dark:bg-cyan-900/30 dark:hover:bg-cyan-900/50"
+                  @click="openTimeline(key.id)"
+                >
+                  <i class="i-lucide-clock" />
+                  时间线
+                </button>
+                <button
+                  class="flex-1 rounded-lg bg-gray-50 px-3 py-1.5 text-sm text-gray-600 transition-colors hover:bg-gray-100 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600"
+                  @click="openEditApiKeyModal(key)"
+                >
+                  <i class="i-lucide-pen-line mr-1" />
+                  编辑
+                </button>
+                <button
+                  class="flex-1 rounded-lg bg-amber-50 px-3 py-1.5 text-sm text-amber-600 transition-colors hover:bg-amber-100 dark:bg-amber-900/30 dark:hover:bg-amber-900/50"
+                  @click="openQuickAdjustModal(key)"
+                >
+                  <i class="i-lucide-zap mr-1" />
+                  调整
+                </button>
+                <button
+                  class="flex-1 rounded-lg bg-purple-50 px-3 py-1.5 text-sm text-purple-600 transition-colors hover:bg-purple-100 dark:bg-purple-900/30 dark:hover:bg-purple-900/50"
+                  @click="openChangeHistoryModal(key)"
+                >
+                  <i class="i-lucide-scroll-text mr-1" />
+                  记录
+                </button>
+                <button
+                  v-if="
+                    key.expiresAt &&
+                    (isApiKeyExpired(key.expiresAt) || isApiKeyExpiringSoon(key.expiresAt))
+                  "
+                  class="flex-1 rounded-lg bg-orange-50 px-3 py-1.5 text-sm text-orange-600 transition-colors hover:bg-orange-100 dark:bg-orange-900/30 dark:hover:bg-orange-900/50"
+                  @click="openRenewApiKeyModal(key)"
+                >
+                  <i class="i-lucide-clock mr-1" />
+                  续期
+                </button>
+                <button
+                  :class="[
+                    key.isActive
+                      ? 'bg-orange-50 text-orange-600 hover:bg-orange-100 dark:bg-orange-900/30 dark:hover:bg-orange-900/50'
+                      : 'bg-green-50 text-green-600 hover:bg-green-100 dark:bg-green-900/30 dark:hover:bg-green-900/50',
+                    'rounded-lg px-3 py-1.5 text-sm transition-colors'
+                  ]"
+                  @click="toggleApiKeyStatus(key)"
+                >
+                  <i :class="[key.isActive ? 'i-lucide-ban' : 'i-lucide-circle-check', 'mr-1']" />
+                  {{ key.isActive ? '禁用' : '激活' }}
+                </button>
+                <button
+                  class="rounded-lg bg-red-50 px-3 py-1.5 text-sm text-red-600 transition-colors hover:bg-red-100 dark:bg-red-900/30 dark:hover:bg-red-900/50"
+                  @click="deleteApiKey(key.id)"
+                >
+                  <i class="i-lucide-trash-2" />
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- 分页组件 -->
+          <div
+            v-if="sortedApiKeys.length > 0"
+            class="mt-4 flex flex-col items-center justify-between gap-4 sm:mt-6 sm:flex-row"
+          >
+            <div class="flex w-full flex-col items-center gap-3 sm:w-auto sm:flex-row">
+              <span class="text-sm text-gray-600 dark:text-gray-400 sm:text-sm">
+                共 {{ sortedApiKeys.length }} 条记录
+              </span>
+              <div class="flex items-center gap-2">
+                <span class="text-sm text-gray-600 dark:text-gray-400 sm:text-sm">每页显示</span>
+                <div class="w-20">
+                  <CustomDropdown
+                    v-model="pageSize"
+                    accent="blue"
+                    :options="pageSizeOptions"
+                    placeholder="条数"
+                  />
+                </div>
+                <span class="text-sm text-gray-600 dark:text-gray-400 sm:text-sm">条</span>
+              </div>
+            </div>
+
+            <div class="flex items-center gap-2">
+              <!-- 上一页 -->
+              <button
+                class="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700 sm:py-1 sm:text-sm"
+                :disabled="currentPage === 1"
+                @click="currentPage--"
+              >
+                <i class="i-lucide-chevron-left" />
+              </button>
+
+              <!-- 页码 -->
+              <div class="flex items-center gap-1">
+                <!-- 第一页 -->
+                <button
+                  v-if="shouldShowFirstPage"
+                  class="hidden rounded-md border border-gray-300 bg-white px-3 py-1 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700 sm:block"
+                  @click="currentPage = 1"
+                >
+                  1
+                </button>
+                <span
+                  v-if="showLeadingEllipsis"
+                  class="hidden px-2 text-gray-500 dark:text-gray-400 sm:inline"
+                  >...</span
+                >
+
+                <!-- 中间页码 -->
+                <button
+                  v-for="page in pageNumbers"
+                  :key="page"
+                  :class="[
+                    'rounded-md px-2 py-1 text-sm font-medium sm:px-3 sm:text-sm',
+                    page === currentPage
+                      ? 'bg-blue-600 text-white'
+                      : 'border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700'
+                  ]"
+                  @click="currentPage = page"
+                >
+                  {{ page }}
+                </button>
+
+                <!-- 最后一页 -->
+                <span
+                  v-if="showTrailingEllipsis"
+                  class="hidden px-2 text-gray-500 dark:text-gray-400 sm:inline"
+                  >...</span
+                >
+                <button
+                  v-if="shouldShowLastPage"
+                  class="hidden rounded-md border border-gray-300 bg-white px-3 py-1 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700 sm:block"
+                  @click="currentPage = totalPages"
+                >
+                  {{ totalPages }}
+                </button>
+              </div>
+
+              <!-- 下一页 -->
+              <button
+                class="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700 sm:py-1 sm:text-sm"
+                :disabled="currentPage === totalPages || totalPages === 0"
+                @click="currentPage++"
+              >
+                <i class="i-lucide-chevron-right" />
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- 已删除 API Keys Tab Panel -->
+        <div v-else-if="activeTab === 'deleted'" class="tab-panel">
+          <!-- 工具栏：搜索 + 刷新 + 清空（始终显示，便于无匹配时清除搜索）-->
+          <div class="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <!-- 搜索（按名称）：点"搜索"按钮或回车才查，输入框本身不触发搜索 -->
+            <div class="flex w-full items-center gap-2 sm:max-w-md">
+              <div class="group relative flex-1">
+                <div
+                  class="pointer-events-none absolute -inset-0.5 rounded-lg bg-gradient-to-r from-cyan-500 to-teal-500 opacity-0 blur transition duration-300 group-hover:opacity-20"
+                />
+                <div class="relative flex items-center">
+                  <input
+                    v-model="deletedSearchKeyword"
+                    class="toolbar-search-input"
+                    placeholder="搜索已删除 Key 名称..."
+                    type="text"
+                    @keyup.enter="applyDeletedSearch"
+                  />
+                  <i class="input-affix-icon input-affix-icon--left i-lucide-search text-cyan-500" />
+                  <button
+                    v-if="deletedSearchKeyword"
+                    class="absolute right-2 flex h-5 w-5 items-center justify-center rounded-full text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-700 dark:hover:text-gray-300"
+                    @click="clearDeletedSearch"
+                  >
+                    <i class="i-lucide-x text-sm" />
+                  </button>
+                </div>
+              </div>
+              <button
+                class="flex h-10 flex-shrink-0 items-center gap-2 rounded-lg bg-gradient-to-r from-cyan-500 to-teal-500 px-4 text-sm font-medium text-white shadow-sm transition-all duration-200 hover:shadow-md disabled:cursor-not-allowed disabled:opacity-50"
+                :disabled="deletedApiKeysLoading"
+                @click="applyDeletedSearch"
+              >
+                <i class="i-lucide-search" />
+                <span>搜索</span>
+              </button>
+            </div>
+
+            <!-- 操作：刷新 + 批量彻底删除选中 + 清空所有 -->
+            <div class="flex flex-wrap items-center gap-3">
+              <button
+                class="group relative flex items-center justify-center gap-2 rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm font-medium text-gray-700 shadow-sm transition-all duration-200 hover:border-gray-300 hover:shadow-md disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200 dark:hover:border-gray-500"
+                :disabled="deletedApiKeysLoading"
+                @click="loadDeletedApiKeys()"
+              >
+                <i
+                  class="i-lucide-refresh-cw text-green-500"
+                  :class="{ 'animate-spin': deletedApiKeysLoading }"
+                />
+                <span>刷新</span>
+              </button>
+              <button
+                v-if="selectedDeletedKeys.length > 0"
+                class="rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-sm font-medium text-red-700 transition-colors hover:bg-red-100 dark:border-red-700 dark:bg-red-900/30 dark:text-red-300 dark:hover:bg-red-900/50"
+                @click="batchPermanentDeleteApiKeys"
+              >
+                <i class="i-lucide-trash-2 mr-2" />
+                彻底删除选中 ({{ selectedDeletedKeys.length }})
+              </button>
+              <button
+                v-if="deletedPagination.total > 0 && !deletedSearchApplied"
+                class="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-red-700 dark:bg-red-600 dark:hover:bg-red-700"
+                @click="clearAllDeletedApiKeys"
+              >
+                <i class="i-lucide-trash-2 mr-2" />
+                清空所有已删除 ({{ deletedPagination.total }})
+              </button>
+            </div>
+          </div>
+
+          <div v-if="deletedApiKeysLoading" class="py-12 text-center">
+            <div class="loading-spinner mx-auto mb-4" />
+            <p class="text-gray-500 dark:text-gray-400">正在加载已删除的 API Keys...</p>
+          </div>
+
+          <div v-else-if="deletedApiKeys.length === 0" class="py-12 text-center">
+            <div
+              class="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-gray-100 dark:bg-gray-700"
+            >
+              <i class="i-lucide-trash-2 text-xl text-gray-400" />
+            </div>
+            <p class="text-lg text-gray-500 dark:text-gray-400">
+              {{ deletedSearchApplied ? '没有匹配的已删除 API Keys' : '暂无已删除的 API Keys' }}
+            </p>
+            <p class="mt-2 text-sm text-gray-400">
+              {{
+                deletedSearchApplied
+                  ? '换个关键词试试，或清除搜索'
+                  : '已删除的 API Keys 会出现在这里'
+              }}
+            </p>
+          </div>
+
+          <!-- 已删除的 API Keys 表格 -->
+          <div v-else>
+            <div class="table-wrapper">
+              <div
+                ref="deletedTableScrollRef"
+                class="table-container table-container--scroll"
+                :style="{ maxHeight: deletedTableMaxHeight }"
+              >
+                <table class="w-full">
+                  <thead
+                    class="sticky top-0 z-20 bg-gradient-to-b from-gray-50 to-gray-100 dark:from-gray-700 dark:to-gray-800"
+                  >
+                    <tr>
+                      <th
+                        class="checkbox-column sticky left-0 z-20 min-w-[50px] px-3 py-4 text-left"
+                      >
+                        <div class="flex items-center">
+                          <input
+                            v-model="deletedSelectAllChecked"
+                            class="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                            :indeterminate="deletedIsIndeterminate"
+                            type="checkbox"
+                            @change="handleDeletedSelectAll"
+                          />
+                        </div>
+                      </th>
+                      <th
+                        class="name-column sticky left-[50px] z-20 min-w-[140px] px-3 py-4 text-left text-sm font-bold uppercase tracking-wider text-gray-700 dark:text-gray-300"
+                      >
+                        名称
+                      </th>
+                      <th
+                        class="min-w-[140px] px-3 py-4 text-left text-sm font-bold uppercase tracking-wider text-gray-700 dark:text-gray-300"
+                      >
+                        所属账号
+                      </th>
+                      <th
+                        v-if="isLdapEnabled"
+                        class="min-w-[120px] px-3 py-4 text-left text-sm font-bold uppercase tracking-wider text-gray-700 dark:text-gray-300"
+                      >
+                        创建者
+                      </th>
+                      <th
+                        class="min-w-[120px] px-3 py-4 text-left text-sm font-bold uppercase tracking-wider text-gray-700 dark:text-gray-300"
+                      >
+                        创建时间
+                      </th>
+                      <th
+                        class="min-w-[100px] px-3 py-4 text-left text-sm font-bold uppercase tracking-wider text-gray-700 dark:text-gray-300"
+                      >
+                        删除者
+                      </th>
+                      <th
+                        class="min-w-[100px] px-3 py-4 text-left text-sm font-bold uppercase tracking-wider text-gray-700 dark:text-gray-300"
+                      >
+                        删除时间
+                      </th>
+                      <th
+                        class="min-w-[70px] px-3 py-4 text-right text-sm font-bold uppercase tracking-wider text-gray-700 dark:text-gray-300"
+                      >
+                        费用
+                      </th>
+                      <th
+                        class="min-w-[80px] px-3 py-4 text-right text-sm font-bold uppercase tracking-wider text-gray-700 dark:text-gray-300"
+                      >
+                        Token
+                      </th>
+                      <th
+                        class="min-w-[80px] px-3 py-4 text-right text-sm font-bold uppercase tracking-wider text-gray-700 dark:text-gray-300"
+                      >
+                        请求数
+                      </th>
+                      <th
+                        class="min-w-[100px] px-3 py-4 text-left text-sm font-bold uppercase tracking-wider text-gray-700 dark:text-gray-300"
+                      >
+                        最后使用
+                      </th>
+                      <th
+                        class="operations-column sticky right-0 min-w-[140px] px-3 py-4 text-left text-sm font-bold uppercase tracking-wider text-gray-700 dark:text-gray-300"
+                      >
+                        操作
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody class="divide-y divide-gray-200/50 dark:divide-gray-600/50">
+                    <tr v-for="key in deletedApiKeys" :key="key.id" class="table-row">
+                      <td class="checkbox-column sticky left-0 z-10 px-3 py-3">
+                        <div class="flex items-center">
+                          <input
+                            v-model="selectedDeletedKeys"
+                            class="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                            type="checkbox"
+                            :value="key.id"
+                            @change="updateDeletedSelectAllState"
+                          />
+                        </div>
+                      </td>
+                      <td class="name-column sticky left-[50px] z-10 px-3 py-3">
+                        <div class="flex items-center">
+                          <div
+                            class="mr-2 flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-red-500 to-red-600"
+                          >
+                            <i class="i-lucide-trash-2 text-sm text-white" />
+                          </div>
+                          <div class="min-w-0">
+                            <div
+                              class="cursor-pointer truncate text-sm font-semibold text-gray-900 hover:text-blue-600 dark:text-gray-100 dark:hover:text-blue-400"
+                              title="点击复制"
+                              @click.stop="copyText(key.name)"
+                            >
+                              {{ key.name }}
+                            </div>
+                          </div>
+                        </div>
+                      </td>
+                      <!-- 所属账号 -->
+                      <td class="px-3 py-3">
+                        <div class="space-y-1">
+                          <!-- Claude OAuth 绑定 -->
+                          <div v-if="key.claudeAccountId" class="flex items-center gap-1 text-sm">
+                            <span
+                              class="inline-flex items-center rounded bg-blue-100 px-1.5 py-0.5 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300"
+                            >
+                              <i class="i-lucide-bot mr-1 text-sm" />
+                              Claude OAuth
+                            </span>
+                          </div>
+                          <!-- Claude Console 绑定 -->
+                          <div
+                            v-else-if="key.claudeConsoleAccountId"
+                            class="flex items-center gap-1 text-sm"
+                          >
+                            <span
+                              class="inline-flex items-center rounded bg-green-100 px-1.5 py-0.5 text-green-700 dark:bg-green-900/30 dark:text-green-300"
+                            >
+                              <i class="i-lucide-terminal mr-1 text-sm" />
+                              Claude Console
+                            </span>
+                          </div>
+                          <!-- Gemini 绑定 -->
+                          <div
+                            v-else-if="key.geminiAccountId"
+                            class="flex items-center gap-1 text-sm"
+                          >
+                            <span
+                              class="inline-flex items-center rounded bg-purple-100 px-1.5 py-0.5 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300"
+                            >
+                              <i class="i-logos-google-icon mr-1 text-sm" />
+                              Gemini
+                            </span>
+                          </div>
+                          <!-- 共享池 -->
+                          <div v-else class="text-sm text-gray-500 dark:text-gray-400">
+                            <i class="i-lucide-share-2 mr-1" />
+                            共享池
+                          </div>
+                        </div>
+                      </td>
+                      <!-- 创建者 -->
+                      <td v-if="isLdapEnabled" class="px-3 py-3">
+                        <div class="text-sm">
+                          <span v-if="key.createdBy === 'admin'" class="text-blue-600">
+                            <i class="i-lucide-shield-check mr-1 text-sm" />
+                            管理员
+                          </span>
+                          <span v-else-if="key.userUsername" class="text-green-600">
+                            <i class="i-lucide-user mr-1 text-sm" />
+                            {{ key.userUsername }}
+                          </span>
+                          <span v-else class="text-gray-500 dark:text-gray-400">
+                            <i class="i-lucide-circle-question-mark mr-1 text-sm" />
+                            未知
+                          </span>
+                        </div>
+                      </td>
+                      <!-- 创建时间 -->
+                      <td
+                        class="whitespace-nowrap px-3 py-3 text-gray-700 dark:text-gray-300"
+                        style="font-size: 14px"
+                      >
+                        {{ formatDate(key.createdAt) }}
+                      </td>
+                      <!-- 删除者 -->
+                      <td class="px-3 py-3">
+                        <div class="text-sm">
+                          <span v-if="key.deletedByType === 'admin'" class="text-blue-600">
+                            <i class="i-lucide-shield-check mr-1 text-sm" />
+                            {{ key.deletedBy }}
+                          </span>
+                          <span v-else-if="key.deletedByType === 'user'" class="text-green-600">
+                            <i class="i-lucide-user mr-1 text-sm" />
+                            {{ key.deletedBy }}
+                          </span>
+                          <span v-else class="text-gray-500 dark:text-gray-400">
+                            <i class="i-lucide-settings mr-1 text-sm" />
+                            {{ key.deletedBy }}
+                          </span>
+                        </div>
+                      </td>
+                      <!-- 删除时间 -->
+                      <td
+                        class="whitespace-nowrap px-3 py-3 text-gray-700 dark:text-gray-300"
+                        style="font-size: 14px"
+                      >
+                        {{ formatDate(key.deletedAt) }}
+                      </td>
+                      <!-- 费用 -->
+                      <td class="whitespace-nowrap px-3 py-3 text-right" style="font-size: 14px">
+                        <span
+                          class="font-medium text-blue-600 dark:text-blue-400"
+                          style="font-size: 14px"
+                        >
+                          ${{ (key.usage?.total?.cost || 0).toFixed(2) }}
+                        </span>
+                      </td>
+                      <!-- Token -->
+                      <td class="whitespace-nowrap px-3 py-3 text-right" style="font-size: 14px">
+                        <span
+                          class="font-medium text-purple-600 dark:text-purple-400"
+                          style="font-size: 14px"
+                        >
+                          {{ formatTokenCount(key.usage?.total?.tokens || 0) }}
+                        </span>
+                      </td>
+                      <!-- 请求数 -->
+                      <td class="whitespace-nowrap px-3 py-3 text-right" style="font-size: 14px">
+                        <div class="flex items-center justify-end gap-1">
+                          <span
+                            class="font-medium text-gray-900 dark:text-gray-100"
+                            style="font-size: 14px"
+                          >
+                            {{ formatNumber(key.usage?.total?.requests || 0) }}
+                          </span>
+                          <span class="text-sm text-gray-500">次</span>
+                        </div>
+                      </td>
+                      <!-- 最后使用 -->
+                      <td
+                        class="whitespace-nowrap px-3 py-3 text-gray-700 dark:text-gray-300"
+                        style="font-size: 14px"
+                      >
+                        <div class="flex flex-col leading-tight">
+                          <span
+                            v-if="key.lastUsedAt"
+                            class="cursor-help"
+                            style="font-size: 14px"
+                            :title="formatLocalDateTime(key.lastUsedAt) || ''"
+                          >
+                            {{ formatLastUsed(key.lastUsedAt) }}
+                          </span>
+                          <span v-else class="text-gray-400" style="font-size: 14px">从未使用</span>
+                          <!-- 最后使用账号 loading 状态 -->
+                          <span
+                            v-if="key.lastUsedAt && isLastUsageLoading(key.id)"
+                            class="mt-1 text-sm text-gray-400 dark:text-gray-500"
+                          >
+                            <i class="i-lucide-loader-circle animate-spin mr-1"></i>
+                            加载中...
+                          </span>
+                          <span
+                            v-else-if="hasLastUsageAccount(key)"
+                            class="mt-1 text-sm text-gray-500 dark:text-gray-400"
+                            :title="getLastUsageFullName(key)"
+                          >
+                            {{ getLastUsageDisplayName(key) }}
+                            <span
+                              v-if="!isLastUsageDeleted(key)"
+                              class="ml-1 text-gray-400 dark:text-gray-500"
+                            >
+                              ({{ getLastUsageTypeLabel(key) }})
+                            </span>
+                          </span>
+                          <span v-else class="mt-1 text-sm text-gray-400 dark:text-gray-500">
+                            暂无使用账号
+                          </span>
+                        </div>
+                      </td>
+                      <td class="operations-column operations-cell px-3 py-3">
+                        <div class="flex items-center gap-2">
+                          <button
+                            v-if="key.canRestore"
+                            class="rounded-lg bg-green-50 px-3 py-1.5 text-sm font-medium text-green-600 transition-colors hover:bg-green-100 dark:bg-green-900/30 dark:text-green-400 dark:hover:bg-green-900/50"
+                            title="恢复 API Key"
+                            @click="restoreApiKey(key.id)"
+                          >
+                            <i class="i-lucide-undo-2 mr-1" />
+                            恢复
+                          </button>
+                          <button
+                            class="rounded-lg bg-red-50 px-3 py-1.5 text-sm font-medium text-red-600 transition-colors hover:bg-red-100 dark:bg-red-900/30 dark:text-red-400 dark:hover:bg-red-900/50"
+                            title="彻底删除 API Key"
+                            @click="permanentDeleteApiKey(key.id)"
+                          >
+                            <i class="i-lucide-x mr-1" />
+                            彻底删除
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <!-- 已删除分页 -->
+            <div
+              v-if="deletedPagination.total > 0"
+              ref="deletedPaginationRef"
+              class="mt-4 flex flex-col items-center justify-between gap-4 sm:flex-row"
+            >
+              <div class="flex w-full flex-col items-center gap-3 sm:w-auto sm:flex-row">
+                <span class="text-sm text-gray-600 dark:text-gray-400 sm:text-sm">
+                  共 {{ deletedPagination.total }} 条记录
+                </span>
+                <div class="flex items-center gap-2">
+                  <span class="text-sm text-gray-600 dark:text-gray-400 sm:text-sm">每页显示</span>
+                  <div class="w-20">
+                    <CustomDropdown
+                      v-model="deletedPageSize"
+                      accent="blue"
+                      :options="pageSizeOptions"
+                      placeholder="条数"
+                    />
+                  </div>
+                  <span class="text-sm text-gray-600 dark:text-gray-400 sm:text-sm">条</span>
+                </div>
+              </div>
+
+              <div class="flex items-center gap-2">
+                <button
+                  class="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700 sm:py-1 sm:text-sm"
+                  :disabled="deletedCurrentPage === 1"
+                  @click="deletedCurrentPage--"
+                >
+                  <i class="i-lucide-chevron-left" />
+                </button>
+                <span class="px-2 text-sm text-gray-600 dark:text-gray-400 sm:text-sm">
+                  第 {{ deletedCurrentPage }} / {{ deletedTotalPages }} 页
+                </span>
+                <button
+                  class="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700 sm:py-1 sm:text-sm"
+                  :disabled="deletedCurrentPage >= deletedTotalPages"
+                  @click="deletedCurrentPage++"
+                >
+                  <i class="i-lucide-chevron-right" />
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 模态框组件 -->
+    <CreateApiKeyModal
+      v-if="showCreateApiKeyModal"
+      :accounts="accounts"
+      @batch-success="handleBatchCreateSuccess"
+      @close="showCreateApiKeyModal = false"
+      @success="handleCreateSuccess"
+    />
+
+    <EditApiKeyModal
+      v-if="showEditApiKeyModal"
+      :accounts="accounts"
+      :api-key="editingApiKey"
+      @close="showEditApiKeyModal = false"
+      @success="handleEditSuccess"
+    />
+
+    <RenewApiKeyModal
+      v-if="showRenewApiKeyModal"
+      :api-key="renewingApiKey"
+      @close="showRenewApiKeyModal = false"
+      @success="handleRenewSuccess"
+    />
+
+    <QuickAdjustModal
+      v-if="showQuickAdjustModal"
+      :api-key="quickAdjustingApiKey"
+      @close="showQuickAdjustModal = false"
+      @success="handleQuickAdjustSuccess"
+    />
+
+    <ChangeHistoryModal
+      v-if="showChangeHistoryModal && changeHistoryApiKey?.id"
+      :api-key-name="changeHistoryApiKey?.name || ''"
+      :key-id="changeHistoryApiKey.id"
+      @close="showChangeHistoryModal = false"
+    />
+
+    <NewApiKeyModal
+      v-if="showNewApiKeyModal"
+      :api-key="newApiKeyData"
+      @close="showNewApiKeyModal = false"
+    />
+
+    <BatchApiKeyModal
+      v-if="showBatchApiKeyModal"
+      :api-keys="batchApiKeyData"
+      @close="showBatchApiKeyModal = false"
+    />
+
+    <BatchEditApiKeyModal
+      v-if="showBatchEditModal"
+      :accounts="accounts"
+      :selected-keys="selectedApiKeys"
+      @close="showBatchEditModal = false"
+      @success="handleBatchEditSuccess"
+    />
+
+    <!-- 过期时间编辑弹窗 -->
+    <ExpiryEditModal
+      ref="expiryEditModalRef"
+      :api-key="editingExpiryKey || { id: null, expiresAt: null, name: '' }"
+      :show="!!editingExpiryKey"
+      @close="closeExpiryEdit"
+      @save="handleSaveExpiry"
+    />
+
+    <UsageDetailModal
+      :api-key="selectedApiKeyForDetail || {}"
+      :show="showUsageDetailModal"
+      @close="showUsageDetailModal = false"
+    />
+
+    <ApiKeyUsageRecordsDialog
+      v-if="selectedApiKeyForTimeline?.id"
+      :api-key-name="selectedApiKeyForTimeline?.name || ''"
+      :fetch-api="httpApis.getApiKeyUsageRecordsApi"
+      :key-id="selectedApiKeyForTimeline.id"
+      :show="showUsageRecordsDialog"
+      @close="closeUsageRecordsDialog"
+    />
+
+    <TagManagementModal
+      :show="showTagManagementModal"
+      @close="showTagManagementModal = false"
+      @updated="loadApiKeys"
+    />
+
+    <ConfirmModal
+      :cancel-text="confirmModalConfig.cancelText"
+      :confirm-text="confirmModalConfig.confirmText"
+      :message="confirmModalConfig.message"
+      :show="showConfirmModal"
+      :title="confirmModalConfig.title"
+      :type="confirmModalConfig.type"
+      @cancel="handleCancel"
+      @confirm="handleConfirm"
+    />
+  </div>
+</template>
+
+<script setup>
+import SegmentedTabs from '@/components/common/segmented_tabs.vue'
+import { ref, reactive, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
+import {
+  showToast,
+  copyText,
+  formatNumber,
+  formatDate,
+  calcViewportBottomReserve
+} from '@/libs/tools'
+import { formatLocalDate, formatLocalDateTime, toLocalDateString } from '@/libs/time'
+
+import * as httpApis from '@/libs/http_apis'
+import { useAuthStore } from '@/stores/auth'
+import * as XLSX from 'xlsx-js-style'
+import CreateApiKeyModal from '@/components/api_keys/create_api_key_modal.vue'
+import EditApiKeyModal from '@/components/api_keys/edit_api_key_modal.vue'
+import RenewApiKeyModal from '@/components/api_keys/renew_api_key_modal.vue'
+import QuickAdjustModal from '@/components/api_keys/quick_adjust_modal.vue'
+import ChangeHistoryModal from '@/components/api_keys/change_history_modal.vue'
+import NewApiKeyModal from '@/components/api_keys/new_api_key_modal.vue'
+import BatchApiKeyModal from '@/components/api_keys/batch_api_key_modal.vue'
+import BatchEditApiKeyModal from '@/components/api_keys/batch_edit_api_key_modal.vue'
+import ExpiryEditModal from '@/components/api_keys/expiry_edit_modal.vue'
+import UsageDetailModal from '@/components/api_keys/usage_detail_modal.vue'
+import ApiKeyUsageRecordsDialog from '@/components/api_keys/api_key_usage_records_dialog.vue'
+import TagManagementModal from '@/components/api_keys/tag_management_modal.vue'
+import LimitProgressBar from '@/components/api_keys/limit_progress_bar.vue'
+import CustomDropdown from '@/components/common/custom_dropdown.vue'
+import AppSwitch from '@/components/common/app_switch.vue'
+import ConfirmModal from '@/components/common/confirm_modal.vue'
+import AppDateRangePicker from '@/components/common/app_date_range_picker.vue'
+
+// 响应式数据
+const authStore = useAuthStore()
+const apiKeys = ref([])
+
+const apiKeySectionTabs = computed(() => [
+  {
+    key: 'active',
+    label: '活跃 API Keys',
+    badge: apiKeys.value.length > 0 ? apiKeys.value.length : null
+  },
+  {
+    key: 'deleted',
+    label: '已删除 API Keys',
+    badge: deletedPagination.value.total > 0 ? deletedPagination.value.total : null
+  }
+])
+
+const onApiKeyTabChange = (key) => {
+  if (key === 'deleted') {
+    loadDeletedApiKeys()
+    return
+  }
+  activeTab.value = key
+}
+
+
+// 获取 LDAP 启用状态
+const isLdapEnabled = computed(() => authStore.oemSettings?.ldapEnabled || false)
+
+// 多选相关状态
+const selectedApiKeys = ref([])
+const selectAllChecked = ref(false)
+const isIndeterminate = ref(false)
+const showCheckboxes = ref(false)
+const apiKeysLoading = ref(false)
+const apiKeyStatsTimeRange = ref('today')
+
+// 全局日期筛选器
+const globalDateFilter = reactive({
+  type: 'preset',
+  preset: 'today',
+  customStart: '',
+  customEnd: '',
+  customRange: null
+})
+
+// 是否应该显示多选框
+const shouldShowCheckboxes = computed(() => {
+  return showCheckboxes.value
+})
+
+// 切换选择模式
+const toggleSelectionMode = () => {
+  showCheckboxes.value = !showCheckboxes.value
+  // 关闭选择模式时清空已选项
+  if (!showCheckboxes.value) {
+    selectedApiKeys.value = []
+    selectAllChecked.value = false
+    isIndeterminate.value = false
+  }
+}
+
+// 时间范围下拉选项
+const timeRangeDropdownOptions = computed(() => [
+  { value: 'today', label: '今日', icon: 'i-lucide-calendar-days' },
+  { value: '7days', label: '最近7天', icon: 'i-lucide-calendar-range' },
+  { value: '30days', label: '最近30天', icon: 'i-lucide-calendar-days' },
+  { value: 'all', label: '全部时间', icon: 'i-lucide-infinity' },
+  { value: 'custom', label: '自定义范围', icon: 'i-lucide-calendar-check' }
+])
+
+// Tab management
+const activeTab = ref('active')
+const deletedApiKeys = ref([])
+const deletedApiKeysLoading = ref(false)
+// 已删除 Tab 的服务端分页状态
+const deletedCurrentPage = ref(1)
+const deletedPageSize = ref(20)
+const deletedPagination = ref({ page: 1, pageSize: 20, total: 0, totalPages: 0 })
+const deletedTotalPages = computed(() => deletedPagination.value.totalPages || 0)
+// 已删除 Tab 的按名称搜索：输入框文本(deletedSearchKeyword) 与"已应用搜索词"(deletedSearchApplied) 分离，
+// 输入不触发搜索，只有点"搜索"按钮/回车才把输入应用为查询；换页/刷新都用已应用的词，避免"输入但没搜"也影响结果
+const deletedSearchKeyword = ref('')
+const deletedSearchApplied = ref('')
+// 已删除 Tab 的多选清理状态（仅当前页，换页/刷新后清空）
+const selectedDeletedKeys = ref([])
+const deletedSelectAllChecked = ref(false)
+const deletedIsIndeterminate = ref(false)
+// 已删除表格滚动容器/分页元素引用 + 动态高度（取代 CSS 魔数 calc(100dvh - 360px)）
+const deletedTableScrollRef = ref(null)
+const deletedPaginationRef = ref(null)
+const deletedTableMaxHeight = ref('60vh')
+// 主表格滚动容器 + 动态高度（PC 端表格填满视口剩余空间、内部滚动）
+const mainTableScrollRef = ref(null)
+const mainTableMaxHeight = ref('60vh')
+const apiKeysSortBy = ref('createdAt') // 默认排序为创建时间
+const apiKeysSortOrder = ref('desc')
+const expandedApiKeys = ref({})
+
+// 费用排序相关状态
+const costSortStatus = ref({}) // 各时间范围的索引状态
+
+// 后端分页相关状态
+const serverPagination = ref({
+  page: 1,
+  pageSize: 20,
+  total: 0,
+  totalPages: 0
+})
+
+// 统计数据缓存: Map<keyId, { stats, timeRange, timestamp }>
+const statsCache = ref(new Map())
+// 正在加载统计的 keyIds
+const statsLoading = ref(new Set())
+// 最后使用账号缓存: Map<keyId, lastUsageInfo>
+const lastUsageCache = ref(new Map())
+// 正在加载最后使用账号的 keyIds
+const lastUsageLoading = ref(new Set())
+const apiKeyModelStats = ref({})
+const apiKeyDateFilters = ref({})
+const accounts = ref({
+  claude: [],
+  gemini: [],
+  geminiApi: [], // 添加 Gemini-API 账号列表（用于传递给子组件初始化）
+  openai: [],
+  openaiResponses: [], // 添加 OpenAI-Responses 账号列表
+  bedrock: [],
+  droid: [],
+  claudeGroups: [],
+  geminiGroups: [],
+  openaiGroups: [],
+  droidGroups: []
+})
+// 账号数据加载状态
+const accountsLoading = ref(false)
+const accountsLoaded = ref(false)
+const editingExpiryKey = ref(null)
+const expiryEditModalRef = ref(null)
+const showUsageDetailModal = ref(false)
+const selectedApiKeyForDetail = ref(null)
+const showUsageRecordsDialog = ref(false)
+const selectedApiKeyForTimeline = ref(null)
+
+// 标签相关
+const selectedTagFilter = ref('')
+const availableTags = ref([])
+
+// 模型筛选相关
+const selectedModels = ref([])
+const availableModels = ref([])
+
+// 搜索相关
+const searchKeyword = ref('')
+const searchMode = ref('apiKey')
+const searchModeOptions = computed(() => [
+  { value: 'apiKey', label: '按Key名称', icon: 'i-lucide-key' },
+  { value: 'bindingAccount', label: '按所属账号', icon: 'i-lucide-badge-check' }
+])
+
+const tagOptions = computed(() => {
+  const options = [{ value: '', label: '所有标签', icon: 'i-lucide-asterisk' }]
+  availableTags.value.forEach((tag) => {
+    options.push({ value: tag, label: tag, icon: 'i-lucide-tag' })
+  })
+  return options
+})
+
+const modelOptions = computed(() => {
+  return availableModels.value.map((model) => ({
+    value: model,
+    label: model,
+    icon: 'i-lucide-box'
+  }))
+})
+
+// 分页相关
+const currentPage = ref(1)
+// 从 localStorage 读取保存的每页显示条数，默认为 10
+const getInitialPageSize = () => {
+  const saved = localStorage.getItem('apiKeysPageSize')
+  if (saved) {
+    const parsedSize = parseInt(saved, 10)
+    // 验证保存的值是否在允许的选项中
+    if ([10, 20, 50, 100].includes(parsedSize)) {
+      return parsedSize
+    }
+  }
+  return 10
+}
+const pageSize = ref(getInitialPageSize())
+const pageSizeOptions = [
+  { value: 10, label: '10' },
+  { value: 20, label: '20' },
+  { value: 50, label: '50' },
+  { value: 100, label: '100' }
+]
+
+// 模态框状态
+const showCreateApiKeyModal = ref(false)
+const showEditApiKeyModal = ref(false)
+const showRenewApiKeyModal = ref(false)
+const showQuickAdjustModal = ref(false)
+const showChangeHistoryModal = ref(false)
+const showNewApiKeyModal = ref(false)
+const showBatchApiKeyModal = ref(false)
+const showBatchEditModal = ref(false)
+const showTagManagementModal = ref(false)
+const editingApiKey = ref(null)
+const renewingApiKey = ref(null)
+const quickAdjustingApiKey = ref(null)
+const changeHistoryApiKey = ref(null)
+const newApiKeyData = ref(null)
+const batchApiKeyData = ref([])
+
+// ConfirmModal 状态
+const showConfirmModal = ref(false)
+const confirmModalConfig = ref({
+  title: '',
+  message: '',
+  type: 'primary',
+  confirmText: '确认',
+  cancelText: '取消'
+})
+const confirmResolve = ref(null)
+
+const showConfirm = (
+  title,
+  message,
+  confirmText = '确认',
+  cancelText = '取消',
+  type = 'primary'
+) => {
+  return new Promise((resolve) => {
+    confirmModalConfig.value = { title, message, confirmText, cancelText, type }
+    confirmResolve.value = resolve
+    showConfirmModal.value = true
+  })
+}
+const handleConfirm = () => {
+  showConfirmModal.value = false
+  confirmResolve.value?.(true)
+}
+const handleCancel = () => {
+  showConfirmModal.value = false
+  confirmResolve.value?.(false)
+}
+
+// 计算排序后的API Keys（现在由后端处理，这里直接返回）
+const sortedApiKeys = computed(() => {
+  // 后端已经处理了筛选、搜索和排序，直接返回
+  return apiKeys.value
+})
+
+// 计算总页数（使用后端分页信息）
+const totalPages = computed(() => {
+  return serverPagination.value.totalPages || 0
+})
+
+// 计算显示的页码数组
+const pageNumbers = computed(() => {
+  const pages = []
+  const current = currentPage.value
+  const total = totalPages.value
+
+  if (total <= 7) {
+    // 如果总页数小于等于7，显示所有页码
+    for (let i = 1; i <= total; i++) {
+      pages.push(i)
+    }
+  } else {
+    // 如果总页数大于7，显示部分页码
+    let start = Math.max(1, current - 2)
+    let end = Math.min(total, current + 2)
+
+    // 调整起始和结束页码
+    if (current <= 3) {
+      end = 5
+    } else if (current >= total - 2) {
+      start = total - 4
+    }
+
+    for (let i = start; i <= end; i++) {
+      pages.push(i)
+    }
+  }
+
+  return pages
+})
+
+const shouldShowFirstPage = computed(() => {
+  const pages = pageNumbers.value
+  if (pages.length === 0) return false
+  return pages[0] > 1
+})
+
+const shouldShowLastPage = computed(() => {
+  const pages = pageNumbers.value
+  if (pages.length === 0) return false
+  return pages[pages.length - 1] < totalPages.value
+})
+
+const showLeadingEllipsis = computed(() => {
+  const pages = pageNumbers.value
+  if (pages.length === 0) return false
+  return shouldShowFirstPage.value && pages[0] > 2
+})
+
+const showTrailingEllipsis = computed(() => {
+  const pages = pageNumbers.value
+  if (pages.length === 0) return false
+  return shouldShowLastPage.value && pages[pages.length - 1] < totalPages.value - 1
+})
+
+// 获取分页后的数据（现在由后端处理，直接返回当前数据）
+const paginatedApiKeys = computed(() => {
+  // 后端已经分页，直接返回
+  return apiKeys.value
+})
+
+// 加载账户列表（支持缓存和强制刷新）
+const loadAccounts = async (forceRefresh = false) => {
+  // 如果已加载且不强制刷新，则跳过
+  if (accountsLoaded.value && !forceRefresh) {
+    return
+  }
+
+  accountsLoading.value = true
+  try {
+    const [
+      claudeData,
+      claudeConsoleData,
+      geminiData,
+      geminiApiData,
+      openaiData,
+      openaiResponsesData,
+      bedrockData,
+      droidData,
+      groupsData
+    ] = await Promise.all([
+      httpApis.getClaudeAccountsApi(),
+      httpApis.getClaudeConsoleAccountsApi(),
+      httpApis.getGeminiAccountsApi(),
+      httpApis.getGeminiApiAccountsApi(),
+      httpApis.getOpenAIAccountsApi(),
+      httpApis.getOpenAIResponsesAccountsApi(),
+      httpApis.getBedrockAccountsApi(),
+      httpApis.getDroidAccountsApi(),
+      httpApis.getAccountGroupsApi()
+    ])
+
+    // 合并Claude OAuth账户和Claude Console账户
+    const claudeAccounts = []
+
+    if (claudeData.success) {
+      claudeData.data?.forEach((account) => {
+        claudeAccounts.push({
+          ...account,
+          platform: 'claude-oauth',
+          isDedicated: account.accountType === 'dedicated'
+        })
+      })
+    }
+
+    if (claudeConsoleData.success) {
+      claudeConsoleData.data?.forEach((account) => {
+        claudeAccounts.push({
+          ...account,
+          platform: 'claude-console',
+          isDedicated: account.accountType === 'dedicated'
+        })
+      })
+    }
+
+    accounts.value.claude = claudeAccounts
+
+    // 合并 Gemini OAuth 和 Gemini API 账户
+    const geminiAccounts = []
+
+    if (geminiData.success) {
+      ;(geminiData.data || []).forEach((account) => {
+        geminiAccounts.push({
+          ...account,
+          platform: 'gemini',
+          isDedicated: account.accountType === 'dedicated'
+        })
+      })
+    }
+
+    if (geminiApiData.success) {
+      // 保存原始 Gemini-API 账号列表供子组件初始化使用
+      accounts.value.geminiApi = (geminiApiData.data || []).map((account) => ({
+        ...account,
+        platform: 'gemini-api',
+        isDedicated: account.accountType === 'dedicated'
+      }))
+      // 同时添加到合并列表
+      accounts.value.geminiApi.forEach((account) => {
+        geminiAccounts.push(account)
+      })
+    }
+
+    accounts.value.gemini = geminiAccounts
+
+    if (openaiData.success) {
+      accounts.value.openai = (openaiData.data || []).map((account) => ({
+        ...account,
+        isDedicated: account.accountType === 'dedicated'
+      }))
+    }
+
+    if (openaiResponsesData.success) {
+      accounts.value.openaiResponses = (openaiResponsesData.data || []).map((account) => ({
+        ...account,
+        isDedicated: account.accountType === 'dedicated'
+      }))
+    }
+
+    if (bedrockData.success) {
+      accounts.value.bedrock = (bedrockData.data || []).map((account) => ({
+        ...account,
+        isDedicated: account.accountType === 'dedicated'
+      }))
+    }
+
+    if (droidData.success) {
+      accounts.value.droid = (droidData.data || []).map((account) => ({
+        ...account,
+        platform: 'droid',
+        isDedicated: account.accountType === 'dedicated'
+      }))
+    }
+
+    if (groupsData.success) {
+      // 处理分组数据
+      const allGroups = groupsData.data || []
+      accounts.value.claudeGroups = allGroups.filter((g) => g.platform === 'claude')
+      accounts.value.geminiGroups = allGroups.filter((g) => g.platform === 'gemini')
+      accounts.value.openaiGroups = allGroups.filter((g) => g.platform === 'openai')
+      accounts.value.droidGroups = allGroups.filter((g) => g.platform === 'droid')
+    }
+
+    // 标记账号数据已加载
+    accountsLoaded.value = true
+  } catch {
+    // 静默处理错误
+  } finally {
+    accountsLoading.value = false
+  }
+}
+
+// 加载已使用的模型列表
+const loadUsedModels = async () => {
+  try {
+    const data = await httpApis.getApiKeyUsedModelsApi()
+    if (data.success) {
+      availableModels.value = data.data || []
+    }
+  } catch (error) {
+    console.error('Failed to load used models:', error)
+  }
+}
+
+// 加载API Keys（使用后端分页）
+const loadApiKeys = async (clearStatsCache = true) => {
+  apiKeysLoading.value = true
+  try {
+    // 清除缓存（刷新时）
+    if (clearStatsCache) {
+      statsCache.value.clear()
+      lastUsageCache.value.clear()
+    }
+
+    // 构建请求参数
+    const params = new URLSearchParams()
+
+    // 分页参数
+    params.set('page', currentPage.value.toString())
+    params.set('pageSize', pageSize.value.toString())
+
+    // 搜索参数
+    params.set('searchMode', searchMode.value)
+    if (searchKeyword.value) {
+      params.set('search', searchKeyword.value)
+    }
+
+    // 筛选参数
+    if (selectedTagFilter.value) {
+      params.set('tag', selectedTagFilter.value)
+    }
+
+    // 模型筛选参数
+    if (selectedModels.value.length > 0) {
+      params.set('models', selectedModels.value.join(','))
+    }
+
+    // 排序参数（支持费用排序）
+    const validSortFields = [
+      'name',
+      'createdAt',
+      'expiresAt',
+      'lastUsedAt',
+      'isActive',
+      'status',
+      'cost'
+    ]
+    const effectiveSortBy = validSortFields.includes(apiKeysSortBy.value)
+      ? apiKeysSortBy.value
+      : 'createdAt'
+    params.set('sortBy', effectiveSortBy)
+    params.set('sortOrder', apiKeysSortOrder.value)
+
+    // 如果是费用排序，添加费用相关参数
+    if (effectiveSortBy === 'cost') {
+      if (
+        globalDateFilter.type === 'custom' &&
+        globalDateFilter.customStart &&
+        globalDateFilter.customEnd
+      ) {
+        params.set('costTimeRange', 'custom')
+        params.set('costStartDate', globalDateFilter.customStart)
+        params.set('costEndDate', globalDateFilter.customEnd)
+      } else {
+        // 使用当前的时间范围预设
+        params.set('costTimeRange', globalDateFilter.preset || '7days')
+      }
+    }
+
+    // 时间范围（用于标记，不用于费用计算）
+    if (
+      globalDateFilter.type === 'custom' &&
+      globalDateFilter.customStart &&
+      globalDateFilter.customEnd
+    ) {
+      params.set('startDate', globalDateFilter.customStart)
+      params.set('endDate', globalDateFilter.customEnd)
+      params.set('timeRange', 'custom')
+    } else if (globalDateFilter.preset === 'all') {
+      params.set('timeRange', 'all')
+    } else {
+      params.set('timeRange', globalDateFilter.preset)
+    }
+
+    const data = await httpApis.getApiKeysWithParamsApi(params.toString())
+    if (data.success) {
+      // 更新数据
+      apiKeys.value = data.data?.items || []
+
+      // 更新分页信息
+      if (data.data?.pagination) {
+        serverPagination.value = data.data.pagination
+        // 同步当前页码（处理页面超出范围的情况）
+        if (
+          currentPage.value > serverPagination.value.totalPages &&
+          serverPagination.value.totalPages > 0
+        ) {
+          currentPage.value = serverPagination.value.totalPages
+        }
+      }
+
+      // 更新可用标签列表
+      if (data.data?.availableTags) {
+        availableTags.value = data.data.availableTags
+      }
+
+      // 异步加载当前页的统计数据（不等待，让页面先显示基础数据）
+      loadPageStats()
+      // 异步加载当前页的最后使用账号数据
+      loadPageLastUsage()
+    }
+  } catch {
+    showToast('加载 API Keys 失败', 'error')
+  } finally {
+    apiKeysLoading.value = false
+  }
+}
+
+// 异步加载当前页的统计数据
+const loadPageStats = async () => {
+  const currentPageKeys = apiKeys.value
+  if (!currentPageKeys || currentPageKeys.length === 0) return
+
+  // 获取当前时间范围
+  let currentTimeRange = globalDateFilter.preset
+  let startDate = null
+  let endDate = null
+
+  if (
+    globalDateFilter.type === 'custom' &&
+    globalDateFilter.customStart &&
+    globalDateFilter.customEnd
+  ) {
+    currentTimeRange = 'custom'
+    startDate = globalDateFilter.customStart
+    endDate = globalDateFilter.customEnd
+  }
+
+  // 筛选出需要加载的 keys（未缓存或时间范围变化）
+  const keysNeedStats = currentPageKeys.filter((key) => {
+    const cached = statsCache.value.get(key.id)
+    if (!cached) return true
+    if (cached.timeRange !== currentTimeRange) return true
+    if (currentTimeRange === 'custom') {
+      if (cached.startDate !== startDate || cached.endDate !== endDate) return true
+    }
+    return false
+  })
+
+  if (keysNeedStats.length === 0) return
+
+  // 标记为加载中
+  const keyIds = keysNeedStats.map((k) => k.id)
+  keyIds.forEach((id) => statsLoading.value.add(id))
+
+  try {
+    const requestBody = {
+      keyIds,
+      timeRange: currentTimeRange
+    }
+    if (currentTimeRange === 'custom') {
+      requestBody.startDate = startDate
+      requestBody.endDate = endDate
+    }
+
+    const response = await httpApis.getApiKeysBatchStatsApi(requestBody)
+
+    if (response.success && response.data) {
+      // 更新缓存
+      for (const [keyId, stats] of Object.entries(response.data)) {
+        statsCache.value.set(keyId, {
+          stats,
+          timeRange: currentTimeRange,
+          startDate,
+          endDate,
+          timestamp: Date.now()
+        })
+      }
+    }
+  } catch (error) {
+    console.error('加载统计数据失败:', error)
+    // 不显示 toast，避免打扰用户
+  } finally {
+    keyIds.forEach((id) => statsLoading.value.delete(id))
+  }
+}
+
+// 获取缓存的统计数据
+const getCachedStats = (keyId) => {
+  const cached = statsCache.value.get(keyId)
+  return cached?.stats || null
+}
+
+// 检查是否正在加载统计
+const isStatsLoading = (keyId) => {
+  return statsLoading.value.has(keyId)
+}
+
+// 异步加载当前页的最后使用账号数据
+const loadPageLastUsage = async () => {
+  const currentPageKeys = apiKeys.value
+  if (!currentPageKeys || currentPageKeys.length === 0) return
+
+  // 筛选出需要加载的 keys（未缓存且有 lastUsedAt 的）
+  const keysNeedLastUsage = currentPageKeys.filter((key) => {
+    // 没有使用过的不需要加载
+    if (!key.lastUsedAt) return false
+    // 已经有缓存的不需要加载
+    if (lastUsageCache.value.has(key.id)) return false
+    return true
+  })
+
+  if (keysNeedLastUsage.length === 0) return
+
+  // 标记为加载中
+  const keyIds = keysNeedLastUsage.map((k) => k.id)
+  keyIds.forEach((id) => lastUsageLoading.value.add(id))
+
+  try {
+    const response = await httpApis.getApiKeysBatchLastUsageApi({ keyIds })
+
+    if (response.success && response.data) {
+      // 更新缓存
+      for (const [keyId, lastUsage] of Object.entries(response.data)) {
+        lastUsageCache.value.set(keyId, lastUsage)
+      }
+    }
+  } catch (error) {
+    console.error('加载最后使用账号数据失败:', error)
+    // 不显示 toast，避免打扰用户
+  } finally {
+    keyIds.forEach((id) => lastUsageLoading.value.delete(id))
+  }
+}
+
+// 获取缓存的最后使用账号数据
+const getCachedLastUsage = (keyId) => {
+  return lastUsageCache.value.get(keyId) || null
+}
+
+// 检查是否正在加载最后使用账号
+const isLastUsageLoading = (keyId) => {
+  return lastUsageLoading.value.has(keyId)
+}
+
+// 加载已删除的API Keys
+const loadDeletedApiKeys = async () => {
+  activeTab.value = 'deleted'
+  deletedApiKeysLoading.value = true
+  // 在 await 之前同步清空：换页/改页大小/搜索/刷新都会重载，多选是按当前页的。
+  // 若等请求成功再清，加载窗口里旧页选中仍在、"彻底删除选中"按钮仍可点，会误删已离开当前页的项。
+  selectedDeletedKeys.value = []
+  deletedSelectAllChecked.value = false
+  deletedIsIndeterminate.value = false
+  try {
+    const data = await httpApis.getDeletedApiKeysApi({
+      page: deletedCurrentPage.value,
+      pageSize: deletedPageSize.value,
+      search: deletedSearchApplied.value || undefined
+    })
+    if (data.success) {
+      deletedApiKeys.value = data.apiKeys || []
+      if (data.pagination) {
+        deletedPagination.value = data.pagination
+        // 后端可能对越界页码做了 clamp，同步回本地状态
+        if (data.pagination.page !== deletedCurrentPage.value) {
+          deletedCurrentPage.value = data.pagination.page
+        }
+      }
+    }
+  } catch (error) {
+    showToast('加载已删除的 API Keys 失败', 'error')
+  } finally {
+    deletedApiKeysLoading.value = false
+  }
+}
+
+// 删除/恢复后按新总数把页码收敛到有效范围，避免停留在空页或越界页（消除"空表+旧页码"中间态）
+const reloadDeletedToValidPage = (newTotal) => {
+  const maxPage = Math.max(1, Math.ceil(Math.max(0, newTotal) / deletedPageSize.value))
+  if (deletedCurrentPage.value > maxPage) {
+    deletedCurrentPage.value = maxPage // 触发 watch 重新加载
+  } else {
+    loadDeletedApiKeys()
+  }
+}
+
+// 应用已删除 Tab 的搜索：把输入框文本设为已应用搜索词，回到第一页重新加载（点"搜索"按钮/回车触发）
+const applyDeletedSearch = () => {
+  deletedSearchApplied.value = deletedSearchKeyword.value.trim()
+  if (deletedCurrentPage.value === 1) {
+    loadDeletedApiKeys()
+  } else {
+    deletedCurrentPage.value = 1 // 触发页码 watch 重新加载
+  }
+}
+
+// 清除已删除 Tab 的搜索：清空输入框；若当前有生效的搜索词则重新加载回到全部
+const clearDeletedSearch = () => {
+  deletedSearchKeyword.value = ''
+  if (deletedSearchApplied.value) {
+    applyDeletedSearch()
+  }
+}
+
+// 已删除 Tab：全选/取消全选（仅当前页）
+const handleDeletedSelectAll = () => {
+  if (deletedSelectAllChecked.value) {
+    deletedApiKeys.value.forEach((key) => {
+      if (!selectedDeletedKeys.value.includes(key.id)) {
+        selectedDeletedKeys.value.push(key.id)
+      }
+    })
+  } else {
+    selectedDeletedKeys.value = []
+  }
+  updateDeletedSelectAllState()
+}
+
+// 已删除 Tab：根据当前页选中数刷新全选/半选状态
+const updateDeletedSelectAllState = () => {
+  const total = deletedApiKeys.value.length
+  const selected = deletedApiKeys.value.filter((key) =>
+    selectedDeletedKeys.value.includes(key.id)
+  ).length
+  if (selected === 0) {
+    deletedSelectAllChecked.value = false
+    deletedIsIndeterminate.value = false
+  } else if (selected === total) {
+    deletedSelectAllChecked.value = true
+    deletedIsIndeterminate.value = false
+  } else {
+    deletedSelectAllChecked.value = false
+    deletedIsIndeterminate.value = true
+  }
+}
+
+// 已删除 Tab：批量彻底删除选中项
+const batchPermanentDeleteApiKeys = async () => {
+  const count = selectedDeletedKeys.value.length
+  if (count === 0) {
+    showToast('请先选择要清理的 API Keys', 'warning')
+    return
+  }
+
+  const confirmed = await showConfirm(
+    '批量彻底删除 API Keys',
+    `确定要彻底删除选中的 ${count} 个 API Key 吗？此操作不可恢复，所有相关数据将被永久删除。`,
+    '确定彻底删除',
+    '取消',
+    'danger'
+  )
+
+  if (!confirmed) return
+
+  const keyIds = [...selectedDeletedKeys.value]
+
+  const data = await httpApis.batchPermanentDeleteApiKeysApi({ keyIds })
+  // 请求层只 resolve（见 utils/request.js）：非 2xx（>1000 阈值、参数校验失败等）返回 { success:false, message }，不带 data。
+  // 只有带 data(计数) 才说明批量删除真正执行过；否则透传后端真实错误信息，别一律吞成"全部失败"。
+  if (!data.data) {
+    showToast(data.message || data.error || '批量彻底删除失败', 'error')
+    return
+  }
+  const { successCount = 0, failedCount = 0 } = data.data
+  if (successCount > 0) {
+    showToast(`成功彻底删除 ${successCount} 个 API Keys`, 'success')
+    if (failedCount > 0) {
+      showToast(`${failedCount} 个彻底删除失败`, 'warning')
+    }
+  } else {
+    showToast('所有 API Keys 彻底删除失败', 'error')
+  }
+  // 部分/全失败也刷新：按新总数收敛页码并重载（reload 内会重置多选状态），反映真实状态
+  reloadDeletedToValidPage(deletedPagination.value.total - successCount)
+}
+
+// 已删除表格：按容器实际位置 + 分页高度动态算高，取代 CSS 魔数（避免上下留白不准/双滚动条）
+const recalcDeletedTableHeight = () => {
+  const el = deletedTableScrollRef.value
+  if (!el) return
+  const top = el.getBoundingClientRect().top
+  const paginationH = deletedPaginationRef.value?.offsetHeight || 0
+  // 预留：表格与分页的 mt-4(16) 间距 + 分页自身高度 + 卡片/页面底部留白(48)
+  const reserve = paginationH + (paginationH > 0 ? 16 : 0) + 48
+  const available = window.innerHeight - top - reserve
+  deletedTableMaxHeight.value = `${Math.max(240, Math.round(available))}px`
+}
+
+// 主表格高度：填满 AppHeader 以下剩余视口（calcViewportBottomReserve 已含分页等后续元素）
+const recalcMainTableHeight = () => {
+  const el = mainTableScrollRef.value
+  if (!el) return
+  const top = el.getBoundingClientRect().top
+  const available = window.innerHeight - top - calcViewportBottomReserve(el)
+  mainTableMaxHeight.value = `${Math.max(240, Math.round(available))}px`
+}
+
+// 排序API Keys
+const sortApiKeys = (field) => {
+  // 费用排序特殊处理
+  if (field === 'cost') {
+    if (!canSortByCost.value) {
+      showToast('费用排序索引正在更新中，请稍后重试', 'warning')
+      return
+    }
+
+    // 如果是 custom 时间范围，提示可能需要等待
+    if (globalDateFilter.type === 'custom') {
+      showToast('正在计算费用排序，可能需要几秒钟...', 'info')
+    }
+  }
+
+  if (apiKeysSortBy.value === field) {
+    apiKeysSortOrder.value = apiKeysSortOrder.value === 'asc' ? 'desc' : 'asc'
+  } else {
+    apiKeysSortBy.value = field
+    // 费用排序默认降序（高费用在前）
+    apiKeysSortOrder.value = field === 'cost' ? 'desc' : 'asc'
+  }
+}
+
+// 计算是否可以进行费用排序
+const canSortByCost = computed(() => {
+  // custom 时间范围始终允许（实时计算）
+  if (globalDateFilter.type === 'custom') {
+    return true
+  }
+
+  // 检查对应时间范围的索引状态
+  const timeRange = globalDateFilter.preset
+  const status = costSortStatus.value[timeRange]
+  return status?.status === 'ready'
+})
+
+// 费用排序提示文字
+const costSortTooltip = computed(() => {
+  if (globalDateFilter.type === 'custom') {
+    return '点击按费用排序（实时计算，可能需要几秒钟）'
+  }
+
+  const timeRange = globalDateFilter.preset
+  const status = costSortStatus.value[timeRange]
+
+  if (!status) {
+    return '费用排序索引未初始化'
+  }
+
+  if (status.status === 'updating') {
+    return '费用排序索引正在更新中...'
+  }
+
+  if (status.status === 'ready') {
+    const lastUpdate = status.lastUpdate ? formatLocalDateTime(status.lastUpdate) : '未知'
+    return `点击按费用排序（索引更新于: ${lastUpdate}）`
+  }
+
+  return '费用排序索引状态未知'
+})
+
+// 费用排序索引状态刷新定时器
+let costSortStatusTimer = null
+
+// 获取费用排序索引状态
+const fetchCostSortStatus = async () => {
+  try {
+    const data = await httpApis.getApiKeysCostSortStatusApi()
+    if (data.success) {
+      costSortStatus.value = data.data || {}
+
+      // 根据索引状态动态调整刷新间隔
+      scheduleNextCostSortStatusRefresh()
+    }
+  } catch (error) {
+    console.error('Failed to fetch cost sort status:', error)
+  }
+}
+
+// 智能调度下次状态刷新
+const scheduleNextCostSortStatusRefresh = () => {
+  // 清除旧的定时器
+  if (costSortStatusTimer) {
+    clearTimeout(costSortStatusTimer)
+  }
+
+  // 检查是否有任何索引正在更新中
+  const hasUpdating = Object.values(costSortStatus.value).some(
+    (status) => status?.status === 'updating'
+  )
+
+  // 如果有索引正在更新，使用短间隔（10秒）；否则使用长间隔（60秒）
+  const interval = hasUpdating ? 10000 : 60000
+
+  costSortStatusTimer = setTimeout(fetchCostSortStatus, interval)
+}
+
+// 格式化数字
+
+// 格式化Token数量
+const formatTokenCount = (count) => {
+  if (!count && count !== 0) return '0'
+  if (count >= 1000000) {
+    return (count / 1000000).toFixed(1) + 'M'
+  } else if (count >= 1000) {
+    return (count / 1000).toFixed(1) + 'K'
+  }
+  return count.toString()
+}
+
+// 获取绑定账户名称
+const getBoundAccountName = (accountId) => {
+  if (!accountId) return '未知账户'
+
+  // 检查是否是分组
+  if (accountId.startsWith('group:')) {
+    const groupId = accountId.substring(6) // 移除 'group:' 前缀
+
+    // 从Claude分组中查找
+    const claudeGroup = accounts.value.claudeGroups.find((g) => g.id === groupId)
+    if (claudeGroup) {
+      return `分组-${claudeGroup.name}`
+    }
+
+    // 从Gemini分组中查找
+    const geminiGroup = accounts.value.geminiGroups.find((g) => g.id === groupId)
+    if (geminiGroup) {
+      return `分组-${geminiGroup.name}`
+    }
+
+    // 从OpenAI分组中查找
+    const openaiGroup = accounts.value.openaiGroups.find((g) => g.id === groupId)
+    if (openaiGroup) {
+      return `分组-${openaiGroup.name}`
+    }
+
+    const droidGroup = accounts.value.droidGroups.find((g) => g.id === groupId)
+    if (droidGroup) {
+      return `分组-${droidGroup.name}`
+    }
+
+    // 如果找不到分组，返回分组ID的前8位
+    return `分组-${groupId.substring(0, 8)}`
+  }
+
+  // 从Claude账户列表中查找
+  const claudeAccount = accounts.value.claude.find((acc) => acc.id === accountId)
+  if (claudeAccount) {
+    return `${claudeAccount.name}`
+  }
+
+  // 处理 api: 前缀的 Gemini-API 账户
+  if (accountId.startsWith('api:')) {
+    const realAccountId = accountId.replace('api:', '')
+    const geminiApiAccount = accounts.value.gemini.find(
+      (acc) => acc.id === realAccountId && acc.platform === 'gemini-api'
+    )
+    if (geminiApiAccount) {
+      return `${geminiApiAccount.name}`
+    }
+    // 如果找不到，返回ID的前8位
+    return `${realAccountId.substring(0, 8)}`
+  }
+
+  // 从Gemini账户列表中查找
+  const geminiAccount = accounts.value.gemini.find((acc) => acc.id === accountId)
+  if (geminiAccount) {
+    return `${geminiAccount.name}`
+  }
+
+  // 处理 responses: 前缀的 OpenAI-Responses 账户
+  if (accountId.startsWith('responses:')) {
+    const realAccountId = accountId.replace('responses:', '')
+    const openaiResponsesAccount = accounts.value.openaiResponses.find(
+      (acc) => acc.id === realAccountId
+    )
+    if (openaiResponsesAccount) {
+      return `${openaiResponsesAccount.name}`
+    }
+    // 如果找不到，返回ID的前8位
+    return `${realAccountId.substring(0, 8)}`
+  }
+
+  // 从OpenAI账户列表中查找
+  const openaiAccount = accounts.value.openai.find((acc) => acc.id === accountId)
+  if (openaiAccount) {
+    return `${openaiAccount.name}`
+  }
+
+  // 从 OpenAI-Responses 账户列表中查找（兼容没有前缀的情况）
+  const openaiResponsesAccount = accounts.value.openaiResponses.find((acc) => acc.id === accountId)
+  if (openaiResponsesAccount) {
+    return `${openaiResponsesAccount.name}`
+  }
+
+  // 从Bedrock账户列表中查找
+  const bedrockAccount = accounts.value.bedrock.find((acc) => acc.id === accountId)
+  if (bedrockAccount) {
+    return `${bedrockAccount.name}`
+  }
+
+  const droidAccount = accounts.value.droid.find((acc) => acc.id === accountId)
+  if (droidAccount) {
+    return `${droidAccount.name}`
+  }
+
+  // 如果找不到，返回账户ID的前8位
+  return `${accountId.substring(0, 8)}`
+}
+
+// 检查 API Key 是否有任何账号绑定
+const hasAnyBinding = (key) => {
+  return !!(
+    key.claudeAccountId ||
+    key.claudeConsoleAccountId ||
+    key.geminiAccountId ||
+    key.openaiAccountId ||
+    key.bedrockAccountId ||
+    key.droidAccountId
+  )
+}
+
+// 获取Claude绑定信息
+const getClaudeBindingInfo = (key) => {
+  if (key.claudeAccountId) {
+    const info = getBoundAccountName(key.claudeAccountId)
+    if (key.claudeAccountId.startsWith('group:')) {
+      return info
+    }
+    // 检查账户是否存在
+    const account = accounts.value.claude.find((acc) => acc.id === key.claudeAccountId)
+    if (!account) {
+      return `⚠️ ${info} (账户不存在)`
+    }
+    if (account.accountType === 'dedicated') {
+      return `🔒 专属-${info}`
+    }
+    return info
+  }
+  if (key.claudeConsoleAccountId) {
+    const account = accounts.value.claude.find(
+      (acc) => acc.id === key.claudeConsoleAccountId && acc.platform === 'claude-console'
+    )
+    if (!account) {
+      return `⚠️ Console账户不存在`
+    }
+    return `Console-${account.name}`
+  }
+  return ''
+}
+
+// 获取Gemini绑定信息
+const getGeminiBindingInfo = (key) => {
+  if (key.geminiAccountId) {
+    const info = getBoundAccountName(key.geminiAccountId)
+    if (key.geminiAccountId.startsWith('group:')) {
+      return info
+    }
+
+    // 处理 api: 前缀的 Gemini-API 账户
+    if (key.geminiAccountId.startsWith('api:')) {
+      const realAccountId = key.geminiAccountId.replace('api:', '')
+      const account = accounts.value.gemini.find(
+        (acc) => acc.id === realAccountId && acc.platform === 'gemini-api'
+      )
+      if (!account) {
+        return `⚠️ ${info} (账户不存在)`
+      }
+      if (account.accountType === 'dedicated') {
+        return `🔒 API专属-${info}`
+      }
+      return `API-${info}`
+    }
+
+    // 检查 Gemini OAuth 账户是否存在
+    const account = accounts.value.gemini.find((acc) => acc.id === key.geminiAccountId)
+    if (!account) {
+      return `⚠️ ${info} (账户不存在)`
+    }
+    if (account.accountType === 'dedicated') {
+      return `🔒 专属-${info}`
+    }
+    return info
+  }
+  return ''
+}
+
+// 获取OpenAI绑定信息
+const getOpenAIBindingInfo = (key) => {
+  if (key.openaiAccountId) {
+    const info = getBoundAccountName(key.openaiAccountId)
+    if (key.openaiAccountId.startsWith('group:')) {
+      return info
+    }
+
+    // 处理 responses: 前缀的 OpenAI-Responses 账户
+    let account = null
+    if (key.openaiAccountId.startsWith('responses:')) {
+      const realAccountId = key.openaiAccountId.replace('responses:', '')
+      account = accounts.value.openaiResponses.find((acc) => acc.id === realAccountId)
+    } else {
+      // 查找普通 OpenAI 账户
+      account = accounts.value.openai.find((acc) => acc.id === key.openaiAccountId)
+    }
+
+    if (!account) {
+      return `⚠️ ${info} (账户不存在)`
+    }
+    if (account.accountType === 'dedicated') {
+      return `🔒 专属-${info}`
+    }
+    return info
+  }
+  return ''
+}
+
+// 获取Bedrock绑定信息
+const getBedrockBindingInfo = (key) => {
+  if (key.bedrockAccountId) {
+    const info = getBoundAccountName(key.bedrockAccountId)
+    if (key.bedrockAccountId.startsWith('group:')) {
+      return info
+    }
+    // 检查账户是否存在
+    const account = accounts.value.bedrock.find((acc) => acc.id === key.bedrockAccountId)
+    if (!account) {
+      return `⚠️ ${info} (账户不存在)`
+    }
+    if (account.accountType === 'dedicated') {
+      return `🔒 专属-${info}`
+    }
+    return info
+  }
+  return ''
+}
+
+const getDroidBindingInfo = (key) => {
+  if (key.droidAccountId) {
+    const info = getBoundAccountName(key.droidAccountId)
+    if (key.droidAccountId.startsWith('group:')) {
+      return info
+    }
+    const account = accounts.value.droid.find((acc) => acc.id === key.droidAccountId)
+    if (!account) {
+      return `⚠️ ${info} (账户不存在)`
+    }
+    if (account.accountType === 'dedicated') {
+      return `🔒 专属-${info}`
+    }
+    return info
+  }
+  return ''
+}
+
+// 检查API Key是否过期
+const isApiKeyExpired = (expiresAt) => {
+  if (!expiresAt) return false
+  return new Date(expiresAt) < new Date()
+}
+
+// 检查API Key是否即将过期
+const isApiKeyExpiringSoon = (expiresAt) => {
+  if (!expiresAt || isApiKeyExpired(expiresAt)) return false
+  const daysUntilExpiry = (new Date(expiresAt) - new Date()) / (1000 * 60 * 60 * 24)
+  return daysUntilExpiry <= 7
+}
+
+// 格式化过期日期
+const formatExpireDate = (dateString) => {
+  if (!dateString) return ''
+  return formatLocalDate(dateString) || ''
+}
+
+// 切换模型统计展开状态
+const toggleApiKeyModelStats = async (keyId) => {
+  if (!expandedApiKeys.value[keyId]) {
+    expandedApiKeys.value[keyId] = true
+    // 初始化日期筛选器
+    if (!apiKeyDateFilters.value[keyId]) {
+      initApiKeyDateFilter(keyId)
+    }
+    // 加载模型统计数据
+    await loadApiKeyModelStats(keyId, true)
+  } else {
+    expandedApiKeys.value[keyId] = false
+  }
+}
+
+// 加载 API Key 的模型统计
+const loadApiKeyModelStats = async (keyId, forceReload = false) => {
+  if (!forceReload && apiKeyModelStats.value[keyId] && apiKeyModelStats.value[keyId].length > 0) {
+    return
+  }
+
+  const filter = getApiKeyDateFilter(keyId)
+
+  try {
+    const params = {}
+
+    if (filter.customStart && filter.customEnd) {
+      params.startDate = filter.customStart
+      params.endDate = filter.customEnd
+      params.period = 'custom'
+    } else {
+      params.period =
+        filter.preset === 'today' ? 'daily' : filter.preset === '7days' ? 'daily' : 'monthly'
+    }
+
+    const data = await httpApis.getApiKeyModelStatsApi(keyId, params)
+    if (data.success) {
+      apiKeyModelStats.value[keyId] = data.data || []
+    }
+  } catch (error) {
+    showToast('加载模型统计失败', 'error')
+    apiKeyModelStats.value[keyId] = []
+  }
+}
+
+// 计算API Key模型使用百分比
+const calculateApiKeyModelPercentage = (value, stats) => {
+  const total = stats.reduce((sum, stat) => sum + (stat.allTokens || 0), 0)
+  if (total === 0) return 0
+  return Math.round((value / total) * 100)
+}
+
+// 计算单个模型费用
+const calculateModelCost = (stat) => {
+  // 优先使用后端返回的费用数据
+  if (stat.formatted && stat.formatted.total) {
+    return stat.formatted.total
+  }
+
+  // 如果没有 formatted 数据，尝试使用 cost 字段
+  if (stat.cost !== undefined) {
+    return `$${stat.cost.toFixed(6)}`
+  }
+
+  // 默认返回
+  return '$0.000000'
+}
+
+// 获取日期范围内的请求数
+const getPeriodRequests = (key) => {
+  // 根据全局日期筛选器返回对应的请求数
+  if (globalDateFilter.type === 'custom') {
+    // 自定义日期范围
+    if (key.usage) {
+      if (key.usage['custom'] && key.usage['custom'].requests !== undefined) {
+        return key.usage['custom'].requests
+      }
+      if (key.usage.total && key.usage.total.requests !== undefined) {
+        return key.usage.total.requests
+      }
+    }
+    return 0
+  } else if (globalDateFilter.preset === 'today') {
+    return key.usage?.daily?.requests || 0
+  } else if (globalDateFilter.preset === '7days') {
+    // 使用 usage['7days'].requests
+    if (key.usage && key.usage['7days'] && key.usage['7days'].requests !== undefined) {
+      return key.usage['7days'].requests
+    }
+    return 0
+  } else if (globalDateFilter.preset === '30days') {
+    // 使用 usage['30days'].requests
+    if (key.usage) {
+      if (key.usage['30days'] && key.usage['30days'].requests !== undefined) {
+        return key.usage['30days'].requests
+      }
+      if (key.usage.monthly && key.usage.monthly.requests !== undefined) {
+        return key.usage.monthly.requests
+      }
+    }
+    return 0
+  } else if (globalDateFilter.preset === 'all') {
+    // 全部时间
+    if (key.usage && key.usage['all'] && key.usage['all'].requests !== undefined) {
+      return key.usage['all'].requests
+    }
+    return key.usage?.total?.requests || 0
+  } else {
+    // 默认返回
+    return key.usage?.total?.requests || 0
+  }
+}
+
+// 获取日期范围内的费用
+const getPeriodCost = (key) => {
+  // 根据全局日期筛选器返回对应的费用
+  if (globalDateFilter.type === 'custom') {
+    // 自定义日期范围，使用服务器返回的 usage['custom'].cost
+    if (key.usage) {
+      if (key.usage['custom'] && key.usage['custom'].cost !== undefined) {
+        return key.usage['custom'].cost
+      }
+      if (key.usage.total && key.usage.total.cost !== undefined) {
+        return key.usage.total.cost
+      }
+    }
+    return 0
+  } else if (globalDateFilter.preset === 'today') {
+    return key.dailyCost || 0
+  } else if (globalDateFilter.preset === '7days') {
+    // 使用 usage['7days'].cost
+    if (key.usage && key.usage['7days'] && key.usage['7days'].cost !== undefined) {
+      return key.usage['7days'].cost
+    }
+    return key.weeklyCost || key.periodCost || 0
+  } else if (globalDateFilter.preset === '30days') {
+    // 使用 usage['30days'].cost 或 usage.monthly.cost
+    if (key.usage) {
+      if (key.usage['30days'] && key.usage['30days'].cost !== undefined) {
+        return key.usage['30days'].cost
+      }
+      if (key.usage.monthly && key.usage.monthly.cost !== undefined) {
+        return key.usage.monthly.cost
+      }
+      if (key.usage.total && key.usage.total.cost !== undefined) {
+        return key.usage.total.cost
+      }
+    }
+    return key.monthlyCost || key.periodCost || 0
+  } else if (globalDateFilter.preset === 'all') {
+    // 全部时间，返回 usage['all'].cost 或 totalCost
+    if (key.usage && key.usage['all'] && key.usage['all'].cost !== undefined) {
+      return key.usage['all'].cost
+    }
+    return key.totalCost || 0
+  } else {
+    // 默认返回 usage.total.cost
+    return key.periodCost || key.totalCost || 0
+  }
+}
+
+// 获取日期范围内的token数量
+const getPeriodTokens = (key) => {
+  // 根据全局日期筛选器返回对应的token数量
+  if (globalDateFilter.type === 'custom') {
+    // 自定义日期范围
+    if (key.usage) {
+      if (key.usage['custom'] && key.usage['custom'].tokens !== undefined) {
+        return key.usage['custom'].tokens
+      }
+      if (key.usage.total && key.usage.total.tokens !== undefined) {
+        return key.usage.total.tokens
+      }
+    }
+    return 0
+  } else if (globalDateFilter.preset === 'today') {
+    return key.usage?.daily?.tokens || 0
+  } else if (globalDateFilter.preset === '7days') {
+    // 使用 usage['7days'].tokens
+    if (key.usage && key.usage['7days'] && key.usage['7days'].tokens !== undefined) {
+      return key.usage['7days'].tokens
+    }
+    return 0
+  } else if (globalDateFilter.preset === '30days') {
+    // 使用 usage['30days'].tokens 或 usage.monthly.tokens
+    if (key.usage) {
+      if (key.usage['30days'] && key.usage['30days'].tokens !== undefined) {
+        return key.usage['30days'].tokens
+      }
+      if (key.usage.monthly && key.usage.monthly.tokens !== undefined) {
+        return key.usage.monthly.tokens
+      }
+      if (key.usage.total && key.usage.total.tokens !== undefined) {
+        return key.usage.total.tokens
+      }
+    }
+    return 0
+  } else if (globalDateFilter.preset === 'all') {
+    // 全部时间
+    if (key.usage && key.usage['all'] && key.usage['all'].tokens !== undefined) {
+      return key.usage['all'].tokens
+    }
+    return key.usage?.total?.tokens || 0
+  } else {
+    // 默认返回
+    return key.usage?.total?.tokens || 0
+  }
+}
+
+// 获取日期范围内的输入token数量
+const getPeriodInputTokens = (key) => {
+  // 根据全局日期筛选器返回对应的输入token数量
+  if (globalDateFilter.type === 'custom') {
+    // 自定义日期范围
+    if (key.usage) {
+      if (key.usage['custom'] && key.usage['custom'].inputTokens !== undefined) {
+        return key.usage['custom'].inputTokens
+      }
+      if (key.usage.total && key.usage.total.inputTokens !== undefined) {
+        return key.usage.total.inputTokens
+      }
+    }
+    return 0
+  } else if (globalDateFilter.preset === 'today') {
+    return key.usage?.daily?.inputTokens || 0
+  } else if (globalDateFilter.preset === '7days') {
+    // 使用 usage['7days'].inputTokens
+    if (key.usage && key.usage['7days'] && key.usage['7days'].inputTokens !== undefined) {
+      return key.usage['7days'].inputTokens
+    }
+    return 0
+  } else if (globalDateFilter.preset === '30days') {
+    // 使用 usage['30days'].inputTokens 或 usage.monthly.inputTokens
+    if (key.usage) {
+      if (key.usage['30days'] && key.usage['30days'].inputTokens !== undefined) {
+        return key.usage['30days'].inputTokens
+      }
+      if (key.usage.monthly && key.usage.monthly.inputTokens !== undefined) {
+        return key.usage.monthly.inputTokens
+      }
+      if (key.usage.total && key.usage.total.inputTokens !== undefined) {
+        return key.usage.total.inputTokens
+      }
+    }
+    return 0
+  } else if (globalDateFilter.preset === 'all') {
+    // 全部时间
+    if (key.usage && key.usage['all'] && key.usage['all'].inputTokens !== undefined) {
+      return key.usage['all'].inputTokens
+    }
+    return key.usage?.total?.inputTokens || 0
+  } else {
+    // 默认返回
+    return key.usage?.total?.inputTokens || 0
+  }
+}
+
+// 获取日期范围内的输出token数量
+const getPeriodOutputTokens = (key) => {
+  // 根据全局日期筛选器返回对应的输出token数量
+  if (globalDateFilter.type === 'custom') {
+    // 自定义日期范围
+    if (key.usage) {
+      if (key.usage['custom'] && key.usage['custom'].outputTokens !== undefined) {
+        return key.usage['custom'].outputTokens
+      }
+      if (key.usage.total && key.usage.total.outputTokens !== undefined) {
+        return key.usage.total.outputTokens
+      }
+    }
+    return 0
+  } else if (globalDateFilter.preset === 'today') {
+    return key.usage?.daily?.outputTokens || 0
+  } else if (globalDateFilter.preset === '7days') {
+    // 使用 usage['7days'].outputTokens
+    if (key.usage && key.usage['7days'] && key.usage['7days'].outputTokens !== undefined) {
+      return key.usage['7days'].outputTokens
+    }
+    return 0
+  } else if (globalDateFilter.preset === '30days') {
+    // 使用 usage['30days'].outputTokens 或 usage.monthly.outputTokens
+    if (key.usage) {
+      if (key.usage['30days'] && key.usage['30days'].outputTokens !== undefined) {
+        return key.usage['30days'].outputTokens
+      }
+      if (key.usage.monthly && key.usage.monthly.outputTokens !== undefined) {
+        return key.usage.monthly.outputTokens
+      }
+      if (key.usage.total && key.usage.total.outputTokens !== undefined) {
+        return key.usage.total.outputTokens
+      }
+    }
+    return 0
+  } else if (globalDateFilter.preset === 'all') {
+    // 全部时间
+    if (key.usage && key.usage['all'] && key.usage['all'].outputTokens !== undefined) {
+      return key.usage['all'].outputTokens
+    }
+    return key.usage?.total?.outputTokens || 0
+  } else {
+    // 默认返回
+    return key.usage?.total?.outputTokens || 0
+  }
+}
+
+// 计算日期范围内的总费用（用于展开的详细统计）
+const calculatePeriodCost = (key) => {
+  // 如果没有展开，使用缓存的费用数据
+  if (!apiKeyModelStats.value[key.id]) {
+    return getPeriodCost(key)
+  }
+
+  // 计算所有模型的费用总和
+  const stats = apiKeyModelStats.value[key.id] || []
+  let totalCost = 0
+
+  stats.forEach((stat) => {
+    if (stat.cost !== undefined) {
+      totalCost += stat.cost
+    } else if (stat.formatted && stat.formatted.total) {
+      // 尝试从格式化的字符串中提取数字
+      const costStr = stat.formatted.total.replace('$', '').replace(',', '')
+      const cost = parseFloat(costStr)
+      if (!isNaN(cost)) {
+        totalCost += cost
+      }
+    }
+  })
+
+  return totalCost
+}
+
+// 处理时间范围下拉框变化
+const handleTimeRangeChange = (value) => {
+  setGlobalDateFilterPreset(value)
+
+  // 如果当前是费用排序，检查新时间范围的索引是否就绪
+  if (apiKeysSortBy.value === 'cost') {
+    // custom 时间范围始终允许（实时计算）
+    if (value === 'custom') {
+      return
+    }
+
+    // 检查新时间范围的索引状态
+    const status = costSortStatus.value[value]
+    if (!status || status.status !== 'ready') {
+      // 索引未就绪，回退到默认排序
+      apiKeysSortBy.value = 'createdAt'
+      apiKeysSortOrder.value = 'desc'
+      showToast('当前时间范围的费用排序索引未就绪，已切换到默认排序', 'info')
+    }
+  }
+}
+
+// 设置全局日期预设
+const setGlobalDateFilterPreset = (preset) => {
+  globalDateFilter.preset = preset
+
+  if (preset === 'custom') {
+    // 自定义选项，不自动设置日期，等待用户选择
+    globalDateFilter.type = 'custom'
+    // 如果没有自定义范围，设置默认为最近7天
+    if (!globalDateFilter.customRange) {
+      const today = new Date()
+      const startDate = new Date(today)
+      startDate.setDate(today.getDate() - 6)
+
+      const formatDate = (date) => {
+        return (
+          date.getFullYear() +
+          '-' +
+          String(date.getMonth() + 1).padStart(2, '0') +
+          '-' +
+          String(date.getDate()).padStart(2, '0') +
+          ' 00:00:00'
+        )
+      }
+
+      globalDateFilter.customRange = [formatDate(startDate), formatDate(today)]
+      globalDateFilter.customStart = toLocalDateString(startDate)
+      globalDateFilter.customEnd = toLocalDateString(today)
+    }
+  } else if (preset === 'all') {
+    // 全部时间选项
+    globalDateFilter.type = 'preset'
+    globalDateFilter.customStart = null
+    globalDateFilter.customEnd = null
+  } else {
+    // 预设选项（今日、7天或30天）
+    globalDateFilter.type = 'preset'
+    const today = new Date()
+    const startDate = new Date(today)
+
+    if (preset === 'today') {
+      // 今日：从今天开始到今天结束
+      startDate.setHours(0, 0, 0, 0)
+    } else if (preset === '7days') {
+      startDate.setDate(today.getDate() - 6)
+    } else if (preset === '30days') {
+      startDate.setDate(today.getDate() - 29)
+    }
+
+    globalDateFilter.customStart = toLocalDateString(startDate)
+    globalDateFilter.customEnd = toLocalDateString(today)
+  }
+
+  loadApiKeys()
+}
+
+// 全局自定义日期范围变化
+const onGlobalCustomDateRangeChange = (value) => {
+  if (value && value.length === 2) {
+    globalDateFilter.type = 'custom'
+    globalDateFilter.preset = 'custom'
+    globalDateFilter.customRange = value
+    globalDateFilter.customStart = value[0].split(' ')[0]
+    globalDateFilter.customEnd = value[1].split(' ')[0]
+    loadApiKeys()
+  } else if (value === null) {
+    // 清空时恢复默认今日
+    setGlobalDateFilterPreset('today')
+  }
+}
+
+// 初始化API Key的日期筛选器
+const initApiKeyDateFilter = (keyId) => {
+  const today = new Date()
+  const startDate = new Date(today)
+  startDate.setHours(0, 0, 0, 0) // 今日从0点开始
+
+  apiKeyDateFilters.value[keyId] = {
+    type: 'preset',
+    preset: 'today',
+    customStart: toLocalDateString(today),
+    customEnd: toLocalDateString(today),
+    customRange: null,
+    presetOptions: [
+      { value: 'today', label: '今日', days: 1 },
+      { value: '7days', label: '7天', days: 7 },
+      { value: '30days', label: '30天', days: 30 },
+      { value: 'custom', label: '自定义', days: -1 }
+    ]
+  }
+}
+
+// 获取API Key的日期筛选器状态
+const getApiKeyDateFilter = (keyId) => {
+  if (!apiKeyDateFilters.value[keyId]) {
+    initApiKeyDateFilter(keyId)
+  }
+  return apiKeyDateFilters.value[keyId]
+}
+
+// 设置 API Key 日期预设
+const setApiKeyDateFilterPreset = (preset, keyId) => {
+  const filter = getApiKeyDateFilter(keyId)
+  filter.type = 'preset'
+  filter.preset = preset
+
+  const option = filter.presetOptions.find((opt) => opt.value === preset)
+  if (option) {
+    if (preset === 'custom') {
+      // 自定义选项，不自动设置日期，等待用户选择
+      filter.type = 'custom'
+      // 如果没有自定义范围，设置默认为最近7天
+      if (!filter.customRange) {
+        const today = new Date()
+        const startDate = new Date(today)
+        startDate.setDate(today.getDate() - 6)
+
+        const formatDate = (date) => {
+          return (
+            date.getFullYear() +
+            '-' +
+            String(date.getMonth() + 1).padStart(2, '0') +
+            '-' +
+            String(date.getDate()).padStart(2, '0') +
+            ' 00:00:00'
+          )
+        }
+
+        filter.customRange = [formatDate(startDate), formatDate(today)]
+        filter.customStart = toLocalDateString(startDate)
+        filter.customEnd = toLocalDateString(today)
+      }
+    } else {
+      // 预设选项
+      const today = new Date()
+      const startDate = new Date(today)
+      startDate.setDate(today.getDate() - (option.days - 1))
+
+      filter.customStart = toLocalDateString(startDate)
+      filter.customEnd = toLocalDateString(today)
+
+      const formatDate = (date) => {
+        return (
+          date.getFullYear() +
+          '-' +
+          String(date.getMonth() + 1).padStart(2, '0') +
+          '-' +
+          String(date.getDate()).padStart(2, '0') +
+          ' 00:00:00'
+        )
+      }
+
+      filter.customRange = [formatDate(startDate), formatDate(today)]
+    }
+  }
+
+  loadApiKeyModelStats(keyId, true)
+}
+
+// API Key 自定义日期范围变化
+const onApiKeyCustomDateRangeChange = (keyId, value) => {
+  const filter = getApiKeyDateFilter(keyId)
+
+  if (value && value.length === 2) {
+    filter.type = 'custom'
+    filter.preset = 'custom'
+    filter.customRange = value
+    filter.customStart = value[0].split(' ')[0]
+    filter.customEnd = value[1].split(' ')[0]
+
+    loadApiKeyModelStats(keyId, true)
+  } else if (value === null) {
+    // 清空时恢复默认7天
+    setApiKeyDateFilterPreset('7days', keyId)
+  }
+}
+
+// 重置API Key日期筛选器
+const resetApiKeyDateFilter = (keyId) => {
+  const filter = getApiKeyDateFilter(keyId)
+
+  // 重置为默认的今日
+  filter.type = 'preset'
+  filter.preset = 'today'
+
+  const today = new Date()
+  const startDate = new Date(today)
+  startDate.setHours(0, 0, 0, 0) // 今日从0点开始
+
+  filter.customStart = toLocalDateString(today)
+  filter.customEnd = toLocalDateString(today)
+  filter.customRange = null
+
+  // 重新加载数据
+  loadApiKeyModelStats(keyId, true)
+  showToast('已重置筛选条件并刷新数据', 'info')
+}
+
+// 打开创建模态框
+const openCreateApiKeyModal = () => {
+  // 使用缓存的账号数据（如果需要最新数据，用户可以点击"刷新账号"按钮）
+  showCreateApiKeyModal.value = true
+  // 如果账号数据未加载，异步加载
+  if (!accountsLoaded.value) {
+    loadAccounts()
+  }
+}
+
+// 打开编辑模态框
+const openEditApiKeyModal = (apiKey) => {
+  // 使用缓存的账号数据（如果需要最新数据，用户可以点击"刷新账号"按钮）
+  editingApiKey.value = apiKey
+  showEditApiKeyModal.value = true
+  // 如果账号数据未加载，异步加载
+  if (!accountsLoaded.value) {
+    loadAccounts()
+  }
+}
+
+// 打开续期模态框
+const openRenewApiKeyModal = (apiKey) => {
+  renewingApiKey.value = apiKey
+  showRenewApiKeyModal.value = true
+}
+
+// 打开快捷调整模态框
+const openQuickAdjustModal = (apiKey) => {
+  quickAdjustingApiKey.value = apiKey
+  showQuickAdjustModal.value = true
+}
+
+// 打开变更记录弹窗
+const openChangeHistoryModal = (apiKey) => {
+  changeHistoryApiKey.value = apiKey
+  showChangeHistoryModal.value = true
+}
+
+// 处理快捷调整成功：只 patch 本条，不整表刷新
+// [人工决策-2026-08-11 11:12:34] 当前页本地重排：比较器与后端 apiKeyStore 对齐（空 expiresAt=0、isActive 布尔→0/1）
+const reorderCurrentPageApiKeys = (fields = []) => {
+  const sortBy = apiKeysSortBy.value
+  const effectiveSortBy = sortBy === 'status' ? 'isActive' : sortBy
+  // 仅当变更字段可能影响当前排序键时才重排
+  const affectsSort =
+    (effectiveSortBy === 'expiresAt' && fields.includes('expiresAt')) ||
+    (effectiveSortBy === 'isActive' && fields.includes('isActive'))
+  if (!affectsSort) return
+
+  const order = apiKeysSortOrder.value === 'asc' ? 1 : -1
+  apiKeys.value = [...apiKeys.value].sort((a, b) => {
+    let aVal = a[effectiveSortBy]
+    let bVal = b[effectiveSortBy]
+    if (effectiveSortBy === 'expiresAt') {
+      // 与后端一致：空 expiresAt 当作 0（升序最前）
+      aVal = aVal ? new Date(aVal).getTime() : 0
+      bVal = bVal ? new Date(bVal).getTime() : 0
+    } else if (effectiveSortBy === 'isActive') {
+      aVal = aVal ? 1 : 0
+      bVal = bVal ? 1 : 0
+    }
+    if (aVal === bVal) return 0
+    return aVal > bVal ? order : -order
+  })
+}
+
+const handleQuickAdjustSuccess = (updates = {}) => {
+  const keyId = updates.keyId || quickAdjustingApiKey.value?.id
+  if (!keyId) return
+  const localKey = apiKeys.value.find((k) => k.id === keyId)
+  if (!localKey) return
+  const changedFields = []
+  if (updates.totalCostLimit !== undefined) {
+    localKey.totalCostLimit = updates.totalCostLimit
+  }
+  if (updates.expiresAt !== undefined) {
+    localKey.expiresAt = updates.expiresAt
+    changedFields.push('expiresAt')
+  }
+  if (updates.isActive !== undefined) {
+    localKey.isActive = updates.isActive
+    changedFields.push('isActive')
+  }
+  if (updates.isActivated !== undefined) {
+    localKey.isActivated = updates.isActivated
+  }
+  if (updates.activatedAt !== undefined) {
+    localKey.activatedAt = updates.activatedAt
+  }
+  reorderCurrentPageApiKeys(changedFields)
+}
+
+// 处理创建成功
+const handleCreateSuccess = (data) => {
+  // 关闭由子组件退出动画驱动（requestClose → after-leave → emit('close')）
+  newApiKeyData.value = data
+  showNewApiKeyModal.value = true
+  loadApiKeys()
+}
+
+// 处理批量创建成功
+const handleBatchCreateSuccess = (data) => {
+  // 关闭由子组件退出动画驱动（requestClose → after-leave → emit('close')）
+  batchApiKeyData.value = data
+  showBatchApiKeyModal.value = true
+  loadApiKeys()
+}
+
+// 打开批量编辑模态框
+const openBatchEditModal = () => {
+  if (selectedApiKeys.value.length === 0) {
+    showToast('请先选择要编辑的 API Keys', 'warning')
+    return
+  }
+
+  // 使用缓存的账号数据（如果需要最新数据，用户可以点击"刷新账号"按钮）
+  showBatchEditModal.value = true
+  // 如果账号数据未加载，异步加载
+  if (!accountsLoaded.value) {
+    loadAccounts()
+  }
+}
+
+// 处理批量编辑成功
+const handleBatchEditSuccess = () => {
+  // 关闭由子组件退出动画驱动（requestClose → after-leave → emit('close')）
+  // 清空选中状态
+  selectedApiKeys.value = []
+  updateSelectAllState()
+  loadApiKeys()
+}
+
+// 处理编辑成功
+const handleEditSuccess = () => {
+  // 关闭由子组件退出动画驱动（requestClose → after-leave → emit('close')）
+  showToast('API Key 更新成功', 'success')
+  loadApiKeys()
+}
+
+// 处理续期成功
+const handleRenewSuccess = () => {
+  // 关闭由子组件退出动画驱动（requestClose → after-leave → emit('close')）
+  showToast('API Key 续期成功', 'success')
+  loadApiKeys()
+}
+
+// 切换API Key状态（激活/禁用）
+const toggleApiKeyStatus = async (key) => {
+  try {
+    const data = await httpApis.updateApiKeyApi(key.id, { isActive: !key.isActive })
+
+    if (data.success) {
+      showToast(`API Key 已${key.isActive ? '禁用' : '激活'}`, 'success')
+      // 更新本地数据
+      const localKey = apiKeys.value.find((k) => k.id === key.id)
+      if (localKey) {
+        localKey.isActive = !key.isActive
+      }
+    } else {
+      showToast(data.message || '操作失败', 'error')
+    }
+  } catch (error) {
+    showToast('操作失败', 'error')
+  }
+}
+
+// 更新API Key图标
+// 删除API Key
+const deleteApiKey = async (keyId) => {
+  const confirmed = await showConfirm(
+    '删除 API Key',
+    '确定要删除这个 API Key 吗？此操作不可恢复。',
+    '确定删除',
+    '取消',
+    'danger'
+  )
+
+  if (!confirmed) return
+
+  try {
+    const data = await httpApis.deleteApiKeyApi(keyId)
+    if (data.success) {
+      showToast('API Key 已删除', 'success')
+      // 从选中列表中移除
+      const index = selectedApiKeys.value.indexOf(keyId)
+      if (index > -1) {
+        selectedApiKeys.value.splice(index, 1)
+      }
+      updateSelectAllState()
+      loadApiKeys()
+    } else {
+      showToast(data.message || '删除失败', 'error')
+    }
+  } catch (error) {
+    showToast('删除失败', 'error')
+  }
+}
+
+// 恢复API Key
+const restoreApiKey = async (keyId) => {
+  const confirmed = await showConfirm(
+    '恢复 API Key',
+    '确定要恢复这个 API Key 吗？恢复后可以重新使用。',
+    '确定恢复',
+    '取消',
+    'primary'
+  )
+
+  if (!confirmed) return
+
+  try {
+    const data = await httpApis.restoreApiKeyApi(keyId)
+    if (data.success) {
+      showToast('API Key 已成功恢复', 'success')
+      // 刷新已删除列表（按新总数收敛页码）
+      reloadDeletedToValidPage(deletedPagination.value.total - 1)
+      // 同时刷新活跃列表
+      await loadApiKeys()
+    } else {
+      showToast(data.error || '恢复失败', 'error')
+    }
+  } catch (error) {
+    showToast(error.response?.data?.error || '恢复失败', 'error')
+  }
+}
+
+// 彻底删除API Key
+const permanentDeleteApiKey = async (keyId) => {
+  const confirmed = await showConfirm(
+    '彻底删除 API Key',
+    '确定要彻底删除这个 API Key 吗？此操作不可恢复，所有相关数据将被永久删除。',
+    '确定彻底删除',
+    '取消',
+    'danger'
+  )
+
+  if (!confirmed) return
+
+  try {
+    const data = await httpApis.permanentDeleteApiKeyApi(keyId)
+    if (data.success) {
+      showToast('API Key 已彻底删除', 'success')
+      // 刷新已删除列表（按新总数收敛页码）
+      reloadDeletedToValidPage(deletedPagination.value.total - 1)
+    } else {
+      showToast(data.error || '彻底删除失败', 'error')
+    }
+  } catch (error) {
+    showToast(error.response?.data?.error || '彻底删除失败', 'error')
+  }
+}
+
+// 清空所有已删除的API Keys
+const clearAllDeletedApiKeys = async () => {
+  const count = deletedPagination.value.total
+  if (count === 0) {
+    showToast('没有需要清空的 API Keys', 'info')
+    return
+  }
+
+  const confirmed = await showConfirm(
+    '清空所有已删除的 API Keys',
+    `确定要彻底删除全部 ${count} 个已删除的 API Keys 吗？此操作不可恢复，所有相关数据将被永久删除。`,
+    '确定清空全部',
+    '取消',
+    'danger'
+  )
+
+  if (!confirmed) return
+
+  try {
+    const data = await httpApis.clearAllDeletedApiKeysApi()
+    if (data.success) {
+      showToast(data.message || '已清空所有已删除的 API Keys', 'success')
+
+      // 如果有失败的，显示详细信息
+      if (data.details && data.details.failedCount > 0) {
+        // const errors = data.details.errors
+        // console.error('部分API Keys清空失败:', errors)
+        showToast(`${data.details.failedCount} 个清空失败`, 'warning')
+      }
+
+      // 刷新已删除列表（清空后剩余的即失败条目数，按新总数收敛页码）
+      reloadDeletedToValidPage(data.details?.failedCount || 0)
+    } else {
+      showToast(data.error || '清空失败', 'error')
+    }
+  } catch (error) {
+    showToast(error.response?.data?.error || '清空失败', 'error')
+  }
+}
+
+// 批量删除API Keys
+const batchDeleteApiKeys = async () => {
+  const selectedCount = selectedApiKeys.value.length
+  if (selectedCount === 0) {
+    showToast('请先选择要删除的 API Keys', 'warning')
+    return
+  }
+
+  const confirmed = await showConfirm(
+    '批量删除 API Keys',
+    `确定要删除选中的 ${selectedCount} 个 API Key 吗？此操作不可恢复。`,
+    '确定删除',
+    '取消',
+    'danger'
+  )
+
+  if (!confirmed) return
+
+  const keyIds = [...selectedApiKeys.value]
+
+  try {
+    const data = await httpApis.batchDeleteApiKeysApi({ keyIds })
+
+    if (data.success) {
+      const { successCount, failedCount, errors } = data.data
+
+      if (successCount > 0) {
+        showToast(`成功删除 ${successCount} 个 API Keys`, 'success')
+
+        // 如果有失败的，显示详细信息
+        if (failedCount > 0) {
+          const errorMessages = errors.map((e) => `${e.keyId}: ${e.error}`).join('\n')
+          showToast(`${failedCount} 个删除失败:\n${errorMessages}`, 'warning')
+        }
+      } else {
+        showToast('所有 API Keys 删除失败', 'error')
+      }
+
+      // 清空选中状态
+      selectedApiKeys.value = []
+      updateSelectAllState()
+      loadApiKeys()
+    } else {
+      showToast(data.message || '批量删除失败', 'error')
+    }
+  } catch (error) {
+    showToast('批量删除失败', 'error')
+    // console.error('批量删除 API Keys 失败:', error)
+  }
+}
+
+// 处理全选/取消全选
+const handleSelectAll = () => {
+  if (selectAllChecked.value) {
+    // 全选当前页的所有API Keys
+    paginatedApiKeys.value.forEach((key) => {
+      if (!selectedApiKeys.value.includes(key.id)) {
+        selectedApiKeys.value.push(key.id)
+      }
+    })
+  } else {
+    // 取消全选：只移除当前页的选中项，保留其他页面的选中项
+    const currentPageIds = new Set(paginatedApiKeys.value.map((key) => key.id))
+    selectedApiKeys.value = selectedApiKeys.value.filter((id) => !currentPageIds.has(id))
+  }
+  updateSelectAllState()
+}
+
+// 更新全选状态
+const updateSelectAllState = () => {
+  const totalInCurrentPage = paginatedApiKeys.value.length
+  const selectedInCurrentPage = paginatedApiKeys.value.filter((key) =>
+    selectedApiKeys.value.includes(key.id)
+  ).length
+
+  if (selectedInCurrentPage === 0) {
+    selectAllChecked.value = false
+    isIndeterminate.value = false
+  } else if (selectedInCurrentPage === totalInCurrentPage) {
+    selectAllChecked.value = true
+    isIndeterminate.value = false
+  } else {
+    selectAllChecked.value = false
+    isIndeterminate.value = true
+  }
+}
+
+// 开始编辑过期时间
+const startEditExpiry = (apiKey) => {
+  editingExpiryKey.value = apiKey
+}
+
+// 关闭过期时间编辑
+const closeExpiryEdit = () => {
+  editingExpiryKey.value = null
+}
+
+// 保存过期时间
+const handleSaveExpiry = async ({ keyId, expiresAt, activateNow }) => {
+  try {
+    // 使用新的PATCH端点来修改过期时间
+    const data = await httpApis.updateApiKeyExpirationApi(keyId, {
+      expiresAt: expiresAt || null,
+      activateNow: activateNow || false
+    })
+
+    if (data.success) {
+      showToast(activateNow ? 'API Key已激活' : '过期时间已更新', 'success')
+      // 更新本地数据
+      const key = apiKeys.value.find((k) => k.id === keyId)
+      if (key) {
+        const updates = data.updates || {}
+        const changedFields = []
+        if (activateNow && updates.expiresAt) {
+          key.isActivated = true
+          key.activatedAt = updates.activatedAt
+          key.expiresAt = updates.expiresAt
+          changedFields.push('expiresAt')
+        } else {
+          key.expiresAt = expiresAt || null
+          changedFields.push('expiresAt')
+          if (expiresAt && !key.isActivated) {
+            key.isActivated = true
+          }
+          if (updates.activatedAt) {
+            key.activatedAt = updates.activatedAt
+          }
+        }
+        // PATCH 现已对齐恢复 isActive（未来/永久过期）
+        if (updates.isActive !== undefined) {
+          key.isActive = updates.isActive === true || updates.isActive === 'true'
+          changedFields.push('isActive')
+        }
+        if (updates.isActivated !== undefined) {
+          key.isActivated = updates.isActivated === true || updates.isActivated === 'true'
+        }
+        reorderCurrentPageApiKeys(changedFields)
+      }
+      closeExpiryEdit()
+    } else {
+      showToast(data.message || '更新失败', 'error')
+      // 重置保存状态
+      if (expiryEditModalRef.value) {
+        expiryEditModalRef.value.resetSaving()
+      }
+    }
+  } catch (error) {
+    showToast('更新失败', 'error')
+    // 重置保存状态
+    if (expiryEditModalRef.value) {
+      expiryEditModalRef.value.resetSaving()
+    }
+  }
+}
+
+// 格式化时间窗口倒计时
+const formatWindowTime = (seconds) => {
+  if (seconds === null || seconds === undefined) return '--:--'
+
+  const hours = Math.floor(seconds / 3600)
+  const minutes = Math.floor((seconds % 3600) / 60)
+  const secs = seconds % 60
+
+  if (hours > 0) {
+    return `${hours}h${minutes}m`
+  } else if (minutes > 0) {
+    return `${minutes}m${secs}s`
+  } else {
+    return `${secs}s`
+  }
+}
+
+// 获取每日费用进度 - 已移到 LimitProgressBar 组件中
+// const getDailyCostProgress = (key) => {
+//   if (!key.dailyCostLimit || key.dailyCostLimit === 0) return 0
+//   const percentage = ((key.dailyCost || 0) / key.dailyCostLimit) * 100
+//   return Math.min(percentage, 100)
+// }
+
+// 获取每日费用进度条颜色 - 已移到 LimitProgressBar 组件中
+// const getDailyCostProgressColor = (key) => {
+//   const progress = getDailyCostProgress(key)
+//   if (progress >= 100) return 'bg-red-500'
+//   if (progress >= 80) return 'bg-yellow-500'
+//   return 'bg-green-500'
+// }
+
+// 获取 Opus 周费用进度 - 已移到 LimitBadge 组件中
+// const getWeeklyOpusCostProgress = (key) => {
+//   if (!key.weeklyOpusCostLimit || key.weeklyOpusCostLimit === 0) return 0
+//   const percentage = ((key.weeklyOpusCost || 0) / key.weeklyOpusCostLimit) * 100
+//   return Math.min(percentage, 100)
+// }
+
+// 获取 Opus 周费用进度条颜色 - 已移到 LimitBadge 组件中
+// const getWeeklyOpusCostProgressColor = (key) => {
+//   const progress = getWeeklyOpusCostProgress(key)
+//   if (progress >= 100) return 'bg-red-500'
+//   if (progress >= 80) return 'bg-yellow-500'
+//   return 'bg-green-500'
+// }
+
+// 获取总费用进度 - 暂时不用
+// const getTotalCostProgress = (key) => {
+//   if (!key.totalCostLimit || key.totalCostLimit === 0) return 0
+//   const percentage = ((key.totalCost || 0) / key.totalCostLimit) * 100
+//   return Math.min(percentage, 100)
+// }
+
+// 显示使用详情
+const showUsageDetails = (apiKey) => {
+  const cachedStats = getCachedStats(apiKey.id)
+
+  const enrichedApiKey = {
+    ...apiKey,
+    dailyCost: cachedStats?.dailyCost ?? apiKey.dailyCost ?? 0,
+    weeklyOpusCost: cachedStats?.weeklyOpusCost ?? apiKey.weeklyOpusCost ?? 0,
+    currentWindowCost: cachedStats?.currentWindowCost ?? apiKey.currentWindowCost ?? 0,
+    currentWindowRequests: cachedStats?.currentWindowRequests ?? apiKey.currentWindowRequests ?? 0,
+    currentWindowTokens: cachedStats?.currentWindowTokens ?? apiKey.currentWindowTokens ?? 0,
+    windowRemainingSeconds: cachedStats?.windowRemainingSeconds ?? apiKey.windowRemainingSeconds,
+    windowStartTime: cachedStats?.windowStartTime ?? apiKey.windowStartTime ?? null,
+    windowEndTime: cachedStats?.windowEndTime ?? apiKey.windowEndTime ?? null,
+    usage: {
+      ...apiKey.usage,
+      total: {
+        ...apiKey.usage?.total,
+        requests: cachedStats?.requests ?? apiKey.usage?.total?.requests ?? 0,
+        tokens: cachedStats?.tokens ?? apiKey.usage?.total?.tokens ?? 0,
+        cost: cachedStats?.allTimeCost ?? apiKey.usage?.total?.cost ?? 0,
+        inputTokens: cachedStats?.inputTokens ?? apiKey.usage?.total?.inputTokens ?? 0,
+        outputTokens: cachedStats?.outputTokens ?? apiKey.usage?.total?.outputTokens ?? 0,
+        cacheCreateTokens:
+          cachedStats?.cacheCreateTokens ?? apiKey.usage?.total?.cacheCreateTokens ?? 0,
+        cacheReadTokens: cachedStats?.cacheReadTokens ?? apiKey.usage?.total?.cacheReadTokens ?? 0
+      }
+    }
+  }
+
+  selectedApiKeyForDetail.value = enrichedApiKey
+  showUsageDetailModal.value = true
+}
+
+const openTimeline = (keyId) => {
+  const id = keyId || selectedApiKeyForDetail.value?.id
+  if (!id) return
+  showUsageDetailModal.value = false
+  const localKey =
+    apiKeys.value.find((key) => key.id === id) ||
+    (selectedApiKeyForDetail.value?.id === id ? selectedApiKeyForDetail.value : null)
+  selectedApiKeyForTimeline.value = localKey
+    ? { id: localKey.id, name: localKey.name || localKey.id }
+    : { id, name: id }
+  showUsageRecordsDialog.value = true
+}
+
+const closeUsageRecordsDialog = () => {
+  showUsageRecordsDialog.value = false
+  selectedApiKeyForTimeline.value = null
+}
+
+// 格式化时间（秒转换为可读格式） - 已移到 WindowLimitBar 组件中
+// const formatTime = (seconds) => {
+//   if (seconds === null || seconds === undefined) return '--:--'
+//
+//   const hours = Math.floor(seconds / 3600)
+//   const minutes = Math.floor((seconds % 3600) / 60)
+//   const secs = seconds % 60
+//
+//   if (hours > 0) {
+//     return `${hours}h ${minutes}m`
+//   } else if (minutes > 0) {
+//     return `${minutes}m ${secs}s`
+//   } else {
+//     return `${secs}s`
+//   }
+// }
+
+// 格式化最后使用时间
+const formatLastUsed = (dateString) => {
+  if (!dateString) return '从未使用'
+  const date = new Date(dateString)
+  const now = new Date()
+  const diff = now - date
+  if (diff < 60000) return '刚刚'
+  if (diff < 3600000) return `${Math.floor(diff / 60000)} 分钟前`
+  if (diff < 86400000) return `${Math.floor(diff / 3600000)} 小时前`
+  if (diff < 604800000) return `${Math.floor(diff / 86400000)} 天前`
+  return formatLocalDate(dateString) || ''
+}
+
+const ACCOUNT_TYPE_LABELS = {
+  claude: 'Claude',
+  openai: 'OpenAI',
+  gemini: 'Gemini',
+  droid: 'Droid',
+  deleted: '已删除',
+  other: '其他'
+}
+
+const MAX_LAST_USAGE_NAME_LENGTH = 16
+
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+const normalizeFrontendAccountCategory = (type) => {
+  if (!type) return 'other'
+  const lower = String(type).toLowerCase()
+  if (lower === 'claude-console' || lower === 'claude_console' || lower === 'claude') {
+    return 'claude'
+  }
+  if (
+    lower === 'openai' ||
+    lower === 'openai-responses' ||
+    lower === 'openai_responses' ||
+    lower === 'azure-openai' ||
+    lower === 'azure_openai'
+  ) {
+    return 'openai'
+  }
+  if (lower === 'gemini' || lower === 'gemini-api' || lower === 'gemini_api') {
+    return 'gemini'
+  }
+  if (lower === 'droid') {
+    return 'droid'
+  }
+  return 'other'
+}
+
+// 获取最后使用账号信息（优先从缓存获取）
+const getLastUsageInfo = (apiKey) => {
+  if (!apiKey) return null
+  // 优先从缓存获取
+  const cached = getCachedLastUsage(apiKey.id)
+  if (cached !== null) return cached
+  // 兼容旧数据（如果后端直接返回了 lastUsage）
+  return apiKey.lastUsage || null
+}
+
+const hasLastUsageAccount = (apiKey) => {
+  // 如果正在加载，返回 false（让 loading 状态显示）
+  if (isLastUsageLoading(apiKey?.id)) return false
+  const info = getLastUsageInfo(apiKey)
+  return !!(info && (info.accountName || info.accountId || info.rawAccountId))
+}
+
+const isLikelyDeletedUsage = (info) => {
+  if (!info) return false
+  if (info.accountCategory === 'deleted') return true
+
+  const rawId = typeof info.rawAccountId === 'string' ? info.rawAccountId.trim() : ''
+  const accountName = typeof info.accountName === 'string' ? info.accountName.trim() : ''
+  const accountType =
+    typeof info.accountType === 'string' ? info.accountType.trim().toLowerCase() : ''
+
+  if (!rawId) return false
+
+  const looksLikeUuid = UUID_PATTERN.test(rawId)
+  const nameMissingOrSame = !accountName || accountName === rawId
+  const normalizedType = normalizeFrontendAccountCategory(accountType)
+  const typeUnknown = !accountType || accountType === 'unknown' || normalizedType === 'other'
+
+  return looksLikeUuid && nameMissingOrSame && typeUnknown
+}
+
+const getLastUsageBaseName = (info) => {
+  if (!info) return '未知账号'
+  if (isLikelyDeletedUsage(info)) {
+    return '已删除'
+  }
+  return info.accountName || info.accountId || info.rawAccountId || '未知账号'
+}
+
+const getLastUsageFullName = (apiKey) => getLastUsageBaseName(getLastUsageInfo(apiKey))
+
+const getLastUsageDisplayName = (apiKey) => {
+  const full = getLastUsageFullName(apiKey)
+  return full.length > MAX_LAST_USAGE_NAME_LENGTH
+    ? `${full.slice(0, MAX_LAST_USAGE_NAME_LENGTH)}...`
+    : full
+}
+
+const getLastUsageTypeLabel = (apiKey) => {
+  const info = getLastUsageInfo(apiKey)
+  if (isLikelyDeletedUsage(info)) {
+    return ACCOUNT_TYPE_LABELS.deleted
+  }
+  const category = info?.accountCategory || normalizeFrontendAccountCategory(info?.accountType)
+  return ACCOUNT_TYPE_LABELS[category] || ACCOUNT_TYPE_LABELS.other
+}
+
+const isLastUsageDeleted = (apiKey) => {
+  const info = getLastUsageInfo(apiKey)
+  return isLikelyDeletedUsage(info)
+}
+
+// 清除搜索
+const clearSearch = () => {
+  searchKeyword.value = ''
+  currentPage.value = 1
+}
+
+// 导出数据到Excel
+const exportToExcel = () => {
+  try {
+    // 准备导出的数据 - 简化版本
+    const exportData = sortedApiKeys.value.map((key) => {
+      // 获取当前时间段的数据
+      const periodRequests = getPeriodRequests(key)
+      const periodCost = calculatePeriodCost(key)
+      const periodTokens = getPeriodTokens(key)
+      const periodInputTokens = getPeriodInputTokens(key)
+      const periodOutputTokens = getPeriodOutputTokens(key)
+
+      // 基础数据
+      const baseData = {
+        ID: key.id || '',
+        名称: key.name || '',
+        描述: key.description || '',
+        状态: key.isActive ? '启用' : '禁用',
+        API密钥: key.apiKey || '',
+
+        // 过期配置
+        过期模式:
+          key.expirationMode === 'activation'
+            ? '首次使用后激活'
+            : key.expirationMode === 'fixed'
+              ? '固定时间'
+              : '无',
+        激活期限: key.activationDays || '',
+        激活单位:
+          key.activationUnit === 'hours' ? '小时' : key.activationUnit === 'days' ? '天' : '',
+        已激活: key.isActivated ? '是' : '否',
+        激活时间: key.activatedAt ? formatDate(key.activatedAt) : '',
+        过期时间: key.expiresAt ? formatDate(key.expiresAt) : '',
+
+        // 权限配置
+        服务权限: (() => {
+          const p = key.permissions
+          if (!p || p === 'all') return '全部服务'
+          if (Array.isArray(p)) return p.length === 0 ? '全部服务' : p.join(', ')
+          return p
+        })(),
+
+        // 限制配置
+        令牌限制: key.tokenLimit === '0' || key.tokenLimit === 0 ? '无限制' : key.tokenLimit || '',
+        并发限制:
+          key.concurrencyLimit === '0' || key.concurrencyLimit === 0
+            ? '无限制'
+            : key.concurrencyLimit || '',
+        '速率窗口(分钟)':
+          key.rateLimitWindow === '0' || key.rateLimitWindow === 0
+            ? '无限制'
+            : key.rateLimitWindow || '',
+        速率请求限制:
+          key.rateLimitRequests === '0' || key.rateLimitRequests === 0
+            ? '无限制'
+            : key.rateLimitRequests || '',
+        '日费用限制($)':
+          key.dailyCostLimit === '0' || key.dailyCostLimit === 0
+            ? '无限制'
+            : `$${key.dailyCostLimit}`,
+        '总费用限制($)':
+          key.totalCostLimit === '0' || key.totalCostLimit === 0
+            ? '无限制'
+            : `$${key.totalCostLimit}`,
+
+        // 账户绑定
+        Claude专属账户: key.claudeAccountId || '',
+        Claude控制台账户: key.claudeConsoleAccountId || '',
+        Gemini专属账户: key.geminiAccountId || '',
+        OpenAI专属账户: key.openaiAccountId || '',
+        'Azure OpenAI专属账户': key.azureOpenaiAccountId || '',
+        Bedrock专属账户: key.bedrockAccountId || '',
+        Droid专属账户: key.droidAccountId || '',
+
+        // 模型和客户端限制
+        启用模型限制: key.enableModelRestriction ? '是' : '否',
+        限制的模型:
+          key.restrictedModels && key.restrictedModels.length > 0
+            ? key.restrictedModels.join('; ')
+            : '',
+        启用客户端限制: key.enableClientRestriction ? '是' : '否',
+        允许的客户端:
+          key.allowedClients && key.allowedClients.length > 0 ? key.allowedClients.join('; ') : '',
+
+        // 创建信息
+        创建时间: key.createdAt ? formatDate(key.createdAt) : '',
+        创建者: key.createdBy || '',
+        用户ID: key.userId || '',
+        用户名: key.userUsername || '',
+
+        // 使用统计
+        标签: key.tags && key.tags.length > 0 ? key.tags.join(', ') : '无',
+        请求总数: periodRequests,
+        '总费用($)': periodCost.toFixed(2),
+        Token数: formatTokenCount(periodTokens),
+        输入Token: formatTokenCount(periodInputTokens),
+        输出Token: formatTokenCount(periodOutputTokens),
+        最后使用时间: key.lastUsedAt ? formatDate(key.lastUsedAt) : '从未使用',
+        最后使用账号: getLastUsageFullName(key),
+        最后使用类型: getLastUsageTypeLabel(key)
+      }
+
+      // 添加分模型统计
+      const modelStats = {}
+
+      // 根据当前时间筛选条件获取对应的模型统计
+      let modelsData = null
+
+      if (globalDateFilter.preset === 'today') {
+        modelsData = key.usage?.daily?.models
+      } else if (globalDateFilter.preset === '7days') {
+        modelsData = key.usage?.weekly?.models
+      } else if (globalDateFilter.preset === '30days') {
+        modelsData = key.usage?.monthly?.models
+      } else if (globalDateFilter.preset === 'all') {
+        modelsData = key.usage?.total?.models
+      }
+
+      // 处理模型统计
+      if (modelsData) {
+        Object.entries(modelsData).forEach(([model, stats]) => {
+          // 简化模型名称，去掉前缀
+          let modelName = model
+          if (model.includes(':')) {
+            modelName = model.split(':').pop() // 取最后一部分
+          }
+          modelName = modelName.replace(/[:/]/g, '_')
+
+          modelStats[`${modelName}_请求数`] = stats.requests || 0
+          modelStats[`${modelName}_费用($)`] = (stats.cost || 0).toFixed(2)
+          modelStats[`${modelName}_Token`] = formatTokenCount(stats.totalTokens || 0)
+          modelStats[`${modelName}_输入Token`] = formatTokenCount(stats.inputTokens || 0)
+          modelStats[`${modelName}_输出Token`] = formatTokenCount(stats.outputTokens || 0)
+        })
+      }
+
+      return { ...baseData, ...modelStats }
+    })
+
+    // 创建工作簿
+    const wb = XLSX.utils.book_new()
+    const ws = XLSX.utils.json_to_sheet(exportData)
+
+    // 获取工作表范围
+    const range = XLSX.utils.decode_range(ws['!ref'])
+
+    // 设置列宽
+    const headers = Object.keys(exportData[0] || {})
+    const columnWidths = headers.map((header) => {
+      // 基本信息字段
+      if (header === 'ID') return { wch: 40 }
+      if (header === '名称') return { wch: 25 }
+      if (header === '描述') return { wch: 30 }
+      if (header === 'API密钥') return { wch: 45 }
+      if (header === '标签') return { wch: 20 }
+
+      // 时间字段
+      if (header.includes('时间')) return { wch: 20 }
+
+      // 限制字段
+      if (header.includes('限制')) return { wch: 15 }
+      if (header.includes('费用')) return { wch: 15 }
+      if (header.includes('Token')) return { wch: 15 }
+      if (header.includes('请求')) return { wch: 12 }
+
+      // 账户绑定字段
+      if (header.includes('账户')) return { wch: 30 }
+
+      // 权限配置字段
+      if (header.includes('权限') || header.includes('模型') || header.includes('客户端'))
+        return { wch: 20 }
+
+      // 激活配置字段
+      if (header.includes('激活') || header.includes('过期')) return { wch: 18 }
+
+      // 默认宽度
+      return { wch: 15 }
+    })
+    ws['!cols'] = columnWidths
+
+    // 应用样式到标题行
+    for (let C = range.s.c; C <= range.e.c; ++C) {
+      const cellAddress = XLSX.utils.encode_cell({ r: 0, c: C })
+      if (!ws[cellAddress]) continue
+
+      const header = headers[C]
+      const isModelColumn = header && header.includes('_')
+
+      ws[cellAddress].s = {
+        fill: {
+          fgColor: { rgb: isModelColumn ? '70AD47' : '4472C4' }
+        },
+        font: {
+          color: { rgb: 'FFFFFF' },
+          bold: true,
+          sz: 12
+        },
+        alignment: {
+          horizontal: 'center',
+          vertical: 'center'
+        },
+        border: {
+          top: { style: 'thin', color: { rgb: '2F5597' } },
+          bottom: { style: 'thin', color: { rgb: '2F5597' } },
+          left: { style: 'thin', color: { rgb: '2F5597' } },
+          right: { style: 'thin', color: { rgb: '2F5597' } }
+        }
+      }
+    }
+
+    // 应用样式到数据行
+    for (let R = 1; R <= range.e.r; ++R) {
+      for (let C = range.s.c; C <= range.e.c; ++C) {
+        const cellAddress = XLSX.utils.encode_cell({ r: R, c: C })
+        if (!ws[cellAddress]) continue
+
+        const header = headers[C]
+        const value = ws[cellAddress].v
+
+        // 基础样式
+        const cellStyle = {
+          font: { sz: 11 },
+          border: {
+            top: { style: 'thin', color: { rgb: 'D3D3D3' } },
+            bottom: { style: 'thin', color: { rgb: 'D3D3D3' } },
+            left: { style: 'thin', color: { rgb: 'D3D3D3' } },
+            right: { style: 'thin', color: { rgb: 'D3D3D3' } }
+          }
+        }
+
+        // 偶数行背景色
+        if (R % 2 === 0) {
+          cellStyle.fill = { fgColor: { rgb: 'F2F2F2' } }
+        }
+
+        // 根据列类型设置对齐和特殊样式
+        if (header === '名称') {
+          cellStyle.alignment = { horizontal: 'left', vertical: 'center' }
+        } else if (header === '标签') {
+          cellStyle.alignment = { horizontal: 'left', vertical: 'center' }
+          if (value === '无') {
+            cellStyle.font = { ...cellStyle.font, color: { rgb: '999999' }, italic: true }
+          }
+        } else if (header === '最后使用时间') {
+          cellStyle.alignment = { horizontal: 'right', vertical: 'center' }
+          if (value === '从未使用') {
+            cellStyle.font = { ...cellStyle.font, color: { rgb: '999999' }, italic: true }
+          }
+        } else if (header && header.includes('费用')) {
+          cellStyle.alignment = { horizontal: 'right', vertical: 'center' }
+          cellStyle.font = { ...cellStyle.font, color: { rgb: '0066CC' }, bold: true }
+        } else if (header && (header.includes('Token') || header.includes('请求'))) {
+          cellStyle.alignment = { horizontal: 'right', vertical: 'center' }
+        }
+
+        ws[cellAddress].s = cellStyle
+      }
+    }
+
+    XLSX.utils.book_append_sheet(wb, ws, '用量统计')
+
+    // 生成文件名（包含时间戳和筛选条件）
+    const now = new Date()
+    const timestamp =
+      now.getFullYear() +
+      String(now.getMonth() + 1).padStart(2, '0') +
+      String(now.getDate()).padStart(2, '0') +
+      '_' +
+      String(now.getHours()).padStart(2, '0') +
+      String(now.getMinutes()).padStart(2, '0') +
+      String(now.getSeconds()).padStart(2, '0')
+
+    let timeRangeLabel = ''
+    if (globalDateFilter.type === 'preset') {
+      const presetLabels = {
+        today: '今日',
+        '7days': '最近7天',
+        '30days': '最近30天',
+        all: '全部时间'
+      }
+      timeRangeLabel = presetLabels[globalDateFilter.preset] || globalDateFilter.preset
+    } else {
+      timeRangeLabel = '自定义时间'
+    }
+
+    const filename = `API_Keys_用量统计_${timeRangeLabel}_${timestamp}.xlsx`
+
+    // 导出文件
+    XLSX.writeFile(wb, filename)
+
+    showToast(`成功导出 ${exportData.length} 条API Key用量数据`, 'success')
+  } catch (error) {
+    // console.error('导出失败:', error)
+    showToast('导出失败，请重试', 'error')
+  }
+}
+
+// 监听筛选条件变化，重置页码和选中状态
+// 监听筛选条件变化（不包括搜索），清空选中状态
+watch([selectedTagFilter, apiKeyStatsTimeRange], () => {
+  currentPage.value = 1
+  // 清空选中状态
+  selectedApiKeys.value = []
+  updateSelectAllState()
+})
+
+// 搜索防抖定时器
+let searchDebounceTimer = null
+
+// 监听搜索关键词变化，使用防抖重新加载数据
+watch(searchKeyword, () => {
+  // 清除之前的定时器
+  if (searchDebounceTimer) {
+    clearTimeout(searchDebounceTimer)
+  }
+  // 设置防抖（300ms）
+  searchDebounceTimer = setTimeout(() => {
+    currentPage.value = 1
+    loadApiKeys(false) // 不清除统计缓存
+  }, 300)
+})
+
+// 监听搜索模式变化，重新加载数据
+watch(searchMode, () => {
+  currentPage.value = 1
+  loadApiKeys(false)
+})
+
+// 监听标签筛选变化，重新加载数据
+watch(selectedTagFilter, () => {
+  currentPage.value = 1
+  loadApiKeys(false)
+})
+
+// 监听模型筛选变化
+watch(selectedModels, () => {
+  currentPage.value = 1
+  loadApiKeys(false)
+})
+
+// 监听排序变化，重新加载数据
+watch([apiKeysSortBy, apiKeysSortOrder], () => {
+  loadApiKeys(false)
+})
+
+// 监听分页变化，重新加载数据
+watch([currentPage, pageSize], ([newPage, newPageSize], [oldPage, oldPageSize]) => {
+  // 只有页码或每页数量真正变化时才重新加载
+  if (newPage !== oldPage || newPageSize !== oldPageSize) {
+    loadApiKeys(false)
+  }
+  updateSelectAllState()
+})
+
+// 监听每页显示条数变化，保存到 localStorage
+watch(pageSize, (newSize) => {
+  localStorage.setItem('apiKeysPageSize', newSize.toString())
+})
+
+// 已删除 Tab：页码变化重新加载
+watch(deletedCurrentPage, () => {
+  loadDeletedApiKeys()
+})
+
+// 已删除 Tab：每页条数变化时回到第一页（已在第一页则直接重新加载）
+watch(deletedPageSize, () => {
+  if (deletedCurrentPage.value === 1) {
+    loadDeletedApiKeys()
+  } else {
+    deletedCurrentPage.value = 1
+  }
+})
+
+// 已删除 Tab 搜索改为"点搜索按钮/回车"触发（见 applyDeletedSearch），不再监听输入框做即时搜索
+
+// 已删除表格高度：切到该 Tab / 数据变化 / 选中数变化（工具栏按钮增减影响表格起点）后重算
+watch([activeTab, deletedApiKeys, () => selectedDeletedKeys.value.length], () => {
+  if (activeTab.value === 'deleted') {
+    nextTick(recalcDeletedTableHeight)
+  }
+})
+
+// 主表格高度：切到「活跃」Tab / 数据变化 / 选中数变化（工具栏增减影响表格起点）后重算
+watch([activeTab, sortedApiKeys, () => selectedApiKeys.value.length], () => {
+  if (activeTab.value === 'active') {
+    nextTick(recalcMainTableHeight)
+  }
+})
+
+// 监听API Keys数据变化，清理无效的选中状态
+watch(apiKeys, () => {
+  const validIds = new Set(apiKeys.value.map((key) => key.id))
+
+  // 过滤出仍然有效的选中项
+  selectedApiKeys.value = selectedApiKeys.value.filter((id) => validIds.has(id))
+
+  updateSelectAllState()
+})
+
+onMounted(async () => {
+  // 获取费用排序索引状态（不阻塞，会自动调度后续刷新）
+  fetchCostSortStatus()
+
+  // 先加载 API Keys（优先显示列表）
+  // supported-clients 由 Create/Edit 模态框按需加载，无需预加载
+  await Promise.all([loadApiKeys(), loadUsedModels()])
+
+  // 初始化全选状态
+  updateSelectAllState()
+
+  // 异步加载账号数据（不阻塞页面显示）
+  loadAccounts()
+
+  // 视口变化时重算表格高度
+  window.addEventListener('resize', recalcDeletedTableHeight)
+  window.addEventListener('resize', recalcMainTableHeight)
+  nextTick(recalcMainTableHeight)
+})
+
+// 组件卸载时清理定时器
+onUnmounted(() => {
+  if (costSortStatusTimer) {
+    clearTimeout(costSortStatusTimer)
+    costSortStatusTimer = null
+  }
+  window.removeEventListener('resize', recalcDeletedTableHeight)
+  window.removeEventListener('resize', recalcMainTableHeight)
+})
+</script>
+
+<style scoped>
+.table-wrapper {
+  overflow: hidden;
+  border-radius: 12px;
+  border: 1px solid rgba(0, 0, 0, 0.05);
+  width: 100%;
+  position: relative;
+}
+
+.dark .table-wrapper {
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+.table-container {
+  overflow-x: auto;
+  overflow-y: hidden;
+  margin: 0;
+  padding: 0;
+  max-width: 100%;
+  position: relative;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* 已删除表格：纵向内部滚动（表头 sticky 吸顶），避免上千行撑爆页面。
+   max-height 由 recalcDeletedTableHeight 按容器实际位置动态计算并内联设置，不再用魔数 */
+.table-container--scroll {
+  overflow-y: auto;
+  min-height: 240px;
+}
+
+/* 防止表格内容溢出，保证横向滚动 */
+.table-container table {
+  min-width: 1400px;
+  /* separate 才能让 thead/td sticky 稳定工作；collapse 下部分浏览器 sticky 层叠会乱 */
+  border-collapse: separate;
+  border-spacing: 0;
+  table-layout: auto;
+}
+
+.table-container::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.table-container::-webkit-scrollbar-track {
+  background: #f3f4f6;
+  border-radius: 4px;
+}
+
+.table-container::-webkit-scrollbar-thumb {
+  background: #d1d5db;
+  border-radius: 4px;
+}
+
+.table-container::-webkit-scrollbar-thumb:hover {
+  background: #9ca3af;
+}
+
+.dark .table-container::-webkit-scrollbar-track {
+  background: var(--bg-gradient-mid);
+}
+
+.dark .table-container::-webkit-scrollbar-thumb {
+  background: var(--bg-gradient-end);
+}
+
+.dark .table-container::-webkit-scrollbar-thumb:hover {
+  background: var(--text-secondary);
+}
+
+/* 统一 hover 背景 - 所有 td 使用主题色 */
+.table-container tbody tr:hover > td {
+  background-color: rgba(var(--primary-rgb), 0.06) !important;
+}
+
+.dark .table-container tbody tr:hover > td {
+  background-color: rgba(var(--primary-rgb), 0.16) !important;
+}
+
+/* 所有 td 的斑马纹背景 */
+.table-container tbody tr:nth-child(odd) > td {
+  background-color: #ffffff;
+}
+
+.table-container tbody tr:nth-child(even) > td {
+  background-color: #f9fafb;
+}
+
+.dark .table-container tbody tr:nth-child(odd) > td {
+  background-color: var(--bg-gradient-start);
+}
+
+.dark .table-container tbody tr:nth-child(even) > td {
+  background-color: var(--bg-gradient-mid);
+}
+
+/* sticky 层叠约定（高 → 低）：
+   thead 整体 z-20 > tbody 左右冻结列 z-10 > 普通单元格 auto
+   表头左右角单元格再提到 z-30，保证横滚时压住中间表头 */
+.table-container thead {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+}
+
+/* 表头所有 th 必须不透明底，否则纵滚时行内容会透出来（bg 写在 thead/tr 上表格里经常不生效） */
+.table-container thead th {
+  background: linear-gradient(to bottom, #f9fafb, #f3f4f6);
+}
+
+.dark .table-container thead th {
+  background: linear-gradient(to bottom, var(--bg-gradient-mid), var(--bg-gradient-start));
+}
+
+/* 固定操作列在右侧 */
+.operations-column {
+  position: sticky;
+  right: 0;
+  z-index: 10;
+}
+
+.table-container thead .operations-column {
+  z-index: 30;
+}
+
+.table-container tbody .operations-column {
+  z-index: 10;
+  box-shadow: -8px 0 12px -8px rgba(15, 23, 42, 0.16);
+}
+
+.dark .table-container tbody .operations-column {
+  box-shadow: -8px 0 12px -8px rgba(30, 41, 59, 0.45);
+}
+
+/* 固定左侧列（复选框和名称列）*/
+.checkbox-column,
+.name-column {
+  position: sticky;
+  z-index: 10;
+}
+
+.table-container thead .checkbox-column,
+.table-container thead .name-column {
+  z-index: 30;
+}
+
+.table-container tbody .checkbox-column,
+.table-container tbody .name-column {
+  z-index: 10;
+}
+
+/* 名称列右侧阴影（分隔效果） */
+.table-container tbody .name-column {
+  box-shadow: 8px 0 12px -8px rgba(15, 23, 42, 0.16);
+}
+
+.dark .table-container tbody .name-column {
+  box-shadow: 8px 0 12px -8px rgba(30, 41, 59, 0.45);
+}
+
+/* 全局 .table-row:hover { transform: scale(...) } 会新建层叠上下文，把整行抬到 sticky 表头之上；这里取消 */
+.table-container tbody tr.table-row:hover,
+.table-container tbody tr:hover {
+  transform: none;
+}
+
+.loading-spinner {
+  width: 24px;
+  height: 24px;
+  border: 2px solid #e5e7eb;
+  border-top: 2px solid #3b82f6;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+
+
+/* 自定义日期范围选择器高度对齐 */
+
+/* 行内容垂直居中 */
+/* 表格：上下居中、内容居左；操作列横排 */
+.table-container td,
+.table-container th,
+table td,
+table th {
+  vertical-align: middle !important;
+  text-align: left !important;
+}
+.table-container td.text-right,
+.table-container th.text-right,
+table td.text-right,
+table th.text-right {
+  text-align: right !important;
+}
+.table-container td.operations-column,
+.table-container th.operations-column,
+table td.operations-column,
+.operations-cell {
+  text-align: left !important;
+}
+.table-container td.operations-column > .flex,
+.operations-column > .flex,
+.operations-cell > .flex {
+  flex-direction: row;
+  flex-wrap: wrap;
+  justify-content: flex-start;
+  align-items: center;
+  gap: 0.375rem;
+}
+.table-container td > .flex:not(.flex-col),
+table td > .flex:not(.flex-col) {
+  align-items: center;
+  justify-content: flex-start;
+}
+.table-container td.text-right > .flex:not(.flex-col),
+table td.text-right > .flex:not(.flex-col) {
+  justify-content: flex-end;
+}
+</style>

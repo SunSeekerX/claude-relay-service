@@ -1,8 +1,8 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 
-import { getDashboardApi, getUsageCostsApi, getUsageStatsApi } from '@/utils/http_apis'
-import { showToast } from '@/utils/tools'
+import { getDashboardApi, getUsageCostsApi, getUsageStatsApi } from '@/libs/http_apis'
+import { showToast } from '@/libs/tools'
 
 export const useDashboardStore = defineStore('dashboard', () => {
   // 状态
@@ -421,6 +421,9 @@ export const useDashboardStore = defineStore('dashboard', () => {
 
   async function loadApiKeysTrend(metric = 'requests', granularity = null) {
     const currentGranularity = granularity || getEffectiveGranularity()
+    if (metric && metric !== apiKeysTrendMetric.value) {
+      apiKeysTrendMetric.value = metric
+    }
     try {
       let url = '/admin/api-keys-usage-trend?'
       let days = 7

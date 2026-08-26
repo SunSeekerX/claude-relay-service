@@ -286,6 +286,29 @@ export const useThemeStore = defineStore('theme', () => {
 
     // 设置输入框边框
     root.style.setProperty('--input-border', `rgba(${primaryRgb}, ${dark ? 0.3 : 0.25})`)
+
+    // 派生交互面：导航选中、软底、焦点环（随色系走）
+    root.style.setProperty('--primary-soft', `rgba(${primaryRgb}, ${dark ? 0.16 : 0.1})`)
+    root.style.setProperty('--primary-soft-strong', `rgba(${primaryRgb}, ${dark ? 0.24 : 0.16})`)
+    root.style.setProperty('--nav-item-active-bg', `rgba(${primaryRgb}, ${dark ? 0.18 : 0.1})`)
+    root.style.setProperty('--nav-item-active-fg', primary)
+    root.style.setProperty('--focus-ring', `rgba(${primaryRgb}, ${dark ? 0.35 : 0.28})`)
+    root.style.setProperty(
+      '--surface-muted',
+      dark ? 'rgba(55, 65, 81, 0.55)' : 'rgba(249, 250, 251, 0.92)'
+    )
+    root.style.setProperty(
+      '--nav-item-hover',
+      dark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(17, 24, 39, 0.04)'
+    )
+    root.style.setProperty(
+      '--divider-color',
+      dark ? 'rgba(243, 244, 246, 0.1)' : 'rgba(17, 24, 39, 0.08)'
+    )
+    root.style.setProperty('--text-primary', dark ? '#f3f4f6' : '#111827')
+    root.style.setProperty('--text-secondary', dark ? '#9ca3af' : '#6b7280')
+    root.style.setProperty('--text-muted', dark ? '#6b7280' : '#9ca3af')
+    root.style.setProperty('--text-on-primary', '#ffffff')
   }
 
   // 设置主题模式

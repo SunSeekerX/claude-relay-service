@@ -3,7 +3,7 @@
  * 用于前端展示和测试功能
  */
 
-const CLAUDE_MODELS = [
+export const CLAUDE_MODELS = [
   { value: 'claude-opus-4-8', label: 'Claude Opus 4.8' },
   { value: 'claude-opus-4-6', label: 'Claude Opus 4.6' },
   { value: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6' },
@@ -16,7 +16,7 @@ const CLAUDE_MODELS = [
   { value: 'claude-3-5-haiku-20241022', label: 'Claude 3.5 Haiku' }
 ]
 
-const GEMINI_MODELS = [
+export const GEMINI_MODELS = [
   { value: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro' },
   { value: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash' },
   { value: 'gemini-3-pro-preview', label: 'Gemini 3 Pro Preview' },
@@ -24,7 +24,7 @@ const GEMINI_MODELS = [
   { value: 'gemini-3.1-pro-preview', label: 'Gemini 3.1 Pro Preview' }
 ]
 
-const OPENAI_MODELS = [
+export const OPENAI_MODELS = [
   { value: 'gpt-5', label: 'GPT-5' },
   { value: 'gpt-5-mini', label: 'GPT-5 Mini' },
   { value: 'gpt-5-nano', label: 'GPT-5 Nano' },
@@ -42,14 +42,14 @@ const OPENAI_MODELS = [
   { value: 'codex-mini', label: 'Codex Mini' }
 ]
 
-const BEDROCK_MODELS = [
+export const BEDROCK_MODELS = [
   { value: 'us.anthropic.claude-opus-4-6-20250610-v1:0', label: 'Claude Opus 4.6' },
   { value: 'us.anthropic.claude-sonnet-4-5-20250929-v1:0', label: 'Claude Sonnet 4.5' },
   { value: 'us.anthropic.claude-sonnet-4-20250514-v1:0', label: 'Claude Sonnet 4' },
   { value: 'us.anthropic.claude-3-5-haiku-20241022-v1:0', label: 'Claude 3.5 Haiku' }
 ]
 
-const GROK_MODELS = [
+export const GROK_MODELS = [
   { value: 'grok-4.5', label: 'Grok 4.5' },
   { value: 'grok-4.3', label: 'Grok 4.3' },
   { value: 'grok-build-0.1', label: 'Grok Build 0.1' },
@@ -66,7 +66,7 @@ const GROK_MODELS = [
 ]
 
 // 其他模型（用于账户编辑的模型映射）
-const OTHER_MODELS = [
+export const OTHER_MODELS = [
   { value: 'deepseek-chat', label: 'DeepSeek Chat' },
   { value: 'Qwen', label: 'Qwen' },
   { value: 'Kimi', label: 'Kimi' },
@@ -74,7 +74,7 @@ const OTHER_MODELS = [
 ]
 
 // 各平台测试可用模型
-const PLATFORM_TEST_MODELS = {
+export const PLATFORM_TEST_MODELS = {
   claude: CLAUDE_MODELS,
   'claude-console': CLAUDE_MODELS,
   bedrock: BEDROCK_MODELS,
@@ -87,7 +87,8 @@ const PLATFORM_TEST_MODELS = {
   grok: GROK_MODELS
 }
 
-module.exports = {
+
+export const modelsConfig = {
   CLAUDE_MODELS,
   GEMINI_MODELS,
   OPENAI_MODELS,

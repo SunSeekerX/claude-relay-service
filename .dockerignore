@@ -71,9 +71,9 @@ web/admin-spa/dist/
 azure-pipelines.yml
 
 # Package manager files
-# package-lock.json  # 需要保留此文件以支持 npm ci
+# package-lock.json 已废弃（全程 pnpm）；pnpm-lock.yaml 必须进镜像供 frozen-lockfile
 yarn.lock
-pnpm-lock.yaml
+# pnpm-lock.yaml  # 保留：Dockerfile COPY + pnpm install --frozen-lockfile
 
 # CLI
 cli/

@@ -1,29 +1,29 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useUserStore } from '@/stores/user'
-import { APP_CONFIG, showToast } from '@/utils/tools'
+import { APP_CONFIG, showToast } from '@/libs/tools'
 
 // 路由懒加载
-const LoginView = () => import('@/views/LoginView.vue')
-const UserLoginView = () => import('@/views/UserLoginView.vue')
-const UserDashboardView = () => import('@/views/UserDashboardView.vue')
-const UserManagementView = () => import('@/views/UserManagementView.vue')
-const MainLayout = () => import('@/components/layout/MainLayout.vue')
-const DashboardView = () => import('@/views/DashboardView.vue')
-const ApiKeysView = () => import('@/views/ApiKeysView.vue')
-const ApiKeyUsageRecordsView = () => import('@/views/ApiKeyUsageRecordsView.vue')
-const AccountsView = () => import('@/views/AccountsView.vue')
-const AccountUsageRecordsView = () => import('@/views/AccountUsageRecordsView.vue')
-const SettingsView = () => import('@/views/SettingsView.vue')
-const ApiStatsView = () => import('@/views/ApiStatsView.vue')
-const ApiStatsQueryTab = () => import('@/views/apistats/StatsTab.vue')
-const ApiStatsQuotaTab = () => import('@/views/apistats/QuotaTab.vue')
-const ApiStatsRechargeTab = () => import('@/views/apistats/RechargeTab.vue')
-const ApiStatsPricingTab = () => import('@/views/apistats/PricingTab.vue')
-const ApiStatsTutorialTab = () => import('@/views/apistats/TutorialTab.vue')
-const QuotaCardsView = () => import('@/views/QuotaCardsView.vue')
-const RequestDetailsView = () => import('@/views/RequestDetailsView.vue')
-const ProxyPoolView = () => import('@/views/ProxyPoolView.vue')
+const LoginView = () => import('@/views/login_view.vue')
+const UserLoginView = () => import('@/views/user_login_view.vue')
+const UserDashboardView = () => import('@/views/user_dashboard_view.vue')
+const UserManagementView = () => import('@/views/user_management_view.vue')
+const MainLayout = () => import('@/components/layout/main_layout.vue')
+const DashboardView = () => import('@/views/dashboard_view.vue')
+const ApiKeysView = () => import('@/views/api_keys_view.vue')
+const ApiKeyUsageRecordsView = () => import('@/views/api_key_usage_records_view.vue')
+const AccountsView = () => import('@/views/accounts_view.vue')
+const AccountUsageRecordsView = () => import('@/views/account_usage_records_view.vue')
+const SettingsView = () => import('@/views/settings_view.vue')
+const ApiStatsView = () => import('@/views/api_stats_view.vue')
+const ApiStatsQueryTab = () => import('@/views/api_stats/stats_tab.vue')
+const ApiStatsQuotaTab = () => import('@/views/api_stats/quota_tab.vue')
+const ApiStatsRechargeTab = () => import('@/views/api_stats/recharge_tab.vue')
+const ApiStatsPricingTab = () => import('@/views/api_stats/pricing_tab.vue')
+const ApiStatsTutorialTab = () => import('@/views/api_stats/tutorial_tab.vue')
+const QuotaCardsView = () => import('@/views/quota_cards_view.vue')
+const RequestDetailsView = () => import('@/views/request_details_view.vue')
+const ProxyPoolView = () => import('@/views/proxy_pool_view.vue')
 
 const routes = [
   {
@@ -234,7 +234,7 @@ const routes = [
       {
         path: '',
         name: 'PaymentManage',
-        component: () => import('@/views/PaymentManageView.vue')
+        component: () => import('@/views/payment_manage_view.vue')
       }
     ]
   },
@@ -274,8 +274,8 @@ const router = createRouter({
   routes
 })
 
-// 路由守卫
-router.beforeEach(async (to, from, next) => {
+// 路由守卫（Vue Router 5：用 return 代替 next()）
+router.beforeEach(async (to, from) => {
   const authStore = useAuthStore()
   const userStore = useUserStore()
 
@@ -291,7 +291,7 @@ router.beforeEach(async (to, from, next) => {
 
   // 防止重定向循环：如果已经在目标路径，直接放行
   if (to.path === from.path && to.fullPath === from.fullPath) {
-    return next()
+    return true
   }
 
   // 检查用户认证状态
@@ -301,36 +301,34 @@ router.beforeEach(async (to, from, next) => {
       try {
         const isUserLoggedIn = await userStore.checkAuth()
         if (!isUserLoggedIn) {
-          return next('/user-login')
+          return '/user-login'
         }
       } catch (error) {
         // If the error is about disabled account, redirect to login with error
         if (error.message && error.message.includes('disabled')) {
           showToast(error.message, 'error')
         }
-        return next('/user-login')
+        return '/user-login'
       }
     }
-    return next()
+    return true
   }
 
   // API Stats 页面不需要认证，直接放行
   if (to.path === '/api-stats' || to.path.startsWith('/api-stats')) {
-    next()
-  } else if (to.path === '/user-login') {
-    // 如果已经是用户登录状态，重定向到用户仪表板
-    if (userStore.isAuthenticated) {
-      next('/user-dashboard')
-    } else {
-      next()
-    }
-  } else if (to.meta.requiresAuth && !authStore.isAuthenticated) {
-    next('/login')
-  } else if (to.path === '/login' && authStore.isAuthenticated) {
-    next('/dashboard')
-  } else {
-    next()
+    return true
   }
+  if (to.path === '/user-login') {
+    // 如果已经是用户登录状态，重定向到用户仪表板
+    return userStore.isAuthenticated ? '/user-dashboard' : true
+  }
+  if (to.meta.requiresAuth && !authStore.isAuthenticated) {
+    return '/login'
+  }
+  if (to.path === '/login' && authStore.isAuthenticated) {
+    return '/dashboard'
+  }
+  return true
 })
 
 export default router

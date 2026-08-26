@@ -1,12 +1,10 @@
 #!/usr/bin/env node
-
+import { redis } from '../src/infra/redis.js'
+import { logger } from '../src/common/logger.js'
 /**
  * Redis 键调试工具
  * 用于查看 Redis 中存储的所有键和数据结构
  */
-
-const redis = require('../src/models/redis')
-const logger = require('../src/utils/logger')
 
 async function debugRedisKeys() {
   try {
@@ -26,7 +24,7 @@ async function debugRedisKeys() {
       admins: [],
       sessions: [],
       usage: [],
-      other: []
+      other: [],
     }
 
     // 分类键
@@ -41,11 +39,7 @@ async function debugRedisKeys() {
         keysByType.admins.push(key)
       } else if (key.startsWith('session:')) {
         keysByType.sessions.push(key)
-      } else if (
-        key.includes('usage') ||
-        key.includes('rate_limit') ||
-        key.includes('concurrency')
-      ) {
+      } else if (key.includes('usage') || key.includes('rate_limit') || key.includes('concurrency')) {
         keysByType.usage.push(key)
       } else {
         keysByType.other.push(key)

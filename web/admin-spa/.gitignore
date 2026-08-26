@@ -33,3 +33,6 @@ web/admin/
 *.njsproj
 *.sln
 *.sw?
+auto-imports.d.ts
+components.d.ts
+.eslintrc-auto-import.json
