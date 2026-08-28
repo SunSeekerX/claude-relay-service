@@ -70,7 +70,7 @@ const getOauthProviderConfig = function getOauthProviderConfig(oauthProvider, { 
   return config
 }
 
-// 🌐 TCP Keep-Alive Agent 配置
+// TCP Keep-Alive Agent 配置
 // 解决长时间流式请求中 NAT/防火墙空闲超时导致的连接中断问题
 const keepAliveAgent = new https.Agent({
   keepAlive: true,
@@ -80,7 +80,7 @@ const keepAliveAgent = new https.Agent({
   maxFreeSockets: 10, // 保持的空闲连接数
 })
 
-logger.info('🌐 Gemini HTTPS Agent initialized with TCP Keep-Alive support')
+logger.info('Gemini HTTPS Agent initialized with TCP Keep-Alive support')
 
 // 使用 commonHelper 的加密器
 export const encryptor = createEncryptor('gemini-account-salt')
@@ -191,11 +191,11 @@ export const countTokensAntigravity = async function countTokensAntigravity(
   return response
 }
 
-// 🧹 定期清理缓存（每10分钟）
+// 定期清理缓存（每10分钟）
 setInterval(
   () => {
     encryptor.clearCache()
-    logger.info('🧹 Gemini decrypt cache cleanup completed', encryptor.getStats())
+    logger.info('Gemini decrypt cache cleanup completed', encryptor.getStats())
   },
   10 * 60 * 1000,
 )
@@ -249,9 +249,9 @@ export const generateAuthUrl = async function generateAuthUrl(
   const oAuth2Client = createOAuth2Client(finalRedirectUri, proxyConfig, normalizedProvider)
 
   if (proxyConfig) {
-    logger.info(`🌐 Using proxy for Gemini auth URL generation: ${ProxyHelper.getProxyDescription(proxyConfig)}`)
+    logger.info(`Using proxy for Gemini auth URL generation: ${ProxyHelper.getProxyDescription(proxyConfig)}`)
   } else {
-    logger.debug('🌐 No proxy configured for Gemini auth URL generation')
+    logger.debug('No proxy configured for Gemini auth URL generation')
   }
 
   // 生成 PKCE code verifier
@@ -292,9 +292,9 @@ export const exchangeCodeForTokens = async function exchangeCodeForTokens(
     const oAuth2Client = createOAuth2Client(redirectUri, proxyConfig, normalizedProvider)
 
     if (proxyConfig) {
-      logger.info(`🌐 Using proxy for Gemini token exchange: ${ProxyHelper.getProxyDescription(proxyConfig)}`)
+      logger.info(`Using proxy for Gemini token exchange: ${ProxyHelper.getProxyDescription(proxyConfig)}`)
     } else {
-      logger.debug('🌐 No proxy configured for Gemini token exchange')
+      logger.debug('No proxy configured for Gemini token exchange')
     }
 
     const tokenParams = {
@@ -341,9 +341,9 @@ export const refreshAccessToken = async function refreshAccessToken(
     })
 
     if (proxyConfig) {
-      logger.info(`🔄 Using proxy for Gemini token refresh: ${ProxyHelper.maskProxyInfo(proxyConfig)}`)
+      logger.info(`Using proxy for Gemini token refresh: ${ProxyHelper.maskProxyInfo(proxyConfig)}`)
     } else {
-      logger.debug('🔄 No proxy configured for Gemini token refresh')
+      logger.debug('No proxy configured for Gemini token refresh')
     }
 
     // 调用 refreshAccessToken 获取新的 tokens
@@ -355,9 +355,7 @@ export const refreshAccessToken = async function refreshAccessToken(
       throw new Error('No access token returned from refresh')
     }
 
-    logger.info(
-      `🔄 Successfully refreshed Gemini token. New expiry: ${new Date(credentials.expiry_date).toISOString()}`,
-    )
+    logger.info(`Successfully refreshed Gemini token. New expiry: ${new Date(credentials.expiry_date).toISOString()}`)
 
     return {
       access_token: credentials.access_token,
@@ -444,7 +442,7 @@ export const createAccount = async function createAccount(accountData) {
     scopes: accountData.geminiOauth ? accountData.scopes || oauthConfig.scopes.join(' ') : '',
     oauthProvider,
 
-    // ✅ 新增：账户订阅到期时间（业务字段，手动管理）
+    // 新增：账户订阅到期时间（业务字段，手动管理）
     subscriptionExpiresAt: accountData.subscriptionExpiresAt || null,
 
     // 代理设置
@@ -587,16 +585,16 @@ export const updateAccount = async function updateAccount(accountId, updates) {
     }
   }
 
-  // ✅ 关键：如果新增了 refresh token，只更新 token 过期时间
+  // 关键：如果新增了 refresh token，只更新 token 过期时间
   // 不要覆盖 subscriptionExpiresAt
   if (needUpdateExpiry) {
     const newExpiry = new Date(Date.now() + 10 * 60 * 1000).toISOString()
     updates.expiresAt = newExpiry // 只更新 OAuth Token 过期时间
-    // ⚠️ 重要：不要修改 subscriptionExpiresAt
-    logger.info(`🔄 New refresh token added for Gemini account ${accountId}, setting token expiry to 10 minutes`)
+    // 重要：不要修改 subscriptionExpiresAt
+    logger.info(`New refresh token added for Gemini account ${accountId}, setting token expiry to 10 minutes`)
   }
 
-  // ✅ 如果通过路由映射更新了 subscriptionExpiresAt，直接保存
+  // 如果通过路由映射更新了 subscriptionExpiresAt，直接保存
   // subscriptionExpiresAt 是业务字段，与 token 刷新独立
   if (updates.subscriptionExpiresAt !== undefined) {
     // 直接保存，不做任何调整
@@ -631,7 +629,7 @@ export const updateAccount = async function updateAccount(accountId, updates) {
       if (providedExpiry - currentTime > oneHour) {
         const newExpiry = new Date(currentTime + 10 * 60 * 1000).toISOString()
         updates.expiresAt = newExpiry
-        logger.info(`🔄 Adjusted expiry time to 10 minutes for Gemini account ${accountId} with refresh token`)
+        logger.info(`Adjusted expiry time to 10 minutes for Gemini account ${accountId} with refresh token`)
       }
     }
   }
@@ -749,7 +747,7 @@ export const getAllAccounts = async function getAllAccounts() {
         accessToken: accountData.accessToken ? '[ENCRYPTED]' : '',
         refreshToken: accountData.refreshToken ? '[ENCRYPTED]' : '',
 
-        // ✅ 前端显示订阅过期时间（业务字段）
+        // 前端显示订阅过期时间（业务字段）
         // 注意：前端看到的 expiresAt 实际上是 subscriptionExpiresAt
         tokenExpiresAt,
         subscriptionExpiresAt,
@@ -837,7 +835,7 @@ export const selectAvailableAccount = async function selectAvailableAccount(apiK
     if (account && account.isActive === 'true' && !isRateLimited(account) && !isSubscriptionExpired(account)) {
       availableAccounts.push(account)
     } else if (account && isSubscriptionExpired(account)) {
-      logger.debug(`⏰ Skipping expired Gemini account: ${account.name}, expired at ${account.subscriptionExpiresAt}`)
+      logger.debug(`Skipping expired Gemini account: ${account.name}, expired at ${account.subscriptionExpiresAt}`)
     }
   }
 
@@ -939,7 +937,7 @@ export const refreshAccountToken = async function refreshAccountToken(accountId)
 
     if (!lockAcquired) {
       // 如果无法获取锁，说明另一个进程正在刷新
-      logger.info(`🔒 Token refresh already in progress for Gemini account: ${account.name} (${accountId})`)
+      logger.info(`Token refresh already in progress for Gemini account: ${account.name} (${accountId})`)
       tokenRefreshLogger.logRefreshSkipped(accountId, account.name, 'gemini', 'already_locked')
 
       // 等待一段时间后返回，期望其他进程已完成刷新
@@ -967,7 +965,7 @@ export const refreshAccountToken = async function refreshAccountToken(accountId)
 
     // 记录开始刷新
     tokenRefreshLogger.logRefreshStart(accountId, account.name, 'gemini', 'manual_refresh')
-    logger.info(`🔄 Starting token refresh for Gemini account: ${account.name} (${accountId})`)
+    logger.info(`Starting token refresh for Gemini account: ${account.name} (${accountId})`)
 
     // account.refreshToken 已经是解密后的值（从 getAccount 返回）
     // 传入账户的代理配置
@@ -1009,7 +1007,7 @@ export const refreshAccountToken = async function refreshAccountToken(accountId)
         // disableAutoProtection：关闭自动防护时不把账户写成 error（保持可调度、透传上游错误）
         if (account.disableAutoProtection === true || account.disableAutoProtection === 'true') {
           logger.info(
-            `🛡️ Gemini account ${accountId} has auto-protection disabled, skipping error status on token refresh failure`,
+            ` Gemini account ${accountId} has auto-protection disabled, skipping error status on token refresh failure`,
           )
           upstreamErrorHelper
             .recordErrorHistory(
@@ -1070,18 +1068,8 @@ export const setAccountRateLimited = async function setAccountRateLimited(accoun
   if (isLimited) {
     const account = await getAccount(accountId)
     if (account && (account.disableAutoProtection === true || account.disableAutoProtection === 'true')) {
-      logger.info(`🛡️ Account ${accountId} has auto-protection disabled, skipping setAccountRateLimited`)
-      upstreamErrorHelper
-        .recordErrorHistory(
-          accountId,
-          'gemini',
-          429,
-          'rate_limit',
-          upstreamErrorHelper.buildErrorContext({
-            reason: 'auto_protection_disabled_rate_limit',
-          }),
-        )
-        .catch(() => {})
+      logger.info(`Account ${accountId} has auto-protection disabled, skipping setAccountRateLimited`)
+      // 详细错误历史由 relay 层 markTempUnavailable 写入，此处只跳过自动暂停
       return
     }
   }
@@ -1133,7 +1121,7 @@ export const getAccountRateLimitInfo = async function getAccountRateLimitInfo(ac
       rateLimitEndAt: null,
     }
   } catch (error) {
-    logger.error(`❌ Failed to get rate limit info for Gemini account: ${accountId}`, error)
+    logger.error(`Failed to get rate limit info for Gemini account: ${accountId}`, error)
     return null
   }
 }
@@ -1165,9 +1153,9 @@ export const getOauthClient = async function getOauthClient(
   }
 
   if (proxyConfig) {
-    logger.info(`🌐 Using proxy for Gemini OAuth client: ${ProxyHelper.getProxyDescription(proxyConfig)}`)
+    logger.info(`Using proxy for Gemini OAuth client: ${ProxyHelper.getProxyDescription(proxyConfig)}`)
   } else {
-    logger.debug('🌐 No proxy configured for Gemini OAuth client')
+    logger.debug('No proxy configured for Gemini OAuth client')
   }
 
   // 设置凭据
@@ -1183,7 +1171,7 @@ export const getOauthClient = async function getOauthClient(
   // 验证服务器端token状态（检查是否被撤销）
   await client.getTokenInfo(token)
 
-  logger.info('✅ OAuth客户端已创建')
+  logger.info('OAuth客户端已创建')
   return client
 }
 
@@ -1201,7 +1189,7 @@ export const forwardToCodeAssist = async function forwardToCodeAssist(
   const { token } = await client.getAccessToken()
   const proxyAgent = ProxyHelper.createProxyAgent(proxyConfig)
 
-  logger.info(`📡 ${apiMethod} API调用开始`)
+  logger.info(`${apiMethod} API调用开始`)
 
   const axiosConfig = {
     url: `${CODE_ASSIST_ENDPOINT}/${CODE_ASSIST_API_VERSION}:${apiMethod}`,
@@ -1216,17 +1204,17 @@ export const forwardToCodeAssist = async function forwardToCodeAssist(
 
   // 添加代理配置
   if (proxyAgent) {
-    // 只设置 httpsAgent，因为目标 URL 是 HTTPS (cloudcode-pa.googleapis.com)
+    // 目标 URL 为 HTTPS，仅设置 httpsAgent (cloudcode-pa.googleapis.com)
     axiosConfig.httpsAgent = proxyAgent
     axiosConfig.proxy = false
-    logger.info(`🌐 Using proxy for ${apiMethod}: ${ProxyHelper.getProxyDescription(proxyConfig)}`)
+    logger.info(`Using proxy for ${apiMethod}: ${ProxyHelper.getProxyDescription(proxyConfig)}`)
   } else {
-    logger.debug(`🌐 No proxy configured for ${apiMethod}`)
+    logger.debug(`No proxy configured for ${apiMethod}`)
   }
 
   const response = await axios(axiosConfig)
 
-  logger.info(`✅ ${apiMethod} API调用成功`)
+  logger.info(`${apiMethod} API调用成功`)
   return response.data
 }
 
@@ -1237,7 +1225,7 @@ export const loadCodeAssist = async function loadCodeAssist(client, projectId = 
 
   const { token } = await client.getAccessToken()
   const proxyAgent = ProxyHelper.createProxyAgent(proxyConfig)
-  // 🔍 只有个人账户（无 projectId）才需要调用 tokeninfo/userinfo
+  // 只有个人账户（无 projectId）才需要调用 tokeninfo/userinfo
   // 这些调用有助于 Google 获取临时 projectId
   if (!projectId) {
     const tokenInfoConfig = {
@@ -1259,9 +1247,9 @@ export const loadCodeAssist = async function loadCodeAssist(client, projectId = 
 
     try {
       await axios(tokenInfoConfig)
-      logger.info('📋 tokeninfo 接口验证成功')
+      logger.info('tokeninfo 接口验证成功')
     } catch (error) {
-      logger.warn('⚠️ tokeninfo 接口调用失败:', error.message)
+      logger.warn('tokeninfo 接口调用失败:', error.message)
     }
 
     const userInfoConfig = {
@@ -1282,9 +1270,9 @@ export const loadCodeAssist = async function loadCodeAssist(client, projectId = 
 
     try {
       await axios(userInfoConfig)
-      logger.info('📋 userinfo 接口获取成功')
+      logger.info('userinfo 接口获取成功')
     } catch (error) {
-      logger.warn('⚠️ userinfo 接口调用失败:', error.message)
+      logger.warn('userinfo 接口调用失败:', error.message)
     }
   }
 
@@ -1322,17 +1310,17 @@ export const loadCodeAssist = async function loadCodeAssist(client, projectId = 
 
   // 添加代理配置
   if (proxyAgent) {
-    // 只设置 httpsAgent，因为目标 URL 是 HTTPS (cloudcode-pa.googleapis.com)
+    // 目标 URL 为 HTTPS，仅设置 httpsAgent (cloudcode-pa.googleapis.com)
     axiosConfig.httpsAgent = proxyAgent
     axiosConfig.proxy = false
-    logger.info(`🌐 Using proxy for Gemini loadCodeAssist: ${ProxyHelper.getProxyDescription(proxyConfig)}`)
+    logger.info(`Using proxy for Gemini loadCodeAssist: ${ProxyHelper.getProxyDescription(proxyConfig)}`)
   } else {
-    logger.debug('🌐 No proxy configured for Gemini loadCodeAssist')
+    logger.debug('No proxy configured for Gemini loadCodeAssist')
   }
 
   const response = await axios(axiosConfig)
 
-  logger.info('📋 loadCodeAssist API调用成功')
+  logger.info('loadCodeAssist API调用成功')
   return response.data
 }
 
@@ -1398,12 +1386,12 @@ export const onboardUser = async function onboardUser(client, tierId, projectId,
     baseAxiosConfig.httpAgent = proxyAgent
     baseAxiosConfig.httpsAgent = proxyAgent
     baseAxiosConfig.proxy = false
-    logger.info(`🌐 Using proxy for Gemini onboardUser: ${ProxyHelper.getProxyDescription(proxyConfig)}`)
+    logger.info(`Using proxy for Gemini onboardUser: ${ProxyHelper.getProxyDescription(proxyConfig)}`)
   } else {
-    logger.debug('🌐 No proxy configured for Gemini onboardUser')
+    logger.debug('No proxy configured for Gemini onboardUser')
   }
 
-  logger.info('📋 开始onboardUser API调用', {
+  logger.info('开始onboardUser API调用', {
     tierId,
     projectId,
     hasProjectId: !!projectId,
@@ -1417,7 +1405,7 @@ export const onboardUser = async function onboardUser(client, tierId, projectId,
   const maxAttempts = 12 // 最多等待1分钟（5秒 * 12次）
 
   while (!lroRes.data.done && attempts < maxAttempts) {
-    logger.info(`⏳ 等待onboardUser完成... (${attempts + 1}/${maxAttempts})`)
+    logger.info(`等待onboardUser完成... (${attempts + 1}/${maxAttempts})`)
     await new Promise((resolve) => setTimeout(resolve, 5000))
 
     lroRes = await axios(baseAxiosConfig)
@@ -1428,7 +1416,7 @@ export const onboardUser = async function onboardUser(client, tierId, projectId,
     throw new Error('onboardUser操作超时')
   }
 
-  logger.info('✅ onboardUser API调用完成')
+  logger.info('onboardUser API调用完成')
   return lroRes.data
 }
 
@@ -1439,10 +1427,10 @@ export const setupUser = async function setupUser(
   clientMetadata = null,
   proxyConfig = null,
 ) {
-  logger.info('🚀 setupUser 开始', { initialProjectId, hasClientMetadata: !!clientMetadata })
+  logger.info('setupUser 开始', { initialProjectId, hasClientMetadata: !!clientMetadata })
 
   let projectId = initialProjectId || env.GOOGLE_CLOUD_PROJECT || null
-  logger.info('📋 初始项目ID', { projectId, fromEnv: !!env.GOOGLE_CLOUD_PROJECT })
+  logger.info('初始项目ID', { projectId, fromEnv: !!env.GOOGLE_CLOUD_PROJECT })
 
   // 默认的ClientMetadata
   if (!clientMetadata) {
@@ -1452,24 +1440,24 @@ export const setupUser = async function setupUser(
       pluginType: 'GEMINI',
       duetProject: projectId,
     }
-    logger.info('🔧 使用默认 ClientMetadata')
+    logger.info('使用默认 ClientMetadata')
   }
 
   // 调用loadCodeAssist
-  logger.info('📞 调用 loadCodeAssist...')
+  logger.info('调用 loadCodeAssist...')
   const loadRes = await loadCodeAssist(client, projectId, proxyConfig)
-  logger.info('✅ loadCodeAssist 完成', {
+  logger.info('loadCodeAssist 完成', {
     hasCloudaicompanionProject: !!loadRes.cloudaicompanionProject,
   })
 
   // 如果没有projectId，尝试从loadRes获取
   if (!projectId && loadRes.cloudaicompanionProject) {
     projectId = loadRes.cloudaicompanionProject
-    logger.info('📋 从 loadCodeAssist 获取项目ID', { projectId })
+    logger.info('从 loadCodeAssist 获取项目ID', { projectId })
   }
 
   const tier = getOnboardTier(loadRes)
-  logger.info('🎯 获取用户层级', {
+  logger.info('获取用户层级', {
     tierId: tier.id,
     userDefinedProject: tier.userDefinedCloudaicompanionProject,
   })
@@ -1479,9 +1467,9 @@ export const setupUser = async function setupUser(
   }
 
   // 调用onboardUser
-  logger.info('📞 调用 onboardUser...', { tierId: tier.id, projectId })
+  logger.info('调用 onboardUser...', { tierId: tier.id, projectId })
   const lroRes = await onboardUser(client, tier.id, projectId, clientMetadata, proxyConfig)
-  logger.info('✅ onboardUser 完成', { hasDone: !!lroRes.done, hasResponse: !!lroRes.response })
+  logger.info('onboardUser 完成', { hasDone: !!lroRes.done, hasResponse: !!lroRes.response })
 
   const result = {
     projectId: lroRes.response?.cloudaicompanionProject?.id || projectId || '',
@@ -1490,7 +1478,7 @@ export const setupUser = async function setupUser(
     onboardRes: lroRes.response || {},
   }
 
-  logger.info('🎯 setupUser 完成', { resultProjectId: result.projectId, userTier: result.userTier })
+  logger.info('setupUser 完成', { resultProjectId: result.projectId, userTier: result.userTier })
   return result
 }
 
@@ -1514,7 +1502,7 @@ export const countTokens = async function countTokens(
     },
   }
 
-  logger.info('📊 countTokens API调用开始', { model, contentsLength: contents.length })
+  logger.info('countTokens API调用开始', { model, contentsLength: contents.length })
 
   const axiosConfig = {
     url: `${CODE_ASSIST_ENDPOINT}/${CODE_ASSIST_API_VERSION}:countTokens`,
@@ -1530,17 +1518,17 @@ export const countTokens = async function countTokens(
   // 添加代理配置
   const proxyAgent = ProxyHelper.createProxyAgent(proxyConfig)
   if (proxyAgent) {
-    // 只设置 httpsAgent，因为目标 URL 是 HTTPS (cloudcode-pa.googleapis.com)
+    // 目标 URL 为 HTTPS，仅设置 httpsAgent (cloudcode-pa.googleapis.com)
     axiosConfig.httpsAgent = proxyAgent
     axiosConfig.proxy = false
-    logger.info(`🌐 Using proxy for Gemini countTokens: ${ProxyHelper.getProxyDescription(proxyConfig)}`)
+    logger.info(`Using proxy for Gemini countTokens: ${ProxyHelper.getProxyDescription(proxyConfig)}`)
   } else {
-    logger.debug('🌐 No proxy configured for Gemini countTokens')
+    logger.debug('No proxy configured for Gemini countTokens')
   }
 
   const response = await axios(axiosConfig)
 
-  logger.info('✅ countTokens API调用成功', { totalTokens: response.data.totalTokens })
+  logger.info('countTokens API调用成功', { totalTokens: response.data.totalTokens })
   return response.data
 }
 
@@ -1577,7 +1565,7 @@ export const generateContent = async function generateContent(
     request.project = projectId
   }
 
-  logger.info('🤖 generateContent API调用开始', {
+  logger.info('generateContent API调用开始', {
     model: requestData.model,
     userPromptId,
     projectId,
@@ -1585,7 +1573,7 @@ export const generateContent = async function generateContent(
   })
 
   // 添加详细的请求日志
-  logger.info('📦 generateContent 请求详情', {
+  logger.info('generateContent 请求详情', {
     url: `${CODE_ASSIST_ENDPOINT}/${CODE_ASSIST_API_VERSION}:generateContent`,
     requestBody: JSON.stringify(request, null, 2),
   })
@@ -1604,19 +1592,19 @@ export const generateContent = async function generateContent(
   // 添加代理配置
   const proxyAgent = ProxyHelper.createProxyAgent(proxyConfig)
   if (proxyAgent) {
-    // 只设置 httpsAgent，因为目标 URL 是 HTTPS (cloudcode-pa.googleapis.com)
+    // 目标 URL 为 HTTPS，仅设置 httpsAgent (cloudcode-pa.googleapis.com)
     axiosConfig.httpsAgent = proxyAgent
     axiosConfig.proxy = false
-    logger.info(`🌐 Using proxy for Gemini generateContent: ${ProxyHelper.getProxyDescription(proxyConfig)}`)
+    logger.info(`Using proxy for Gemini generateContent: ${ProxyHelper.getProxyDescription(proxyConfig)}`)
   } else {
     // 没有代理时，使用 keepAlive agent 防止长时间请求被中断
     axiosConfig.httpsAgent = keepAliveAgent
-    logger.debug('🌐 Using keepAlive agent for Gemini generateContent')
+    logger.debug('Using keepAlive agent for Gemini generateContent')
   }
 
   const response = await axios(axiosConfig)
 
-  logger.info('✅ generateContent API调用成功')
+  logger.info('generateContent API调用成功')
   return response.data
 }
 
@@ -1637,7 +1625,7 @@ export const generateContentAntigravity = async function generateContentAntigrav
     userPromptId,
   })
 
-  logger.info('🪐 Antigravity generateContent API调用开始', {
+  logger.info('Antigravity generateContent API调用开始', {
     model,
     userPromptId,
     projectId,
@@ -1653,7 +1641,7 @@ export const generateContentAntigravity = async function generateContentAntigrav
     userPromptId,
     stream: false,
   })
-  logger.info('✅ Antigravity generateContent API调用成功')
+  logger.info('Antigravity generateContent API调用成功')
   return response.data
 }
 
@@ -1691,7 +1679,7 @@ export const generateContentStream = async function generateContentStream(
     request.project = projectId
   }
 
-  logger.info('🌊 streamGenerateContent API调用开始', {
+  logger.info('streamGenerateContent API调用开始', {
     model: requestData.model,
     userPromptId,
     projectId,
@@ -1716,15 +1704,15 @@ export const generateContentStream = async function generateContentStream(
   // 添加代理配置
   const proxyAgent = ProxyHelper.createProxyAgent(proxyConfig)
   if (proxyAgent) {
-    // 只设置 httpsAgent，因为目标 URL 是 HTTPS (cloudcode-pa.googleapis.com)
+    // 目标 URL 为 HTTPS，仅设置 httpsAgent (cloudcode-pa.googleapis.com)
     // 同时设置 httpAgent 和 httpsAgent 可能导致 axios/follow-redirects 选择错误的协议
     axiosConfig.httpsAgent = proxyAgent
     axiosConfig.proxy = false
-    logger.info(`🌐 Using proxy for Gemini streamGenerateContent: ${ProxyHelper.getProxyDescription(proxyConfig)}`)
+    logger.info(`Using proxy for Gemini streamGenerateContent: ${ProxyHelper.getProxyDescription(proxyConfig)}`)
   } else {
     // 没有代理时，使用 keepAlive agent 防止长时间流式请求被中断
     axiosConfig.httpsAgent = keepAliveAgent
-    logger.debug('🌐 Using keepAlive agent for Gemini streamGenerateContent')
+    logger.debug('Using keepAlive agent for Gemini streamGenerateContent')
   }
 
   // 如果提供了中止信号，添加到配置中
@@ -1734,7 +1722,7 @@ export const generateContentStream = async function generateContentStream(
 
   const response = await axios(axiosConfig)
 
-  logger.info('✅ streamGenerateContent API调用成功，开始流式传输')
+  logger.info('streamGenerateContent API调用成功，开始流式传输')
   return response.data // 返回流对象
 }
 
@@ -1756,7 +1744,7 @@ export const generateContentStreamAntigravity = async function generateContentSt
     userPromptId,
   })
 
-  logger.info('🌊 Antigravity streamGenerateContent API调用开始', {
+  logger.info('Antigravity streamGenerateContent API调用开始', {
     model,
     userPromptId,
     projectId,
@@ -1774,7 +1762,7 @@ export const generateContentStreamAntigravity = async function generateContentSt
     signal,
     params: { alt: 'sse' },
   })
-  logger.info('✅ Antigravity streamGenerateContent API调用成功，开始流式传输')
+  logger.info('Antigravity streamGenerateContent API调用成功，开始流式传输')
   return response.data
 }
 
@@ -1820,7 +1808,7 @@ export const resetAccountStatus = async function resetAccountStatus(accountId) {
   }
 
   await updateAccount(accountId, updates)
-  logger.info(`✅ Reset all error status for Gemini account ${accountId}`)
+  logger.info(`Reset all error status for Gemini account ${accountId}`)
 
   // 清除临时不可用状态
   await upstreamErrorHelper.clearTempUnavailable(accountId, 'gemini').catch(() => {})
@@ -1836,7 +1824,7 @@ export const resetAccountStatus = async function resetAccountStatus(accountId) {
       reason: 'Account status manually reset',
       timestamp: new Date().toISOString(),
     })
-    logger.info(`📢 Webhook notification sent for Gemini account ${account.name} status reset`)
+    logger.info(`Webhook notification sent for Gemini account ${account.name} status reset`)
   } catch (webhookError) {
     logger.error('Failed to send status reset webhook notification:', webhookError)
   }

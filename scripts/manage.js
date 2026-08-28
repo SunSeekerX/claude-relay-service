@@ -49,7 +49,7 @@ export class ServiceManager {
   writePid(pid) {
     try {
       fs.writeFileSync(PID_FILE, pid.toString())
-      console.log(`✅ PID ${pid} 已保存到 ${PID_FILE}`)
+      console.log(`PID ${pid} 已保存到 ${PID_FILE}`)
     } catch (error) {
       console.error('写入PID文件失败:', error.message)
     }
@@ -59,7 +59,7 @@ export class ServiceManager {
     try {
       if (fs.existsSync(PID_FILE)) {
         fs.unlinkSync(PID_FILE)
-        console.log('🗑️  已清理PID文件')
+        console.log('已清理PID文件')
       }
     } catch (error) {
       console.error('清理PID文件失败:', error.message)
@@ -77,11 +77,11 @@ export class ServiceManager {
   start(daemon = false) {
     const status = this.getStatus()
     if (status.running) {
-      console.log(`⚠️  服务已在运行中 (PID: ${status.pid})`)
+      console.log(`服务已在运行中 (PID: ${status.pid})`)
       return false
     }
 
-    console.log('🚀 启动 Claude Relay Service...')
+    console.log('启动 Claude Relay Service...')
 
     if (daemon) {
       // 后台运行模式 - 使用nohup实现真正的后台运行
@@ -90,19 +90,19 @@ export class ServiceManager {
 
       execChild(command, (error, stdout) => {
         if (error) {
-          console.error('❌ 后台启动失败:', error.message)
+          console.error('后台启动失败:', error.message)
           return
         }
 
         const pid = parseInt(stdout.trim())
         if (pid && !isNaN(pid)) {
           this.writePid(pid)
-          console.log(`🔄 服务已在后台启动 (PID: ${pid})`)
-          console.log(`📝 日志文件: ${LOG_FILE}`)
-          console.log(`❌ 错误日志: ${ERROR_LOG_FILE}`)
-          console.log('✅ 终端现在可以安全关闭')
+          console.log(`服务已在后台启动 (PID: ${pid})`)
+          console.log(`日志文件: ${LOG_FILE}`)
+          console.log(`错误日志: ${ERROR_LOG_FILE}`)
+          console.log('终端现在可以安全关闭')
         } else {
-          console.error('❌ 无法获取进程ID')
+          console.error('无法获取进程ID')
         }
       })
 
@@ -116,7 +116,7 @@ export class ServiceManager {
         stdio: 'inherit',
       })
 
-      console.log(`🔄 服务已启动 (PID: ${child.pid})`)
+      console.log(`服务已启动 (PID: ${child.pid})`)
 
       this.writePid(child.pid)
 
@@ -124,12 +124,12 @@ export class ServiceManager {
       child.on('exit', (code, signal) => {
         this.removePidFile()
         if (code !== 0) {
-          console.log(`💥 进程退出 (代码: ${code}, 信号: ${signal})`)
+          console.log(`进程退出 (代码: ${code}, 信号: ${signal})`)
         }
       })
 
       child.on('error', (error) => {
-        console.error('❌ 启动失败:', error.message)
+        console.error('启动失败:', error.message)
         this.removePidFile()
       })
     }
@@ -140,12 +140,12 @@ export class ServiceManager {
   stop() {
     const status = this.getStatus()
     if (!status.running) {
-      console.log('⚠️  服务未在运行')
+      console.log('服务未在运行')
       this.removePidFile() // 清理可能存在的过期PID文件
       return false
     }
 
-    console.log(`🛑 停止服务 (PID: ${status.pid})...`)
+    console.log(`停止服务 (PID: ${status.pid})...`)
 
     try {
       // 优雅关闭：先发送SIGTERM
@@ -159,25 +159,25 @@ export class ServiceManager {
         attempts++
         if (!this.isProcessRunning(status.pid)) {
           clearInterval(checkExit)
-          console.log('✅ 服务已停止')
+          console.log('服务已停止')
           this.removePidFile()
           return
         }
 
         if (attempts >= maxAttempts) {
           clearInterval(checkExit)
-          console.log('⚠️  优雅关闭超时，强制终止进程...')
+          console.log('优雅关闭超时，强制终止进程...')
           try {
             process.kill(status.pid, 'SIGKILL')
-            console.log('✅ 服务已强制停止')
+            console.log('服务已强制停止')
           } catch (error) {
-            console.error('❌ 强制停止失败:', error.message)
+            console.error('强制停止失败:', error.message)
           }
           this.removePidFile()
         }
       }, 1000)
     } catch (error) {
-      console.error('❌ 停止服务失败:', error.message)
+      console.error('停止服务失败:', error.message)
       this.removePidFile()
       return false
     }
@@ -186,7 +186,7 @@ export class ServiceManager {
   }
 
   restart(daemon = false) {
-    console.log('🔄 重启服务...')
+    console.log('重启服务...')
     this.stop()
     // 等待停止完成
     setTimeout(() => {
@@ -199,24 +199,24 @@ export class ServiceManager {
   status() {
     const status = this.getStatus()
     if (status.running) {
-      console.log(`✅ 服务正在运行 (PID: ${status.pid})`)
+      console.log(`服务正在运行 (PID: ${status.pid})`)
 
       // 显示进程信息
       execChild(`ps -p ${status.pid} -o pid,ppid,pcpu,pmem,etime,cmd --no-headers`, (error, stdout) => {
         if (!error && stdout.trim()) {
-          console.log('\n📊 进程信息:')
+          console.log('\n进程信息:')
           console.log('PID\tPPID\tCPU%\tMEM%\tTIME\t\tCOMMAND')
           console.log(stdout.trim())
         }
       })
     } else {
-      console.log('❌ 服务未运行')
+      console.log('服务未运行')
     }
     return status.running
   }
 
   logs(lines = 50) {
-    console.log(`📖 最近 ${lines} 行日志:\n`)
+    console.log(`最近 ${lines} 行日志:\n`)
 
     execChild(`tail -n ${lines} ${LOG_FILE}`, (error, stdout) => {
       if (error) {
@@ -229,7 +229,7 @@ export class ServiceManager {
 
   help() {
     console.log(`
-🔧 Claude Relay Service 进程管理器
+Claude Relay Service 进程管理器
 
 用法: npm run service <command> [options]
 
@@ -322,7 +322,7 @@ function main() {
       manager.help()
       break
     default:
-      console.log('❌ 未知命令:', command)
+      console.log('未知命令:', command)
       manager.help()
       process.exit(1)
   }

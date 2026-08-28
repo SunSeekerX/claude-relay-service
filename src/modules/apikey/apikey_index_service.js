@@ -47,7 +47,7 @@ class ApiKeyIndexService {
    */
   async checkAndRebuild() {
     if (!this.redis) {
-      logger.warn('⚠️ ApiKeyIndexService: Redis not initialized')
+      logger.warn('ApiKeyIndexService: Redis not initialized')
       return
     }
 
@@ -57,27 +57,27 @@ class ApiKeyIndexService {
 
       // 始终检查并回填 hash_map（幂等操作，确保升级兼容）
       this.rebuildHashMap().catch((err) => {
-        logger.error('❌ API Key hash_map 回填失败:', err)
+        logger.error('API Key hash_map 回填失败:', err)
       })
 
       if (parseInt(version) >= this.CURRENT_VERSION) {
-        logger.info('✅ API Key 索引已是最新版本')
+        logger.info('API Key 索引已是最新版本')
         // 列表索引(ALL/ACTIVE/DELETED/排序/名称/标签等)无 TTL、无读侧自愈:启动先做一次漂移检测,
         // 发现任一索引与 hash 真实状态不一致即触发重建自愈(纯 Redis 架构对"无 SQL 列表"的补偿)
         this.detectAndHealMainIndexDrift().catch((err) => {
-          logger.error('❌ API Key 列表索引漂移检测失败:', err)
+          logger.error('API Key 列表索引漂移检测失败:', err)
         })
       } else {
         // 后台异步重建，不阻塞启动
         this.rebuildIndexes().catch((err) => {
-          logger.error('❌ API Key 索引重建失败:', err)
+          logger.error('API Key 索引重建失败:', err)
         })
       }
 
       // 启动后再起周期后台对账：之后写事务若出现部分提交漂移，≤DRIFT_SCAN_INTERVAL_MS 内自动收敛，不必等重启/手动重建
       this.startPeriodicDriftScan()
     } catch (error) {
-      logger.error('❌ 检查 API Key 索引版本失败:', error)
+      logger.error('检查 API Key 索引版本失败:', error)
     }
   }
 
@@ -93,7 +93,7 @@ class ApiKeyIndexService {
         try {
           await this.detectAndHealMainIndexDrift()
         } catch (err) {
-          logger.error('❌ 周期 API Key 索引漂移检测失败:', err)
+          logger.error('周期 API Key 索引漂移检测失败:', err)
         }
         if (!this._driftStopped) {
           tick() // 本轮跑完再排下一轮，避免上一轮未完就叠加
@@ -163,10 +163,10 @@ class ApiKeyIndexService {
       }
 
       if (rebuilt > 0) {
-        logger.info(`🔧 回填了 ${rebuilt} 个 API Key 到 hash_map`)
+        logger.info(`回填了 ${rebuilt} 个 API Key 到 hash_map`)
       }
     } catch (error) {
-      logger.error('❌ 回填 hash_map 失败:', error)
+      logger.error('回填 hash_map 失败:', error)
       throw error
     }
   }
@@ -209,7 +209,7 @@ class ApiKeyIndexService {
    */
   async rebuildIndexes() {
     if (this.isBuilding) {
-      logger.warn('⚠️ API Key 索引正在重建中，跳过')
+      logger.warn('API Key 索引正在重建中，跳过')
       return
     }
 
@@ -218,7 +218,7 @@ class ApiKeyIndexService {
 
     try {
       const client = this.redis.getClientSafe()
-      logger.info('🔨 开始重建 API Key 索引...')
+      logger.info('开始重建 API Key 索引...')
 
       // 0. 先删除版本号，让 _checkIndexReady 返回 false，查询回退到 SCAN
       await client.del(this.INDEX_VERSION_KEY)
@@ -242,7 +242,7 @@ class ApiKeyIndexService {
       const keyIds = await this.redis.scanApiKeyIds()
       this.buildProgress = { current: 0, total: keyIds.length }
 
-      logger.info(`📊 发现 ${keyIds.length} 个 API Key，开始建立索引...`)
+      logger.info(`发现 ${keyIds.length} 个 API Key，开始建立索引...`)
 
       // 3. 批量处理（每批 500 个）
       const BATCH_SIZE = 500
@@ -299,9 +299,9 @@ class ApiKeyIndexService {
       await client.set(this.INDEX_VERSION_KEY, this.CURRENT_VERSION)
 
       const duration = ((Date.now() - startTime) / 1000).toFixed(2)
-      logger.success(`✅ API Key 索引重建完成，共 ${keyIds.length} 条，耗时 ${duration}s`)
+      logger.success(`API Key 索引重建完成，共 ${keyIds.length} 条，耗时 ${duration}s`)
     } catch (error) {
-      logger.error('❌ API Key 索引重建失败:', error)
+      logger.error('API Key 索引重建失败:', error)
       throw error
     } finally {
       this.isBuilding = false
@@ -309,10 +309,10 @@ class ApiKeyIndexService {
   }
 
   // 漂移检测 + 自愈：以 hash 真实状态为准，核对主列表读路径依赖的全部索引——
-  //   ALL_SET / ACTIVE_SET / DELETED_SET（状态筛选）、CREATED_AT / LAST_USED_AT（排序分数）、NAME（名称排序成员）、DELETED_AT（回收站成员 + 删除时间分数）。
-  //   以及 per-tag 集合 apikey:tag:* 与 tags:all：成员须 ∈ 该 key 真实 tags（既剔死/孤儿成员，也揪出串错集合的 live key），读路径 scard>0 才是有效信号。
+  // ALL_SET / ACTIVE_SET / DELETED_SET（状态筛选）、CREATED_AT / LAST_USED_AT（排序分数）、NAME（名称排序成员）、DELETED_AT（回收站成员 + 删除时间分数）。
+  // 以及 per-tag 集合 apikey:tag:* 与 tags:all：成员须 ∈ 该 key 真实 tags（既剔死/孤儿成员，也揪出串错集合的 live key），读路径 scard>0 才是有效信号。
   // 为何不能只比基数：禁用未删 key 不入任何状态集合，ACTIVE/DELETED 的成员对错无法由基数反推；排序分数过期(member 在、score 旧)
-  //   也不改变基数。故必须读 hash 逐个核对成员资格 + 分数 + 名称成员，任一不符即触发现有重建自愈（rebuild 一次性重建所有索引，含标签）。
+  // 也不改变基数。故必须读 hash 逐个核对成员资格 + 分数 + 名称成员，任一不符即触发现有重建自愈（rebuild 一次性重建所有索引，含标签）。
   // 成员资格/分数规则与 rebuildIndexes 共用 _indexEntryForKey；MULTI 非回滚 + 列表索引无 TTL，故需此 out-of-band 收敛，取代已下线的读时惰性修复。
   // 触发时机：checkAndRebuild 启动时一次 + startPeriodicDriftScan 周期一次——把启动后写事务部分提交漂移的收敛窗口从"重启/手动重建"缩到 ≤ 间隔。
   async detectAndHealMainIndexDrift() {
@@ -486,7 +486,7 @@ class ApiKeyIndexService {
         .catch((err) => logger.error('记录索引对账状态失败:', err))
       return
     }
-    logger.warn(`⚠️ API Key 列表索引漂移（${reason}），触发重建自愈`)
+    logger.warn(`API Key 列表索引漂移（${reason}），触发重建自愈`)
     try {
       await client.hset(this.DRIFT_KEY, {
         lastCheckAt: nowIso,
@@ -562,7 +562,7 @@ class ApiKeyIndexService {
       queue(pipeline)
       await pipeline.exec()
     } catch (error) {
-      logger.error(`❌ 添加 API Key ${apiKey.id} 到索引失败:`, error)
+      logger.error(`添加 API Key ${apiKey.id} 到索引失败:`, error)
     }
   }
 
@@ -653,7 +653,7 @@ class ApiKeyIndexService {
       }
       return removedTags
     } catch (error) {
-      logger.error(`❌ 更新 API Key ${keyId} 索引失败:`, error)
+      logger.error(`更新 API Key ${keyId} 索引失败:`, error)
       return []
     }
   }
@@ -700,7 +700,7 @@ class ApiKeyIndexService {
         }
       }
     } catch (error) {
-      logger.error(`❌ 从索引移除 API Key ${keyId} 失败:`, error)
+      logger.error(`从索引移除 API Key ${keyId} 失败:`, error)
     }
   }
 
@@ -823,7 +823,7 @@ class ApiKeyIndexService {
       }
 
       // 4. 分页：只读当前页（O(pageSize)）。total 取候选集大小（索引筛选结果）——
-      //    写入并入同一 MULTI、索引稳态干净，故信任 ZINTERSTORE/筛选集给出的候选与排序，不再全量 HGETALL 回内存重排。
+      // 写入并入同一 MULTI、索引稳态干净，故信任 ZINTERSTORE/筛选集给出的候选与排序，不再全量 HGETALL 回内存重排。
       const total = sortedKeyIds.length
       const totalPages = Math.max(Math.ceil(total / pageSize), 1)
       const validPage = Math.min(Math.max(1, page), totalPages)
@@ -860,7 +860,7 @@ class ApiKeyIndexService {
 
       // 纯读：只把当前页里与筛选不符的项（已删 / 孤儿 / 标签不符）从展示结果剔除，绝不在读路径改动索引。
       // 关键：分页 offset 基于"未清理候选集"算出，若读时 ZREM 脏项会把后续页的真实项整体左移，
-      //       造成翻页时跨页漏项 / 重复（分页序列错乱，比"当前页短几条"严重得多）。
+      // 造成翻页时跨页漏项 / 重复（分页序列错乱，比"当前页短几条"严重得多）。
       // 脏项由同一 MULTI 写入收窄、由启动漂移检测 + 重建愈合；读路径保持纯读、offset 稳定。
       const items = []
       for (const keyId of pageKeyIds) {
@@ -896,7 +896,7 @@ class ApiKeyIndexService {
    * 使用 deletedAt 索引分页查询已删除的 API Key（按删除时间倒序）——只读当前页（O(pageSize)）、纯读。
    * 软删/恢复/彻底删都在同一 MULTI 内维护 deletedAt 索引（取代两段式 best-effort），稳态下索引干净、ZCARD/分页即准确。
    * 关键：只把当前页里的僵尸项（hash 已彻底删除 / 已恢复残留）从展示剔除，绝不在读路径 ZREM 改动索引——
-   *       否则会改变后续页的 offset（基于未清理索引算出），翻页时跨页漏项 / 重复。僵尸由同一 MULTI 写入收窄、由重建愈合。
+   * 否则会改变后续页的 offset（基于未清理索引算出），翻页时跨页漏项 / 重复。僵尸由同一 MULTI 写入收窄、由重建愈合。
    * tradeoff：有残留僵尸时当前页可能短几条、total 可能短暂偏高，随重建自愈。
    */
   async queryDeletedWithIndex({ page = 1, pageSize = 20 } = {}) {
@@ -987,7 +987,7 @@ class ApiKeyIndexService {
       const timestamp = lastUsedAt ? new Date(lastUsedAt).getTime() : Date.now()
       await client.zadd(this.INDEX_KEYS.LAST_USED_AT, timestamp, keyId)
     } catch (error) {
-      logger.error(`❌ 更新 API Key ${keyId} lastUsedAt 索引失败:`, error)
+      logger.error(`更新 API Key ${keyId} lastUsedAt 索引失败:`, error)
     }
   }
 

@@ -71,9 +71,9 @@ class CostInitService {
    */
   async initializeAllCosts() {
     try {
-      logger.info('💰 Starting cost initialization for all API Keys...')
+      logger.info('Starting cost initialization for all API Keys...')
       // [audit] concern 2：重建缺失费用用的是当前价格，可能与请求发生时的价格有出入（仅补缺失不覆盖）
-      logger.warn('💰 [audit] 费用初始化将按【当前价格】重建缺失的历史费用，重建值可能与请求当时价格有出入')
+      logger.warn('[audit] 费用初始化将按【当前价格】重建缺失的历史费用，重建值可能与请求当时价格有出入')
 
       // 用 scanApiKeyIds 获取 ID，然后过滤已删除的
       const allKeyIds = await redis.scanApiKeyIds()
@@ -102,7 +102,7 @@ class CostInitService {
       }
 
       logger.info(
-        `💰 Found ${apiKeyIds.length} active API Keys to process (filtered ${allKeyIds.length - apiKeyIds.length} deleted)`,
+        `Found ${apiKeyIds.length} active API Keys to process (filtered ${allKeyIds.length - apiKeyIds.length} deleted)`,
       )
 
       let processedCount = 0
@@ -122,25 +122,25 @@ class CostInitService {
             processedCount++
 
             if (processedCount % 100 === 0) {
-              logger.info(`💰 Processed ${processedCount}/${apiKeyIds.length} API Keys...`)
+              logger.info(`Processed ${processedCount}/${apiKeyIds.length} API Keys...`)
             }
           } catch (error) {
             errorCount++
-            logger.error(`❌ Failed to initialize costs for API Key ${apiKeyId}:`, error)
+            logger.error(`Failed to initialize costs for API Key ${apiKeyId}:`, error)
           }
         },
         20, // 并发数
       )
 
       logger.success(
-        `💰 Cost initialization completed! Processed: ${processedCount}, Errors: ${errorCount}, Reconstructed@currentPrice: ${reconstructedCount}`,
+        `Cost initialization completed! Processed: ${processedCount}, Errors: ${errorCount}, Reconstructed@currentPrice: ${reconstructedCount}`,
       )
       if (reconstructedCount > 0) {
-        logger.warn(`💰 [audit] 本次按当前价格重建了 ${reconstructedCount} 条缺失费用，如对历史价格敏感请核对`)
+        logger.warn(`[audit] 本次按当前价格重建了 ${reconstructedCount} 条缺失费用，如对历史价格敏感请核对`)
       }
       return { processed: processedCount, errors: errorCount, reconstructed: reconstructedCount }
     } catch (error) {
-      logger.error('❌ Failed to initialize costs:', error)
+      logger.error('Failed to initialize costs:', error)
       throw error
     }
   }
@@ -270,12 +270,12 @@ class CostInitService {
 
       if (!existingTotal || parseFloat(existingTotal) === 0) {
         pipeline.set(totalKey, totalCost.toString())
-        logger.info(`💰 Initialized total cost for API Key ${apiKeyId}: $${totalCost.toFixed(6)}`)
+        logger.info(`Initialized total cost for API Key ${apiKeyId}: $${totalCost.toFixed(6)}`)
       } else {
         const existing = parseFloat(existingTotal)
         if (totalCost > existing * 1.1) {
           logger.warn(
-            `💰 Total cost mismatch for API Key ${apiKeyId}: existing=$${existing.toFixed(6)}, calculated=$${totalCost.toFixed(6)} (from last 30 days). Keeping existing value.`,
+            `Total cost mismatch for API Key ${apiKeyId}: existing=$${existing.toFixed(6)}, calculated=$${totalCost.toFixed(6)} (from last 30 days). Keeping existing value.`,
           )
         }
       }
@@ -295,12 +295,12 @@ class CostInitService {
 
     if (reconstructed > 0) {
       logger.warn(
-        `💰 [audit] 按当前价格为 API Key ${apiKeyId} 重建了 ${reconstructed} 条缺失费用（可能与请求当时价格有出入）`,
+        `[audit] 按当前价格为 API Key ${apiKeyId} 重建了 ${reconstructed} 条缺失费用（可能与请求当时价格有出入）`,
       )
     }
 
     logger.debug(
-      `💰 Initialized costs for API Key ${apiKeyId}: Daily entries: ${dailyCosts.size}, Total cost: $${totalCost.toFixed(2)}, reconstructed: ${reconstructed}`,
+      `Initialized costs for API Key ${apiKeyId}: Daily entries: ${dailyCosts.size}, Total cost: $${totalCost.toFixed(2)}, reconstructed: ${reconstructed}`,
     )
     return reconstructed
   }
@@ -327,7 +327,7 @@ class CostInitService {
       } while (cursor !== '0')
 
       if (!hasCostData) {
-        logger.info('💰 No cost data found, initialization needed')
+        logger.info('No cost data found, initialization needed')
         return true
       }
 
@@ -364,7 +364,7 @@ class CostInitService {
             const hasCost = await client.exists(costKey)
 
             if (!hasCost) {
-              logger.info(`💰 Found usage without cost data for key ${keyId} on ${date}, initialization needed`)
+              logger.info(`Found usage without cost data for key ${keyId} on ${date}, initialization needed`)
               return true
             }
             samplesChecked++
@@ -376,10 +376,10 @@ class CostInitService {
         }
       } while (cursor !== '0')
 
-      logger.info('💰 Cost data appears to be up to date')
+      logger.info('Cost data appears to be up to date')
       return false
     } catch (error) {
-      logger.error('❌ Failed to check initialization status:', error)
+      logger.error('Failed to check initialization status:', error)
       return false
     }
   }

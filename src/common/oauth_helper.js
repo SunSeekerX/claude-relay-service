@@ -173,12 +173,12 @@ export const exchangeCodeForTokens = async function exchangeCodeForTokens(
 
   try {
     if (agent) {
-      logger.info(`🌐 Using proxy for OAuth token exchange: ${ProxyHelper.maskProxyInfo(proxyConfig)}`)
+      logger.info(`Using proxy for OAuth token exchange: ${ProxyHelper.maskProxyInfo(proxyConfig)}`)
     } else {
-      logger.debug('🌐 No proxy configured for OAuth token exchange')
+      logger.debug('No proxy configured for OAuth token exchange')
     }
 
-    logger.debug('🔄 Attempting OAuth token exchange', {
+    logger.debug('Attempting OAuth token exchange', {
       url: OAUTH_CONFIG.TOKEN_URL,
       codeLength: cleanedCode.length,
       codePrefix: `${cleanedCode.substring(0, 10)}...`,
@@ -210,7 +210,7 @@ export const exchangeCodeForTokens = async function exchangeCodeForTokens(
     logger.authDetail('OAuth token exchange response', response.data)
 
     // 记录简化版本到主日志
-    logger.info('📊 OAuth token exchange response (analyzing for subscription info):', {
+    logger.info('OAuth token exchange response (analyzing for subscription info):', {
       status: response.status,
       hasData: !!response.data,
       dataKeys: response.data ? Object.keys(response.data) : [],
@@ -242,7 +242,7 @@ export const exchangeCodeForTokens = async function exchangeCodeForTokens(
       accessToken: data.access_token,
       refreshToken: data.refresh_token,
       expiresAt: (Math.floor(Date.now() / 1000) + data.expires_in) * 1000,
-      scopes: data.scope ? data.scope.split(' ') : ['user:inference', 'user:profile'],
+      scopes: data.scope ? data.scope.split('') : ['user:inference', 'user:profile'],
       isMax: true,
       organization: organizationInfo,
       account: accountInfo,
@@ -259,7 +259,7 @@ export const exchangeCodeForTokens = async function exchangeCodeForTokens(
         features: data.features,
         limits: data.limits,
       }
-      logger.info('🎯 Found subscription info in OAuth response:', result.subscriptionInfo)
+      logger.info('Found subscription info in OAuth response:', result.subscriptionInfo)
     }
 
     return result
@@ -270,7 +270,7 @@ export const exchangeCodeForTokens = async function exchangeCodeForTokens(
       const { status } = error.response
       const errorData = error.response.data
 
-      logger.error('❌ OAuth token exchange failed with server error', {
+      logger.error('OAuth token exchange failed with server error', {
         status,
         statusText: error.response.statusText,
         headers: error.response.headers,
@@ -288,7 +288,7 @@ export const exchangeCodeForTokens = async function exchangeCodeForTokens(
         } else if (errorData.error) {
           errorMessage += `: ${errorData.error}`
           if (errorData.error_description) {
-            errorMessage += ` - ${errorData.error_description}`
+            errorMessage += `- ${errorData.error_description}`
           }
         } else {
           errorMessage += `: ${JSON.stringify(errorData)}`
@@ -298,7 +298,7 @@ export const exchangeCodeForTokens = async function exchangeCodeForTokens(
       throw new Error(`Token exchange failed: ${errorMessage}`, { cause: error })
     } else if (error.request) {
       // 请求被发送但没有收到响应
-      logger.error('❌ OAuth token exchange failed with network error', {
+      logger.error('OAuth token exchange failed with network error', {
         message: error.message,
         code: error.code,
         hasProxy: !!proxyConfig,
@@ -306,7 +306,7 @@ export const exchangeCodeForTokens = async function exchangeCodeForTokens(
       throw new Error('Token exchange failed: No response from server (network error or timeout)', { cause: error })
     } else {
       // 其他错误
-      logger.error('❌ OAuth token exchange failed with unknown error', {
+      logger.error('OAuth token exchange failed with unknown error', {
         message: error.message,
         stack: error.stack,
       })
@@ -396,12 +396,12 @@ export const exchangeSetupTokenCode = async function exchangeSetupTokenCode(
 
   try {
     if (agent) {
-      logger.info(`🌐 Using proxy for Setup Token exchange: ${ProxyHelper.maskProxyInfo(proxyConfig)}`)
+      logger.info(`Using proxy for Setup Token exchange: ${ProxyHelper.maskProxyInfo(proxyConfig)}`)
     } else {
-      logger.debug('🌐 No proxy configured for Setup Token exchange')
+      logger.debug('No proxy configured for Setup Token exchange')
     }
 
-    logger.debug('🔄 Attempting Setup Token exchange', {
+    logger.debug('Attempting Setup Token exchange', {
       url: OAUTH_CONFIG.TOKEN_URL,
       codeLength: cleanedCode.length,
       codePrefix: `${cleanedCode.substring(0, 10)}...`,
@@ -433,7 +433,7 @@ export const exchangeSetupTokenCode = async function exchangeSetupTokenCode(
     logger.authDetail('Setup Token exchange response', response.data)
 
     // 记录简化版本到主日志
-    logger.info('📊 Setup Token exchange response (analyzing for subscription info):', {
+    logger.info('Setup Token exchange response (analyzing for subscription info):', {
       status: response.status,
       hasData: !!response.data,
       dataKeys: response.data ? Object.keys(response.data) : [],
@@ -464,7 +464,7 @@ export const exchangeSetupTokenCode = async function exchangeSetupTokenCode(
       accessToken: data.access_token,
       refreshToken: '',
       expiresAt: (Math.floor(Date.now() / 1000) + data.expires_in) * 1000,
-      scopes: data.scope ? data.scope.split(' ') : ['user:inference', 'user:profile'],
+      scopes: data.scope ? data.scope.split('') : ['user:inference', 'user:profile'],
       isMax: true,
       organization: organizationInfo,
       account: accountInfo,
@@ -481,7 +481,7 @@ export const exchangeSetupTokenCode = async function exchangeSetupTokenCode(
         features: data.features,
         limits: data.limits,
       }
-      logger.info('🎯 Found subscription info in Setup Token response:', result.subscriptionInfo)
+      logger.info('Found subscription info in Setup Token response:', result.subscriptionInfo)
     }
 
     return result
@@ -491,7 +491,7 @@ export const exchangeSetupTokenCode = async function exchangeSetupTokenCode(
       const { status } = error.response
       const errorData = error.response.data
 
-      logger.error('❌ Setup Token exchange failed with server error', {
+      logger.error('Setup Token exchange failed with server error', {
         status,
         statusText: error.response.statusText,
         data: errorData,
@@ -506,7 +506,7 @@ export const exchangeSetupTokenCode = async function exchangeSetupTokenCode(
         } else if (errorData.error) {
           errorMessage += `: ${errorData.error}`
           if (errorData.error_description) {
-            errorMessage += ` - ${errorData.error_description}`
+            errorMessage += `- ${errorData.error_description}`
           }
         } else {
           errorMessage += `: ${JSON.stringify(errorData)}`
@@ -515,7 +515,7 @@ export const exchangeSetupTokenCode = async function exchangeSetupTokenCode(
 
       throw new Error(`Setup Token exchange failed: ${errorMessage}`, { cause: error })
     } else if (error.request) {
-      logger.error('❌ Setup Token exchange failed with network error', {
+      logger.error('Setup Token exchange failed with network error', {
         message: error.message,
         code: error.code,
         hasProxy: !!proxyConfig,
@@ -524,7 +524,7 @@ export const exchangeSetupTokenCode = async function exchangeSetupTokenCode(
         cause: error,
       })
     } else {
-      logger.error('❌ Setup Token exchange failed with unknown error', {
+      logger.error('Setup Token exchange failed with unknown error', {
         message: error.message,
         stack: error.stack,
       })
@@ -617,10 +617,10 @@ export const getOrganizationInfo = async function getOrganizationInfo(sessionKey
 
   try {
     if (agent) {
-      logger.info(`🌐 Using proxy for organization info: ${ProxyHelper.maskProxyInfo(proxyConfig)}`)
+      logger.info(`Using proxy for organization info: ${ProxyHelper.maskProxyInfo(proxyConfig)}`)
     }
 
-    logger.debug('🔄 Fetching organization info with Cookie', {
+    logger.debug('Fetching organization info with Cookie', {
       url: COOKIE_OAUTH_CONFIG.ORGANIZATIONS_URL,
       hasProxy: !!proxyConfig,
     })
@@ -739,10 +739,10 @@ export const authorizeWithCookie = async function authorizeWithCookie(
 
   try {
     if (agent) {
-      logger.info(`🌐 Using proxy for Cookie authorization: ${ProxyHelper.maskProxyInfo(proxyConfig)}`)
+      logger.info(`Using proxy for Cookie authorization: ${ProxyHelper.maskProxyInfo(proxyConfig)}`)
     }
 
-    logger.debug('🔄 Requesting authorization with Cookie', {
+    logger.debug('Requesting authorization with Cookie', {
       url: authorizeUrl,
       scope,
       hasProxy: !!proxyConfig,
@@ -769,7 +769,7 @@ export const authorizeWithCookie = async function authorizeWithCookie(
       throw new Error('授权响应中未找到redirect_uri')
     }
 
-    logger.debug('📎 Got redirect URI', { redirectUri: `${redirectUri.substring(0, 80)}...` })
+    logger.debug('Got redirect URI', { redirectUri: `${redirectUri.substring(0, 80)}...` })
 
     // 解析redirect_uri获取authorization code
     const url = new URL(redirectUri)
@@ -833,7 +833,7 @@ export const authorizeWithCookie = async function authorizeWithCookie(
  * @returns {Promise<{claudeAiOauth: object, organizationUuid: string, capabilities: string[]}>}
  */
 export const oauthWithCookie = async function oauthWithCookie(sessionKey, proxyConfig = null, isSetupToken = false) {
-  logger.info('🍪 Starting Cookie-based OAuth flow', {
+  logger.info('Starting Cookie-based OAuth flow', {
     isSetupToken,
     hasProxy: !!proxyConfig,
   })

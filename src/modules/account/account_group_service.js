@@ -1,7 +1,13 @@
+import crypto from 'node:crypto'
+
+import { config } from '../../../config/config.js'
 import { logger } from '../../common/logger.js'
+import * as timezone from '../../common/timezone.js'
 import { redis } from '../../infra/redis.js'
 import { RedisKeys } from '../../infra/redis_key.js'
-import crypto from 'node:crypto'
+
+import * as groupConstants from './account_group_constants.js'
+import { invalidateExclusiveMemberCache } from './account_group_policy.js'
 
 class AccountGroupService {
   /**
@@ -18,11 +24,11 @@ class AccountGroupService {
       // 检查是否已迁移
       const migrated = await client.get(RedisKeys.accountGroup.reverseMigrated)
       if (migrated === 'true') {
-        logger.debug('📁 账户分组反向索引已存在，跳过回填')
+        logger.debug('账户分组反向索引已存在，跳过回填')
         return
       }
 
-      logger.info('📁 开始回填账户分组反向索引...')
+      logger.info('开始回填账户分组反向索引...')
 
       const allGroupIds = await client.smembers(RedisKeys.accountGroup.groups)
       if (allGroupIds.length === 0) {
@@ -52,9 +58,9 @@ class AccountGroupService {
       }
 
       await client.set(RedisKeys.accountGroup.reverseMigrated, 'true')
-      logger.success(`📁 账户分组反向索引回填完成，共 ${totalOperations} 条`)
+      logger.success(`账户分组反向索引回填完成，共 ${totalOperations} 条`)
     } catch (error) {
-      logger.error('❌ 账户分组反向索引回填失败:', error)
+      logger.error('账户分组反向索引回填失败:', error)
     }
   }
 
@@ -67,8 +73,9 @@ class AccountGroupService {
    * @returns {Object} 创建的分组
    */
   async createGroup(groupData) {
+    invalidateExclusiveMemberCache()
     try {
-      const { name, platform, description = '' } = groupData
+      const { name, platform } = groupData
 
       // 验证必填字段
       if (!name || !platform) {
@@ -76,19 +83,33 @@ class AccountGroupService {
       }
 
       // 验证平台类型
-      if (!['claude', 'gemini', 'openai', 'droid', 'grok'].includes(platform)) {
-        throw new Error('平台类型必须是 claude、gemini、openai、droid 或 grok')
+      if (!groupConstants.isValidGroupPlatform(platform)) {
+        throw new Error(`平台类型必须是 ${groupConstants.GROUP_PLATFORMS.join('、')}`)
       }
 
       const client = redis.getClientSafe()
       const groupId = crypto.randomUUID()
       const now = new Date().toISOString()
 
+      const extras = groupConstants.normalizeGroupWritableFields({
+        ...groupData,
+        name,
+        description: groupData.description || '',
+      })
+
       const group = {
         id: groupId,
-        name,
+        name: extras.name || String(name).trim(),
         platform,
-        description,
+        description: extras.description || '',
+        rateMultiplier: extras.rateMultiplier || '1',
+        isExclusive: extras.isExclusive || 'false',
+        claudeCodeOnly: extras.claudeCodeOnly || 'false',
+        rpmLimit: extras.rpmLimit || '0',
+        dailyLimitUsd: extras.dailyLimitUsd || '',
+        weeklyLimitUsd: extras.weeklyLimitUsd || '',
+        monthlyLimitUsd: extras.monthlyLimitUsd || '',
+        modelWhitelist: extras.modelWhitelist || '[]',
         createdAt: now,
         updatedAt: now,
       }
@@ -99,11 +120,11 @@ class AccountGroupService {
       // 添加到分组集合
       await client.sadd(RedisKeys.accountGroup.groups, groupId)
 
-      logger.success(`创建账户分组成功: ${name} (${platform})`)
+      logger.success(`创建账户分组成功: ${group.name} (${platform})`)
 
-      return group
+      return groupConstants.presentGroup(group, { memberCount: 0 })
     } catch (error) {
-      logger.error('❌ 创建账户分组失败:', error)
+      logger.error('创建账户分组失败:', error)
       throw error
     }
   }
@@ -115,6 +136,7 @@ class AccountGroupService {
    * @returns {Object} 更新后的分组
    */
   async updateGroup(groupId, updates) {
+    invalidateExclusiveMemberCache()
     try {
       const client = redis.getClientSafe()
       const groupKey = RedisKeys.accountGroup.group(groupId)
@@ -133,28 +155,31 @@ class AccountGroupService {
         throw new Error('不能修改分组的平台类型')
       }
 
-      // 准备更新数据
+      // 只允许写约定字段，避免外部塞入任意 hash key
       const updateData = {
-        ...updates,
+        ...groupConstants.normalizeGroupWritableFields(updates),
         updatedAt: new Date().toISOString(),
       }
-
-      // 移除不允许修改的字段
       delete updateData.id
       delete updateData.platform
       delete updateData.createdAt
+
+      if (Object.keys(updateData).length <= 1) {
+        // 仅 updatedAt
+        throw new Error('没有可更新的字段')
+      }
 
       // 更新分组
       await client.hmset(groupKey, updateData)
 
       // 返回更新后的完整数据
-      const updatedGroup = await client.hgetall(groupKey)
+      const updatedGroup = await this.getGroup(groupId)
 
       logger.success(`更新账户分组成功: ${updatedGroup.name}`)
 
       return updatedGroup
     } catch (error) {
-      logger.error('❌ 更新账户分组失败:', error)
+      logger.error('更新账户分组失败:', error)
       throw error
     }
   }
@@ -164,6 +189,7 @@ class AccountGroupService {
    * @param {string} groupId - 分组ID
    */
   async deleteGroup(groupId) {
+    invalidateExclusiveMemberCache()
     try {
       const client = redis.getClientSafe()
 
@@ -194,7 +220,7 @@ class AccountGroupService {
 
       logger.success(`删除账户分组成功: ${group.name}`)
     } catch (error) {
-      logger.error('❌ 删除账户分组失败:', error)
+      logger.error('删除账户分组失败:', error)
       throw error
     }
   }
@@ -216,12 +242,38 @@ class AccountGroupService {
       // 获取成员数量
       const memberCount = await client.scard(RedisKeys.accountGroup.members(groupId))
 
-      return {
-        ...groupData,
-        memberCount: memberCount || 0,
+      // 业务时区日/周/月已用额度（与 group_policy 记账键一致）
+      let usageCost = { daily: 0, weekly: 0, monthly: 0 }
+      try {
+        const offset = config.system.timezoneOffset
+        const now = new Date()
+        const day = timezone.getDateStringInTimezone(now, offset)
+        const week = timezone.getWeekStringInTimezone(now, offset)
+        const month = day.slice(0, 7)
+        const [dailyRaw, weeklyRaw, monthlyRaw] = await Promise.all([
+          client.get(RedisKeys.accountGroup.costDaily(groupId, day)),
+          client.get(RedisKeys.accountGroup.costWeekly(groupId, week)),
+          client.get(RedisKeys.accountGroup.costMonthly(groupId, month)),
+        ])
+        const toNumber = (raw) => {
+          const value = Number(raw)
+          return Number.isFinite(value) ? value : 0
+        }
+        usageCost = {
+          daily: toNumber(dailyRaw),
+          weekly: toNumber(weeklyRaw),
+          monthly: toNumber(monthlyRaw),
+        }
+      } catch (usageError) {
+        logger.debug(`[account-group] usage cost read skip groupId=${groupId}: ${usageError.message}`)
       }
+
+      return groupConstants.presentGroup(groupData, {
+        memberCount: memberCount || 0,
+        usageCost,
+      })
     } catch (error) {
-      logger.error('❌ 获取分组详情失败:', error)
+      logger.error('获取分组详情失败:', error)
       throw error
     }
   }
@@ -252,7 +304,7 @@ class AccountGroupService {
 
       return groups
     } catch (error) {
-      logger.error('❌ 获取分组列表失败:', error)
+      logger.error('获取分组列表失败:', error)
       throw error
     }
   }
@@ -264,6 +316,7 @@ class AccountGroupService {
    * @param {string} accountPlatform - 账户平台
    */
   async addAccountToGroup(accountId, groupId, accountPlatform) {
+    invalidateExclusiveMemberCache()
     try {
       const client = redis.getClientSafe()
 
@@ -273,10 +326,12 @@ class AccountGroupService {
         throw new Error('分组不存在')
       }
 
-      // 验证平台一致性 (Claude和Claude Console视为同一平台)
-      const normalizedAccountPlatform = accountPlatform === 'claude-console' ? 'claude' : accountPlatform
+      // 验证平台一致性：账户子类型归一到分组 platform
+      const normalizedAccountPlatform = groupConstants.mapAccountPlatformToGroupPlatform(accountPlatform)
       if (normalizedAccountPlatform !== group.platform) {
-        throw new Error('账户平台与分组平台不匹配')
+        throw new Error(
+          `账户平台与分组平台不匹配（账户=${accountPlatform}${normalizedAccountPlatform}, 分组=${group.platform}）`,
+        )
       }
 
       // 添加到分组成员集合
@@ -287,7 +342,7 @@ class AccountGroupService {
 
       logger.success(`添加账户到分组成功: ${accountId} -> ${group.name}`)
     } catch (error) {
-      logger.error('❌ 添加账户到分组失败:', error)
+      logger.error('添加账户到分组失败:', error)
       throw error
     }
   }
@@ -299,6 +354,7 @@ class AccountGroupService {
    * @param {string} platform - 平台（可选，如果不传则从分组获取）
    */
   async removeAccountFromGroup(accountId, groupId, platform = null) {
+    invalidateExclusiveMemberCache()
     try {
       const client = redis.getClientSafe()
 
@@ -317,7 +373,7 @@ class AccountGroupService {
 
       logger.success(`从分组移除账户成功: ${accountId}`)
     } catch (error) {
-      logger.error('❌ 从分组移除账户失败:', error)
+      logger.error('从分组移除账户失败:', error)
       throw error
     }
   }
@@ -333,7 +389,7 @@ class AccountGroupService {
       const members = await client.smembers(RedisKeys.accountGroup.members(groupId))
       return members || []
     } catch (error) {
-      logger.error('❌ 获取分组成员失败:', error)
+      logger.error('获取分组成员失败:', error)
       throw error
     }
   }
@@ -348,7 +404,7 @@ class AccountGroupService {
       const members = await this.getGroupMembers(groupId)
       return members.length === 0
     } catch (error) {
-      logger.error('❌ 检查分组是否为空失败:', error)
+      logger.error('检查分组是否为空失败:', error)
       throw error
     }
   }
@@ -372,9 +428,13 @@ class AccountGroupService {
         if (
           keyData &&
           (keyData.claudeAccountId === groupKey ||
+            keyData.claudeConsoleAccountId === groupKey ||
             keyData.geminiAccountId === groupKey ||
             keyData.openaiAccountId === groupKey ||
-            keyData.droidAccountId === groupKey)
+            keyData.bedrockAccountId === groupKey ||
+            keyData.azureOpenaiAccountId === groupKey ||
+            keyData.droidAccountId === groupKey ||
+            keyData.grokAccountId === groupKey)
         ) {
           boundApiKeys.push({
             id: keyId,
@@ -385,7 +445,7 @@ class AccountGroupService {
 
       return boundApiKeys
     } catch (error) {
-      logger.error('❌ 获取使用分组的API Key失败:', error)
+      logger.error('获取使用分组的API Key失败:', error)
       throw error
     }
   }
@@ -409,7 +469,7 @@ class AccountGroupService {
 
       return null
     } catch (error) {
-      logger.error('❌ 获取账户所属分组失败:', error)
+      logger.error('获取账户所属分组失败:', error)
       throw error
     }
   }
@@ -440,7 +500,7 @@ class AccountGroupService {
 
       return memberGroups
     } catch (error) {
-      logger.error('❌ 获取账户所属分组列表失败:', error)
+      logger.error('获取账户所属分组列表失败:', error)
       throw error
     }
   }
@@ -452,6 +512,7 @@ class AccountGroupService {
    * @param {string} accountPlatform - 账户平台
    */
   async setAccountGroups(accountId, groupIds, accountPlatform) {
+    invalidateExclusiveMemberCache()
     try {
       // 首先移除账户的所有现有分组
       await this.removeAccountFromAllGroups(accountId)
@@ -463,7 +524,7 @@ class AccountGroupService {
 
       logger.success(`批量设置账户分组成功: ${accountId} -> [${groupIds.join(', ')}]`)
     } catch (error) {
-      logger.error('❌ 批量设置账户分组失败:', error)
+      logger.error('批量设置账户分组失败:', error)
       throw error
     }
   }
@@ -474,6 +535,7 @@ class AccountGroupService {
    * @param {string} platform - 平台（可选，用于清理反向索引）
    */
   async removeAccountFromAllGroups(accountId, platform = null) {
+    invalidateExclusiveMemberCache()
     try {
       const client = redis.getClientSafe()
       const allGroupIds = await client.smembers(RedisKeys.accountGroup.groups)
@@ -487,7 +549,7 @@ class AccountGroupService {
         await client.del(RedisKeys.accountGroup.reverse(platform, accountId))
       } else {
         // 如果没有指定平台，清理所有可能的平台
-        const platforms = ['claude', 'gemini', 'openai', 'droid', 'grok']
+        const platforms = [...groupConstants.GROUP_PLATFORMS]
         const pipeline = client.pipeline()
         for (const p of platforms) {
           pipeline.del(RedisKeys.accountGroup.reverse(p, accountId))
@@ -497,7 +559,7 @@ class AccountGroupService {
 
       logger.success(`从所有分组移除账户成功: ${accountId}`)
     } catch (error) {
-      logger.error('❌ 从所有分组移除账户失败:', error)
+      logger.error('从所有分组移除账户失败:', error)
       throw error
     }
   }
@@ -545,7 +607,7 @@ class AccountGroupService {
       if (!hasAnyGroups) {
         const migrated = await client.get(RedisKeys.accountGroup.reverseMigrated)
         if (migrated !== 'true') {
-          logger.debug('📁 Reverse index not migrated, falling back to getAccountGroups')
+          logger.debug('Reverse index not migrated, falling back to getAccountGroups')
           const result = new Map()
           for (const accountId of accountIds) {
             try {
@@ -625,7 +687,7 @@ class AccountGroupService {
 
       return result
     } catch (error) {
-      logger.error('❌ 批量获取账户分组失败:', error)
+      logger.error('批量获取账户分组失败:', error)
       return new Map(accountIds.map((id) => [id, []]))
     }
   }

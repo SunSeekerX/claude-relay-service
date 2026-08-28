@@ -122,9 +122,9 @@ export const isLoopbackHost = (host) => {
 }
 
 // 根据实际监听地址推导横幅要展示的 Local / Network 主机（对齐 llysc 的 Local:/Network: 契约）。
-//   - 通配（0.0.0.0 / ::）：Local=localhost，Network=所有局域网 IPv4（逐条列出，用户自行识别物理网卡/Docker/WSL/VPN）
-//   - 回环（127.0.0.0/8 / ::1 / localhost）：仅 Local=localhost，无 Network（打了也连不上）
-//   - 指定 IP：该地址作为 Network（非回环时无 localhost）
+// - 通配（0.0.0.0 / ::）：Local=localhost，Network=所有局域网 IPv4（逐条列出，用户自行识别物理网卡/Docker/WSL/VPN）
+// - 回环（127.0.0.0/8 / ::1 / localhost）：仅 Local=localhost，无 Network（打了也连不上）
+// - 指定 IP：该地址作为 Network（非回环时无 localhost）
 // 返回 { local, networks }，host 已做 IPv6 方括号处理；两者可能为空。interfaces 可注入便于测试。
 export const getBannerEndpoints = (bindHost, interfaces) => {
   const isWildcard = bindHost === '0.0.0.0' || bindHost === '::' || bindHost === ''

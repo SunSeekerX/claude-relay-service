@@ -15,7 +15,7 @@ class CcrRelayService {
     this.defaultUserAgent = 'claude-relay-service/1.0.0'
   }
 
-  // 🚀 转发请求到CCR API
+  // 转发请求到CCR API
   async relayRequest(requestBody, apiKeyData, clientRequest, clientResponse, clientHeaders, accountId, options = {}) {
     let abortController = null
     let account = null
@@ -24,11 +24,11 @@ class CcrRelayService {
     let proxyResolution
 
     try {
-      // 📬 用户消息队列处理
+      // 用户消息队列处理
       if (userMessageQueueService.isUserMessageRequest(requestBody)) {
         // 校验 accountId 非空，避免空值污染队列锁键
         if (!accountId || accountId === '') {
-          logger.error('❌ accountId missing for queue lock in CCR relayRequest')
+          logger.error('accountId missing for queue lock in CCR relayRequest')
           throw new Error('accountId missing for queue lock')
         }
         const queueResult = await userMessageQueueService.acquireQueueLock(accountId)
@@ -52,7 +52,7 @@ class CcrRelayService {
           })
 
           logger.warn(
-            `📬 User message queue ${errorType} for CCR account ${accountId}`,
+            `User message queue ${errorType} for CCR account ${accountId}`,
             isBackendError ? { backendError: queueResult.errorMessage } : {},
           )
           return {
@@ -75,7 +75,7 @@ class CcrRelayService {
         if (queueResult.acquired && !queueResult.skipped) {
           queueLockAcquired = true
           queueRequestId = queueResult.requestId
-          logger.debug(`📬 User message queue lock acquired for CCR account ${accountId}, requestId: ${queueRequestId}`)
+          logger.debug(`User message queue lock acquired for CCR account ${accountId}, requestId: ${queueRequestId}`)
         }
       }
 
@@ -86,16 +86,16 @@ class CcrRelayService {
       }
 
       logger.info(
-        `📤 Processing CCR API request for key: ${apiKeyData.name || apiKeyData.id}, account: ${account.name} (${accountId})`,
+        `Processing CCR API request for key: ${apiKeyData.name || apiKeyData.id}, account: ${account.name} (${accountId})`,
       )
-      logger.debug(`🌐 Account API URL: ${account.apiUrl}`)
-      logger.debug(`🔍 Account supportedModels: ${JSON.stringify(account.supportedModels)}`)
-      logger.debug(`🔑 Account has apiKey: ${!!account.apiKey}`)
-      logger.debug(`📝 Request model: ${requestBody.model}`)
+      logger.debug(`Account API URL: ${account.apiUrl}`)
+      logger.debug(`Account supportedModels: ${JSON.stringify(account.supportedModels)}`)
+      logger.debug(`Account has apiKey: ${!!account.apiKey}`)
+      logger.debug(`Request model: ${requestBody.model}`)
 
       // 处理模型前缀解析和映射
       const { baseModel } = parseVendorPrefixedModel(requestBody.model)
-      logger.debug(`🔄 Parsed base model: ${baseModel} from original: ${requestBody.model}`)
+      logger.debug(`Parsed base model: ${baseModel} from original: ${requestBody.model}`)
 
       let mappedModel = baseModel
       if (
@@ -105,7 +105,7 @@ class CcrRelayService {
       ) {
         const newModel = ccrAccountService.getMappedModel(account.supportedModels, baseModel)
         if (newModel !== baseModel) {
-          logger.info(`🔄 Mapping model from ${baseModel} to ${newModel}`)
+          logger.info(`Mapping model from ${baseModel} to ${newModel}`)
           mappedModel = newModel
         }
       }
@@ -126,7 +126,7 @@ class CcrRelayService {
       // 客户端断开必须清理上游：非流式 abort；只用 res 判据
       let detachClientDisconnect = () => {}
       const handleClientDisconnect = () => {
-        logger.info('🔌 Client disconnected during CCR request; aborting upstream')
+        logger.info('Client disconnected during CCR request; aborting upstream')
         if (abortController && !abortController.signal.aborted) {
           abortController.abort()
         }
@@ -148,7 +148,7 @@ class CcrRelayService {
         apiEndpoint = cleanUrl.endsWith('/v1/messages') ? cleanUrl : `${cleanUrl}/v1/messages`
       }
 
-      logger.debug(`🎯 Final API endpoint: ${apiEndpoint}`)
+      logger.debug(`Final API endpoint: ${apiEndpoint}`)
       logger.debug(`[DEBUG] Options passed to relayRequest: ${JSON.stringify(options)}`)
       logger.debug(`[DEBUG] Client headers received: ${JSON.stringify(clientHeaders)}`)
 
@@ -204,21 +204,21 @@ class CcrRelayService {
       }
 
       // 发送请求
-      logger.debug('📤 Sending request to CCR API with headers:', JSON.stringify(requestConfig.headers, null, 2))
+      logger.debug('Sending request to CCR API with headers:', JSON.stringify(requestConfig.headers, null, 2))
       const response = await axios(requestConfig)
 
-      // 📬 请求已发送成功，立即释放队列锁（无需等待响应处理完成）
-      // 因为 Claude API 限流基于请求发送时刻计算（RPM），不是请求完成时刻
+      // 请求已发送成功，立即释放队列锁（无需等待响应处理完成）
+      // Claude API 限流基于请求发送时刻计算（RPM），不是请求完成时刻
       if (queueLockAcquired && queueRequestId && accountId) {
         try {
           await userMessageQueueService.releaseQueueLock(accountId, queueRequestId)
           queueLockAcquired = false // 标记已释放，防止 finally 重复释放
           logger.debug(
-            `📬 User message queue lock released early for CCR account ${accountId}, requestId: ${queueRequestId}`,
+            `User message queue lock released early for CCR account ${accountId}, requestId: ${queueRequestId}`,
           )
         } catch (releaseError) {
           logger.error(
-            `❌ Failed to release user message queue lock early for CCR account ${accountId}:`,
+            `Failed to release user message queue lock early for CCR account ${accountId}:`,
             releaseError.message,
           )
         }
@@ -227,7 +227,7 @@ class CcrRelayService {
       // 移除监听器（请求成功完成）
       detachClientDisconnect()
 
-      logger.debug(`🔗 CCR API response: ${response.status}`)
+      logger.debug(`CCR API response: ${response.status}`)
       logger.debug(`[DEBUG] Response headers: ${JSON.stringify(response.headers)}`)
       logger.debug(`[DEBUG] Response data type: ${typeof response.data}`)
       logger.debug(
@@ -252,50 +252,46 @@ class CcrRelayService {
             })
           : null
       if (response.status === 401) {
-        logger.warn(`🚫 Unauthorized error detected for CCR account ${accountId}`)
-        const autoProtectionDisabled =
-          account?.disableAutoProtection === true || account?.disableAutoProtection === 'true'
-        if (!autoProtectionDisabled) {
-          await upstreamErrorHelper.markTempUnavailable(accountId, 'ccr', 401, null, errorContext).catch(() => {})
-        }
+        logger.warn(`Unauthorized error detected for CCR account ${accountId}`)
+
+        await upstreamErrorHelper.markTempUnavailable(accountId, 'ccr', 401, null, errorContext).catch(() => {})
       } else if (response.status === 429) {
-        logger.warn(`🚫 Rate limit detected for CCR account ${accountId}`)
-        // 收到429先检查是否因为超过了手动配置的每日额度
+        logger.warn(`Rate limit detected for CCR account ${accountId}`)
+        // 收到429先检查是否超过手动配置的每日额度
         await ccrAccountService.checkQuotaUsage(accountId).catch((err) => {
-          logger.error('❌ Failed to check quota after 429 error:', err)
+          logger.error('Failed to check quota after 429 error:', err)
         })
 
-        await ccrAccountService.markAccountRateLimited(accountId)
         const autoProtectionDisabled =
           account?.disableAutoProtection === true || account?.disableAutoProtection === 'true'
         if (!autoProtectionDisabled) {
-          await upstreamErrorHelper
-            .markTempUnavailable(
-              accountId,
-              'ccr',
-              429,
-              upstreamErrorHelper.parseRetryAfter(response.headers),
-              errorContext,
-            )
-            .catch(() => {})
+          await ccrAccountService.markAccountRateLimited(accountId)
         }
+
+        await upstreamErrorHelper
+          .markTempUnavailable(
+            accountId,
+            'ccr',
+            429,
+            upstreamErrorHelper.parseRetryAfter(response.headers),
+            errorContext,
+          )
+          .catch(() => {})
       } else if (response.status === 529) {
-        logger.warn(`🚫 Overload error detected for CCR account ${accountId}`)
-        await ccrAccountService.markAccountOverloaded(accountId)
+        logger.warn(`Overload error detected for CCR account ${accountId}`)
         const autoProtectionDisabled =
           account?.disableAutoProtection === true || account?.disableAutoProtection === 'true'
         if (!autoProtectionDisabled) {
-          await upstreamErrorHelper.markTempUnavailable(accountId, 'ccr', 529, null, errorContext).catch(() => {})
+          await ccrAccountService.markAccountOverloaded(accountId)
         }
+
+        await upstreamErrorHelper.markTempUnavailable(accountId, 'ccr', 529, null, errorContext).catch(() => {})
       } else if (response.status >= 500) {
-        logger.warn(`🔥 Server error (${response.status}) detected for CCR account ${accountId}`)
-        const autoProtectionDisabled =
-          account?.disableAutoProtection === true || account?.disableAutoProtection === 'true'
-        if (!autoProtectionDisabled) {
-          await upstreamErrorHelper
-            .markTempUnavailable(accountId, 'ccr', response.status, null, errorContext)
-            .catch(() => {})
-        }
+        logger.warn(`Server error (${response.status}) detected for CCR account ${accountId}`)
+
+        await upstreamErrorHelper
+          .markTempUnavailable(accountId, 'ccr', response.status, null, errorContext)
+          .catch(() => {})
       } else if (response.status === 200 || response.status === 201) {
         // 如果请求成功，检查并移除错误状态
         const isRateLimited = await ccrAccountService.isAccountRateLimited(accountId)
@@ -332,46 +328,39 @@ class CcrRelayService {
         throw new Error('Client disconnected', { cause: error })
       }
 
-      logger.error(`❌ CCR relay request failed (Account: ${account?.name || accountId}):`, error.message)
+      logger.error(`CCR relay request failed (Account: ${account?.name || accountId}):`, error.message)
 
       // 网络错误标记临时不可用
       if (accountId && !error.response) {
-        const autoProtectionDisabled =
-          account?.disableAutoProtection === true || account?.disableAutoProtection === 'true'
-        if (!autoProtectionDisabled) {
-          const errorContext = upstreamErrorHelper.buildErrorContext({
-            url: error.config?.url,
-            method: error.config?.method,
-            requestHeaders: error.config?.headers,
-            requestBody: error.config?.data,
-            model: error.config?.data?.model,
-            responseStatus: 503,
-            message: error.message,
-          })
-          await upstreamErrorHelper.markTempUnavailable(accountId, 'ccr', 503, null, errorContext).catch(() => {})
-        }
+        const errorContext = upstreamErrorHelper.buildErrorContext({
+          url: error.config?.url,
+          method: error.config?.method,
+          requestHeaders: error.config?.headers,
+          requestBody: error.config?.data,
+          model: error.config?.data?.model,
+          responseStatus: 503,
+          message: error.message,
+        })
+        await upstreamErrorHelper.markTempUnavailable(accountId, 'ccr', 503, null, errorContext).catch(() => {})
       }
 
       throw error
     } finally {
-      // 📬 释放用户消息队列锁（兜底，正常情况下已在请求发送后提前释放）
+      // 释放用户消息队列锁（兜底，正常情况下已在请求发送后提前释放）
       if (queueLockAcquired && queueRequestId && accountId) {
         try {
           await userMessageQueueService.releaseQueueLock(accountId, queueRequestId)
           logger.debug(
-            `📬 User message queue lock released in finally for CCR account ${accountId}, requestId: ${queueRequestId}`,
+            `User message queue lock released in finally for CCR account ${accountId}, requestId: ${queueRequestId}`,
           )
         } catch (releaseError) {
-          logger.error(
-            `❌ Failed to release user message queue lock for CCR account ${accountId}:`,
-            releaseError.message,
-          )
+          logger.error(`Failed to release user message queue lock for CCR account ${accountId}:`, releaseError.message)
         }
       }
     }
   }
 
-  // 🌊 处理流式响应
+  // 处理流式响应
   async relayStreamRequestWithUsageCapture(
     requestBody,
     apiKeyData,
@@ -388,11 +377,11 @@ class CcrRelayService {
     let proxyResolution
 
     try {
-      // 📬 用户消息队列处理
+      // 用户消息队列处理
       if (userMessageQueueService.isUserMessageRequest(requestBody)) {
         // 校验 accountId 非空，避免空值污染队列锁键
         if (!accountId || accountId === '') {
-          logger.error('❌ accountId missing for queue lock in CCR relayStreamRequestWithUsageCapture')
+          logger.error('accountId missing for queue lock in CCR relayStreamRequestWithUsageCapture')
           throw new Error('accountId missing for queue lock')
         }
         const queueResult = await userMessageQueueService.acquireQueueLock(accountId)
@@ -406,7 +395,7 @@ class CcrRelayService {
             : 'User message queue wait timeout, please retry later'
           const statusCode = isBackendError ? 500 : 503
 
-          // 结构化性能日志，用于后续��计
+          // 结构化性能日志，用于后续计
           logger.performance('user_message_queue_error', {
             errorType,
             errorCode,
@@ -417,7 +406,7 @@ class CcrRelayService {
           })
 
           logger.warn(
-            `📬 User message queue ${errorType} for CCR account ${accountId} (stream)`,
+            `User message queue ${errorType} for CCR account ${accountId} (stream)`,
             isBackendError ? { backendError: queueResult.errorMessage } : {},
           )
           if (!responseStream.headersSent) {
@@ -446,7 +435,7 @@ class CcrRelayService {
           queueLockAcquired = true
           queueRequestId = queueResult.requestId
           logger.debug(
-            `📬 User message queue lock acquired for CCR account ${accountId} (stream), requestId: ${queueRequestId}`,
+            `User message queue lock acquired for CCR account ${accountId} (stream), requestId: ${queueRequestId}`,
           )
         }
       }
@@ -458,13 +447,13 @@ class CcrRelayService {
       }
 
       logger.info(
-        `📡 Processing streaming CCR API request for key: ${apiKeyData.name || apiKeyData.id}, account: ${account.name} (${accountId})`,
+        `Processing streaming CCR API request for key: ${apiKeyData.name || apiKeyData.id}, account: ${account.name} (${accountId})`,
       )
-      logger.debug(`🌐 Account API URL: ${account.apiUrl}`)
+      logger.debug(`Account API URL: ${account.apiUrl}`)
 
       // 处理模型前缀解析和映射
       const { baseModel } = parseVendorPrefixedModel(requestBody.model)
-      logger.debug(`🔄 Parsed base model: ${baseModel} from original: ${requestBody.model}`)
+      logger.debug(`Parsed base model: ${baseModel} from original: ${requestBody.model}`)
 
       let mappedModel = baseModel
       if (
@@ -474,7 +463,7 @@ class CcrRelayService {
       ) {
         const newModel = ccrAccountService.getMappedModel(account.supportedModels, baseModel)
         if (newModel !== baseModel) {
-          logger.info(`🔄 [Stream] Mapping model from ${baseModel} to ${newModel}`)
+          logger.info(`[Stream] Mapping model from ${baseModel} to ${newModel}`)
           mappedModel = newModel
         }
       }
@@ -501,18 +490,18 @@ class CcrRelayService {
         usageCallback,
         streamTransformer,
         options,
-        // 📬 回调：在收到响应头时释放队列锁
+        // 回调：在收到响应头时释放队列锁
         async () => {
           if (queueLockAcquired && queueRequestId && accountId) {
             try {
               await userMessageQueueService.releaseQueueLock(accountId, queueRequestId)
               queueLockAcquired = false // 标记已释放，防止 finally 重复释放
               logger.debug(
-                `📬 User message queue lock released early for CCR stream account ${accountId}, requestId: ${queueRequestId}`,
+                `User message queue lock released early for CCR stream account ${accountId}, requestId: ${queueRequestId}`,
               )
             } catch (releaseError) {
               logger.error(
-                `❌ Failed to release user message queue lock early for CCR stream account ${accountId}:`,
+                `Failed to release user message queue lock early for CCR stream account ${accountId}:`,
                 releaseError.message,
               )
             }
@@ -525,39 +514,35 @@ class CcrRelayService {
     } catch (error) {
       // 客户端主动断开连接是正常情况，使用 INFO 级别
       if (error.message === 'Client disconnected') {
-        logger.info(`🔌 CCR stream relay ended: Client disconnected (Account: ${account?.name || accountId})`)
+        logger.info(`CCR stream relay ended: Client disconnected (Account: ${account?.name || accountId})`)
       } else {
-        logger.error(`❌ CCR stream relay failed (Account: ${account?.name || accountId}):`, error)
+        logger.error(`CCR stream relay failed (Account: ${account?.name || accountId}):`, error)
         // 网络错误标记临时不可用
         if (accountId && !error.response) {
-          const autoProtectionDisabled =
-            account?.disableAutoProtection === true || account?.disableAutoProtection === 'true'
-          if (!autoProtectionDisabled) {
-            const errorContext = upstreamErrorHelper.buildErrorContext({
-              url: error.config?.url,
-              method: error.config?.method,
-              requestHeaders: error.config?.headers,
-              requestBody: error.config?.data,
-              model: error.config?.data?.model,
-              responseStatus: 503,
-              message: error.message,
-            })
-            await upstreamErrorHelper.markTempUnavailable(accountId, 'ccr', 503, null, errorContext).catch(() => {})
-          }
+          const errorContext = upstreamErrorHelper.buildErrorContext({
+            url: error.config?.url,
+            method: error.config?.method,
+            requestHeaders: error.config?.headers,
+            requestBody: error.config?.data,
+            model: error.config?.data?.model,
+            responseStatus: 503,
+            message: error.message,
+          })
+          await upstreamErrorHelper.markTempUnavailable(accountId, 'ccr', 503, null, errorContext).catch(() => {})
         }
       }
       throw error
     } finally {
-      // 📬 释放用户消息队列锁（兜底，正常情况下已在收到响应头后提前释放）
+      // 释放用户消息队列锁（兜底，正常情况下已在收到响应头后提前释放）
       if (queueLockAcquired && queueRequestId && accountId) {
         try {
           await userMessageQueueService.releaseQueueLock(accountId, queueRequestId)
           logger.debug(
-            `📬 User message queue lock released in finally for CCR stream account ${accountId}, requestId: ${queueRequestId}`,
+            `User message queue lock released in finally for CCR stream account ${accountId}, requestId: ${queueRequestId}`,
           )
         } catch (releaseError) {
           logger.error(
-            `❌ Failed to release user message queue lock for CCR stream account ${accountId}:`,
+            `Failed to release user message queue lock for CCR stream account ${accountId}:`,
             releaseError.message,
           )
         }
@@ -565,7 +550,7 @@ class CcrRelayService {
     }
   }
 
-  // 🌊 发送流式请求到CCR API
+  // 发送流式请求到CCR API
   async _makeCcrStreamRequest(
     body,
     account,
@@ -585,7 +570,7 @@ class CcrRelayService {
       const cleanUrl = account.apiUrl.replace(/\/$/, '') // 移除末尾斜杠
       const apiEndpoint = cleanUrl.endsWith('/v1/messages') ? cleanUrl : `${cleanUrl}/v1/messages`
 
-      logger.debug(`🎯 Final API endpoint for stream: ${apiEndpoint}`)
+      logger.debug(`Final API endpoint for stream: ${apiEndpoint}`)
 
       // 过滤客户端请求头
       const filteredHeaders = this._filterClientHeaders(clientHeaders)
@@ -641,13 +626,11 @@ class CcrRelayService {
       // - queueLockAcquired = false 的赋值会在 finally 执行前完成（JS 单线程保证）
       request
         .then(async (response) => {
-          logger.debug(`🌊 CCR stream response status: ${response.status}`)
+          logger.debug(`CCR stream response status: ${response.status}`)
 
           // 错误响应处理
           if (response.status !== 200) {
-            logger.error(
-              `❌ CCR API returned error status: ${response.status} | Account: ${account?.name || accountId}`,
-            )
+            logger.error(`CCR API returned error status: ${response.status} | Account: ${account?.name || accountId}`)
 
             const autoProtectionDisabled =
               account?.disableAutoProtection === true || account?.disableAutoProtection === 'true'
@@ -665,38 +648,37 @@ class CcrRelayService {
 
             // skipHistory：响应体为流，待 end 处收齐后带响应体补记一条，避免重复
             if (response.status === 401) {
-              if (!autoProtectionDisabled) {
-                upstreamErrorHelper.markTempUnavailable(accountId, 'ccr', 401, null, errorContext, true).catch(() => {})
-              }
+              upstreamErrorHelper.markTempUnavailable(accountId, 'ccr', 401, null, errorContext, true).catch(() => {})
             } else if (response.status === 429) {
-              ccrAccountService.markAccountRateLimited(accountId)
               if (!autoProtectionDisabled) {
-                upstreamErrorHelper
-                  .markTempUnavailable(
-                    accountId,
-                    'ccr',
-                    429,
-                    upstreamErrorHelper.parseRetryAfter(response.headers),
-                    errorContext,
-                    true,
-                  )
-                  .catch(() => {})
+                ccrAccountService.markAccountRateLimited(accountId)
               }
-              // 检查是否因为超过每日额度
+
+              upstreamErrorHelper
+                .markTempUnavailable(
+                  accountId,
+                  'ccr',
+                  429,
+                  upstreamErrorHelper.parseRetryAfter(response.headers),
+                  errorContext,
+                  true,
+                )
+                .catch(() => {})
+
+              // 检查是否超过每日额度
               ccrAccountService.checkQuotaUsage(accountId).catch((err) => {
-                logger.error('❌ Failed to check quota after 429 error:', err)
+                logger.error('Failed to check quota after 429 error:', err)
               })
             } else if (response.status === 529) {
-              ccrAccountService.markAccountOverloaded(accountId)
               if (!autoProtectionDisabled) {
-                upstreamErrorHelper.markTempUnavailable(accountId, 'ccr', 529, null, errorContext, true).catch(() => {})
+                ccrAccountService.markAccountOverloaded(accountId)
               }
+
+              upstreamErrorHelper.markTempUnavailable(accountId, 'ccr', 529, null, errorContext, true).catch(() => {})
             } else if (response.status >= 500) {
-              if (!autoProtectionDisabled) {
-                upstreamErrorHelper
-                  .markTempUnavailable(accountId, 'ccr', response.status, null, errorContext, true)
-                  .catch(() => {})
-              }
+              upstreamErrorHelper
+                .markTempUnavailable(accountId, 'ccr', response.status, null, errorContext, true)
+                .catch(() => {})
             }
 
             // 设置错误响应的状态码和响应头
@@ -720,7 +702,8 @@ class CcrRelayService {
             const recordCcrErrorHistoryOnce = () => {
               const shouldRecord =
                 response.status === 401 || response.status === 429 || response.status === 529 || response.status >= 500
-              if (ccrErrorRecorded || autoProtectionDisabled || !shouldRecord) {
+              // 关闭自动防护也必须补记错误历史（skipHistory 路径的唯一落点）
+              if (ccrErrorRecorded || !shouldRecord) {
                 return
               }
               ccrErrorRecorded = true
@@ -767,7 +750,7 @@ class CcrRelayService {
 
             // error 直出：同样补记（避免整条丢失），并兜底处理未挂载 error 监听导致的未捕获异常
             response.data.on('error', (err) => {
-              logger.error(`❌ CCR error-stream data error | account: ${accountId}:`, err)
+              logger.error(`CCR error-stream data error | account: ${accountId}:`, err)
               recordCcrErrorHistoryOnce()
               if (isStreamWritable(responseStream)) {
                 responseStream.end()
@@ -777,14 +760,14 @@ class CcrRelayService {
             return
           }
 
-          // 📬 收到成功响应头（HTTP 200），调用回调释放队列锁
+          // 收到成功响应头（HTTP 200），调用回调释放队列锁
           // 此时请求已被 Claude API 接受并计入 RPM 配额，无需等待响应完成
           if (onResponseHeaderReceived && typeof onResponseHeaderReceived === 'function') {
             try {
               await onResponseHeaderReceived()
             } catch (callbackError) {
               logger.error(
-                `❌ Failed to execute onResponseHeaderReceived callback for CCR stream account ${accountId}:`,
+                `Failed to execute onResponseHeaderReceived callback for CCR stream account ${accountId}:`,
                 callbackError.message,
               )
             }
@@ -803,11 +786,11 @@ class CcrRelayService {
           })
 
           // 设置响应头
-          // ⚠️ 关键修复：尊重 auth.js 提前设置的 Connection: close
+          // 关键修复：尊重 auth.js 提前设置的 Connection: close
           if (!responseStream.headersSent) {
             const existingConnection = responseStream.getHeader ? responseStream.getHeader('Connection') : null
             if (existingConnection) {
-              logger.debug(`🔌 [CCR Stream] Preserving existing Connection header: ${existingConnection}`)
+              logger.debug(`[CCR Stream] Preserving existing Connection header: ${existingConnection}`)
             }
             const headers = {
               'Content-Type': 'text/event-stream',
@@ -854,7 +837,7 @@ class CcrRelayService {
                   if (outputLine && isStreamWritable(responseStream)) {
                     responseStream.write(`${outputLine}\n`)
                   } else if (outputLine) {
-                    logger.warn(`⚠️ [CCR] Client disconnected during stream, skipping write for account: ${accountId}`)
+                    logger.warn(`[CCR] Client disconnected during stream, skipping write for account: ${accountId}`)
                   }
                 } else if (!aborted && isStreamWritable(responseStream)) {
                   // 空行也需要传递
@@ -862,7 +845,7 @@ class CcrRelayService {
                 }
               }
             } catch (err) {
-              logger.error('❌ Error processing SSE chunk:', err)
+              logger.error('Error processing SSE chunk:', err)
             }
           })
 
@@ -870,11 +853,11 @@ class CcrRelayService {
             // 如果收集到使用统计数据，调用回调
             if (usageCallback && Object.keys(collectedUsage).length > 0) {
               try {
-                logger.debug(`📊 Collected usage data: ${JSON.stringify(collectedUsage)}`)
+                logger.debug(`Collected usage data: ${JSON.stringify(collectedUsage)}`)
                 // 在 usage 回调中包含模型信息
                 usageCallback({ ...collectedUsage, accountId, model: body.model })
               } catch (err) {
-                logger.error('❌ Error in usage callback:', err)
+                logger.error('Error in usage callback:', err)
               }
             }
 
@@ -882,21 +865,21 @@ class CcrRelayService {
               // 等待数据完全 flush 到客户端后再 resolve
               responseStream.end(() => {
                 logger.debug(
-                  `🌊 CCR stream response completed and flushed | bytesWritten: ${responseStream.bytesWritten || 'unknown'}`,
+                  `CCR stream response completed and flushed | bytesWritten: ${responseStream.bytesWritten || 'unknown'}`,
                 )
                 resolve()
               })
             } else {
               // 连接已断开，记录警告
               logger.warn(
-                `⚠️ [CCR] Client disconnected before stream end, data may not have been received | account: ${accountId}`,
+                ` [CCR] Client disconnected before stream end, data may not have been received | account: ${accountId}`,
               )
               resolve()
             }
           })
 
           response.data.on('error', (err) => {
-            logger.error('❌ Stream data error:', err)
+            logger.error('Stream data error:', err)
             if (isStreamWritable(responseStream)) {
               responseStream.end()
             }
@@ -906,13 +889,13 @@ class CcrRelayService {
           // 客户端断开：不 destroy 上游流，继续 drain 收 usage
           responseStream.on('close', () => {
             if (!responseStream.writableEnded) {
-              logger.info('🔌 Client disconnected from CCR stream; draining upstream for usage capture')
+              logger.info('Client disconnected from CCR stream; draining upstream for usage capture')
             }
             aborted = true
           })
 
           responseStream.on('error', (err) => {
-            logger.error('❌ Response stream error:', err)
+            logger.error('Response stream error:', err)
             aborted = true
           })
         })
@@ -938,7 +921,7 @@ class CcrRelayService {
     })
   }
 
-  // 📊 解析SSE行以提取使用统计信息
+  // 解析SSE行以提取使用统计信息
   _parseSSELineForUsage(line) {
     try {
       if (line.startsWith('data: ')) {
@@ -983,7 +966,7 @@ class CcrRelayService {
     return null
   }
 
-  // 🔍 过滤客户端请求头
+  // 过滤客户端请求头
   _filterClientHeaders(clientHeaders) {
     if (!clientHeaders) {
       return {}
@@ -1003,13 +986,13 @@ class CcrRelayService {
     return filteredHeaders
   }
 
-  // ⏰ 更新账户最后使用时间
+  // 更新账户最后使用时间
   async _updateLastUsedTime(accountId) {
     try {
       const client = redis.getClientSafe()
       await client.hset(RedisKeys.accounts.ccr(accountId), 'lastUsedAt', new Date().toISOString())
     } catch (error) {
-      logger.error(`❌ Failed to update last used time for CCR account ${accountId}:`, error)
+      logger.error(`Failed to update last used time for CCR account ${accountId}:`, error)
     }
   }
 }

@@ -4,9 +4,9 @@ import { logger } from '../../common/logger.js'
  * Account Migration Parsers
  * 负责：格式识别、JSON/ZIP 解析、payload 结构校验。
  * 支持来源：
- *   - CRS 原生        crs-accounts
- *   - sub2api         sub2api-data / sub2api-bundle（legacy 头），以及缺省头但结构匹配
- *   - CLIProxyAPI     单个 auth json，或多 auth json 的 zip
+ * - CRS 原生 crs-accounts
+ * - sub2api sub2api-data / sub2api-bundle（legacy 头），以及缺省头但结构匹配
+ * - CLIProxyAPI 单个 auth json，或多 auth json 的 zip
  *
  * 不在这里做字段映射（那是 mappers 的职责），只负责把字节解析成结构化条目并打上 format 标签。
  */
@@ -94,9 +94,9 @@ export const extractJsonEntriesFromZip = function extractJsonEntriesFromZip(buff
 /**
  * 从已解析的 JSON 对象判断格式。
  * 注意：CRS 与 sub2api 都可能有 accounts[]，靠 type 头与结构特征区分：
- *   - CRS:     type=crs-accounts；账户条目带 data{}
- *   - sub2api: type in {sub2api-data,sub2api-bundle} 或缺省但顶层有 proxies[]；账户条目带 credentials{}
- *   - CLIProxyAPI 单文件: type in {claude,codex,gemini,antigravity,vertex,xai,kimi}
+ * - CRS: type=crs-accounts；账户条目带 data{}
+ * - sub2api: type in {sub2api-data,sub2api-bundle} 或缺省但顶层有 proxies[]；账户条目带 credentials{}
+ * - CLIProxyAPI 单文件: type in {claude,codex,gemini,antigravity,vertex,xai,kimi}
  * @returns {string} FORMAT.*
  */
 export const detectFormatFromJson = function detectFormatFromJson(json) {
@@ -136,10 +136,10 @@ export const detectFormatFromJson = function detectFormatFromJson(json) {
  * 不做字段映射，只负责定格式、拆条目。
  * @param {{ filename?: string, contentBase64: string }} input
  * @returns {{
- *   format: string,
- *   json: object|null,            // 非 zip 时的原始 JSON
- *   authFiles: Array<{filename:string,json:object}>, // cliproxyapi-zip 时的条目
- *   parseErrors: Array<{name:string,message:string}>
+ * format: string,
+ * json: object|null, // 非 zip 时的原始 JSON
+ * authFiles: Array<{filename:string,json:object}>, // cliproxyapi-zip 时的条目
+ * parseErrors: Array<{name:string,message:string}>
  * }}
  */
 export const parseImportPayload = function parseImportPayload(input) {
@@ -162,7 +162,7 @@ export const parseImportPayload = function parseImportPayload(input) {
   try {
     json = JSON.parse(buffer.toString('utf8'))
   } catch (err) {
-    logger.warn(`⚠️ Account import: failed to parse JSON (${filename || 'unnamed'}): ${err.message}`)
+    logger.warn(`Account import: failed to parse JSON (${filename || 'unnamed'}): ${err.message}`)
     return {
       format: FORMAT.UNKNOWN,
       json: null,

@@ -3,12 +3,12 @@ import { RedisKeys, TTL, LIMITS } from './redis_key.js'
 // === 代理池相关方法（从 src/models/redis.js 按域抽出）===
 // 经 attach(redisClient) 挂到同一个 RedisClient 单例上。this 绑定不变：
 // 仍按 redisClient.xxx() 调用，this 指向单例，this.getClientSafe()/this.getAllIdsByIndex()
-// 照常解析。方法体逐字保留原样（含 `redisClient.` 前缀，形参同名）。
+// 照常解析。方法体逐字保留原样（含 `redisClient.`前缀，形参同名）。
 // Redis 作为单一权威源：configs/groups 既是运行时缓存也是持久化存储。
 
 // 账户存储元数据：删除代理/分组时据此全平台扫描清理悬空绑定
 // type 'hash' 走 hdel；'string'（bedrock）走 GET→改写→SET；gemini 与 antigravity 共用同一前缀
-// prefix 由对应账户 builder('') 派生(= 'xxx:account:' / 'xxx_account:'),与账户主数据 key 前缀逐字一致
+// prefix 由对应账户 builder('') 派生(= 'xxx:account:'/ 'xxx_account:'),与账户主数据 key 前缀逐字一致
 const PROXY_BINDABLE_STORES = [
   { indexKey: RedisKeys.accounts.claudeIndex, prefix: RedisKeys.accounts.claude(''), type: 'hash' },
   {
@@ -72,7 +72,7 @@ export const attach = function attach(redisClient) {
       try {
         result.push(JSON.parse(v))
       } catch (e) {
-        logger.warn('⚠️ Invalid proxy config JSON in Redis, skipped')
+        logger.warn('Invalid proxy config JSON in Redis, skipped')
       }
     }
     return result
@@ -110,7 +110,7 @@ export const attach = function attach(redisClient) {
       try {
         result.push(JSON.parse(v))
       } catch (e) {
-        logger.warn('⚠️ Invalid proxy group JSON in Redis, skipped')
+        logger.warn('Invalid proxy group JSON in Redis, skipped')
       }
     }
     return result
@@ -246,6 +246,60 @@ export const attach = function attach(redisClient) {
     }
   }
 
+  // 批量读质量结果（pipeline，避免列表 N 次往返）
+  redisClient.getProxyQualityResults = async function (proxyIds) {
+    if (!proxyIds || proxyIds.length === 0) {
+      return new Map()
+    }
+    const client = this.getClientSafe()
+    const pipeline = client.pipeline()
+    for (const proxyId of proxyIds) {
+      pipeline.get(RedisKeys.proxy.qualityResult(proxyId))
+    }
+    const rows = await pipeline.exec()
+    const map = new Map()
+    for (let index = 0; index < proxyIds.length; index++) {
+      const [err, raw] = rows[index] || []
+      if (err || !raw) {
+        map.set(proxyIds[index], null)
+        continue
+      }
+      try {
+        map.set(proxyIds[index], JSON.parse(raw))
+      } catch (e) {
+        map.set(proxyIds[index], null)
+      }
+    }
+    return map
+  }
+
+  // 批量读出口信息
+  redisClient.getProxyExitInfos = async function (proxyIds) {
+    if (!proxyIds || proxyIds.length === 0) {
+      return new Map()
+    }
+    const client = this.getClientSafe()
+    const pipeline = client.pipeline()
+    for (const proxyId of proxyIds) {
+      pipeline.get(RedisKeys.proxy.exitInfo(proxyId))
+    }
+    const rows = await pipeline.exec()
+    const map = new Map()
+    for (let index = 0; index < proxyIds.length; index++) {
+      const [err, raw] = rows[index] || []
+      if (err || !raw) {
+        map.set(proxyIds[index], null)
+        continue
+      }
+      try {
+        map.set(proxyIds[index], JSON.parse(raw))
+      } catch (e) {
+        map.set(proxyIds[index], null)
+      }
+    }
+    return map
+  }
+
   // 代理池全局调优设置（覆盖 env 默认）
   redisClient.getProxyPoolSettings = async function () {
     const client = this.getClientSafe()
@@ -293,7 +347,7 @@ export const attach = function attach(redisClient) {
             }
           }
         } catch (error) {
-          logger.error(`❌ [ProxyPool] clear binding failed for ${accountKey}:`, error)
+          logger.error(`[ProxyPool] clear binding failed for ${accountKey}:`, error)
         }
       }
     }

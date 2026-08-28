@@ -153,7 +153,7 @@ const stripEmoji = (value) => {
       // 标签字符（旗类）
       .replace(/[\u{E0020}-\u{E007F}]/gu, '')
       // 剥完后残留的多空格收成单空格，去掉行首空白
-      .replace(/[ \t]{2,}/g, ' ')
+      .replace(/[ \t]{2,}/g, '')
       .replace(/^[ \t]+/gm, '')
   )
 }
@@ -176,7 +176,7 @@ const createConsoleFormat = () =>
 
       // 访问日志预渲染的彩色 meta 树
       if (Array.isArray(rest._accessMetaLines) && rest._accessMetaLines.length > 0) {
-        const indent = ' '.repeat(String(time).length + 1)
+        const indent = ''.repeat(String(time).length + 1)
         for (const line of rest._accessMetaLines) {
           logMessage += `\n${indent}${line}`
         }
@@ -186,7 +186,7 @@ const createConsoleFormat = () =>
           ([k]) => !CONSOLE_SKIP_KEYS.has(k) && typeof k === 'string' && !k.startsWith('_'),
         )
         if (entries.length > 0) {
-          const indent = ' '.repeat(String(time).length + 1)
+          const indent = ''.repeat(String(time).length + 1)
           entries.forEach(([key, value], i) => {
             const isLast = i === entries.length - 1
             const branch = chalk.gray(isLast ? '└─' : '├─')
@@ -254,7 +254,7 @@ const fileFormat = createFileFormat()
 const consoleFormat = createConsoleFormat()
 const isTestEnv = env.NODE_ENV === 'test' || env.JEST_WORKER_ID
 
-// 📁 确保日志目录存在并设置权限
+// 确保日志目录存在并设置权限
 if (!fs.existsSync(config.logging.dirname)) {
   fs.mkdirSync(config.logging.dirname, { recursive: true, mode: 0o755 })
 }
@@ -407,8 +407,8 @@ const healAuditFile = (auditFile, filename) => {
 }
 
 // 历史畸形残留清理: 旧视角反斜杠审计路径在 POSIX 下整串落为 cwd 里的字面文件名
-// (如 "D:\...\logs\.claude-relay-audit.log.json"), 其文件名必然以 "\" + 本服务审计文件确切 basename 结尾。
-// logger 是公共模块、可能从任意 cwd 被 require, 删除条件必须字节级精确: 只认 "\" + 自家审计文件名结尾
+// (如 "D:\...\logs\.claude-relay-audit.log.json"), 其文件名必然以 "\"+ 本服务审计文件确切 basename 结尾。
+// logger 是公共模块、可能从任意 cwd 被 require, 删除条件必须字节级精确: 只认 "\"+ 自家审计文件名结尾
 // 且内容含 auditLog 字段的文件, 不波及其它任何 JSON; Windows 文件名不允许反斜杠, 在 Windows 上天然空转。
 // 边界(有意止损, 非遗漏): 仅自动回收落入 cwd 的反斜杠塌缩类污染(在仓库根, git 可见、可能被误提交);
 // 他视角 POSIX 绝对路径上的历史残留(容器内 /mnt/...、宿主 /app/logs/... 等)是死文件——修复后任何视角
@@ -435,7 +435,7 @@ const cleanMangledAuditResidue = (auditBasename) => {
   }
 }
 
-// 🔄 增强的日志轮转配置
+// 增强的日志轮转配置
 const createRotateTransport = (filename, level = null) => {
   const auditBasename = `.${filename.replace('%DATE%', 'audit')}.json`
   const auditFile = path.join(config.logging.dirname, auditBasename)
@@ -482,7 +482,7 @@ const createRotateTransport = (filename, level = null) => {
 const dailyRotateFileTransport = createRotateTransport('claude-relay-%DATE%.log')
 const errorFileTransport = createRotateTransport('claude-relay-error-%DATE%.log', 'error')
 
-// 🔒 创建专门的安全日志记录器
+// 创建专门的安全日志记录器
 const securityLogger = winston.createLogger({
   level: 'warn',
   format: fileFormat,
@@ -490,7 +490,7 @@ const securityLogger = winston.createLogger({
   silent: false,
 })
 
-// 🔐 创建专门的认证详细日志记录器（记录完整的认证响应）
+// 创建专门的认证详细日志记录器（记录完整的认证响应）
 const authDetailLogger = winston.createLogger({
   level: 'info',
   format: winston.format.combine(
@@ -505,16 +505,16 @@ const authDetailLogger = winston.createLogger({
   silent: false,
 })
 
-// 🌟 增强的 Winston logger
+// 增强的 Winston logger
 export const logger = winston.createLogger({
   level: env.LOG_LEVEL || config.logging.level,
   format: fileFormat,
   transports: [
-    // 📄 文件输出
+    // 文件输出
     dailyRotateFileTransport,
     errorFileTransport,
 
-    // 🖥️ 控制台输出
+    // 控制台输出
     new winston.transports.Console({
       format: consoleFormat,
       handleExceptions: false,
@@ -522,7 +522,7 @@ export const logger = winston.createLogger({
     }),
   ],
 
-  // 🚨 异常处理
+  // 异常处理
   exceptionHandlers: [
     new winston.transports.File({
       filename: path.join(config.logging.dirname, 'exceptions.log'),
@@ -535,7 +535,7 @@ export const logger = winston.createLogger({
     }),
   ],
 
-  // 🔄 未捕获异常处理
+  // 未捕获异常处理
   rejectionHandlers: [
     new winston.transports.File({
       filename: path.join(config.logging.dirname, 'rejections.log'),
@@ -552,7 +552,7 @@ export const logger = winston.createLogger({
   exitOnError: false,
 })
 
-// 🎯 增强的自定义方法（不再加 emoji 前缀，统一由 stripEmoji 兜底）
+// 增强的自定义方法（不再加 emoji 前缀，统一由 stripEmoji 兜底）
 logger.success = (message, metadata = {}) => {
   logger.info(message, { type: 'success', ...metadata })
 }
@@ -616,7 +616,7 @@ logger.audit = (message, metadata = {}) => {
   })
 }
 
-// 🔧 性能监控方法
+// 性能监控方法
 logger.timer = (label) => {
   const start = Date.now()
   return {
@@ -628,7 +628,7 @@ logger.timer = (label) => {
   }
 }
 
-// 📊 日志统计
+// 日志统计
 logger.stats = {
   requests: 0,
   errors: 0,
@@ -658,17 +658,17 @@ logger.info = function (message, ...args) {
   return originalInfo.call(this, message, ...args)
 }
 
-// 📈 获取日志统计
+// 获取日志统计
 logger.getStats = () => ({ ...logger.stats })
 
-// 🧹 清理统计
+// 清理统计
 logger.resetStats = () => {
   logger.stats.requests = 0
   logger.stats.errors = 0
   logger.stats.warnings = 0
 }
 
-// 📡 健康检查
+// 健康检查
 logger.healthCheck = () => {
   try {
     const testMessage = 'Logger health check'
@@ -679,11 +679,11 @@ logger.healthCheck = () => {
   }
 }
 
-// 🔐 记录认证详细信息的方法
+// 记录认证详细信息的方法
 logger.authDetail = (message, data = {}) => {
   try {
     // 记录到主日志（简化版）
-    logger.info(`🔐 ${message}`, {
+    logger.info(`${message}`, {
       type: 'auth-detail',
       summary: {
         hasAccessToken: !!data.access_token,
@@ -701,7 +701,7 @@ logger.authDetail = (message, data = {}) => {
   }
 }
 
-// 🎬 启动日志记录系统
+// 启动日志记录系统
 logger.start('Logger initialized', {
   level: env.LOG_LEVEL || config.logging.level,
   directory: config.logging.dirname,

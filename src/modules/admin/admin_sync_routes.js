@@ -6,7 +6,8 @@ import { claudeAccountService } from '../account/account_claude_service.js'
 import { claudeConsoleAccountService } from '../account/account_claude_console_service.js'
 import * as openaiAccountService from '../account/account_openai_service.js'
 import { openaiResponsesAccountService } from '../account/account_openai_responses_service.js'
-import { logger } from '../../common/logger.js'
+import { asyncRoute } from '../../common/route_handler.js'
+import { badRequest } from '../../common/http_result.js'
 /**
  * Admin Routes - Sync / Export (for migration)
  * Exports account data (including secrets) for safe server-to-server syncing.
@@ -90,15 +91,13 @@ const safeParseJson = function safeParseJson(raw, fallback = null) {
 
 // Export accounts for migration (includes secrets).
 // GET /admin/sync/export-accounts?include_secrets=true
-router.get('/sync/export-accounts', authenticateAdmin, async (req, res) => {
-  try {
+router.get(
+  '/sync/export-accounts',
+  authenticateAdmin,
+  asyncRoute('Failed to export accounts for sync', async (req) => {
     const includeSecrets = toBool(req.query.include_secrets, false)
     if (!includeSecrets) {
-      return res.status(400).json({
-        success: false,
-        error: 'include_secrets_required',
-        message: 'Set include_secrets=true to export secrets',
-      })
+      throw badRequest('Set include_secrets=true to export secrets', { reason: 'include_secrets_required' })
     }
 
     // === Claude official OAuth / Setup Token accounts ===
@@ -150,7 +149,7 @@ router.get('/sync/export-accounts', authenticateAdmin, async (req, res) => {
 
       const proxy = account.proxy ? normalizeProxy(safeParseJson(account.proxy)) : null
 
-      // 🔧 Parse subscriptionInfo to extract org_uuid and account_uuid
+      // Parse subscriptionInfo to extract org_uuid and account_uuid
       let orgUuid = null
       let accountUuid = null
       if (account.subscriptionInfo) {
@@ -163,7 +162,7 @@ router.get('/sync/export-accounts', authenticateAdmin, async (req, res) => {
         }
       }
 
-      // 🔧 Calculate expires_in from expires_at
+      // Calculate expires_in from expires_at
       let expiresIn = null
       if (expiresAt) {
         try {
@@ -177,7 +176,7 @@ router.get('/sync/export-accounts', authenticateAdmin, async (req, res) => {
           // Ignore calculation errors
         }
       }
-      // 🔧 Use default expires_in if calculation failed (Anthropic OAuth: 8 hours)
+      // Use default expires_in if calculation failed (Anthropic OAuth: 8 hours)
       if (!expiresIn && isOAuth) {
         expiresIn = 28800 // 8 hours
       }
@@ -190,7 +189,7 @@ router.get('/sync/export-accounts', authenticateAdmin, async (req, res) => {
         scope: scopes.join(' ') || undefined,
         token_type: 'Bearer',
       }
-      // 🔧 Add auth info as top-level credentials fields
+      // Add auth info as top-level credentials fields
       if (orgUuid) {
         credentials.org_uuid = orgUuid
       }
@@ -198,7 +197,7 @@ router.get('/sync/export-accounts', authenticateAdmin, async (req, res) => {
         credentials.account_uuid = accountUuid
       }
 
-      // 🔧 Store complete original CRS data in extra
+      // Store complete original CRS data in extra
       const extra = {
         crs_account_id: account.id,
         crs_kind: 'claude-account',
@@ -312,7 +311,7 @@ router.get('/sync/export-accounts', authenticateAdmin, async (req, res) => {
 
         const proxy = normalizeProxy(account.proxy)
 
-        // 🔧 Calculate expires_in from expires_at
+        // Calculate expires_in from expires_at
         let expiresIn = null
         if (account.expiresAt) {
           try {
@@ -326,7 +325,7 @@ router.get('/sync/export-accounts', authenticateAdmin, async (req, res) => {
             // Ignore calculation errors
           }
         }
-        // 🔧 Use default expires_in if calculation failed (OpenAI OAuth: 10 days)
+        // Use default expires_in if calculation failed (OpenAI OAuth: 10 days)
         if (!expiresIn) {
           expiresIn = 864000 // 10 days
         }
@@ -340,7 +339,7 @@ router.get('/sync/export-accounts', authenticateAdmin, async (req, res) => {
           scope: scopes.join(' ') || undefined,
           token_type: 'Bearer',
         }
-        // 🔧 Add auth info as top-level credentials fields
+        // Add auth info as top-level credentials fields
         if (account.accountId) {
           credentials.chatgpt_account_id = account.accountId
         }
@@ -351,7 +350,7 @@ router.get('/sync/export-accounts', authenticateAdmin, async (req, res) => {
           credentials.organization_id = account.organizationId
         }
 
-        // 🔧 Store complete original CRS data in extra
+        // Store complete original CRS data in extra
         const extra = {
           crs_account_id: account.id,
           crs_kind: 'openai-oauth-account',
@@ -439,22 +438,12 @@ router.get('/sync/export-accounts', authenticateAdmin, async (req, res) => {
       })
     }
 
-    return res.json({
-      success: true,
-      data: {
-        exportedAt: new Date().toISOString(),
-        claudeAccounts,
-        claudeConsoleAccounts,
-        openaiOAuthAccounts,
-        openaiResponsesAccounts,
-      },
-    })
-  } catch (error) {
-    logger.error('❌ Failed to export accounts for sync:', error)
-    return res.status(500).json({
-      success: false,
-      error: 'export_failed',
-      message: error.message,
-    })
-  }
-})
+    return {
+      exportedAt: new Date().toISOString(),
+      claudeAccounts,
+      claudeConsoleAccounts,
+      openaiOAuthAccounts,
+      openaiResponsesAccounts,
+    }
+  }),
+)

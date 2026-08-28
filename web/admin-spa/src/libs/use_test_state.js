@@ -1,6 +1,7 @@
 import { ref, computed, onUnmounted } from 'vue'
 
 import { createHttp } from '@/libs/http'
+import { isOk, msgOf } from './http_envelope'
 
 // 测试请求专用 fetch 客户端: 不限时（流式可长时间运行），返回原始 Response
 const testHttp = createHttp({ timeout: 0 })
@@ -154,21 +155,26 @@ export const useTestState = () => {
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}))
-        throw new Error(errorData.message || errorData.error || `HTTP ${response.status}`)
+        const errMsg =
+          (typeof errorData.msg === 'string' && errorData.msg) ||
+          (typeof errorData.message === 'string' && errorData.message) ||
+          (typeof errorData.error === 'string' && errorData.error) ||
+          `HTTP ${response.status}`
+        throw new Error(errMsg)
       }
 
       if (useSSE) {
         await readSSEStream(response)
       } else {
-        // JSON 响应
+        // JSON 响应（管理信封 code/msg/data）
         const data = await response.json()
         testDuration.value = Date.now() - testStartTime.value
-        if (data.success) {
+        if (isOk(data)) {
           testStatus.value = 'success'
           responseText.value = data.data?.responseText || 'Test passed'
         } else {
           testStatus.value = 'error'
-          errorMessage.value = data.message || 'Test failed'
+          errorMessage.value = msgOf(data, 'Test failed')
         }
       }
     } catch (err) {

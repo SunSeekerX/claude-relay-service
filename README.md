@@ -14,7 +14,7 @@
 [![Docker Build](https://github.com/SunSeekerX/claude-relay-service/actions/workflows/auto-release-pipeline.yml/badge.svg)](https://github.com/SunSeekerX/claude-relay-service/actions/workflows/auto-release-pipeline.yml)
 [![GHCR](https://img.shields.io/badge/ghcr.io-sunseekerx%2Fclaude--relay--service-blue?logo=docker)](https://github.com/SunSeekerX/claude-relay-service/pkgs/container/claude-relay-service)
 
-**🔐 自行搭建Claude API中转服务，支持多账户管理**
+**自行搭建Claude API中转服务，支持多账户管理**
 
 [English](README_EN.md) • [快速开始](https://pincc.ai/) • [演示站点](https://demo.pincc.ai/admin-next/login) • [公告频道](https://t.me/claude_relay_service)
 
@@ -22,70 +22,70 @@
 
 ---
 
-## ⚠️ 重要提醒
+## 重要提醒
 
 **使用本项目前请仔细阅读：**
 
-🚨 **服务条款风险**: 使用本项目可能违反Anthropic的服务条款。请在使用前仔细阅读Anthropic的用户协议，使用本项目的一切风险由用户自行承担。
+**服务条款风险**: 使用本项目可能违反Anthropic的服务条款。请在使用前仔细阅读Anthropic的用户协议，使用本项目的一切风险由用户自行承担。
 
-📖 **免责声明**: 本项目仅供技术学习和研究使用，作者不对因使用本项目导致的账户封禁、服务中断或其他损失承担任何责任。
+**免责声明**: 本项目仅供技术学习和研究使用，作者不对因使用本项目导致的账户封禁、服务中断或其他损失承担任何责任。
 
 
-## 🤔 这个项目适合你吗？
+## 这个项目适合你吗？
 
-- 🌍 **地区限制**: 所在地区无法直接访问Claude Code服务？
-- 🔒 **隐私担忧**: 担心第三方镜像服务会记录或泄露你的对话内容？
-- 👥 **成本分摊**: 想和朋友一起分摊Claude Code Max订阅费用？
-- ⚡ **稳定性**: 第三方镜像站经常故障不稳定，影响效率 ？
+- **地区限制**: 所在地区无法直接访问Claude Code服务？
+- **隐私担忧**: 担心第三方镜像服务会记录或泄露你的对话内容？
+- **成本分摊**: 想和朋友一起分摊Claude Code Max订阅费用？
+- **稳定性**: 第三方镜像站经常故障不稳定，影响效率 ？
 
 如果有以上困惑，那这个项目可能适合你。
 
 ### 适合的场景
 
-✅ **找朋友拼车**: 三五好友一起分摊Claude Code Max订阅  
-✅ **隐私敏感**: 不想让第三方镜像看到你的对话内容  
-✅ **技术折腾**: 有基本的技术基础，愿意自己搭建和维护  
-✅ **稳定需求**: 需要长期稳定的Claude访问，不想受制于镜像站  
-✅ **地区受限**: 无法直接访问Claude官方服务
+**找朋友拼车**: 三五好友一起分摊Claude Code Max订阅  
+**隐私敏感**: 不想让第三方镜像看到你的对话内容  
+**技术折腾**: 有基本的技术基础，愿意自己搭建和维护  
+**稳定需求**: 需要长期稳定的Claude访问，不想受制于镜像站  
+**地区受限**: 无法直接访问Claude官方服务
 
 ---
 
-## 💭 为什么要自己搭？
+## 为什么要自己搭？
 
 ### 现有镜像站可能的问题
 
-- 🕵️ **隐私风险**: 你的对话内容都被人家看得一清二楚，商业机密什么的就别想了
-- 🐌 **性能不稳**: 用的人多了就慢，高峰期经常卡死
-- 💰 **价格不透明**: 不知道实际成本
+- **隐私风险**: 你的对话内容都被人家看得一清二楚，商业机密什么的就别想了
+- **性能不稳**: 用的人多了就慢，高峰期经常卡死
+- **价格不透明**: 不知道实际成本
 
 ### 自建的好处
 
-- 🔐 **数据安全**: 所有接口请求都只经过你自己的服务器，直连Anthropic API
-- ⚡ **性能可控**: 就你们几个人用，Max 200刀套餐基本上可以爽用Opus
-- 💰 **成本透明**: 用了多少token一目了然，按官方价格换算了具体费用
-- 📊 **监控完整**: 使用情况、成本分析、性能监控全都有
+- **数据安全**: 所有接口请求都只经过你自己的服务器，直连Anthropic API
+- **性能可控**: 就你们几个人用，Max 200刀套餐基本上可以爽用Opus
+- **成本透明**: 用了多少token一目了然，按官方价格换算了具体费用
+- **监控完整**: 使用情况、成本分析、性能监控全都有
 
 ---
 
-## 🚀 核心功能
+## 核心功能
 
 ### 基础功能
 
-- ✅ **多账户管理**: 可以添加多个Claude账户自动轮换
-- ✅ **自定义API Key**: 给每个人分配独立的Key
-- ✅ **使用统计**: 详细记录每个人用了多少token
+- **多账户管理**: 可以添加多个Claude账户自动轮换
+- **自定义API Key**: 给每个人分配独立的Key
+- **使用统计**: 详细记录每个人用了多少token
 
 ### 高级功能
 
-- 🔄 **智能切换**: 账户出问题自动换下一个
-- 🚀 **性能优化**: 连接池、缓存，减少延迟
-- 📊 **监控面板**: Web界面查看所有数据
-- 🛡️ **安全控制**: 访问限制、速率控制、客户端限制
-- 🌐 **代理支持**: 支持HTTP/SOCKS5代理
+- **智能切换**: 账户出问题自动换下一个
+- **性能优化**: 连接池、缓存，减少延迟
+- **监控面板**: Web界面查看所有数据
+- **安全控制**: 访问限制、速率控制、客户端限制
+- **代理支持**: 支持HTTP/SOCKS5代理
 
 ---
 
-## 📋 部署要求
+## 部署要求
 
 ### 硬件要求（最低配置）
 
@@ -110,7 +110,7 @@
 
 ---
 
-## 🚀 脚本部署（推荐）
+## 脚本部署（推荐）
 
 推荐使用管理脚本进行一键部署，简单快捷，自动处理所有依赖和配置。
 
@@ -122,10 +122,10 @@ curl -fsSL https://pincc.ai/manage.sh -o manage.sh && chmod +x manage.sh && ./ma
 
 ### 脚本功能
 
-- ✅ **一键安装**: 自动检测系统环境，安装 Node.js 24+、Redis 等依赖
-- ✅ **交互式配置**: 友好的配置向导，设置端口、Redis 连接等
-- ✅ **自动启动**: 安装完成后自动启动服务并显示访问地址
-- ✅ **便捷管理**: 通过 `crs` 命令随时管理服务状态
+- **一键安装**: 自动检测系统环境，安装 Node.js 24+、Redis 等依赖
+- **交互式配置**: 友好的配置向导，设置端口、Redis 连接等
+- **自动启动**: 安装完成后自动启动服务并显示访问地址
+- **便捷管理**: 通过 `crs` 命令随时管理服务状态
 
 ### 管理命令
 
@@ -169,7 +169,7 @@ Redis 密码 (默认: 无密码):
 
 ---
 
-## 📦 手动部署
+## 手动部署
 
 ### 第一步：环境准备
 
@@ -273,7 +273,7 @@ npm run service:status
 
 ---
 
-## 🐳 Docker 部署
+## Docker 部署
 
 > **已在运行上游版本（`weishaw/claude-relay-service`）？**
 > 看 [从上游版本迁移到本维护版](docs/MIGRATE-FROM-UPSTREAM.md) —— 已有账户与统计数据全部保留。
@@ -300,11 +300,11 @@ docker-compose up -d
 
 docker-compose.yml 已包含：
 
-- ✅ 自动初始化管理员账号
-- ✅ 数据持久化（logs和data目录自动挂载）
-- ✅ Redis数据库
-- ✅ 健康检查
-- ✅ 自动重启
+- 自动初始化管理员账号
+- 数据持久化（logs和data目录自动挂载）
+- Redis数据库
+- 健康检查
+- 自动重启
 
 ### 环境变量说明
 
@@ -343,7 +343,7 @@ docker-compose.yml 已包含：
 
 ---
 
-## 🎮 开始使用
+## 开始使用
 
 ### 1. 打开管理界面
 
@@ -454,7 +454,7 @@ claude
 
 如果该文件不存在，请手动创建。Windows 用户路径为 `C:\Users\你的用户名\.claude\config.json`。
 
-> 💡 **IntelliJ IDEA 用户推荐**：[Claude Code Plus](https://github.com/touwaeriol/claude-code-plus) - 将 Claude Code 直接集成到 IDE，支持代码理解、文件读写、命令执行。插件市场搜索 `Claude Code Plus` 即可安装。
+> **IntelliJ IDEA 用户推荐**：[Claude Code Plus](https://github.com/touwaeriol/claude-code-plus) - 将 Claude Code 直接集成到 IDE，支持代码理解、文件读写、命令执行。插件市场搜索 `Claude Code Plus` 即可安装。
 
 **Gemini CLI 设置环境变量：**
 
@@ -481,7 +481,7 @@ GEMINI_MODEL="gemini-2.5-pro" # 如果你有gemini3权限可以填： gemini-3-p
 
 > **认证**：只能选 ```Use Gemini API Key``` 进行认证，如果提示 ```Enter Gemini API Key``` 请直接留空按回车。如果一打开就跳 Google请删除 ```~/.gemini/settings.json``` 后再尝试启动```gemini```。
 
-> 💡 **进阶用法**：想在 Claude Code 中直接使用 Gemini 3 模型？请参考 [Claude Code 调用 Gemini 3 模型指南](docs/claude-code-gemini3-guide/README.md)
+> **进阶用法**：想在 Claude Code 中直接使用 Gemini 3 模型？请参考 [Claude Code 调用 Gemini 3 模型指南](docs/claude-code-gemini3-guide/README.md)
 
 **使用 Claude Code：**
 
@@ -521,7 +521,7 @@ requires_openai_auth = true
 }
 ```
 
-> ⚠️ 在通过 Nginx 反向代理 CRS 服务并使用 Codex CLI 时，需要在 http 块中添加 underscores_in_headers on;。因为 Nginx 默认会移除带下划线的请求头（如 session_id），一旦该头被丢弃，多账号环境下的粘性会话功能将失效。
+> 在通过 Nginx 反向代理 CRS 服务并使用 Codex CLI 时，需要在 http 块中添加 underscores_in_headers on;。因为 Nginx 默认会移除带下划线的请求头（如 session_id），一旦该头被丢弃，多账号环境下的粘性会话功能将失效。
 
 **Droid CLI 配置：**
 
@@ -566,7 +566,7 @@ Droid CLI 读取 `~/.factory/config.json`。可以在该文件中添加自定义
 }
 ```
 
-> 💡 将示例中的 `http://127.0.0.1:3000` 替换为你的服务域名或公网地址，并写入后台生成的 API 密钥（cr_ 开头）。
+> 将示例中的 `http://127.0.0.1:3000` 替换为你的服务域名或公网地址，并写入后台生成的 API 密钥（cr_ 开头）。
 
 ### 5. 第三方工具API接入
 
@@ -626,10 +626,10 @@ gpt-5                      # Codex使用固定模型ID
 
 **Cherry Studio 地址格式重要说明：**
 
-- ✅ **推荐格式**：`http://你的服务器:3000/claude`（不加结尾 `/`，让 Cherry Studio 自动加上 v1）
-- ✅ **等效格式**：`http://你的服务器:3000/claude/v1/`（手动指定 v1 并加结尾 `/`）
-- 💡 **说明**：这两种格式在 Cherry Studio 中是完全等效的
-- ❌ **错误格式**：`http://你的服务器:3000/claude/`（单独的 `/` 结尾会被 Cherry Studio 忽略 v1 版本）
+- **推荐格式**：`http://你的服务器:3000/claude`（不加结尾 `/`，让 Cherry Studio 自动加上 v1）
+- **等效格式**：`http://你的服务器:3000/claude/v1/`（手动指定 v1 并加结尾 `/`）
+- **说明**：这两种格式在 Cherry Studio 中是完全等效的
+- **错误格式**：`http://你的服务器:3000/claude/`（单独的 `/` 结尾会被 Cherry Studio 忽略 v1 版本）
 
 #### 其他第三方工具接入
 
@@ -653,7 +653,7 @@ gpt-5                      # Codex使用固定模型ID
 
 ---
 
-## 🔧 日常维护
+## 日常维护
 
 ### 服务管理
 
@@ -714,7 +714,7 @@ npm run service:status
 
 ---
 
-## 🔒 客户端限制功能
+## 客户端限制功能
 
 ### 功能说明
 
@@ -741,17 +741,17 @@ npm run service:status
 认证成功时的日志：
 
 ```
-🔓 Authenticated request from key: 测试Key (key-id) in 5ms
+Authenticated request from key: 测试Key (key-id) in 5ms
    User-Agent: "claude-cli/1.0.58 (external, cli)"
 ```
 
 客户端限制检查日志：
 
 ```
-🔍 Checking client restriction for key: key-id (测试Key)
+Checking client restriction for key: key-id (测试Key)
    User-Agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
    Allowed clients: claude_code, gemini_cli
-🚫 Client restriction failed for key: key-id (测试Key) from 127.0.0.1, User-Agent: Mozilla/5.0...
+Client restriction failed for key: key-id (测试Key) from 127.0.0.1, User-Agent: Mozilla/5.0...
 ```
 
 ### 常见问题处理
@@ -779,7 +779,7 @@ redis-cli ping
 
 ---
 
-## 🛠️ 进阶
+## 进阶
 
 ### 反向代理部署指南
 
@@ -866,10 +866,10 @@ module.exports = {
 
 **Caddy 特点**
 
-* 🔒 自动 HTTPS，零配置证书管理
-* 🛡️ 安全默认配置，启用现代 TLS 套件
-* ⚡ HTTP/2 和流式传输支持
-* 🔧 配置文件简洁，易于维护
+* 自动 HTTPS，零配置证书管理
+* 安全默认配置，启用现代 TLS 套件
+* HTTP/2 和流式传输支持
+* 配置文件简洁，易于维护
 
 ---
 
@@ -887,9 +887,9 @@ Details 配置如下：
 | Scheme                | http                    |
 | Forward Hostname / IP | 192.168.0.1 (docker 机器 IP) |
 | Forward Port          | 3000                    |
-| Block Common Exploits | ☑️                      |
-| Websockets Support    | ❌ **关闭**                |
-| Cache Assets          | ❌ **关闭**                |
+| Block Common Exploits |                      |
+| Websockets Support    | **关闭**|
+| Cache Assets          | **关闭**|
 | Access List           | Publicly Accessible     |
 
 > 注意：
@@ -903,10 +903,10 @@ Details 配置如下：
 **3. SSL 设置**
 
 * **SSL Certificate**: Request a new SSL Certificate (Let's Encrypt) 或已有证书
-* ☑️ **Force SSL**
-* ☑️ **HTTP/2 Support**
-* ☑️ **HSTS Enabled**
-* ☑️ **HSTS Subdomains**
+* **Force SSL**
+* **HTTP/2 Support**
+* **HSTS Enabled**
+* **HSTS Subdomains**
 
 **4. Advanced 配置**
 
@@ -959,10 +959,10 @@ proxy_request_buffering off;
 
 **NPM 特点**
 
-* 🔒 自动申请和续期证书
-* 🔧 图形化界面，方便管理多服务
-* ⚡ 原生支持 HTTP/2 / HTTPS
-* 🚀 适合 Docker 容器部署
+* 自动申请和续期证书
+* 图形化界面，方便管理多服务
+* 原生支持 HTTP/2 / HTTPS
+* 适合 Docker 容器部署
 
 ---
 
@@ -970,7 +970,7 @@ proxy_request_buffering off;
 
 ---
 
-## 💡 使用建议
+## 使用建议
 
 ### 账户管理
 
@@ -987,7 +987,7 @@ proxy_request_buffering off;
 
 ---
 
-## 🆘 遇到问题怎么办？
+## 遇到问题怎么办？
 
 ### 自助排查
 
@@ -1004,7 +1004,7 @@ proxy_request_buffering off;
 
 ---
 
-## 📄 许可证
+## 许可证
 
 本项目采用 [MIT许可证](LICENSE)。
 
@@ -1012,8 +1012,8 @@ proxy_request_buffering off;
 
 <div align="center">
 
-**⭐ 觉得有用的话给个Star呗，这是对作者最大的鼓励！**
+**觉得有用的话给个Star呗，这是对作者最大的鼓励！**
 
-**🤝 有问题欢迎提Issue，有改进建议欢迎PR**
+**有问题欢迎提Issue，有改进建议欢迎PR**
 
 </div>

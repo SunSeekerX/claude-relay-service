@@ -1,209 +1,178 @@
 import express from 'express'
+
 import { authenticateAdmin } from '../../infra/middleware_auth.js'
 import { logger } from '../../common/logger.js'
 import { accountBalanceService } from './account_balance_service.js'
 import { balanceScriptService } from '../payment/payment_balance_script_service.js'
 import { isBalanceScriptEnabled } from '../../common/feature_flags.js'
+import { asyncRoute } from '../../common/route_handler.js'
+import { ok, badRequest, notFound, forbidden } from '../../common/http_result.js'
+import { parseObjectBody } from '../../common/parse_body.js'
 
 export const router = express.Router()
 
 const ensureValidPlatform = (rawPlatform) => {
   const normalized = accountBalanceService.normalizePlatform(rawPlatform)
   if (!normalized) {
-    return { ok: false, status: 400, error: '缺少 platform 参数' }
+    throw badRequest('缺少 platform 参数')
   }
 
   const supported = accountBalanceService.getSupportedPlatforms()
   if (!supported.includes(normalized)) {
-    return { ok: false, status: 400, error: `不支持的平台: ${normalized}` }
+    throw badRequest(`不支持的平台: ${normalized}`)
   }
 
-  return { ok: true, platform: normalized }
+  return normalized
 }
 
 // 1) 获取账户余额（默认本地统计优先，可选触发 Provider）
 // GET /admin/accounts/:accountId/balance?platform=xxx&queryApi=false
-router.get('/accounts/:accountId/balance', authenticateAdmin, async (req, res) => {
-  try {
+router.get(
+  '/accounts/:accountId/balance',
+  authenticateAdmin,
+  asyncRoute('获取账户余额失败', async (req) => {
     const { accountId } = req.params
     const { platform, queryApi } = req.query
 
-    const valid = ensureValidPlatform(platform)
-    if (!valid.ok) {
-      return res.status(valid.status).json({ success: false, error: valid.error })
-    }
+    const validPlatform = ensureValidPlatform(platform)
 
-    const balance = await accountBalanceService.getAccountBalance(accountId, valid.platform, {
+    const balance = await accountBalanceService.getAccountBalance(accountId, validPlatform, {
       queryApi,
     })
 
     if (!balance) {
-      return res.status(404).json({ success: false, error: 'Account not found' })
+      throw notFound('Account not found')
     }
 
-    return res.json(balance)
-  } catch (error) {
-    logger.error('获取账户余额失败', error)
-    return res.status(500).json({ success: false, error: error.message })
-  }
-})
+    return balance
+  }),
+)
 
 // 2) 强制刷新账户余额（强制触发查询：优先脚本；Provider 仅为降级）
 // POST /admin/accounts/:accountId/balance/refresh
 // Body: { platform: 'xxx' }
-router.post('/accounts/:accountId/balance/refresh', authenticateAdmin, async (req, res) => {
-  try {
+router.post(
+  '/accounts/:accountId/balance/refresh',
+  authenticateAdmin,
+  asyncRoute('刷新账户余额失败', async (req) => {
     const { accountId } = req.params
-    const { platform } = req.body || {}
+    const { platform } = parseObjectBody(req.body, '刷新账户余额')
 
-    const valid = ensureValidPlatform(platform)
-    if (!valid.ok) {
-      return res.status(valid.status).json({ success: false, error: valid.error })
-    }
+    const validPlatform = ensureValidPlatform(platform)
 
-    logger.info(`手动刷新余额: ${valid.platform}:${accountId}`)
+    logger.info(`手动刷新余额: ${validPlatform}:${accountId}`)
 
-    const balance = await accountBalanceService.refreshAccountBalance(accountId, valid.platform)
+    const balance = await accountBalanceService.refreshAccountBalance(accountId, validPlatform)
     if (!balance) {
-      return res.status(404).json({ success: false, error: 'Account not found' })
+      throw notFound('Account not found')
     }
 
-    return res.json(balance)
-  } catch (error) {
-    logger.error('刷新账户余额失败', error)
-    return res.status(500).json({ success: false, error: error.message })
-  }
-})
+    return balance
+  }),
+)
 
 // 3) 批量获取平台所有账户余额
 // GET /admin/accounts/balance/platform/:platform?queryApi=false
-router.get('/accounts/balance/platform/:platform', authenticateAdmin, async (req, res) => {
-  try {
+router.get(
+  '/accounts/balance/platform/:platform',
+  authenticateAdmin,
+  asyncRoute('批量获取余额失败', async (req) => {
     const { platform } = req.params
     const { queryApi } = req.query
 
-    const valid = ensureValidPlatform(platform)
-    if (!valid.ok) {
-      return res.status(valid.status).json({ success: false, error: valid.error })
-    }
+    const validPlatform = ensureValidPlatform(platform)
 
-    const balances = await accountBalanceService.getAllAccountsBalance(valid.platform, { queryApi })
-
-    return res.json({ success: true, data: balances })
-  } catch (error) {
-    logger.error('批量获取余额失败', error)
-    return res.status(500).json({ success: false, error: error.message })
-  }
-})
+    return accountBalanceService.getAllAccountsBalance(validPlatform, { queryApi })
+  }),
+)
 
 // 4) 获取余额汇总（Dashboard 用）
 // GET /admin/accounts/balance/summary
-router.get('/accounts/balance/summary', authenticateAdmin, async (req, res) => {
-  try {
-    const summary = await accountBalanceService.getBalanceSummary()
-    return res.json({ success: true, data: summary })
-  } catch (error) {
-    logger.error('获取余额汇总失败', error)
-    return res.status(500).json({ success: false, error: error.message })
-  }
-})
+router.get(
+  '/accounts/balance/summary',
+  authenticateAdmin,
+  asyncRoute('获取余额汇总失败', async () => accountBalanceService.getBalanceSummary()),
+)
 
 // 5) 清除缓存
 // DELETE /admin/accounts/:accountId/balance/cache?platform=xxx
-router.delete('/accounts/:accountId/balance/cache', authenticateAdmin, async (req, res) => {
-  try {
+router.delete(
+  '/accounts/:accountId/balance/cache',
+  authenticateAdmin,
+  asyncRoute('清除缓存失败', async (req) => {
     const { accountId } = req.params
     const { platform } = req.query
 
-    const valid = ensureValidPlatform(platform)
-    if (!valid.ok) {
-      return res.status(valid.status).json({ success: false, error: valid.error })
-    }
+    const validPlatform = ensureValidPlatform(platform)
 
-    await accountBalanceService.clearCache(accountId, valid.platform)
+    await accountBalanceService.clearCache(accountId, validPlatform)
 
-    return res.json({ success: true, message: '缓存已清除' })
-  } catch (error) {
-    logger.error('清除缓存失败', error)
-    return res.status(500).json({ success: false, error: error.message })
-  }
-})
+    return ok(undefined, '缓存已清除')
+  }),
+)
 
 // 6) 获取/保存/测试余额脚本配置（单账户）
-router.get('/accounts/:accountId/balance/script', authenticateAdmin, async (req, res) => {
-  try {
+router.get(
+  '/accounts/:accountId/balance/script',
+  authenticateAdmin,
+  asyncRoute('获取余额脚本配置失败', async (req) => {
     const { accountId } = req.params
     const { platform } = req.query
 
-    const valid = ensureValidPlatform(platform)
-    if (!valid.ok) {
-      return res.status(valid.status).json({ success: false, error: valid.error })
-    }
+    const validPlatform = ensureValidPlatform(platform)
 
-    const config = await accountBalanceService.redis.getBalanceScriptConfig(valid.platform, accountId)
-    return res.json({ success: true, data: config || null })
-  } catch (error) {
-    logger.error('获取余额脚本配置失败', error)
-    return res.status(500).json({ success: false, error: error.message })
-  }
-})
+    const config = await accountBalanceService.redis.getBalanceScriptConfig(validPlatform, accountId)
+    return config || null
+  }),
+)
 
-router.put('/accounts/:accountId/balance/script', authenticateAdmin, async (req, res) => {
-  try {
+router.put(
+  '/accounts/:accountId/balance/script',
+  authenticateAdmin,
+  asyncRoute('保存余额脚本配置失败', async (req) => {
     const { accountId } = req.params
     const { platform } = req.query
-    const valid = ensureValidPlatform(platform)
-    if (!valid.ok) {
-      return res.status(valid.status).json({ success: false, error: valid.error })
-    }
+    const validPlatform = ensureValidPlatform(platform)
 
-    const payload = req.body || {}
-    await accountBalanceService.redis.setBalanceScriptConfig(valid.platform, accountId, payload)
-    return res.json({ success: true, data: payload })
-  } catch (error) {
-    logger.error('保存余额脚本配置失败', error)
-    return res.status(500).json({ success: false, error: error.message })
-  }
-})
+    const payload = parseObjectBody(req.body, '保存余额脚本配置')
+    await accountBalanceService.redis.setBalanceScriptConfig(validPlatform, accountId, payload)
+    return payload
+  }),
+)
 
-router.post('/accounts/:accountId/balance/script/test', authenticateAdmin, async (req, res) => {
-  try {
+router.post(
+  '/accounts/:accountId/balance/script/test',
+  authenticateAdmin,
+  asyncRoute('测试余额脚本失败', async (req) => {
     const { accountId } = req.params
     const { platform } = req.query
-    const valid = ensureValidPlatform(platform)
-    if (!valid.ok) {
-      return res.status(valid.status).json({ success: false, error: valid.error })
-    }
+    const validPlatform = ensureValidPlatform(platform)
 
     if (!isBalanceScriptEnabled()) {
-      return res.status(403).json({
-        success: false,
-        error: '余额脚本功能已禁用（可通过 BALANCE_SCRIPT_ENABLED=true 启用）',
-      })
+      throw forbidden('余额脚本功能已禁用（可通过 BALANCE_SCRIPT_ENABLED=true 启用）')
     }
 
-    const payload = req.body || {}
+    const payload = parseObjectBody(req.body, '测试余额脚本')
     const { scriptBody } = payload
     if (!scriptBody) {
-      return res.status(400).json({ success: false, error: '脚本内容不能为空' })
+      throw badRequest('脚本内容不能为空')
     }
 
-    const result = await balanceScriptService.execute({
-      scriptBody,
-      timeoutSeconds: payload.timeoutSeconds || 10,
-      variables: {
-        baseUrl: payload.baseUrl || '',
-        apiKey: payload.apiKey || '',
-        token: payload.token || '',
-        accountId,
-        platform: valid.platform,
-        extra: payload.extra || '',
-      },
-    })
-
-    return res.json({ success: true, data: result })
-  } catch (error) {
-    logger.error('测试余额脚本失败', error)
-    return res.status(400).json({ success: false, error: error.message })
-  }
-})
+    try {
+      return await balanceScriptService.execute({
+        scriptBody,
+        timeoutSeconds: payload.timeoutSeconds || 10,
+        variables: {
+          baseUrl: payload.baseUrl || '',
+          apiKey: payload.apiKey || '',
+          token: payload.token || '',
+          accountId,
+          platform: validPlatform,
+          extra: payload.extra || '',
+        },
+      })
+    } catch (error) {
+      throw badRequest(error.message)
+    }
+  }),
+)

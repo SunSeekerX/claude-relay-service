@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 
 import * as httpApis from '@/libs/http_apis'
+import { isOk, msgOf } from '@/libs/http_envelope'
 
 export const useApiStatsStore = defineStore('apistats', () => {
   // 状态
@@ -130,13 +131,13 @@ export const useApiStatsStore = defineStore('apistats', () => {
       // 获取 API Key ID
       const idResult = await httpApis.getKeyIdApi(trimmedKey)
 
-      if (idResult.success) {
+      if (isOk(idResult)) {
         apiId.value = idResult.data.id
 
         // 使用 apiId 查询统计数据
         const statsResult = await httpApis.getUserStatsApi(apiId.value)
 
-        if (statsResult.success) {
+        if (isOk(statsResult)) {
           statsData.value = statsResult.data
 
           // 保存 Key 级别的服务倍率
@@ -154,10 +155,10 @@ export const useApiStatsStore = defineStore('apistats', () => {
           // 保存 API Key 到 localStorage
           saveApiKeyToStorage()
         } else {
-          throw new Error(statsResult.message || '查询失败')
+          throw new Error(msgOf(statsResult, '查询失败'))
         }
       } else {
-        throw new Error(idResult.message || '获取 API Key ID 失败')
+        throw new Error(msgOf(idResult, '获取 API Key ID 失败'))
       }
     } catch (err) {
       console.error('Query stats error:', err)
@@ -194,9 +195,9 @@ export const useApiStatsStore = defineStore('apistats', () => {
         httpApis.getUserModelStatsApi(apiId.value, 'alltime')
       ])
 
-      dailyModelStats.value = dailyResult.success ? dailyResult.data || [] : []
-      monthlyModelStats.value = monthlyResult.success ? monthlyResult.data || [] : []
-      alltimeModelStats.value = alltimeResult.success ? alltimeResult.data || [] : []
+      dailyModelStats.value = isOk(dailyResult) ? dailyResult.data || [] : []
+      monthlyModelStats.value = isOk(monthlyResult) ? monthlyResult.data || [] : []
+      alltimeModelStats.value = isOk(alltimeResult) ? alltimeResult.data || [] : []
 
       // 保持 modelStats 兼容性（用于现有组件）
       modelStats.value = dailyModelStats.value
@@ -216,7 +217,7 @@ export const useApiStatsStore = defineStore('apistats', () => {
     try {
       const result = await httpApis.getUserModelStatsApi(apiId.value, period)
 
-      if (result.success) {
+      if (isOk(result)) {
         // 计算汇总数据
         const modelData = result.data || []
         const summary = {
@@ -251,7 +252,7 @@ export const useApiStatsStore = defineStore('apistats', () => {
           alltimeStats.value = summary
         }
       } else {
-        console.warn(`Failed to load ${period} stats:`, result.message)
+        console.warn(`Failed to load ${period} stats:`, msgOf(result))
       }
     } catch (err) {
       console.error(`Load ${period} stats error:`, err)
@@ -267,10 +268,10 @@ export const useApiStatsStore = defineStore('apistats', () => {
     try {
       const result = await httpApis.getUserModelStatsApi(apiId.value, period)
 
-      if (result.success) {
+      if (isOk(result)) {
         modelStats.value = result.data || []
       } else {
-        throw new Error(result.message || '加载模型统计失败')
+        throw new Error(msgOf(result, '加载模型统计失败'))
       }
     } catch (err) {
       console.error('Load model stats error:', err)
@@ -319,7 +320,7 @@ export const useApiStatsStore = defineStore('apistats', () => {
     try {
       const result = await httpApis.getUserStatsApi(apiId.value)
 
-      if (result.success) {
+      if (isOk(result)) {
         statsData.value = result.data
 
         // 保存 Key 级别的服务倍率
@@ -337,7 +338,7 @@ export const useApiStatsStore = defineStore('apistats', () => {
         // 清除错误信息
         error.value = ''
       } else {
-        throw new Error(result.message || '查询失败')
+        throw new Error(msgOf(result, '查询失败'))
       }
     } catch (err) {
       console.error('Load stats with apiId error:', err)
@@ -354,7 +355,7 @@ export const useApiStatsStore = defineStore('apistats', () => {
     oemLoading.value = true
     try {
       const result = await httpApis.getOemSettingsApi()
-      if (result && result.success && result.data) {
+      if (result && isOk(result) && result.data) {
         oemSettings.value = { ...oemSettings.value, ...result.data }
       }
     } catch (err) {
@@ -374,7 +375,7 @@ export const useApiStatsStore = defineStore('apistats', () => {
   async function loadServiceRates() {
     try {
       const result = await httpApis.getServiceRatesApi()
-      if (result && result.success && result.data) {
+      if (result && isOk(result) && result.data) {
         serviceRates.value = result.data
       }
     } catch (err) {
@@ -451,7 +452,7 @@ export const useApiStatsStore = defineStore('apistats', () => {
       const validKeys = []
 
       idResults.forEach((result, index) => {
-        if (result.status === 'fulfilled' && result.value.success) {
+        if (result.status === 'fulfilled' && isOk(result.value)) {
           validIds.push(result.value.data.id)
           validKeys.push(keys[index])
         } else {
@@ -469,7 +470,7 @@ export const useApiStatsStore = defineStore('apistats', () => {
       // 批量查询统计数据
       const batchResult = await httpApis.getBatchStatsApi(validIds)
 
-      if (batchResult.success) {
+      if (isOk(batchResult)) {
         aggregatedStats.value = batchResult.data.aggregated
         individualStats.value = batchResult.data.individual
         statsData.value = batchResult.data.aggregated // 兼容现有组件
@@ -484,7 +485,7 @@ export const useApiStatsStore = defineStore('apistats', () => {
         // 更新 URL
         updateBatchURL()
       } else {
-        throw new Error(batchResult.message || '批量查询失败')
+        throw new Error(msgOf(batchResult, '批量查询失败'))
       }
     } catch (err) {
       console.error('Batch query error:', err)
@@ -505,10 +506,10 @@ export const useApiStatsStore = defineStore('apistats', () => {
     try {
       const result = await httpApis.getBatchModelStatsApi(apiIds.value, period)
 
-      if (result.success) {
+      if (isOk(result)) {
         modelStats.value = result.data || []
       } else {
-        throw new Error(result.message || '加载批量模型统计失败')
+        throw new Error(msgOf(result, '加载批量模型统计失败'))
       }
     } catch (err) {
       console.error('Load batch model stats error:', err)

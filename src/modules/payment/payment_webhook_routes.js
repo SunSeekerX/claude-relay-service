@@ -74,7 +74,7 @@ router.all('/:provider', async (req, res) => {
     })
     res.status(200).send(provider.webhookSuccessResponse())
   } catch (error) {
-    logger.error(`❌ [payment] webhook ${providerKey} error:`, error)
+    logger.error(`[payment] webhook ${providerKey} error:`, error)
     res.status(200).send('fail')
   }
 })

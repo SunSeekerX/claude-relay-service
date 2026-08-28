@@ -34,7 +34,7 @@ class QuotaCardService {
         }
       )
     } catch (error) {
-      logger.error('❌ Failed to get limits config:', error)
+      logger.error('Failed to get limits config:', error)
       return { enabled: true, maxExpiryDays: 90, maxTotalCostLimit: 1000 }
     }
   }
@@ -53,10 +53,10 @@ class QuotaCardService {
         updatedAt: new Date().toISOString(),
       }
       await redis.client.set(this.LIMITS_CONFIG_KEY, JSON.stringify(newConfig))
-      logger.info('✅ Quota card limits config saved')
+      logger.info('Quota card limits config saved')
       return newConfig
     } catch (error) {
-      logger.error('❌ Failed to save limits config:', error)
+      logger.error('Failed to save limits config:', error)
       throw error
     }
   }
@@ -164,7 +164,7 @@ class QuotaCardService {
       await redis.client.sadd(RedisKeys.quotaCard.all, cardId)
       await redis.client.sadd(RedisKeys.quotaCard.status(cardData.status), cardId)
 
-      logger.success(`🎫 Created ${type} card: ${cardCode} (${cardId})`)
+      logger.success(`Created ${type} card: ${cardCode} (${cardId})`)
 
       return {
         id: cardId,
@@ -180,7 +180,7 @@ class QuotaCardService {
         note,
       }
     } catch (error) {
-      logger.error('❌ Failed to create card:', error)
+      logger.error('Failed to create card:', error)
       throw error
     }
   }
@@ -202,7 +202,7 @@ class QuotaCardService {
       const card = await this.createCard(options)
       cards.push(card)
     }
-    logger.success(`🎫 Batch created ${total} cards`)
+    logger.success(`Batch created ${total} cards`)
     return cards
   }
 
@@ -217,7 +217,7 @@ class QuotaCardService {
       }
       return await this.getCardById(cardId)
     } catch (error) {
-      logger.error('❌ Failed to get card by code:', error)
+      logger.error('Failed to get card by code:', error)
       return null
     }
   }
@@ -254,7 +254,7 @@ class QuotaCardService {
         revokeReason: cardData.revokeReason,
       }
     } catch (error) {
-      logger.error('❌ Failed to get card:', error)
+      logger.error('Failed to get card:', error)
       return null
     }
   }
@@ -314,7 +314,7 @@ class QuotaCardService {
         offset,
       }
     } catch (error) {
-      logger.error('❌ Failed to get all cards:', error)
+      logger.error('Failed to get all cards:', error)
       return { cards: [], total: 0, limit: 100, offset: 0 }
     }
   }
@@ -493,7 +493,7 @@ class QuotaCardService {
       await redis.client.sadd(RedisKeys.redemption.byUser(userId), redemptionId)
       await redis.client.sadd(RedisKeys.redemption.byApikey(apiKeyId), redemptionId)
 
-      logger.success(`✅ Card ${card.code} redeemed by ${username || userId} to key ${apiKeyId}`)
+      logger.success(`Card ${card.code} redeemed by ${username || userId} to key ${apiKeyId}`)
 
       return {
         success: true,
@@ -510,7 +510,7 @@ class QuotaCardService {
         afterExpiry,
       }
     } catch (error) {
-      logger.error('❌ Failed to redeem card:', error)
+      logger.error('Failed to redeem card:', error)
       throw error
     }
   }
@@ -571,7 +571,7 @@ class QuotaCardService {
       await redis.client.srem(RedisKeys.quotaCard.status('redeemed'), cardId)
       await redis.client.sadd(RedisKeys.quotaCard.status('revoked'), cardId)
 
-      logger.success(`🔄 Revoked redemption ${redemptionId} by ${revokedBy}`)
+      logger.success(`Revoked redemption ${redemptionId} by ${revokedBy}`)
 
       return {
         success: true,
@@ -581,7 +581,7 @@ class QuotaCardService {
         reason,
       }
     } catch (error) {
-      logger.error('❌ Failed to revoke redemption:', error)
+      logger.error('Failed to revoke redemption:', error)
       throw error
     }
   }
@@ -661,7 +661,7 @@ class QuotaCardService {
         offset,
       }
     } catch (error) {
-      logger.error('❌ Failed to get redemptions:', error)
+      logger.error('Failed to get redemptions:', error)
       return { redemptions: [], total: 0, limit: 100, offset: 0 }
     }
   }
@@ -693,13 +693,13 @@ class QuotaCardService {
       await redis.client.srem(RedisKeys.quotaCard.all, cardId)
       await redis.client.srem(RedisKeys.quotaCard.status(card.status), cardId)
 
-      logger.success(`🗑️ Deleted card ${card.code}`)
+      logger.success(`Deleted card ${card.code}`)
 
       return { success: true, cardCode: card.code }
     } catch (error) {
       // 业务拒绝（带 statusCode 的 404/409）不记错误日志，避免污染日志/被监控误判为故障
       if (!error.statusCode || error.statusCode >= 500) {
-        logger.error('❌ Failed to delete card:', error)
+        logger.error('Failed to delete card:', error)
       }
       throw error
     }
@@ -725,7 +725,7 @@ class QuotaCardService {
           throw err
         }
         await this._updateCardStatus(cardId, 'unused')
-        logger.success(`✅ Enabled card ${card.code}`)
+        logger.success(`Enabled card ${card.code}`)
         return { success: true, cardCode: card.code, status: 'unused' }
       }
 
@@ -735,12 +735,12 @@ class QuotaCardService {
         throw err
       }
       await this._updateCardStatus(cardId, 'disabled')
-      logger.success(`🚫 Disabled card ${card.code}`)
+      logger.success(`Disabled card ${card.code}`)
       return { success: true, cardCode: card.code, status: 'disabled' }
     } catch (error) {
       // 业务拒绝（带 statusCode 的 404/409）不记错误日志，避免污染日志/被监控误判为故障
       if (!error.statusCode || error.statusCode >= 500) {
-        logger.error('❌ Failed to toggle card status:', error)
+        logger.error('Failed to toggle card status:', error)
       }
       throw error
     }
@@ -785,7 +785,7 @@ class QuotaCardService {
         disabled,
       }
     } catch (error) {
-      logger.error('❌ Failed to get card stats:', error)
+      logger.error('Failed to get card stats:', error)
       return { total: 0, unused: 0, redeemed: 0, revoked: 0, expired: 0, disabled: 0 }
     }
   }

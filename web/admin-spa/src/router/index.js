@@ -322,6 +322,15 @@ router.beforeEach(async (to, from) => {
     // 如果已经是用户登录状态，重定向到用户仪表板
     return userStore.isAuthenticated ? '/user-dashboard' : true
   }
+
+  // 管理端：进入需登录页或登录页前，先恢复并校验 localStorage 中的 token
+  // 否则刷新后 isLoggedIn 仍为 false，有效会话也会停在 /login 或被踢回
+  if (to.meta.requiresAuth || to.path === '/login') {
+    if (!authStore.isAuthenticated && (authStore.authToken || localStorage.getItem('authToken'))) {
+      await authStore.checkAuth()
+    }
+  }
+
   if (to.meta.requiresAuth && !authStore.isAuthenticated) {
     return '/login'
   }

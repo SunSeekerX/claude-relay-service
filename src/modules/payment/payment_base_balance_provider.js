@@ -18,11 +18,11 @@ export class BaseBalanceProvider {
    * @returns {Promise<object>}
    * 形如：
    * {
-   *   balance: number|null,
-   *   currency?: string,
-   *   quota?: { daily, used, remaining, resetAt, percentage, unlimited? },
-   *   queryMethod?: 'api'|'field'|'local',
-   *   rawData?: any
+   * balance: number|null,
+   * currency?: string,
+   * quota?: { daily, used, remaining, resetAt, percentage, unlimited? },
+   * queryMethod?: 'api'|'field'|'local',
+   * rawData?: any
    * }
    */
   async queryBalance(_account) {

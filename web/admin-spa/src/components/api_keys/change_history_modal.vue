@@ -129,9 +129,9 @@
 import { ref, reactive, onMounted } from 'vue'
 
 import ModalTransition from '@/components/common/modal_transition.vue'
-import { formatDateTime } from '@/libs/tools'
+import { formatDateTime, showToast } from '@/libs/tools'
 import * as httpApis from '@/libs/http_apis'
-import { showToast } from '@/libs/tools'
+import { isOk, msgOf } from '@/libs/http_envelope'
 
 const props = defineProps({
   keyId: {
@@ -243,7 +243,7 @@ const loadHistory = async (page) => {
       page,
       pageSize: pagination.pageSize
     })
-    if (result.success) {
+    if (isOk(result)) {
       items.value = result.data?.items || []
       const pageInfo = result.data?.pagination || {}
       pagination.page = pageInfo.page || page
@@ -251,7 +251,7 @@ const loadHistory = async (page) => {
       pagination.total = pageInfo.total || 0
       pagination.totalPages = pageInfo.totalPages || 0
     } else {
-      showToast(result.message || '加载变更记录失败', 'error')
+      showToast(msgOf(result, '加载变更记录失败'), 'error')
     }
   } catch (error) {
     showToast('加载变更记录失败', 'error')

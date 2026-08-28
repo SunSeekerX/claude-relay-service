@@ -229,7 +229,7 @@ async function main() {
       log.info('Cleaned up backup file')
     }
 
-    console.log(`\n${colors.green}✅ Model pricing updated successfully!${colors.reset}`)
+    console.log(`\n${colors.green}Model pricing updated successfully!${colors.reset}`)
     process.exit(0)
   } catch (error) {
     log.error(`Download failed: ${error.message}`)
@@ -243,10 +243,10 @@ async function main() {
 
     // 尝试使用 fallback
     if (useFallback()) {
-      console.log(`\n${colors.yellow}⚠️  Using fallback data (update completed with warnings)${colors.reset}`)
+      console.log(`\n${colors.yellow}Using fallback data (update completed with warnings)${colors.reset}`)
       process.exit(0)
     } else {
-      console.log(`\n${colors.red}❌ Failed to update model pricing${colors.reset}`)
+      console.log(`\n${colors.red}Failed to update model pricing${colors.reset}`)
       process.exit(1)
     }
   }

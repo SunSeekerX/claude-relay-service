@@ -43,6 +43,12 @@
         <!-- Token 详情 -->
         <div class="mb-2 space-y-0.5 text-sm text-gray-600 dark:text-gray-400">
           <div class="flex justify-between">
+            <span>请求</span>
+            <span class="text-gray-900 dark:text-gray-200">{{
+              formatNumber(service.requests)
+            }}</span>
+          </div>
+          <div class="flex justify-between">
             <span>输入</span>
             <span class="text-gray-900 dark:text-gray-200">{{
               formatNumber(service.inputTokens)
@@ -154,6 +160,7 @@ const serviceStats = computed(() => {
   // 初始化所有服务
   Object.keys(serviceRates.value.rates).forEach((service) => {
     stats[service] = {
+      requests: 0,
       inputTokens: 0,
       outputTokens: 0,
       cacheCreateTokens: 0,
@@ -168,6 +175,7 @@ const serviceStats = computed(() => {
   modelStats.value.forEach((model) => {
     const service = getServiceFromModel(model.model)
     if (stats[service]) {
+      stats[service].requests += model.requests || 0
       stats[service].inputTokens += model.inputTokens || 0
       stats[service].outputTokens += model.outputTokens || 0
       stats[service].cacheCreateTokens += model.cacheCreateTokens || 0
@@ -193,6 +201,7 @@ const serviceStats = computed(() => {
   return Object.entries(stats)
     .filter(
       ([, data]) =>
+        data.requests > 0 ||
         data.inputTokens > 0 ||
         data.outputTokens > 0 ||
         data.cacheCreateTokens > 0 ||
@@ -207,6 +216,7 @@ const serviceStats = computed(() => {
         label: serviceLabels[service] || service,
         globalRate: globalRate,
         keyRate: keyRate,
+        requests: data.requests,
         inputTokens: data.inputTokens,
         outputTokens: data.outputTokens,
         cacheCreateTokens: data.cacheCreateTokens,

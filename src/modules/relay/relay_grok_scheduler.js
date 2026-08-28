@@ -1,5 +1,6 @@
 import { grokAccountService } from '../account/account_grok_service.js'
 import { accountGroupService } from '../account/account_group_service.js'
+import * as groupPolicy from '../account/account_group_policy.js'
 import { redis } from '../../infra/redis.js'
 import { logger } from '../../common/logger.js'
 import * as upstreamErrorHelper from './relay_upstream_error_helper.js'
@@ -128,31 +129,74 @@ class GrokScheduler {
   }
 
   async _loadGroupAccounts(groupId, requestedModel, options = {}) {
-    const memberIds = await accountGroupService.getGroupMembers(groupId)
-    if (!memberIds || memberIds.length === 0) {
-      return []
+    const group = await accountGroupService.getGroup(groupId)
+    if (!group) {
+      const error = new Error(`Grok group ${groupId} not found`)
+      error.statusCode = 404
+      throw error
     }
-    const accounts = await Promise.all(
-      memberIds.map(async (memberId) => {
-        try {
-          return await grokAccountService.getAccount(memberId, { decryptSecrets: true })
-        } catch (error) {
-          console.error(error)
-          return null
+    if (group.platform && group.platform !== 'grok') {
+      const error = new Error(`Group ${group.name} is not a Grok group`)
+      error.statusCode = 400
+      throw error
+    }
+
+    const holdTarget = options.holdTarget || null
+    let groupCostHoldReleased = false
+    const releaseGroupCostHoldOnce = async () => {
+      if (groupCostHoldReleased) {
+        return
+      }
+      groupCostHoldReleased = true
+      if (holdTarget && holdTarget.groupCostHoldGroupId === groupId) {
+        holdTarget.groupCostHoldGroupId = null
+      }
+      if (holdTarget && holdTarget.groupCostHoldMeta && holdTarget.groupCostHoldMeta.groupId === groupId) {
+        holdTarget.groupCostHoldMeta = null
+      }
+      try {
+        await groupPolicy.releaseGroupCostHolds(groupId)
+      } catch (error) {
+        console.error(error)
+      }
+    }
+
+    try {
+      await groupPolicy.assertGroupRequestAllowed(group, { requestedModel, holdTarget })
+
+      const memberIds = await accountGroupService.getGroupMembers(groupId)
+      if (!memberIds || memberIds.length === 0) {
+        await releaseGroupCostHoldOnce()
+        return []
+      }
+      const accounts = await Promise.all(
+        memberIds.map(async (memberId) => {
+          try {
+            return await grokAccountService.getAccount(memberId, { decryptSecrets: true })
+          } catch (error) {
+            console.error(error)
+            return null
+          }
+        }),
+      )
+      const result = []
+      for (const account of accounts) {
+        if (!(await this._isGrokAccountUsable(account, requestedModel, options))) {
+          continue
         }
-      }),
-    )
-    const result = []
-    for (const account of accounts) {
-      if (!(await this._isGrokAccountUsable(account, requestedModel, options))) {
-        continue
+        const ready = await this._ensureTokenReady(account)
+        if (ready) {
+          result.push(ready)
+        }
       }
-      const ready = await this._ensureTokenReady(account)
-      if (ready) {
-        result.push(ready)
+      if (result.length === 0) {
+        await releaseGroupCostHoldOnce()
       }
+      return result
+    } catch (error) {
+      await releaseGroupCostHoldOnce()
+      throw error
     }
-    return result
   }
 
   async selectAccount(apiKeyData, requestedModel, sessionHash, options = {}) {
@@ -165,7 +209,10 @@ class GrokScheduler {
       const binding = apiKeyData.grokAccountId
       if (binding.startsWith('group:')) {
         const groupId = binding.substring('group:'.length)
-        candidates = await this._loadGroupAccounts(groupId, requestedModel, { mediaGeneration })
+        candidates = await this._loadGroupAccounts(groupId, requestedModel, {
+          mediaGeneration,
+          holdTarget: apiKeyData,
+        })
         // 分组绑定：只在组内选，绝不退回共享池
         if (!candidates.length) {
           const error = new Error(`No available Grok accounts in bound group ${groupId} (respecting binding)`)
@@ -193,7 +240,8 @@ class GrokScheduler {
         }
       }
     } else {
-      // 共享池：仅 shared（兼容旧数据 accountType 空）
+      // 共享池：仅 shared（兼容旧数据 accountType 空）；独占分组成员不进池
+      const exclusiveMemberIds = await groupPolicy.collectExclusiveMemberIds(accountGroupService, 'grok')
       const all = await grokAccountService.getAllAccounts(false)
       const sharedListed = all.filter(
         (item) => item.accountType === 'shared' || !item.accountType || item.accountType === '',
@@ -203,6 +251,9 @@ class GrokScheduler {
       )
       for (const account of hydrated) {
         if (!account) {
+          continue
+        }
+        if (exclusiveMemberIds.has(account.id)) {
           continue
         }
         // 双重保险：解密后仍校验 shared

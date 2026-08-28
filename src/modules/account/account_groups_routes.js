@@ -1,126 +1,127 @@
 import express from 'express'
-import { accountGroupService } from './account_group_service.js'
+
+import { authenticateAdmin } from '../../infra/middleware_auth.js'
+import { asyncRoute } from '../../common/route_handler.js'
+import { ok, badRequest, notFound } from '../../common/http_result.js'
+import { parseObjectBody } from '../../common/parse_body.js'
+import * as azureOpenaiAccountService from './account_azure_openai_service.js'
+import { bedrockAccountService } from './account_bedrock_service.js'
+import { ccrAccountService } from './account_ccr_service.js'
 import { claudeAccountService } from './account_claude_service.js'
 import { claudeConsoleAccountService } from './account_claude_console_service.js'
-import * as geminiAccountService from './account_gemini_service.js'
-import * as openaiAccountService from './account_openai_service.js'
 import { droidAccountService } from './account_droid_service.js'
-import { authenticateAdmin } from '../../infra/middleware_auth.js'
-import { logger } from '../../common/logger.js'
+import * as geminiAccountService from './account_gemini_service.js'
+import { grokAccountService } from './account_grok_service.js'
+import * as openaiAccountService from './account_openai_service.js'
+import { openaiResponsesAccountService } from './account_openai_responses_service.js'
+import { accountGroupService } from './account_group_service.js'
+
 export const router = express.Router()
 
-// 👥 账户分组管理
-
-// 创建账户分组
-router.post('/', authenticateAdmin, async (req, res) => {
-  try {
-    const { name, platform, description } = req.body
-
-    const group = await accountGroupService.createGroup({
-      name,
-      platform,
-      description,
-    })
-
-    return res.json({ success: true, data: group })
-  } catch (error) {
-    logger.error('❌ Failed to create account group:', error)
-    return res.status(400).json({ error: error.message })
+const resolveMemberAccount = async (memberId, platform) => {
+  if (platform === 'droid') {
+    return droidAccountService.getAccount(memberId)
   }
-})
+  if (platform === 'grok') {
+    return grokAccountService.getAccount(memberId)
+  }
+  if (platform === 'gemini' || platform === 'antigravity') {
+    return geminiAccountService.getAccount(memberId)
+  }
+  if (platform === 'openai') {
+    let account = await openaiAccountService.getAccount(memberId)
+    if (!account) {
+      account = await openaiResponsesAccountService.getAccount(memberId)
+    }
+    if (!account) {
+      account = await azureOpenaiAccountService.getAccount(memberId)
+    }
+    return account
+  }
+  let account = await claudeAccountService.getAccount(memberId)
+  if (!account) {
+    account = await claudeConsoleAccountService.getAccount(memberId)
+  }
+  if (!account) {
+    account = await bedrockAccountService.getAccount(memberId)
+  }
+  if (!account) {
+    account = await ccrAccountService.getAccount(memberId)
+  }
+  return account
+}
 
-// 获取所有分组
-router.get('/', authenticateAdmin, async (req, res) => {
-  try {
+router.post(
+  '/',
+  authenticateAdmin,
+  asyncRoute('Failed to create account group', async (req) => {
+    try {
+      return await accountGroupService.createGroup(parseObjectBody(req.body, '创建账户分组'))
+    } catch (error) {
+      throw badRequest(error.message)
+    }
+  }),
+)
+
+router.get(
+  '/',
+  authenticateAdmin,
+  asyncRoute('Failed to get account groups', async (req) => {
     const { platform } = req.query
-    const groups = await accountGroupService.getAllGroups(platform)
-    return res.json({ success: true, data: groups })
-  } catch (error) {
-    logger.error('❌ Failed to get account groups:', error)
-    return res.status(500).json({ error: error.message })
-  }
-})
+    return accountGroupService.getAllGroups(platform)
+  }),
+)
 
-// 获取分组详情
-router.get('/:groupId', authenticateAdmin, async (req, res) => {
-  try {
+router.get(
+  '/:groupId',
+  authenticateAdmin,
+  asyncRoute('Failed to get account group', async (req) => {
+    const group = await accountGroupService.getGroup(req.params.groupId)
+    if (!group) {
+      throw notFound('分组不存在')
+    }
+    return group
+  }),
+)
+
+router.put(
+  '/:groupId',
+  authenticateAdmin,
+  asyncRoute('Failed to update account group', async (req) => {
+    try {
+      return await accountGroupService.updateGroup(req.params.groupId, parseObjectBody(req.body, '更新账户分组'))
+    } catch (error) {
+      throw badRequest(error.message)
+    }
+  }),
+)
+
+router.delete(
+  '/:groupId',
+  authenticateAdmin,
+  asyncRoute('Failed to delete account group', async (req) => {
+    try {
+      await accountGroupService.deleteGroup(req.params.groupId)
+      return ok(undefined, '分组删除成功')
+    } catch (error) {
+      throw badRequest(error.message)
+    }
+  }),
+)
+
+router.get(
+  '/:groupId/members',
+  authenticateAdmin,
+  asyncRoute('Failed to get group members', async (req) => {
     const { groupId } = req.params
     const group = await accountGroupService.getGroup(groupId)
-
     if (!group) {
-      return res.status(404).json({ error: '分组不存在' })
+      throw notFound('分组不存在')
     }
-
-    return res.json({ success: true, data: group })
-  } catch (error) {
-    logger.error('❌ Failed to get account group:', error)
-    return res.status(500).json({ error: error.message })
-  }
-})
-
-// 更新分组
-router.put('/:groupId', authenticateAdmin, async (req, res) => {
-  try {
-    const { groupId } = req.params
-    const updates = req.body
-
-    const updatedGroup = await accountGroupService.updateGroup(groupId, updates)
-    return res.json({ success: true, data: updatedGroup })
-  } catch (error) {
-    logger.error('❌ Failed to update account group:', error)
-    return res.status(400).json({ error: error.message })
-  }
-})
-
-// 删除分组
-router.delete('/:groupId', authenticateAdmin, async (req, res) => {
-  try {
-    const { groupId } = req.params
-    await accountGroupService.deleteGroup(groupId)
-    return res.json({ success: true, message: '分组删除成功' })
-  } catch (error) {
-    logger.error('❌ Failed to delete account group:', error)
-    return res.status(400).json({ error: error.message })
-  }
-})
-
-// 获取分组成员
-router.get('/:groupId/members', authenticateAdmin, async (req, res) => {
-  try {
-    const { groupId } = req.params
-    const group = await accountGroupService.getGroup(groupId)
-
-    if (!group) {
-      return res.status(404).json({ error: '分组不存在' })
-    }
-
     const memberIds = await accountGroupService.getGroupMembers(groupId)
-
-    // 获取成员详细信息
     const members = []
     for (const memberId of memberIds) {
-      // 根据分组平台优先查找对应账户
-      let account = null
-      switch (group.platform) {
-        case 'droid':
-          account = await droidAccountService.getAccount(memberId)
-          break
-        case 'gemini':
-          account = await geminiAccountService.getAccount(memberId)
-          break
-        case 'openai':
-          account = await openaiAccountService.getAccount(memberId)
-          break
-        case 'claude':
-        default:
-          account = await claudeAccountService.getAccount(memberId)
-          if (!account) {
-            account = await claudeConsoleAccountService.getAccount(memberId)
-          }
-          break
-      }
-
-      // 兼容旧数据：若按平台未找到，则继续尝试其他平台
+      let account = await resolveMemberAccount(memberId, group.platform)
       if (!account) {
         account = await claudeAccountService.getAccount(memberId)
       }
@@ -128,23 +129,33 @@ router.get('/:groupId/members', authenticateAdmin, async (req, res) => {
         account = await claudeConsoleAccountService.getAccount(memberId)
       }
       if (!account) {
+        account = await bedrockAccountService.getAccount(memberId)
+      }
+      if (!account) {
+        account = await ccrAccountService.getAccount(memberId)
+      }
+      if (!account) {
         account = await geminiAccountService.getAccount(memberId)
       }
       if (!account) {
         account = await openaiAccountService.getAccount(memberId)
       }
-      if (!account && group.platform !== 'droid') {
+      if (!account) {
+        account = await openaiResponsesAccountService.getAccount(memberId)
+      }
+      if (!account) {
+        account = await azureOpenaiAccountService.getAccount(memberId)
+      }
+      if (!account) {
         account = await droidAccountService.getAccount(memberId)
       }
-
+      if (!account) {
+        account = await grokAccountService.getAccount(memberId)
+      }
       if (account) {
         members.push(account)
       }
     }
-
-    return res.json({ success: true, data: members })
-  } catch (error) {
-    logger.error('❌ Failed to get group members:', error)
-    return res.status(500).json({ error: error.message })
-  }
-})
+    return members
+  }),
+)

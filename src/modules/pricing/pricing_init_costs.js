@@ -7,12 +7,12 @@ const main = async function main() {
     // 连接Redis
     await redis.connect()
 
-    console.log('💰 Starting cost data initialization...\n')
+    console.log('Starting cost data initialization...\n')
 
     // 执行初始化
     const result = await costInitService.initializeAllCosts()
 
-    console.log('\n✅ Cost initialization completed!')
+    console.log('\nCost initialization completed!')
     console.log(`   Processed: ${result.processed} API Keys`)
     console.log(`   Errors: ${result.errors}`)
 
@@ -23,7 +23,7 @@ const main = async function main() {
     if (error.message === 'INIT_COSTS_SUCCESS') {
       return
     }
-    console.error('\n❌ Cost initialization failed:', error.message)
+    console.error('\nCost initialization failed:', error.message)
     logger.error('Cost initialization failed:', error)
     throw error
   }

@@ -86,7 +86,7 @@ export class LRUCache {
 
     this.lastCleanup = now
     if (cleanedCount > 0) {
-      console.log(`🧹 LRU Cache: Cleaned ${cleanedCount} expired items`)
+      console.log(`LRU Cache: Cleaned ${cleanedCount} expired items`)
     }
   }
 
@@ -99,7 +99,7 @@ export class LRUCache {
     this.hits = 0
     this.misses = 0
     this.evictions = 0
-    console.log(`🗑️ LRU Cache: Cleared ${size} items`)
+    console.log(`LRU Cache: Cleared ${size} items`)
   }
 
   /**
@@ -126,7 +126,7 @@ export class LRUCache {
   printStats() {
     const stats = this.getStats()
     console.log(
-      `📊 LRU Cache Stats: Size: ${stats.size}/${stats.maxSize}, Hit Rate: ${stats.hitRate}, Hits: ${stats.hits}, Misses: ${stats.misses}, Evictions: ${stats.evictions}`,
+      `LRU Cache Stats: Size: ${stats.size}/${stats.maxSize}, Hit Rate: ${stats.hitRate}, Hits: ${stats.hits}, Misses: ${stats.misses}, Evictions: ${stats.evictions}`,
     )
   }
 }

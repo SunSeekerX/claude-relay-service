@@ -3,15 +3,15 @@
  * 纯格式转换层：CRS 规范化快照 <-> sub2api DataAccount <-> CLIProxyAPI auth 文件。
  *
  * 约定：
- *   - 本模块不读 Redis、不加解密。输入输出都是明文的「规范化快照」。
- *   - 规范化快照（snapshot）：
- *       { platform, id, name, description, data: {...} }
- *     其中 data 的字段尽量对齐对应 service.createAccount 的入参，使 CRS 原生导入可直接透传。
- *   - 凭据一律明文。
+ * - 本模块不读 Redis、不加解密。输入输出都是明文的「规范化快照」。
+ * - 规范化快照（snapshot）：
+ * { platform, id, name, description, data: {...} }
+ * 其中 data 的字段尽量对齐对应 service.createAccount 的入参，使 CRS 原生导入可直接透传。
+ * - 凭据一律明文。
  *
  * 跨格式转换返回统一形状：
- *   成功 -> { ok: true, ...payload }
- *   不支持 -> { ok: false, unsupported: true, reason }
+ * 成功 -> { ok: true, ...payload }
+ * 不支持 -> { ok: false, unsupported: true, reason }
  */
 
 // CRS 平台标识（与 AccountsView / 各 service.platform 对齐）

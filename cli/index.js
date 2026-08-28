@@ -17,7 +17,7 @@ const __dirname = path.dirname(__filename)
 
 const program = new Command()
 
-// 🎨 样式
+// 样式
 const styles = {
   title: chalk.bold.blue,
   success: chalk.green,
@@ -27,7 +27,7 @@ const styles = {
   dim: chalk.dim,
 }
 
-// 🔧 初始化
+// 初始化
 async function initialize() {
   const spinner = ora('正在连接 Redis...').start()
   try {
@@ -40,7 +40,7 @@ async function initialize() {
   }
 }
 
-// 🔐 管理员账户管理
+// 管理员账户管理
 program
   .command('admin')
   .description('管理员账户操作')
@@ -53,7 +53,7 @@ program
     await redis.disconnect()
   })
 
-// 🔑 API Key 管理
+// API Key 管理
 program
   .command('keys')
   .description('API Key 管理操作')
@@ -66,10 +66,10 @@ program
         name: 'action',
         message: '请选择操作:',
         choices: [
-          { name: '📋 查看所有 API Keys', value: 'list' },
-          { name: '🔧 修改 API Key 过期时间', value: 'update-expiry' },
-          { name: '🔄 续期即将过期的 API Key', value: 'renew' },
-          { name: '🗑️  删除 API Key', value: 'delete' },
+          { name: '查看所有 API Keys', value: 'list' },
+          { name: '修改 API Key 过期时间', value: 'update-expiry' },
+          { name: '续期即将过期的 API Key', value: 'renew' },
+          { name: ' 删除 API Key', value: 'delete' },
         ],
       },
     ])
@@ -92,7 +92,7 @@ program
     await redis.disconnect()
   })
 
-// 📊 系统状态
+// 系统状态
 program
   .command('status')
   .description('查看系统状态')
@@ -110,14 +110,14 @@ program
 
       spinner.succeed('系统状态获取成功')
 
-      console.log(styles.title('\n📊 系统状态概览\n'))
+      console.log(styles.title('\n系统状态概览\n'))
 
       const statusData = [
         ['项目', '数量', '状态'],
         ['API Keys', apiKeys.length, `${apiKeys.filter((k) => k.isActive).length} 活跃`],
         ['Claude 账户', accounts.length, `${accounts.filter((a) => a.isActive).length} 活跃`],
-        ['Redis 连接', redis.isConnected ? '已连接' : '未连接', redis.isConnected ? '🟢' : '🔴'],
-        ['运行时间', `${Math.floor(process.uptime() / 60)} 分钟`, '🕐'],
+        ['Redis 连接', redis.isConnected ? '已连接' : '未连接', redis.isConnected ? '' : ''],
+        ['运行时间', `${Math.floor(process.uptime() / 60)} 分钟`, ''],
       ]
 
       console.log(table(statusData))
@@ -126,7 +126,7 @@ program
       const totalTokens = apiKeys.reduce((sum, key) => sum + (key.usage?.total?.tokens || 0), 0)
       const totalRequests = apiKeys.reduce((sum, key) => sum + (key.usage?.total?.requests || 0), 0)
 
-      console.log(styles.title('\n📈 使用统计\n'))
+      console.log(styles.title('\n使用统计\n'))
       console.log(`总 Token 使用量: ${styles.success(totalTokens.toLocaleString())}`)
       console.log(`总请求数: ${styles.success(totalRequests.toLocaleString())}`)
     } catch (error) {
@@ -137,7 +137,7 @@ program
     await redis.disconnect()
   })
 
-// ☁️ Bedrock 账户管理
+// Bedrock 账户管理
 program
   .command('bedrock')
   .description('Bedrock 账户管理操作')
@@ -150,12 +150,12 @@ program
         name: 'action',
         message: '请选择操作:',
         choices: [
-          { name: '📋 查看所有 Bedrock 账户', value: 'list' },
-          { name: '➕ 创建 Bedrock 账户', value: 'create' },
-          { name: '✏️  编辑 Bedrock 账户', value: 'edit' },
-          { name: '🔄 切换账户状态', value: 'toggle' },
-          { name: '🧪 测试账户连接', value: 'test' },
-          { name: '🗑️  删除账户', value: 'delete' },
+          { name: '查看所有 Bedrock 账户', value: 'list' },
+          { name: '创建 Bedrock 账户', value: 'create' },
+          { name: ' 编辑 Bedrock 账户', value: 'edit' },
+          { name: '切换账户状态', value: 'toggle' },
+          { name: '测试账户连接', value: 'test' },
+          { name: ' 删除账户', value: 'delete' },
         ],
       },
     ])
@@ -187,13 +187,13 @@ program
 // 实现具体功能函数
 
 async function createInitialAdmin() {
-  console.log(styles.title('\n🔐 创建初始管理员账户\n'))
+  console.log(styles.title('\n创建初始管理员账户\n'))
 
   // 检查是否已存在 init.json
   const initFilePath = path.join(__dirname, '..', 'data', 'init.json')
   if (fs.existsSync(initFilePath)) {
     const existingData = JSON.parse(fs.readFileSync(initFilePath, 'utf8'))
-    console.log(styles.warning('⚠️  检测到已存在管理员账户！'))
+    console.log(styles.warning(' 检测到已存在管理员账户！'))
     console.log(`   用户名: ${existingData.adminUsername}`)
     console.log(`   创建时间: ${new Date(existingData.initializedAt).toLocaleString()}`)
 
@@ -207,7 +207,7 @@ async function createInitialAdmin() {
     ])
 
     if (!overwrite) {
-      console.log(styles.info('ℹ️  已取消创建'))
+      console.log(styles.info(' 已取消创建'))
       return
     }
   }
@@ -269,11 +269,11 @@ async function createInitialAdmin() {
     await redis.setSession('admin_credentials', credentials, 0) // 永不过期
 
     spinner.succeed('管理员账户创建成功')
-    console.log(`${styles.success('✅')} 用户名: ${adminData.username}`)
-    console.log(`${styles.success('✅')} 密码: ${adminData.password}`)
-    console.log(`${styles.info('ℹ️')} 请妥善保管登录凭据`)
-    console.log(`${styles.info('ℹ️')} 凭据已保存到: ${initFilePath}`)
-    console.log(`${styles.warning('⚠️')} 如果服务正在运行，请重启服务以加载新凭据`)
+    console.log(`${styles.success('')} 用户名: ${adminData.username}`)
+    console.log(`${styles.success('')} 密码: ${adminData.password}`)
+    console.log(`${styles.info('')} 请妥善保管登录凭据`)
+    console.log(`${styles.info('')} 凭据已保存到: ${initFilePath}`)
+    console.log(`${styles.warning('')} 如果服务正在运行，请重启服务以加载新凭据`)
   } catch (error) {
     spinner.fail('创建管理员账户失败')
     console.error(styles.error(error.message))
@@ -316,14 +316,14 @@ async function listApiKeys() {
       tableData.push([
         key.name,
         key.maskedKey || '-',
-        key.isActive ? '🟢 活跃' : '🔴 停用',
+        key.isActive ? '活跃' : '停用',
         expiryStatus,
         `${(key.usage?.total?.tokens || 0).toLocaleString()}`,
         key.tokenLimit ? key.tokenLimit.toLocaleString() : '无限制',
       ])
     })
 
-    console.log(styles.title('\n🔑 API Keys 列表:\n'))
+    console.log(styles.title('\nAPI Keys 列表:\n'))
     console.log(table(tableData))
   } catch (error) {
     spinner.fail('获取 API Keys 失败')
@@ -366,15 +366,15 @@ async function updateApiKeyExpiry() {
         name: 'expiryOption',
         message: '选择新的过期时间:',
         choices: [
-          { name: '⏰ 1分后（测试用）', value: '1m' },
-          { name: '⏰ 1小时后（测试用）', value: '1h' },
-          { name: '📅 1天后', value: '1d' },
-          { name: '📅 7天后', value: '7d' },
-          { name: '📅 30天后', value: '30d' },
-          { name: '📅 90天后', value: '90d' },
-          { name: '📅 365天后', value: '365d' },
-          { name: '♾️  永不过期', value: 'never' },
-          { name: '🎯 自定义日期时间', value: 'custom' },
+          { name: '1分后（测试用）', value: '1m' },
+          { name: '1小时后（测试用）', value: '1h' },
+          { name: '1天后', value: '1d' },
+          { name: '7天后', value: '7d' },
+          { name: '30天后', value: '30d' },
+          { name: '90天后', value: '90d' },
+          { name: '365天后', value: '365d' },
+          { name: ' 永不过期', value: 'never' },
+          { name: '自定义日期时间', value: 'custom' },
         ],
       },
     ])
@@ -447,7 +447,7 @@ async function updateApiKeyExpiry() {
       await apiKeyService.updateApiKey(selectedKey.id, { expiresAt: newExpiresAt })
       spinner.succeed('过期时间修改成功')
 
-      console.log(styles.success(`\n✅ API Key "${selectedKey.name}" 的过期时间已更新`))
+      console.log(styles.success(`\nAPI Key "${selectedKey.name}" 的过期时间已更新`))
       console.log(`新的过期时间: ${newExpiresAt ? new Date(newExpiresAt).toLocaleString() : '永不过期'}`)
     } catch (error) {
       spinner.fail('修改失败')
@@ -495,9 +495,9 @@ async function renewApiKeys() {
         name: 'renewOption',
         message: '选择续期方式:',
         choices: [
-          { name: '📅 全部续期30天', value: 'all30' },
-          { name: '📅 全部续期90天', value: 'all90' },
-          { name: '🎯 逐个选择续期', value: 'individual' },
+          { name: '全部续期30天', value: 'all30' },
+          { name: '全部续期90天', value: 'all90' },
+          { name: '逐个选择续期', value: 'individual' },
         ],
       },
     ])
@@ -540,9 +540,9 @@ async function renewApiKeys() {
 
           try {
             await apiKeyService.updateApiKey(key.id, { expiresAt: newExpiresAt })
-            console.log(styles.success(`✅ 已续期 ${days} 天`))
+            console.log(styles.success(`已续期 ${days} 天`))
           } catch (error) {
-            console.log(styles.error(`❌ 续期失败: ${error.message}`))
+            console.log(styles.error(`续期失败: ${error.message}`))
           }
         }
       }
@@ -632,13 +632,13 @@ async function deleteApiKey() {
 //         account.id.substring(0, 8) + '...',
 //         account.name,
 //         account.email || '-',
-//         account.isActive ? (account.status === 'active' ? '🟢 活跃' : '🟡 待激活') : '🔴 停用',
-//         account.proxy ? '🌐 是' : '-',
+//         account.isActive ? (account.status === 'active' ? '活跃' : '待激活') : '停用',
+//         account.proxy ? '是' : '-',
 //         account.lastUsedAt ? new Date(account.lastUsedAt).toLocaleDateString() : '-'
 //       ]);
 //     });
 
-//     console.log('\n🏢 Claude 账户列表:\n');
+//     console.log('\nClaude 账户列表:\n');
 //     console.log(table(tableData));
 
 //   } catch (error) {
@@ -647,7 +647,7 @@ async function deleteApiKey() {
 //   }
 // }
 
-// ☁️ Bedrock 账户管理函数
+// Bedrock 账户管理函数
 
 async function listBedrockAccounts() {
   const spinner = ora('正在获取 Bedrock 账户...').start()
@@ -674,13 +674,13 @@ async function listBedrockAccounts() {
         account.name,
         account.region,
         account.defaultModel?.split('.').pop() || 'default',
-        account.isActive ? (account.schedulable ? '🟢 活跃' : '🟡 不可调度') : '🔴 停用',
+        account.isActive ? (account.schedulable ? '活跃' : '不可调度') : '停用',
         account.credentialType,
         account.createdAt ? new Date(account.createdAt).toLocaleDateString() : '-',
       ])
     })
 
-    console.log('\n☁️ Bedrock 账户列表:\n')
+    console.log('\nBedrock 账户列表:\n')
     console.log(table(tableData))
   } catch (error) {
     spinner.fail('获取 Bedrock 账户失败')
@@ -689,7 +689,7 @@ async function listBedrockAccounts() {
 }
 
 async function createBedrockAccount() {
-  console.log(styles.title('\n➕ 创建 Bedrock 账户\n'))
+  console.log(styles.title('\n创建 Bedrock 账户\n'))
 
   const questions = [
     {
@@ -837,7 +837,7 @@ async function toggleBedrockAccount() {
     spinner.succeed('账户列表获取成功')
 
     const choices = result.data.map((account) => ({
-      name: `${account.name} (${account.isActive ? '🟢 活跃' : '🔴 停用'})`,
+      name: `${account.name} (${account.isActive ? '活跃' : '停用'})`,
       value: account.id,
     }))
 
@@ -865,7 +865,7 @@ async function toggleBedrockAccount() {
 
     if (updateResult.success) {
       toggleSpinner.succeed('账户状态切换成功')
-      console.log(styles.success(`新状态: ${newStatus ? '🟢 活跃' : '🔴 停用'}`))
+      console.log(styles.success(`新状态: ${newStatus ? '活跃' : '停用'}`))
     } else {
       throw new Error(updateResult.error)
     }
@@ -1008,7 +1008,7 @@ program.parse()
 
 // 如果没有提供命令，显示帮助
 if (!process.argv.slice(2).length) {
-  console.log(styles.title('🚀 Claude Relay Service CLI\n'))
+  console.log(styles.title('Claude Relay Service CLI\n'))
   console.log('使用以下命令管理服务:\n')
   console.log('  claude-relay-cli admin         - 创建初始管理员账户')
   console.log('  claude-relay-cli keys          - API Key 管理（查看/修改过期时间/续期/删除）')

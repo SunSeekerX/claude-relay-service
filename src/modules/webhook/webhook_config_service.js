@@ -6,6 +6,59 @@ class WebhookConfigService {
   constructor() {
     this.KEY_PREFIX = 'webhook_config'
     this.DEFAULT_CONFIG_KEY = `${this.KEY_PREFIX}:default`
+    // 单实例内串行化配置读改写，避免开关保存与渠道 CRUD 交错覆盖 platforms
+    this._mutateChain = Promise.resolve()
+  }
+
+  // 从 Redis 读配置；无数据返回默认。抛错不吞，交给 mutate/getConfig 各自处理
+  async _loadStoredOrDefault() {
+    const configStr = await redis.client.get(this.DEFAULT_CONFIG_KEY)
+    if (!configStr) {
+      return this.getDefaultConfig()
+    }
+
+    const storedConfig = JSON.parse(configStr)
+    const defaultConfig = this.getDefaultConfig()
+
+    storedConfig.notificationTypes = {
+      ...defaultConfig.notificationTypes,
+      ...(storedConfig.notificationTypes || {}),
+    }
+    if (!Array.isArray(storedConfig.platforms)) {
+      storedConfig.platforms = []
+    }
+    return storedConfig
+  }
+
+  async _persistConfig(config) {
+    const defaultConfig = this.getDefaultConfig()
+
+    config.notificationTypes = {
+      ...defaultConfig.notificationTypes,
+      ...(config.notificationTypes || {}),
+    }
+
+    this.validateConfig(config)
+    config.updatedAt = new Date().toISOString()
+
+    await redis.client.set(this.DEFAULT_CONFIG_KEY, JSON.stringify(config))
+    logger.info('Webhook配置已保存')
+    return config
+  }
+
+  // 串行执行配置变更；失败不堵后续任务
+  async _mutateConfig(mutator) {
+    const run = this._mutateChain.then(async () => {
+      const config = await this._loadStoredOrDefault()
+      const result = await mutator(config)
+      await this._persistConfig(config)
+      return result === undefined ? config : result
+    })
+    this._mutateChain = run.then(
+      () => undefined,
+      () => undefined,
+    )
+    return run
   }
 
   /**
@@ -13,22 +66,7 @@ class WebhookConfigService {
    */
   async getConfig() {
     try {
-      const configStr = await redis.client.get(this.DEFAULT_CONFIG_KEY)
-      if (!configStr) {
-        // 返回默认配置
-        return this.getDefaultConfig()
-      }
-
-      const storedConfig = JSON.parse(configStr)
-      const defaultConfig = this.getDefaultConfig()
-
-      // 合并默认通知类型，确保新增类型有默认值
-      storedConfig.notificationTypes = {
-        ...defaultConfig.notificationTypes,
-        ...(storedConfig.notificationTypes || {}),
-      }
-
-      return storedConfig
+      return await this._loadStoredOrDefault()
     } catch (error) {
       logger.error('获取webhook配置失败:', error)
       return this.getDefaultConfig()
@@ -36,27 +74,34 @@ class WebhookConfigService {
   }
 
   /**
-   * 保存webhook配置
+   * 保存 webhook 全局设置（enabled / notificationTypes / retrySettings）
+   * 不覆盖 platforms：渠道增删改走专用方法，避免前端旧快照并发写回导致渠道丢失
    */
-  async saveConfig(config) {
+  async saveConfig(incoming) {
     try {
-      const defaultConfig = this.getDefaultConfig()
+      return await this._mutateConfig((config) => {
+        if (typeof incoming?.enabled === 'boolean') {
+          config.enabled = incoming.enabled
+        }
 
-      config.notificationTypes = {
-        ...defaultConfig.notificationTypes,
-        ...(config.notificationTypes || {}),
-      }
+        if (incoming?.notificationTypes && typeof incoming.notificationTypes === 'object') {
+          const defaultConfig = this.getDefaultConfig()
+          config.notificationTypes = {
+            ...defaultConfig.notificationTypes,
+            ...(config.notificationTypes || {}),
+            ...incoming.notificationTypes,
+          }
+        }
 
-      // 验证配置
-      this.validateConfig(config)
+        if (incoming?.retrySettings && typeof incoming.retrySettings === 'object') {
+          config.retrySettings = {
+            ...(config.retrySettings || {}),
+            ...incoming.retrySettings,
+          }
+        }
 
-      // 添加更新时间
-      config.updatedAt = new Date().toISOString()
-
-      await redis.client.set(this.DEFAULT_CONFIG_KEY, JSON.stringify(config))
-      logger.info('✅ Webhook配置已保存')
-
-      return config
+        return config
+      })
     } catch (error) {
       logger.error('保存webhook配置失败:', error)
       throw error
@@ -126,13 +171,13 @@ class WebhookConfigService {
       case 'slack':
         // Slack webhook URL通常包含token
         if (!platform.url.includes('hooks.slack.com')) {
-          logger.warn('⚠️ Slack webhook URL格式可能不正确')
+          logger.warn('Slack webhook URL格式可能不正确')
         }
         break
       case 'discord':
         // Discord webhook URL格式检查
         if (!platform.url.includes('discord.com/api/webhooks')) {
-          logger.warn('⚠️ Discord webhook URL格式可能不正确')
+          logger.warn('Discord webhook URL格式可能不正确')
         }
         break
       case 'telegram':
@@ -144,11 +189,11 @@ class WebhookConfigService {
         }
 
         if (!platform.botToken.includes(':')) {
-          logger.warn('⚠️ Telegram 机器人 Token 格式可能不正确')
+          logger.warn('Telegram 机器人 Token 格式可能不正确')
         }
 
         if (!/^[-\d]+$/.test(String(platform.chatId))) {
-          logger.warn('⚠️ Telegram Chat ID 应该是数字，如为频道请确认已获取正确ID')
+          logger.warn('Telegram Chat ID 应该是数字，如为频道请确认已获取正确ID')
         }
 
         if (platform.apiBaseUrl) {
@@ -183,7 +228,7 @@ class WebhookConfigService {
 
         // 验证设备密钥格式（通常是22-24位字符）
         if (platform.deviceKey.length < 20 || platform.deviceKey.length > 30) {
-          logger.warn('⚠️ Bark设备密钥长度可能不正确，请检查是否完整复制')
+          logger.warn('Bark设备密钥长度可能不正确，请检查是否完整复制')
         }
 
         // 验证服务器URL（如果提供）
@@ -192,7 +237,7 @@ class WebhookConfigService {
             throw new Error('Bark服务器URL格式无效')
           }
           if (!platform.serverUrl.includes('/push')) {
-            logger.warn('⚠️ Bark服务器URL应该以/push结尾')
+            logger.warn('Bark服务器URL应该以/push结尾')
           }
         }
 
@@ -235,7 +280,7 @@ class WebhookConfigService {
             'alert',
           ]
           if (!validSounds.includes(platform.sound)) {
-            logger.warn(`⚠️ 未知的Bark声音: ${platform.sound}`)
+            logger.warn(`未知的Bark声音: ${platform.sound}`)
           }
         }
 
@@ -249,12 +294,12 @@ class WebhookConfigService {
 
         // 验证图标URL（如果提供）
         if (platform.icon && !this.isValidUrl(platform.icon)) {
-          logger.warn('⚠️ Bark图标URL格式可能不正确')
+          logger.warn('Bark图标URL格式可能不正确')
         }
 
         // 验证点击跳转URL（如果提供）
         if (platform.clickUrl && !this.isValidUrl(platform.clickUrl)) {
-          logger.warn('⚠️ Bark点击跳转URL格式可能不正确')
+          logger.warn('Bark点击跳转URL格式可能不正确')
         }
         break
       case 'smtp': {
@@ -345,23 +390,17 @@ class WebhookConfigService {
    */
   async addPlatform(platform) {
     try {
-      const config = await this.getConfig()
+      return await this._mutateConfig((config) => {
+        platform.id = platform.id || crypto.randomUUID()
+        platform.enabled = platform.enabled !== false
+        platform.createdAt = new Date().toISOString()
 
-      // 生成唯一ID
-      platform.id = platform.id || crypto.randomUUID()
-      platform.enabled = platform.enabled !== false
-      platform.createdAt = new Date().toISOString()
+        this.validatePlatformConfig(platform)
 
-      // 验证平台配置
-      this.validatePlatformConfig(platform)
-
-      // 添加到配置
-      config.platforms = config.platforms || []
-      config.platforms.push(platform)
-
-      await this.saveConfig(config)
-
-      return platform
+        config.platforms = config.platforms || []
+        config.platforms.push(platform)
+        return platform
+      })
     } catch (error) {
       logger.error('添加webhook平台失败:', error)
       throw error
@@ -373,26 +412,21 @@ class WebhookConfigService {
    */
   async updatePlatform(platformId, updates) {
     try {
-      const config = await this.getConfig()
+      return await this._mutateConfig((config) => {
+        const index = config.platforms.findIndex((item) => item.id === platformId)
+        if (index === -1) {
+          throw new Error('找不到指定的webhook平台')
+        }
 
-      const index = config.platforms.findIndex((p) => p.id === platformId)
-      if (index === -1) {
-        throw new Error('找不到指定的webhook平台')
-      }
+        config.platforms[index] = {
+          ...config.platforms[index],
+          ...updates,
+          updatedAt: new Date().toISOString(),
+        }
 
-      // 合并更新
-      config.platforms[index] = {
-        ...config.platforms[index],
-        ...updates,
-        updatedAt: new Date().toISOString(),
-      }
-
-      // 验证更新后的配置
-      this.validatePlatformConfig(config.platforms[index])
-
-      await this.saveConfig(config)
-
-      return config.platforms[index]
+        this.validatePlatformConfig(config.platforms[index])
+        return config.platforms[index]
+      })
     } catch (error) {
       logger.error('更新webhook平台失败:', error)
       throw error
@@ -404,14 +438,11 @@ class WebhookConfigService {
    */
   async deletePlatform(platformId) {
     try {
-      const config = await this.getConfig()
-
-      config.platforms = config.platforms.filter((p) => p.id !== platformId)
-
-      await this.saveConfig(config)
-
-      logger.info(`✅ 已删除webhook平台: ${platformId}`)
-      return true
+      return await this._mutateConfig((config) => {
+        config.platforms = (config.platforms || []).filter((item) => item.id !== platformId)
+        logger.info(`已删除webhook平台: ${platformId}`)
+        return true
+      })
     } catch (error) {
       logger.error('删除webhook平台失败:', error)
       throw error
@@ -423,20 +454,17 @@ class WebhookConfigService {
    */
   async togglePlatform(platformId) {
     try {
-      const config = await this.getConfig()
+      return await this._mutateConfig((config) => {
+        const platform = (config.platforms || []).find((item) => item.id === platformId)
+        if (!platform) {
+          throw new Error('找不到指定的webhook平台')
+        }
 
-      const platform = config.platforms.find((p) => p.id === platformId)
-      if (!platform) {
-        throw new Error('找不到指定的webhook平台')
-      }
-
-      platform.enabled = !platform.enabled
-      platform.updatedAt = new Date().toISOString()
-
-      await this.saveConfig(config)
-
-      logger.info(`✅ Webhook平台 ${platformId} 已${platform.enabled ? '启用' : '禁用'}`)
-      return platform
+        platform.enabled = !platform.enabled
+        platform.updatedAt = new Date().toISOString()
+        logger.info(`Webhook平台 ${platformId} 已${platform.enabled ? '启用' : '禁用'}`)
+        return platform
+      })
     } catch (error) {
       logger.error('切换webhook平台状态失败:', error)
       throw error

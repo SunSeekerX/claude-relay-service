@@ -144,7 +144,7 @@ class UserMessageQueueService {
     if (accountConfig && accountConfig.maxConcurrency > 0) {
       queueEnabled = true
       logger.debug(
-        `📬 User message queue: account-level queue enabled for account ${accountId} (maxConcurrency=${accountConfig.maxConcurrency})`,
+        `User message queue: account-level queue enabled for account ${accountId} (maxConcurrency=${accountConfig.maxConcurrency})`,
       )
     }
 
@@ -157,7 +157,7 @@ class UserMessageQueueService {
     const startTime = Date.now()
     let retryCount = 0
 
-    logger.debug(`📬 User message queue: attempting to acquire lock for account ${accountId}`, {
+    logger.debug(`User message queue: attempting to acquire lock for account ${accountId}`, {
       requestId: reqId,
       timeoutMs: timeout,
     })
@@ -167,7 +167,7 @@ class UserMessageQueueService {
 
       // 检测 Redis 错误，立即返回系统错误而非继续轮询
       if (result.redisError) {
-        logger.error(`📬 User message queue: Redis error while acquiring lock`, {
+        logger.error(`User message queue: Redis error while acquiring lock`, {
           accountId,
           requestId: reqId,
           errorMessage: result.errorMessage,
@@ -181,7 +181,7 @@ class UserMessageQueueService {
       }
 
       if (result.acquired) {
-        logger.debug(`📬 User message queue: lock acquired for account ${accountId}`, {
+        logger.debug(`User message queue: lock acquired for account ${accountId}`, {
           requestId: reqId,
           waitedMs: Date.now() - startTime,
           retries: retryCount,
@@ -208,7 +208,7 @@ class UserMessageQueueService {
     }
 
     // 超时
-    logger.warn(`📬 User message queue: timeout waiting for lock`, {
+    logger.warn(`User message queue: timeout waiting for lock`, {
       accountId,
       requestId: reqId,
       timeoutMs: timeout,
@@ -235,11 +235,11 @@ class UserMessageQueueService {
     const released = await redis.releaseUserMessageLock(accountId, requestId)
 
     if (released) {
-      logger.debug(`📬 User message queue: lock released for account ${accountId}`, {
+      logger.debug(`User message queue: lock released for account ${accountId}`, {
         requestId,
       })
     } else {
-      logger.warn(`📬 User message queue: failed to release lock (not owner?)`, {
+      logger.warn(`User message queue: failed to release lock (not owner?)`, {
         accountId,
         requestId,
       })
@@ -271,19 +271,19 @@ class UserMessageQueueService {
         try {
           await redis.forceReleaseUserMessageLock(accountId)
           cleanedCount++
-          logger.debug(`📬 User message queue: cleaned stale lock for account ${accountId}`)
+          logger.debug(`User message queue: cleaned stale lock for account ${accountId}`)
         } catch (error) {
-          logger.error(`📬 User message queue: failed to clean lock for account ${accountId}:`, error)
+          logger.error(`User message queue: failed to clean lock for account ${accountId}:`, error)
         }
       }
 
       if (cleanedCount > 0) {
-        logger.info(`📬 User message queue: cleaned ${cleanedCount} stale lock(s) on startup`)
+        logger.info(`User message queue: cleaned ${cleanedCount} stale lock(s) on startup`)
       }
 
       return cleanedCount
     } catch (error) {
-      logger.error('📬 User message queue: failed to cleanup stale locks on startup:', error)
+      logger.error('User message queue: failed to cleanup stale locks on startup:', error)
       return 0
     }
   }
@@ -301,13 +301,13 @@ class UserMessageQueueService {
       // 每次运行时检查配置，以便在运行时动态启用/禁用
       const currentConfig = await this.getConfig()
       if (!currentConfig.enabled) {
-        logger.debug('📬 User message queue: cleanup skipped (feature disabled)')
+        logger.debug('User message queue: cleanup skipped (feature disabled)')
         return
       }
       await this._cleanupOrphanLocks()
     }, CLEANUP_INTERVAL_MS)
 
-    logger.info('📬 User message queue: cleanup task started')
+    logger.info('User message queue: cleanup task started')
   }
 
   /**
@@ -317,7 +317,7 @@ class UserMessageQueueService {
     if (this.cleanupTimer) {
       clearInterval(this.cleanupTimer)
       this.cleanupTimer = null
-      logger.info('📬 User message queue: cleanup task stopped')
+      logger.info('User message queue: cleanup task stopped')
     }
   }
 
@@ -337,14 +337,14 @@ class UserMessageQueueService {
         // 检测异常情况：锁存在（isLocked=true）但没有过期时间（lockTtlRaw=-1）
         // 正常创建的锁都带有 PX 过期时间，如果没有说明是异常状态
         if (stats.isLocked && stats.lockTtlRaw === -1) {
-          logger.warn(`📬 User message queue: cleaning up orphan lock without TTL for account ${accountId}`, {
+          logger.warn(`User message queue: cleaning up orphan lock without TTL for account ${accountId}`, {
             lockHolder: stats.lockHolder,
           })
           await redis.forceReleaseUserMessageLock(accountId)
         }
       }
     } catch (error) {
-      logger.error('📬 User message queue: cleanup task error:', error)
+      logger.error('User message queue: cleanup task error:', error)
     }
   }
 

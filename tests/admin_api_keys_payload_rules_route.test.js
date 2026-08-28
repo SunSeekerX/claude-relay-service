@@ -22,7 +22,9 @@ jest.mock('../src/infra/middleware_auth.js', () => ({
 }))
 
 jest.mock('../src/modules/apikey/apikey_service.js', () => ({
-  updateApiKey: jest.fn()
+  apiKeyService: {
+    updateApiKey: jest.fn()
+  }
 }))
 
 jest.mock('../src/infra/redis.js', () => ({}))
@@ -113,10 +115,10 @@ describe('admin api keys route payload rule updates', () => {
     })
     expect(updates).not.toHaveProperty('openaiResponsesPayloadRules')
 
-    expect(res.status).not.toHaveBeenCalled()
+    expect(res.status).toHaveBeenCalledWith(200)
     expect(res.body).toEqual({
-      success: true,
-      message: 'API key updated successfully'
+      code: 200,
+      msg: 'API key updated successfully'
     })
   })
 
@@ -142,8 +144,8 @@ describe('admin api keys route payload rule updates', () => {
       openaiResponsesPayloadRules: rules
     })
 
-    expect(res.status).not.toHaveBeenCalled()
-    expect(res.body.success).toBe(true)
+    expect(res.status).toHaveBeenCalledWith(200)
+    expect(res.body.code).toBe(200)
   })
 
   test('allows explicitly clearing payload rules with an empty array', async () => {
@@ -165,7 +167,7 @@ describe('admin api keys route payload rule updates', () => {
       openaiResponsesPayloadRules: []
     })
 
-    expect(res.status).not.toHaveBeenCalled()
-    expect(res.body.success).toBe(true)
+    expect(res.status).toHaveBeenCalledWith(200)
+    expect(res.body.code).toBe(200)
   })
 })

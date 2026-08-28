@@ -8,13 +8,13 @@ import { logger } from '../src/common/logger.js'
 
 async function debugRedisKeys() {
   try {
-    logger.info('🔄 Connecting to Redis...')
+    logger.info('Connecting to Redis...')
     await redis.connect()
-    logger.success('✅ Connected to Redis')
+    logger.success('Connected to Redis')
 
     // 获取所有键
     const allKeys = await redis.client.keys('*')
-    logger.info(`\n📊 Total keys in Redis: ${allKeys.length}\n`)
+    logger.info(`\nTotal keys in Redis: ${allKeys.length}\n`)
 
     // 按类型分组
     const keysByType = {
@@ -48,7 +48,7 @@ async function debugRedisKeys() {
 
     // 显示分类结果
     console.log('='.repeat(60))
-    console.log('📂 Keys by Category:')
+    console.log('Keys by Category:')
     console.log('='.repeat(60))
     console.log(`API Keys: ${keysByType.apiKeys.length}`)
     console.log(`Claude Accounts: ${keysByType.claudeAccounts.length}`)
@@ -61,7 +61,7 @@ async function debugRedisKeys() {
 
     // 详细显示每个类别的键
     if (keysByType.apiKeys.length > 0) {
-      console.log('\n🔑 API Keys:')
+      console.log('\nAPI Keys:')
       for (const key of keysByType.apiKeys.slice(0, 5)) {
         console.log(`  - ${key}`)
       }
@@ -71,21 +71,21 @@ async function debugRedisKeys() {
     }
 
     if (keysByType.claudeAccounts.length > 0) {
-      console.log('\n🤖 Claude Accounts:')
+      console.log('\nClaude Accounts:')
       for (const key of keysByType.claudeAccounts) {
         console.log(`  - ${key}`)
       }
     }
 
     if (keysByType.geminiAccounts.length > 0) {
-      console.log('\n💎 Gemini Accounts:')
+      console.log('\nGemini Accounts:')
       for (const key of keysByType.geminiAccounts) {
         console.log(`  - ${key}`)
       }
     }
 
     if (keysByType.other.length > 0) {
-      console.log('\n❓ Other Keys:')
+      console.log('\nOther Keys:')
       for (const key of keysByType.other.slice(0, 10)) {
         console.log(`  - ${key}`)
       }
@@ -96,7 +96,7 @@ async function debugRedisKeys() {
 
     // 检查数据类型
     console.log(`\n${'='.repeat(60)}`)
-    console.log('🔍 Checking Data Types:')
+    console.log('Checking Data Types:')
     console.log('='.repeat(60))
 
     // 随机检查几个键的类型
@@ -106,15 +106,15 @@ async function debugRedisKeys() {
       console.log(`${key} => ${type}`)
     }
   } catch (error) {
-    logger.error('💥 Debug failed:', error)
+    logger.error('Debug failed:', error)
   } finally {
     await redis.disconnect()
-    logger.info('👋 Disconnected from Redis')
+    logger.info('Disconnected from Redis')
   }
 }
 
 // 运行调试
 debugRedisKeys().catch((error) => {
-  logger.error('💥 Unexpected error:', error)
+  logger.error('Unexpected error:', error)
   process.exit(1)
 })

@@ -79,7 +79,7 @@ class ProxyPoolService {
       return
     }
     if (!this.enabled) {
-      logger.info('🌐 Proxy pool disabled (config.proxy.pool.enabled=false)')
+      logger.info('Proxy pool disabled (config.proxy.pool.enabled=false)')
       return
     }
     // 先合并 Redis 持久化设置到 config，再注入核心算法配置
@@ -90,17 +90,17 @@ class ProxyPoolService {
 
     const syncIntervalMs = config.proxy?.pool?.statsSyncIntervalMs || 5000
     this.syncTimer = setInterval(() => {
-      this.syncStatsToRedis().catch((error) => logger.error('❌ [ProxyPool] stats sync failed:', error))
+      this.syncStatsToRedis().catch((error) => logger.error('[ProxyPool] stats sync failed:', error))
     }, syncIntervalMs)
 
     const driftIntervalMs = config.proxy?.pool?.versionDriftIntervalMs || 60000
     this.driftTimer = setInterval(() => {
-      this.checkVersionDrift().catch((error) => logger.error('❌ [ProxyPool] version drift check failed:', error))
+      this.checkVersionDrift().catch((error) => logger.error('[ProxyPool] version drift check failed:', error))
     }, driftIntervalMs)
 
     this.started = true
     logger.success(
-      `🌐 Proxy pool started shard=${SHARD_ID} proxies=${this.proxyConfigs.size} version=${this.localVersion}`,
+      `Proxy pool started shard=${SHARD_ID} proxies=${this.proxyConfigs.size} version=${this.localVersion}`,
     )
   }
 
@@ -117,7 +117,7 @@ class ProxyPoolService {
       try {
         this.subRedis.quit()
       } catch (error) {
-        logger.error('❌ [ProxyPool] failed to quit sub connection:', error)
+        logger.error('[ProxyPool] failed to quit sub connection:', error)
       }
       this.subRedis = null
     }
@@ -169,7 +169,7 @@ class ProxyPoolService {
     await redis.setProxyPoolSettings(settings)
     this._applySettingsToConfig(settings)
     proxyPoolCore.configureCore(config.proxy.pool.core)
-    logger.info('🌐 [ProxyPool] settings applied (core reconfigured)')
+    logger.info('[ProxyPool] settings applied (core reconfigured)')
     return this.getSettings()
   }
 
@@ -179,10 +179,10 @@ class ProxyPoolService {
       const saved = await redis.getProxyPoolSettings()
       if (saved) {
         this._applySettingsToConfig(normalizeProxyPoolSettings(saved))
-        logger.info('🌐 [ProxyPool] persisted settings loaded from Redis')
+        logger.info('[ProxyPool] persisted settings loaded from Redis')
       }
     } catch (error) {
-      logger.error('❌ [ProxyPool] load settings failed, fallback to env defaults:', error)
+      logger.error('[ProxyPool] load settings failed, fallback to env defaults:', error)
     }
   }
 
@@ -500,7 +500,7 @@ class ProxyPoolService {
       .hset(statsKey, SHARD_ID, state.serialize())
       .expire(statsKey, 120)
       .exec()
-      .catch((error) => logger.error('❌ [ProxyPool] state write-through failed:', error))
+      .catch((error) => logger.error('[ProxyPool] state write-through failed:', error))
   }
 
   // === 健康状态变化（健康检查服务回调） ===
@@ -530,7 +530,7 @@ class ProxyPoolService {
       }
       this.rebuildProxyRouteEntries(proxyId)
       await this._bumpAndPublish()
-      logger.info(`🌐 [ProxyPool] proxy=${proxyId} recovered isHealthy=true`)
+      logger.info(`[ProxyPool] proxy=${proxyId} recovered isHealthy=true`)
       return
     }
 
@@ -542,9 +542,7 @@ class ProxyPoolService {
       await redis.setProxyConfig(proxyConfig)
       this.rebuildProxyRouteEntries(proxyId)
       await this._bumpAndPublish()
-      logger.warn(
-        `🌐 [ProxyPool] proxy=${proxyId} isolated isHealthy=false failures=${proxyConfig.healthCheckFailures}`,
-      )
+      logger.warn(`[ProxyPool] proxy=${proxyId} isolated isHealthy=false failures=${proxyConfig.healthCheckFailures}`)
     }
   }
 
@@ -583,7 +581,7 @@ class ProxyPoolService {
     }
     this._applyLocalProxyUpsert(proxyConfig)
     await this._bumpAndPublish()
-    logger.info(`🌐 [ProxyPool] proxy created id=${proxyId} groups=${groupIds.length}`)
+    logger.info(`[ProxyPool] proxy created id=${proxyId} groups=${groupIds.length}`)
     return proxyConfig
   }
 
@@ -654,7 +652,7 @@ class ProxyPoolService {
     this.rebuildFallbackTable()
     this.rebuildAllContextRouteTables()
     await this._bumpAndPublish()
-    logger.info(`🌐 [ProxyPool] proxy deleted id=${proxyId}`)
+    logger.info(`[ProxyPool] proxy deleted id=${proxyId}`)
   }
 
   async createGroup(input) {
@@ -673,7 +671,7 @@ class ProxyPoolService {
     this.groupConfigs.set(groupId, group)
     this.groupProxyIds.set(groupId, new Set())
     await this._bumpAndPublish()
-    logger.info(`🌐 [ProxyPool] group created id=${groupId}`)
+    logger.info(`[ProxyPool] group created id=${groupId}`)
     return group
   }
 
@@ -723,7 +721,7 @@ class ProxyPoolService {
     this.rebuildFallbackTable()
     this.rebuildAllContextRouteTables()
     await this._bumpAndPublish()
-    logger.info(`🌐 [ProxyPool] group deleted id=${groupId}`)
+    logger.info(`[ProxyPool] group deleted id=${groupId}`)
   }
 
   // 本地 upsert 一个代理配置并维护分组索引
@@ -748,7 +746,7 @@ class ProxyPoolService {
       this.localVersion = version
       await redis.publishProxyConfigChanged(version)
     } catch (error) {
-      logger.error('❌ [ProxyPool] bump/publish failed:', error)
+      logger.error('[ProxyPool] bump/publish failed:', error)
     }
   }
 
@@ -760,19 +758,19 @@ class ProxyPoolService {
         return
       }
       this.subRedis = client.duplicate()
-      this.subRedis.on('error', (error) => logger.error('❌ [ProxyPool] pub/sub error:', error))
+      this.subRedis.on('error', (error) => logger.error('[ProxyPool] pub/sub error:', error))
       this.subRedis.subscribe(RedisKeys.proxy.configChangedChannel, (error) => {
         if (error) {
-          logger.error('❌ [ProxyPool] pub/sub subscribe failed:', error)
+          logger.error('[ProxyPool] pub/sub subscribe failed:', error)
         }
       })
       this.subRedis.on('message', (channel) => {
         if (channel === RedisKeys.proxy.configChangedChannel) {
-          this.handleConfigChanged().catch((error) => logger.error('❌ [ProxyPool] handleConfigChanged failed:', error))
+          this.handleConfigChanged().catch((error) => logger.error('[ProxyPool] handleConfigChanged failed:', error))
         }
       })
     } catch (error) {
-      logger.error('❌ [ProxyPool] pub/sub setup failed:', error)
+      logger.error('[ProxyPool] pub/sub setup failed:', error)
     }
   }
 
@@ -785,13 +783,13 @@ class ProxyPoolService {
     this.rebuildFallbackTable()
     this.rebuildAllContextRouteTables()
     this.localVersion = remoteVersion
-    logger.debug(`🌐 [ProxyPool] config reloaded version=${remoteVersion}`)
+    logger.debug(`[ProxyPool] config reloaded version=${remoteVersion}`)
   }
 
   async checkVersionDrift() {
     const remoteVersion = await redis.getProxyRouteVersion()
     if (remoteVersion > this.localVersion) {
-      logger.info(`🌐 [ProxyPool] version drift local=${this.localVersion} remote=${remoteVersion}, rebuilding`)
+      logger.info(`[ProxyPool] version drift local=${this.localVersion} remote=${remoteVersion}, rebuilding`)
       await this.handleConfigChanged()
     }
   }
@@ -896,7 +894,7 @@ class ProxyPoolService {
     if (staleFields.length > 0 && client) {
       client
         .hdel(statsKey, ...staleFields)
-        .catch((error) => logger.error('❌ [ProxyPool] hdel stale shard failed:', error))
+        .catch((error) => logger.error('[ProxyPool] hdel stale shard failed:', error))
     }
 
     const stateKey = `${proxyId}:${contextKey}`
@@ -957,6 +955,22 @@ class ProxyPoolService {
       })
     }
     return result
+  }
+
+  // 列表：配置 + 运行态 + 质量/出口（Redis 批量）
+  async listProxiesWithRuntime() {
+    const configs = this.getAllProxyConfigs()
+    const proxyIds = configs.map((proxyConfig) => proxyConfig.id)
+    const [qualityMap, exitMap] = await Promise.all([
+      redis.getProxyQualityResults(proxyIds),
+      redis.getProxyExitInfos(proxyIds),
+    ])
+    return configs.map((proxyConfig) => ({
+      ...proxyConfig,
+      states: this.getProxyStatesSnapshot(proxyConfig.id),
+      quality: qualityMap.get(proxyConfig.id) || null,
+      exitInfo: exitMap.get(proxyConfig.id) || null,
+    }))
   }
 }
 

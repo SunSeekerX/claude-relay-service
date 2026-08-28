@@ -39,17 +39,17 @@ class RedisClient {
 
       this.client.on('connect', () => {
         this.isConnected = true
-        logger.info('🔗 Redis connected successfully')
+        logger.info('Redis connected successfully')
       })
 
       this.client.on('error', (err) => {
         this.isConnected = false
-        logger.error('❌ Redis connection error:', err)
+        logger.error('Redis connection error:', err)
       })
 
       this.client.on('close', () => {
         this.isConnected = false
-        logger.warn('⚠️  Redis connection closed')
+        logger.warn('Redis connection closed')
       })
 
       // 只有在 lazyConnect 模式下才需要手动调用 connect()
@@ -69,7 +69,7 @@ class RedisClient {
       }
       return this.client
     } catch (error) {
-      logger.error('💥 Failed to connect to Redis:', error)
+      logger.error('Failed to connect to Redis:', error)
       throw error
     }
   }
@@ -78,13 +78,13 @@ class RedisClient {
     if (this.client) {
       await this.client.quit()
       this.isConnected = false
-      logger.info('👋 Redis disconnected')
+      logger.info('Redis disconnected')
     }
   }
 
   getClient() {
     if (!this.client || !this.isConnected) {
-      logger.warn('⚠️ Redis client is not connected')
+      logger.warn('Redis client is not connected')
       return null
     }
     return this.client
@@ -147,7 +147,7 @@ class RedisClient {
   // 账户 CRUD（Claude/Droid/OpenAI）— 已抽出至 ./redis/accountStore.js
   // attach 在单例创建后调用（见文件末尾装配区）
 
-  // 💰 账户余额缓存（API 查询结果）
+  // 账户余额缓存（API 查询结果）
   async setAccountBalance(platform, accountId, balanceData, ttl = TTL.accountBalance) {
     const key = RedisKeys.account.balance(platform, accountId)
 
@@ -208,7 +208,7 @@ class RedisClient {
     }
   }
 
-  // 📊 账户余额缓存（本地统计）
+  // 账户余额缓存（本地统计）
   async setLocalBalance(platform, accountId, statisticsData, ttl = TTL.accountBalanceLocal) {
     const key = RedisKeys.account.balanceLocal(platform, accountId)
 
@@ -240,7 +240,7 @@ class RedisClient {
     await this.client.del(key, localKey)
   }
 
-  // 🧩 账户余额脚本配置
+  // 账户余额脚本配置
   async setBalanceScriptConfig(platform, accountId, scriptConfig) {
     const key = RedisKeys.account.balanceScript(platform, accountId)
     await this.client.set(key, JSON.stringify(scriptConfig || {}))
@@ -264,7 +264,7 @@ class RedisClient {
     return await this.client.del(key)
   }
 
-  // 🧹 清理过期数据（使用 scanKeys 替代 keys）
+  // 清理过期数据（使用 scanKeys 替代 keys）
   async cleanup() {
     try {
       const patterns = [
@@ -294,13 +294,13 @@ class RedisClient {
         await pipeline.exec()
       }
 
-      logger.info('🧹 Redis cleanup completed')
+      logger.info('Redis cleanup completed')
     } catch (error) {
-      logger.error('❌ Redis cleanup failed:', error)
+      logger.error('Redis cleanup failed:', error)
     }
   }
 
-  // 🔧 并发管理方法（用于管理员手动清理）
+  // 并发管理方法（用于管理员手动清理）
 
   /**
    * 获取所有并发状态（使用 scanKeys 替代 keys）
@@ -330,7 +330,7 @@ class RedisClient {
    * @returns {Promise<Object>} 清理结果
    */
 
-  // 🔧 Basic Redis operations wrapper methods for convenience
+  // Basic Redis operations wrapper methods for convenience
   async get(key) {
     const client = this.getClientSafe()
     return await client.get(key)
@@ -374,7 +374,7 @@ redis.getPeriodStartDate = (resetDay, resetHour, date) =>
   timezone.getPeriodStartDate(resetDay, resetHour, date, tzOffset)
 
 // ===
-// 🚦 API Key 并发请求排队 — 已抽出至 ./redis/concurrencyQueueStore.js（attach 挂同一单例）
+// API Key 并发请求排队 — 已抽出至 ./redis/concurrencyQueueStore.js（attach 挂同一单例）
 // ===
 _concurrencyQueueStore.attach(redis)
 

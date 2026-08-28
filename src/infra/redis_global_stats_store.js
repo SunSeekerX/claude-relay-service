@@ -9,11 +9,11 @@ import { RedisKeys } from './redis_key.js'
 export const attach = function attach(redisClient) {
   // 迁移全局统计数据（从 API Key 数据聚合）
   redisClient.migrateGlobalStats = async function () {
-    logger.info('🔄 开始迁移全局统计数据...')
+    logger.info('开始迁移全局统计数据...')
 
     const keyIds = await this.scanApiKeyIds()
     if (!keyIds || keyIds.length === 0) {
-      logger.info('📊 没有 API Key 数据需要迁移')
+      logger.info('没有 API Key 数据需要迁移')
       return { success: true, migrated: 0 }
     }
 
@@ -58,10 +58,10 @@ export const attach = function attach(redisClient) {
     }
     if (months.size > 0) {
       await this.client.sadd(RedisKeys.usage.modelMonthlyMonths, ...months)
-      logger.info(`📅 迁移月份索引: ${months.size} 个月份 (${[...months].sort().join(', ')})`)
+      logger.info(`迁移月份索引: ${months.size} 个月份 (${[...months].sort().join(', ')})`)
     }
 
-    logger.success(`✅ 迁移完成: ${keyIds.length} 个 API Key, ${total.requests} 请求, ${total.allTokens} tokens`)
+    logger.success(`迁移完成: ${keyIds.length} 个 API Key, ${total.requests} 请求, ${total.allTokens} tokens`)
     return { success: true, migrated: keyIds.length, total }
   }
 
@@ -90,7 +90,7 @@ export const attach = function attach(redisClient) {
 
     if (missingMonths.length > 0) {
       await this.client.sadd(RedisKeys.usage.modelMonthlyMonths, ...missingMonths)
-      logger.info(`📅 补充月份索引: ${missingMonths.length} 个月份 (${missingMonths.sort().join(', ')})`)
+      logger.info(`补充月份索引: ${missingMonths.length} 个月份 (${missingMonths.sort().join(', ')})`)
     }
   }
 
@@ -149,11 +149,11 @@ export const attach = function attach(redisClient) {
 
   // 清理过期的系统分钟统计数据（启动时调用）
   redisClient.cleanupSystemMetrics = async function () {
-    logger.info('🧹 清理过期的系统分钟统计数据...')
+    logger.info('清理过期的系统分钟统计数据...')
 
     const keys = await this.scanKeys(RedisKeys.system.metricsMinutePattern)
     if (!keys || keys.length === 0) {
-      logger.info('📊 没有需要清理的系统分钟统计数据')
+      logger.info('没有需要清理的系统分钟统计数据')
       return { cleaned: 0 }
     }
 
@@ -173,7 +173,7 @@ export const attach = function attach(redisClient) {
     })
 
     if (toDelete.length === 0) {
-      logger.info('📊 没有过期的系统分钟统计数据')
+      logger.info('没有过期的系统分钟统计数据')
       return { cleaned: 0 }
     }
 
@@ -184,7 +184,7 @@ export const attach = function attach(redisClient) {
       await this.client.del(...batch)
     }
 
-    logger.success(`✅ 清理完成: 删除 ${toDelete.length} 个过期的系统分钟统计 key`)
+    logger.success(`清理完成: 删除 ${toDelete.length} 个过期的系统分钟统计 key`)
     return { cleaned: toDelete.length }
   }
 }

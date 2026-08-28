@@ -7,22 +7,22 @@ const require = createRequire(import.meta.url)
 // Redis Key 统一注册表 — 单一权威源
 // ===
 // 约定:
-//   - 动态 key 用箭头函数 (id) => `prefix:${id}`,参数始终加括号
-//   - 静态 key 用常量字符串
-//   - SCAN/keys 的 pattern 单列为 xxxPattern,且与对应 builder 前缀逐字一致
-//   - 派生后缀用 emptyMarker(indexKey) 这类 helper,调用方传入已生成的完整 key
-//   - 红线: 每个生成结果必须与重构前的硬编码逐字节相同(含冒号/下划线/混合/字段顺序/末尾有无冒号)
+// - 动态 key 用箭头函数 (id) => `prefix:${id}`,参数始终加括号
+// - 静态 key 用常量字符串
+// - SCAN/keys 的 pattern 单列为 xxxPattern,且与对应 builder 前缀逐字一致
+// - 派生后缀用 emptyMarker(indexKey) 这类 helper,调用方传入已生成的完整 key
+// - 红线: 每个生成结果必须与重构前的硬编码逐字节相同(含冒号/下划线/混合/字段顺序/末尾有无冒号)
 //
 // TTL 集中:
-//   - 纯常量 TTL 放 TTL 表为数值
-//   - config/参数派生的 TTL 放 TTL 表为函数(延迟读 config、逐字保留 fallback)
-//   - 原始配置值仍在 config/config.js(配置单一源),此处只集中"key -> TTL 秒数"的换算逻辑
+// - 纯常量 TTL 放 TTL 表为数值
+// - config/参数派生的 TTL 放 TTL 表为函数(延迟读 config、逐字保留 fallback)
+// - 原始配置值仍在 config/config.js(配置单一源),此处只集中"key -> TTL 秒数"的换算逻辑
 //
 // 有意未集中(查询层动态 scan pattern):
-//   usage/account_usage 的按时间 scan pattern(如 `usage:model:daily:*:${date}`)及
-//   getUsageDataByIndex 的 `{id}` 占位符模板,因随查询维度组合、数量多、前缀已由上面 builder 体现,
-//   保留在 usageStats/dashboard/apiStats 等查询处;改 usage key 前缀时需一并核对这些 pattern。
-//   redis.js 的 excludePrefixes(scanApiKeyIds 排除前缀)、各 .replace(剥前缀) 同理保留。
+// usage/account_usage 的按时间 scan pattern(如 `usage:model:daily:*:${date}`)及
+// getUsageDataByIndex 的 `{id}` 占位符模板,因随查询维度组合、数量多、前缀已由上面 builder 体现,
+// 保留在 usageStats/dashboard/apiStats 等查询处;改 usage key 前缀时需一并核对这些 pattern。
+// redis.js 的 excludePrefixes(scanApiKeyIds 排除前缀)、各 .replace(剥前缀) 同理保留。
 // ===
 
 // 延迟加载 config,避免与 config/config.js 的潜在循环依赖(仿 upstreamErrorHelper)
@@ -308,6 +308,13 @@ export const RedisKeys = {
     members: (id) => `account_group_members:${id}`, // Set
     reverse: (platform, accountId) => `account_groups_reverse:${platform}:${accountId}`, // Set
     reverseMigrated: 'account_groups_reverse:migrated', // marker
+    // 分组运行态：RPM / 费用窗口（业务日/ISO 周/月）/ 进行中预留 hold
+    rpm: (groupId, minuteKey) => `account_group:rpm:${groupId}:${minuteKey}`,
+    costDaily: (groupId, day) => `account_group:cost:daily:${groupId}:${day}`,
+    costWeekly: (groupId, week) => `account_group:cost:weekly:${groupId}:${week}`,
+    costMonthly: (groupId, month) => `account_group:cost:monthly:${groupId}:${month}`,
+    // 单分组一笔在途 hold（周期无关，payload 自带 day/week/month + 各轴预扣额，防跨日错释放）
+    costHold: (groupId) => `account_group:cost_hold:${groupId}`,
   },
 
   // === 成本排名 ===

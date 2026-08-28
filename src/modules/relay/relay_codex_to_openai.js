@@ -39,10 +39,14 @@ export class CodexToOpenAIConverter {
         return this._handleResponseCreated(eventData, state)
 
       case 'response.reasoning_summary_text.delta':
+      case 'response.reasoning_text.delta':
         return this._emitChunk(state, model, { reasoning_content: eventData.delta })
 
       case 'response.reasoning_summary_text.done':
-        // done 事件仅为结束信号，delta 已通过 .delta 事件发送，不再注入内容
+      case 'response.reasoning_text.done':
+      case 'response.reasoning_summary_part.added':
+      case 'response.reasoning_summary_part.done':
+        // done/part 事件仅为结束或结构信号，delta 已通过 .delta 事件发送
         return []
 
       case 'response.output_text.delta':
@@ -57,6 +61,21 @@ export class CodexToOpenAIConverter {
       case 'response.function_call_arguments.done':
         return this._handleArgumentsDone(eventData, model, state)
 
+      case 'response.custom_tool_call_input.delta':
+        // Codex freeform/custom tool：按 function 参数流处理
+        return this._handleArgumentsDelta(
+          {
+            ...eventData,
+            delta: eventData.delta,
+            call_id: eventData.call_id || eventData.item_id,
+          },
+          model,
+          state,
+        )
+
+      case 'response.custom_tool_call_input.done':
+        return this._handleArgumentsDone(eventData, model, state)
+
       case 'response.output_item.done':
         return this._handleOutputItemDone(eventData, model, state)
 
@@ -66,6 +85,14 @@ export class CodexToOpenAIConverter {
       case 'response.failed':
       case 'response.incomplete':
         return this._handleResponseError(eventData, model, state)
+
+      case 'response.metadata':
+      case 'codex.response.metadata':
+      case 'response.in_progress':
+      case 'response.content_part.added':
+      case 'response.content_part.done':
+      case 'response.output_text.done':
+        return []
 
       case 'error':
         return this._handleStreamError(eventData, model, state)
@@ -160,13 +187,18 @@ export class CodexToOpenAIConverter {
 
   _handleOutputItemAdded(eventData, model, state) {
     const { item } = eventData
-    if (!item || item.type !== 'function_call') {
+    if (!item) {
+      return []
+    }
+    // function_call + custom_tool_call（Codex freeform）统一映射为 tool_calls
+    if (item.type !== 'function_call' && item.type !== 'custom_tool_call') {
       return []
     }
 
     state.functionCallIndex++
-    state.hasReceivedArgumentsDelta = false
     state.hasToolCallAnnounced = true
+    state.hasReceivedArgumentsDelta = false
+    const toolName = item.name || 'custom_tool'
 
     return this._emitChunk(state, model, {
       tool_calls: [
@@ -174,7 +206,10 @@ export class CodexToOpenAIConverter {
           index: state.functionCallIndex,
           id: item.call_id || item.id,
           type: 'function',
-          function: { name: this._restoreToolName(item.name), arguments: '' },
+          function: {
+            name: this._restoreToolName(toolName),
+            arguments: '',
+          },
         },
       ],
     })
@@ -198,12 +233,21 @@ export class CodexToOpenAIConverter {
       return []
     }
 
+    // custom_tool_call_input.done 用 input；function_call_arguments.done 用 arguments
+    const argsRaw = eventData.arguments ?? eventData.input
+    const args =
+      argsRaw === null || argsRaw === undefined
+        ? '{}'
+        : typeof argsRaw === 'string'
+          ? argsRaw || '{}'
+          : JSON.stringify(argsRaw)
+
     // 没有收到 delta，一次性输出完整参数
     return this._emitChunk(state, model, {
       tool_calls: [
         {
           index: state.functionCallIndex,
-          function: { arguments: eventData.arguments || '{}' },
+          function: { arguments: args },
         },
       ],
     })
@@ -211,18 +255,39 @@ export class CodexToOpenAIConverter {
 
   _handleOutputItemDone(eventData, model, state) {
     const { item } = eventData
-    if (!item || item.type !== 'function_call') {
+    // function_call 与 custom_tool_call 均需落成 tool_calls
+    if (!item || (item.type !== 'function_call' && item.type !== 'custom_tool_call')) {
       return []
     }
 
     // 如果已经通过 output_item.added 通知过，不重复输出
     if (state.hasToolCallAnnounced) {
       state.hasToolCallAnnounced = false
+      // 若仅有 done 无 delta，补齐 arguments（custom_tool 常把完整 input 放在 item 上）
+      const argsRaw = item.arguments ?? item.input
+      if (argsRaw !== null && argsRaw !== undefined && !state.hasReceivedArgumentsDelta) {
+        const args = typeof argsRaw === 'string' ? argsRaw || '{}' : JSON.stringify(argsRaw)
+        return this._emitChunk(state, model, {
+          tool_calls: [
+            {
+              index: state.functionCallIndex,
+              function: { arguments: args },
+            },
+          ],
+        })
+      }
       return []
     }
 
     // Fallback：未收到 added 事件，输出完整 tool call
     state.functionCallIndex++
+    const argsRaw = item.arguments ?? item.input
+    const args =
+      argsRaw === null || argsRaw === undefined
+        ? '{}'
+        : typeof argsRaw === 'string'
+          ? argsRaw || '{}'
+          : JSON.stringify(argsRaw)
     return this._emitChunk(state, model, {
       tool_calls: [
         {
@@ -230,8 +295,8 @@ export class CodexToOpenAIConverter {
           id: item.call_id || item.id,
           type: 'function',
           function: {
-            name: this._restoreToolName(item.name),
-            arguments: item.arguments || '{}',
+            name: this._restoreToolName(item.name || 'custom_tool'),
+            arguments: args,
           },
         },
       ],
@@ -523,6 +588,255 @@ export class CodexToOpenAIConverter {
     }
     if (chatBody.prompt_cache_key) {
       result.prompt_cache_key = chatBody.prompt_cache_key
+    }
+
+    return result
+  }
+
+  // Responses API 请求 → OpenAI Chat Completions 请求（buildRequestFromOpenAI 的逆）
+  buildChatRequestFromResponses(responsesBody = {}) {
+    const body = responsesBody && typeof responsesBody === 'object' ? responsesBody : {}
+    const result = {}
+
+    if (body.model) {
+      result.model = body.model
+    }
+    if (body.stream !== undefined) {
+      result.stream = body.stream
+    }
+    if (body.temperature !== undefined) {
+      result.temperature = body.temperature
+    }
+    if (body.top_p !== undefined) {
+      result.top_p = body.top_p
+    }
+    if (body.max_output_tokens !== undefined) {
+      result.max_tokens = body.max_output_tokens
+    } else if (body.max_tokens !== undefined) {
+      result.max_tokens = body.max_tokens
+    }
+
+    const messages = []
+    // instructions → system
+    if (typeof body.instructions === 'string' && body.instructions.trim()) {
+      messages.push({ role: 'system', content: body.instructions })
+    }
+
+    const inputItems = Array.isArray(body.input)
+      ? body.input
+      : typeof body.input === 'string'
+        ? [{ type: 'message', role: 'user', content: body.input }]
+        : []
+
+    // 合并连续 assistant 文本 + tool_calls
+    let pendingAssistant = null
+    const flushAssistant = () => {
+      if (pendingAssistant) {
+        messages.push(pendingAssistant)
+        pendingAssistant = null
+      }
+    }
+    const ensureAssistant = () => {
+      if (!pendingAssistant) {
+        pendingAssistant = { role: 'assistant', content: null, tool_calls: [] }
+      }
+      return pendingAssistant
+    }
+
+    const contentToChatParts = (content, _role) => {
+      if (typeof content === 'string') {
+        return content
+      }
+      if (!Array.isArray(content)) {
+        return content === null || content === undefined ? '' : String(content)
+      }
+      const parts = []
+      for (const part of content) {
+        if (!part || typeof part !== 'object') {
+          continue
+        }
+        if (part.type === 'input_text' || part.type === 'output_text' || part.type === 'text') {
+          parts.push({ type: 'text', text: part.text || '' })
+        } else if (part.type === 'input_image' || part.type === 'image_url') {
+          const url = typeof part.image_url === 'string' ? part.image_url : part.image_url?.url || part.image_url
+          if (url) {
+            parts.push({ type: 'image_url', image_url: { url } })
+          }
+        }
+      }
+      if (parts.length === 0) {
+        return ''
+      }
+      // 纯文本折叠为 string，多模态保留 array
+      if (parts.every((part) => part.type === 'text')) {
+        return parts.map((part) => part.text).join('')
+      }
+      return parts
+    }
+
+    for (const item of inputItems) {
+      if (!item || typeof item !== 'object') {
+        continue
+      }
+
+      if (item.type === 'message' || item.role) {
+        const role = item.role || 'user'
+        if (role === 'system' || role === 'developer') {
+          flushAssistant()
+          const text = contentToChatParts(item.content, 'system')
+          const str = typeof text === 'string' ? text : JSON.stringify(text)
+          if (str) {
+            messages.push({ role: 'system', content: str })
+          }
+          continue
+        }
+        if (role === 'assistant') {
+          const assistant = ensureAssistant()
+          const text = contentToChatParts(item.content, 'assistant')
+          if (typeof text === 'string' && text) {
+            assistant.content = (assistant.content || '') + text
+          } else if (Array.isArray(text) && text.length) {
+            const prev = typeof assistant.content === 'string' ? assistant.content : ''
+            assistant.content = prev ? [{ type: 'text', text: prev }, ...text] : text
+          }
+          continue
+        }
+        // user
+        flushAssistant()
+        messages.push({
+          role: 'user',
+          content: contentToChatParts(item.content, 'user'),
+        })
+        continue
+      }
+
+      if (item.type === 'function_call') {
+        const assistant = ensureAssistant()
+        if (!Array.isArray(assistant.tool_calls)) {
+          assistant.tool_calls = []
+        }
+        const args = typeof item.arguments === 'string' ? item.arguments : JSON.stringify(item.arguments ?? {})
+        assistant.tool_calls.push({
+          id: item.call_id || item.id || `call_${messages.length}_${assistant.tool_calls.length}`,
+          type: 'function',
+          function: {
+            name: item.name || '',
+            arguments: args,
+          },
+        })
+        continue
+      }
+
+      if (item.type === 'function_call_output') {
+        flushAssistant()
+        messages.push({
+          role: 'tool',
+          tool_call_id: item.call_id,
+          content: typeof item.output === 'string' ? item.output : JSON.stringify(item.output ?? ''),
+        })
+        continue
+      }
+
+      // reasoning 等控制项：Chat 无对等字段，跳过（thinking 不进 chat messages）
+      if (item.type === 'reasoning') {
+        continue
+      }
+    }
+    flushAssistant()
+
+    // 清理空 tool_calls
+    for (const message of messages) {
+      if (message.role === 'assistant' && Array.isArray(message.tool_calls)) {
+        if (message.tool_calls.length === 0) {
+          delete message.tool_calls
+        }
+        if (message.content === null || message.content === '') {
+          // OpenAI 允许 tool_calls 时 content 为 null
+          if (message.tool_calls) {
+            message.content = null
+          } else {
+            message.content = ''
+          }
+        }
+      }
+    }
+
+    result.messages = messages
+
+    // tools：Responses 扁平 function → Chat function wrapper
+    if (Array.isArray(body.tools) && body.tools.length > 0) {
+      result.tools = body.tools
+        .filter((tool) => tool && tool.type)
+        .map((tool) => {
+          if (tool.type !== 'function') {
+            return tool
+          }
+          // 已是 Chat 形态
+          if (tool.function && tool.function.name) {
+            return tool
+          }
+          return {
+            type: 'function',
+            function: {
+              name: tool.name,
+              description: tool.description || undefined,
+              parameters: tool.parameters || { type: 'object', properties: {} },
+              ...(tool.strict !== undefined ? { strict: tool.strict } : {}),
+            },
+          }
+        })
+        .filter(Boolean)
+    }
+
+    // tool_choice
+    if (body.tool_choice !== undefined) {
+      const toolChoice = body.tool_choice
+      if (typeof toolChoice === 'string') {
+        result.tool_choice = toolChoice
+      } else if (toolChoice && typeof toolChoice === 'object') {
+        if (toolChoice.type === 'function' && toolChoice.name) {
+          result.tool_choice = {
+            type: 'function',
+            function: { name: toolChoice.name },
+          }
+        } else {
+          result.tool_choice = toolChoice
+        }
+      }
+    }
+
+    // text.format → response_format
+    const format = body.text?.format
+    if (format && format.type) {
+      if (format.type === 'json_schema') {
+        result.response_format = {
+          type: 'json_schema',
+          json_schema: {
+            name: format.name || 'response',
+            schema: format.schema || {},
+            ...(format.strict !== undefined ? { strict: format.strict } : {}),
+          },
+        }
+      } else if (format.type === 'json_object') {
+        result.response_format = { type: 'json_object' }
+      } else if (format.type === 'text') {
+        result.response_format = { type: 'text' }
+      }
+    }
+
+    // reasoning.effort → reasoning_effort（Chat 侧常见扩展字段）
+    if (body.reasoning?.effort) {
+      result.reasoning_effort = body.reasoning.effort
+    }
+
+    if (body.session_id) {
+      result.session_id = body.session_id
+    }
+    if (body.conversation_id) {
+      result.conversation_id = body.conversation_id
+    }
+    if (body.prompt_cache_key) {
+      result.prompt_cache_key = body.prompt_cache_key
     }
 
     return result

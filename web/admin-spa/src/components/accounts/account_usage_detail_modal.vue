@@ -334,7 +334,6 @@
 <script setup>
 import { computed, nextTick, onUnmounted, ref, watch } from 'vue'
 import ModalTransition from '@/components/common/modal_transition.vue'
-import { useRouter } from 'vue-router'
 import { storeToRefs } from 'pinia'
 import Chart from 'chart.js/auto'
 import { useThemeStore } from '@/stores/theme'
@@ -352,11 +351,10 @@ const props = defineProps({
   loading: { type: Boolean, default: false }
 })
 
-const emit = defineEmits(['close'])
+const emit = defineEmits(['close', 'open-timeline'])
 
 const themeStore = useThemeStore()
 const { isDarkMode } = storeToRefs(themeStore)
-const router = useRouter()
 
 const chartCanvas = ref(null)
 let chartInstance = null
@@ -583,10 +581,8 @@ const handleClose = () => {
 
 const goTimeline = () => {
   if (!props.account?.id) return
-  router.push({
-    path: `/accounts/${props.account.id}/usage-records`,
-    query: { platform: props.account.platform || props.account.accountType }
-  })
+  // 交给父级用 dialog 打开时间线，不再整页跳转
+  emit('open-timeline', props.account)
 }
 
 watch(

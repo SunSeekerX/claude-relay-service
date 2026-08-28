@@ -44,7 +44,7 @@
         <p class="text-xl font-bold text-green-700 dark:text-green-300">支付成功！</p>
         <p class="mt-2 text-sm text-green-600 dark:text-green-400">余额已更新</p>
         <button
-          class="mt-4 rounded-xl bg-gradient-to-r from-blue-500 to-blue-600 px-5 py-2 font-medium text-white shadow-sm transition-colors hover:from-blue-600 hover:to-blue-700"
+          class="btn btn-primary h-10 mt-4 px-5 text-sm font-medium"
           @click="resetToSelect"
         >
           继续充值
@@ -76,7 +76,7 @@
           </p>
           <button
             v-if="pay.payUrl"
-            class="rounded-xl bg-gradient-to-r from-blue-500 to-blue-600 px-5 py-2 font-medium text-white shadow-sm transition-colors hover:from-blue-600 hover:to-blue-700"
+            class="btn btn-primary h-10 px-5 text-sm font-medium"
             @click="openPayUrl"
           >
             <i class="i-lucide-external-link mr-2" />打开支付页面
@@ -166,7 +166,7 @@
         </div>
 
         <button
-          class="w-full rounded-xl bg-gradient-to-r from-blue-500 to-blue-600 px-4 py-2.5 font-medium text-white shadow-sm transition-colors hover:from-blue-600 hover:to-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+          class="btn btn-primary h-10 w-full px-4 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-50"
           :disabled="!canSubmit || ordering"
           @click="handleCreateOrder"
         >
@@ -267,6 +267,7 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 
+import { isOk, msgOf, reasonOf } from '@/libs/http_envelope'
 import { showToast, formatDateTime } from '@/libs/tools'
 import {
   getPaymentPlansApi,
@@ -355,19 +356,19 @@ const ensureSession = async () => {
   if (token.value) return true
   if (!props.apiKey) return false
   const res = await createPaymentSessionApi(props.apiKey)
-  if (res.success && res.data) {
+  if (isOk(res) && res.data) {
     token.value = res.data.token
     return true
   }
-  showToast(res.error || res.message || '验证 API Key 失败', 'error')
+  showToast(msgOf(res, '验证 API Key 失败'), 'error')
   return false
 }
 
 // 只读请求包装：会话失效（code=payment_session_invalid）时自动重签一次并重试
 const withSession = async (call) => {
-  if (!(await ensureSession())) return { success: false }
+  if (!(await ensureSession())) return { code: 401 }
   let res = await call(token.value)
-  if (!res.success && res.code === 'payment_session_invalid') {
+  if (!isOk(res) && reasonOf(res) === 'payment_session_invalid') {
     token.value = ''
     if (!(await ensureSession())) return res
     res = await call(token.value)
@@ -379,7 +380,7 @@ const withSession = async (call) => {
 const loadConfig = async () => {
   configLoading.value = true
   const res = await getPaymentPlansApi()
-  if (res.success && res.data) {
+  if (isOk(res) && res.data) {
     config.value = {
       enabled: res.data.enabled,
       allowCustomAmount: res.data.allowCustomAmount,
@@ -397,14 +398,14 @@ const loadConfig = async () => {
 const loadBalance = async () => {
   balanceLoading.value = true
   const res = await withSession((t) => getPaymentBalanceApi(t))
-  if (res.success && res.data) balance.value = Number(res.data.balance || 0).toFixed(2)
+  if (isOk(res) && res.data) balance.value = Number(res.data.balance || 0).toFixed(2)
   balanceLoading.value = false
 }
 
 const loadOrders = async () => {
   ordersLoading.value = true
   const res = await withSession((t) => getMyPaymentOrdersApi({ token: t, offset: 0, limit: 20 }))
-  if (res.success && res.data) orders.value = res.data.orders || []
+  if (isOk(res) && res.data) orders.value = res.data.orders || []
   ordersLoading.value = false
 }
 
@@ -448,7 +449,7 @@ const startPolling = () => {
       pollCount >= 4
         ? await withSession((t) => verifyPaymentOrderApi(order.value.id, t))
         : await withSession((t) => getPaymentOrderApi(order.value.id, t))
-    const o = res.success ? res.data : null
+    const o = isOk(res) ? res.data : null
     if (!o) return
     if (o.status === 'completed') {
       clearTimers()
@@ -472,7 +473,7 @@ const handleCreateOrder = async () => {
     return createPaymentOrderApi(payload)
   })
   ordering.value = false
-  if (!res.success) return showToast(res.error || res.message || '下单失败', 'error')
+  if (!isOk(res)) return showToast(msgOf(res, '下单失败'), 'error')
   order.value = res.data.order
   pay.value = res.data.pay || {}
   payState.value = 'paying'
@@ -486,7 +487,7 @@ const openPayUrl = () => {
 
 const handleCancel = async (id, backToSelect) => {
   const res = await withSession((t) => cancelPaymentOrderApi(id, t))
-  if (!res.success) return showToast(res.error || res.message || '取消失败', 'error')
+  if (!isOk(res)) return showToast(msgOf(res, '取消失败'), 'error')
   showToast('已取消', 'success')
   if (backToSelect) {
     clearTimers()

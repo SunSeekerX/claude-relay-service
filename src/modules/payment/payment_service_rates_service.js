@@ -97,7 +97,7 @@ class ServiceRatesService {
       this.cachedRates = null
       this.cacheExpiry = 0
 
-      logger.info(`✅ 服务倍率配置已更新 by ${updatedBy}`)
+      logger.info(`服务倍率配置已更新 by ${updatedBy}`)
       return newConfig
     } catch (error) {
       logger.error('保存服务倍率配置失败:', error)

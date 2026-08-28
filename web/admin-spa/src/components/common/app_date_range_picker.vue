@@ -9,12 +9,15 @@
     >
       <i class="adr-icon i-lucide-calendar-heart" />
       <span class="adr-text" :class="{ 'is-placeholder': !hasValue }">
-        <template v-if="hasValue">
+        <template v-if="hasValue && isSingle">
+          <span class="adr-part">{{ displayStart }}</span>
+        </template>
+        <template v-else-if="hasValue">
           <span class="adr-part">{{ displayStart }}</span>
           <span class="adr-sep">至</span>
           <span class="adr-part">{{ displayEnd }}</span>
         </template>
-        <template v-else>选择时间范围</template>
+        <template v-else>{{ isSingle ? '选择日期时间' : '选择时间范围' }}</template>
       </span>
       <button
         v-if="clearable && hasValue"
@@ -28,8 +31,16 @@
       <i class="adr-caret i-lucide-chevron-down" />
     </button>
 
-    <!-- 弹层 -->
-    <div v-if="open" class="adr-panel" @click.stop>
+    <!-- 弹层 Teleport 到 body，避免 dialog overflow 裁切 -->
+    <Teleport to="body">
+    <Transition name="adr-pop">
+    <div
+      v-if="open"
+      ref="panelRef"
+      class="adr-panel"
+      :style="panelStyle"
+      @click.stop
+    >
       <div v-if="showPresets" class="adr-presets">
         <button
           v-for="preset in resolvedPresets"
@@ -79,15 +90,18 @@
             </button>
           </div>
           <p class="adr-hint">
-            {{ pickingEnd ? '再点结束日期' : '先点开始日期' }}
-            <span v-if="draftStart && draftEnd"> · 已选区间</span>
+            <template v-if="isSingle">点选日期，再调时间后确定</template>
+            <template v-else>
+              {{ pickingEnd ? '再点结束日期' : '先点开始日期' }}
+              <span v-if="draftStart && draftEnd"> · 已选区间</span>
+            </template>
           </p>
         </div>
 
         <!-- 时间 -->
-        <div class="adr-times">
+        <div class="adr-times" :class="{ 'is-single': isSingle }">
           <div class="adr-time-block">
-            <div class="adr-time-title">开始时间</div>
+            <div class="adr-time-title">{{ isSingle ? '时间' : '开始时间' }}</div>
             <div class="adr-time-row">
               <CustomDropdown
                 v-model="startHour"
@@ -105,7 +119,7 @@
             </div>
             <div class="adr-time-preview">{{ draftStartPreview }}</div>
           </div>
-          <div class="adr-time-block">
+          <div v-if="!isSingle" class="adr-time-block">
             <div class="adr-time-title">结束时间</div>
             <div class="adr-time-row">
               <CustomDropdown
@@ -134,11 +148,13 @@
         </button>
       </div>
     </div>
+    </Transition>
+    </Teleport>
   </div>
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import CustomDropdown from '@/components/common/custom_dropdown.vue'
 import dayjs from 'dayjs'
 import {
@@ -148,9 +164,17 @@ import {
   toStoreDateTime
 } from '@/libs/time.js'
 
-// modelValue: [start, end] 'YYYY-MM-DD HH:mm:ss' | null
+// modelValue:
+// - range: [start, end] 'YYYY-MM-DD HH:mm:ss' | null
+// - single: 'YYYY-MM-DD HH:mm:ss' | null
 const props = defineProps({
-  modelValue: { type: [Array, null], default: null },
+  modelValue: { type: [Array, String, null], default: null },
+  // range | single（过期时间等单点选择）
+  mode: {
+    type: String,
+    default: 'range',
+    validator: (value) => ['range', 'single'].includes(value)
+  },
   clearable: { type: Boolean, default: true },
   disabled: { type: Boolean, default: false },
   // false | 'filter' | 'simple' | [{key,label}]
@@ -167,12 +191,31 @@ const props = defineProps({
   minuteStep: {
     type: Number,
     default: 1
+  },
+  // 最早可选时刻（ISO / 存库字符串 / Date）；空 = 不限制
+  min: {
+    type: [String, Date, null],
+    default: null
   }
 })
 
 const emit = defineEmits(['update:modelValue', 'change'])
 
+const isSingle = computed(() => props.mode === 'single')
+
+const minDayjs = computed(() => {
+  if (!props.min) return null
+  const value = dayjs(props.min)
+  return value.isValid() ? value : null
+})
+
+// 与 CustomDropdown 共用互斥事件：同一时刻只开一个 Teleport 面板
+const OPEN_EVENT = 'cute-dropdown-open'
+const instanceId = Symbol('app-date-range-picker')
+
 const rootRef = ref(null)
+const panelRef = ref(null)
+const panelStyle = ref({})
 const open = ref(false)
 const viewMonth = ref(dayjs().startOf('month'))
 const draftStart = ref(null) // dayjs | null
@@ -195,6 +238,8 @@ const minuteOptions = computed(() => {
 const minuteValues = computed(() => minuteOptions.value.map((item) => item.value))
 
 const resolvedPresets = computed(() => {
+  // 单点选择不展示范围预设
+  if (isSingle.value) return []
   if (props.presets === false || props.presets === 'none') return []
   if (Array.isArray(props.presets)) return props.presets
   if (props.presets === 'simple') return SIMPLE_DATE_RANGE_PRESETS
@@ -202,8 +247,20 @@ const resolvedPresets = computed(() => {
 })
 const showPresets = computed(() => resolvedPresets.value.length > 0)
 
-const range = computed(() => (Array.isArray(props.modelValue) ? props.modelValue : null))
-const hasValue = computed(() => !!(range.value?.[0] || range.value?.[1]))
+const range = computed(() => {
+  if (isSingle.value) {
+    const value = props.modelValue
+    if (!value || Array.isArray(value)) return null
+    return [value, value]
+  }
+  return Array.isArray(props.modelValue) ? props.modelValue : null
+})
+const hasValue = computed(() => {
+  if (isSingle.value) {
+    return !!(typeof props.modelValue === 'string' && props.modelValue)
+  }
+  return !!(range.value?.[0] || range.value?.[1])
+})
 
 const displayStart = computed(() => {
   if (!range.value?.[0]) return '—'
@@ -279,7 +336,10 @@ const draftEndPreview = computed(() =>
   composeEnd.value ? composeEnd.value.format('YYYY-MM-DD HH:mm') : '未选择'
 )
 
-const canApply = computed(() => !!(composeStart.value && composeEnd.value))
+const canApply = computed(() => {
+  if (isSingle.value) return !!composeStart.value
+  return !!(composeStart.value && composeEnd.value)
+})
 
 const calendarCells = computed(() => {
   const start = viewMonth.value.startOf('month')
@@ -308,7 +368,8 @@ const calendarCells = computed(() => {
       isStart: !!(s && dayStart.isSame(s)),
       isEnd: !!(e && dayStart.isSame(e)),
       isIn,
-      disabled: false
+      // min 按日截断：早于 min 日的格子不可选
+      disabled: !!(minDayjs.value && dayStart.isBefore(minDayjs.value.startOf('day'))),
     })
   }
   return cells
@@ -336,6 +397,13 @@ const activePreset = computed(() => {
 })
 
 const emitRange = (start, end) => {
+  if (isSingle.value) {
+    const value = start || ''
+    const next = value || null
+    emit('update:modelValue', next)
+    emit('change', next)
+    return
+  }
   if (!start && !end) {
     emit('update:modelValue', null)
     emit('change', null)
@@ -347,6 +415,15 @@ const emitRange = (start, end) => {
 }
 
 const applyDraft = () => {
+  if (isSingle.value) {
+    if (!composeStart.value) return
+    if (minDayjs.value && composeStart.value.isBefore(minDayjs.value)) {
+      return
+    }
+    emitRange(toStoreDateTime(composeStart.value), toStoreDateTime(composeStart.value))
+    open.value = false
+    return
+  }
   if (!composeStart.value || !composeEnd.value) return
   let start = composeStart.value
   let end = composeEnd.value
@@ -354,6 +431,9 @@ const applyDraft = () => {
     const tmp = start
     start = end
     end = tmp
+  }
+  if (minDayjs.value && start.isBefore(minDayjs.value)) {
+    return
   }
   emitRange(toStoreDateTime(start), toStoreDateTime(end))
   open.value = false
@@ -392,6 +472,30 @@ const applyPreset = (key) => {
 const pickDay = (cell) => {
   if (cell.disabled) return
   const day = cell.date.startOf('day')
+  if (isSingle.value) {
+    draftStart.value = day
+    draftEnd.value = day
+    pickingEnd.value = false
+    // 单点默认当前时分；若尚未设过则用现在
+    if (startHour.value === 0 && startMinute.value === 0) {
+      const now = dayjs()
+      startHour.value = now.hour()
+      startMinute.value = snapMinute(now.minute())
+    }
+    // min 精确到分：选中 min 当天时，时分不得早于 min
+    if (minDayjs.value && day.isSame(minDayjs.value, 'day')) {
+      const minHour = minDayjs.value.hour()
+      const minMinute = minDayjs.value.minute()
+      if (
+        startHour.value < minHour ||
+        (startHour.value === minHour && startMinute.value < minMinute)
+      ) {
+        startHour.value = minHour
+        startMinute.value = snapMinute(minMinute)
+      }
+    }
+    return
+  }
   if (!pickingEnd.value || !draftStart.value) {
     draftStart.value = day
     draftEnd.value = null
@@ -417,25 +521,75 @@ const shiftMonth = (delta) => {
   viewMonth.value = viewMonth.value.add(delta, 'month')
 }
 
-const toggleOpen = () => {
+const updatePanelPosition = () => {
+  const trigger = rootRef.value?.querySelector?.('.adr-trigger') || rootRef.value
+  if (!trigger || !open.value) return
+  const rect = trigger.getBoundingClientRect()
+  const panel = panelRef.value
+  const panelHeight = panel?.offsetHeight || 420
+  const panelWidth = panel?.offsetWidth || Math.min(352, window.innerWidth - 20)
+  const gap = 8
+  const margin = 10
+  const spaceBelow = window.innerHeight - rect.bottom - margin
+  const spaceAbove = rect.top - margin
+  const placeBelow = spaceBelow >= Math.min(panelHeight, 280) || spaceBelow >= spaceAbove
+  let top = placeBelow ? rect.bottom + gap : rect.top - panelHeight - gap
+  let left = rect.left
+  if (left + panelWidth > window.innerWidth - margin) {
+    left = window.innerWidth - panelWidth - margin
+  }
+  if (left < margin) left = margin
+  if (top < margin) top = margin
+  const avail = placeBelow
+    ? window.innerHeight - top - margin
+    : Math.max(120, rect.top - margin - gap)
+  panelStyle.value = {
+    position: 'fixed',
+    top: `${top}px`,
+    left: `${left}px`,
+    zIndex: 1300,
+    width: `${Math.min(panelWidth, window.innerWidth - margin * 2)}px`,
+    maxHeight: `${Math.max(200, Math.min(panelHeight + 40, Math.floor(avail)))}px`,
+    overflowY: 'auto'
+  }
+}
+
+const toggleOpen = async () => {
   if (props.disabled) return
-  open.value = !open.value
-  if (open.value) syncDraftFromModel()
+  const next = !open.value
+  if (next) {
+    // 先广播互斥，关掉其它下拉/日期面板
+    window.dispatchEvent(new CustomEvent(OPEN_EVENT, { detail: { id: instanceId } }))
+    open.value = true
+    syncDraftFromModel()
+    await nextTick()
+    updatePanelPosition()
+    requestAnimationFrame(() => updatePanelPosition())
+  } else {
+    open.value = false
+  }
 }
 
 const onDocPointer = (event) => {
   if (!open.value) return
   const el = rootRef.value
+  const panel = panelRef.value
   const target = event.target
-  // CustomDropdown 面板 Teleport 到 body，点选项不属于本组件根节点，不能当外部点击关面板
+  // 本面板内部（含 Teleport 出的 .adr-panel）不关
   if (target && typeof target.closest === 'function') {
-    if (target.closest('.cute-dropdown__panel')) return
+    if (target.closest('.adr-panel')) return
   }
+  if (panel && panel.contains(target)) return
+  // 点到 CustomDropdown 面板/触发器：关闭日期面板（互斥）
   if (el && !el.contains(target)) open.value = false
 }
 
 const onKey = (event) => {
   if (event.key === 'Escape') open.value = false
+}
+
+const onWinChange = () => {
+  if (open.value) updatePanelPosition()
 }
 
 watch(
@@ -446,13 +600,26 @@ watch(
   { deep: true }
 )
 
+watch(open, async (value) => {
+  if (!value) return
+  await nextTick()
+  updatePanelPosition()
+})
+
+// 只向外广播 OPEN_EVENT 关其它下拉；不监听该事件——
+// 面板内小时/分钟 CustomDropdown 打开也会广播，监听会导致日期面板被误关。
+// 外部下拉的打开：先 mousedown 到外部，onDocPointer 已关日期面板。
 onMounted(() => {
   document.addEventListener('mousedown', onDocPointer)
   document.addEventListener('keydown', onKey)
+  window.addEventListener('resize', onWinChange)
+  window.addEventListener('scroll', onWinChange, true)
 })
 onBeforeUnmount(() => {
   document.removeEventListener('mousedown', onDocPointer)
   document.removeEventListener('keydown', onKey)
+  window.removeEventListener('resize', onWinChange)
+  window.removeEventListener('scroll', onWinChange, true)
 })
 </script>
 
@@ -560,10 +727,7 @@ onBeforeUnmount(() => {
 }
 
 .adr-panel {
-  position: absolute;
-  top: calc(100% + 0.35rem);
-  left: 0;
-  z-index: 80;
+  /* position/size 由 panelStyle 内联（fixed + Teleport） */
   width: min(22rem, 92vw);
   padding: 0.65rem;
   border: 1px solid rgb(229 231 235);
@@ -804,62 +968,192 @@ onBeforeUnmount(() => {
   pointer-events: none;
 }
 
-:global(.dark) .adr-trigger {
-  border-color: rgb(55 65 81);
-  background: rgb(17 24 39);
-  box-shadow: none;
+</style>
+
+<!-- 过渡类 + 暗黑模式：非 scoped，与 CustomDropdown 同用 html.dark 保证生效 -->
+<style>
+.adr-pop-enter-active {
+  transition:
+    opacity 0.18s ease,
+    transform 0.22s cubic-bezier(0.34, 1.4, 0.64, 1);
+}
+.adr-pop-leave-active {
+  transition:
+    opacity 0.12s ease,
+    transform 0.12s ease;
+}
+.adr-pop-enter-from {
+  opacity: 0;
+  transform: translateY(-6px) scale(0.96);
+}
+.adr-pop-enter-to {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+}
+.adr-pop-leave-from {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+}
+.adr-pop-leave-to {
+  opacity: 0;
+  transform: translateY(-4px) scale(0.97);
 }
 
-:global(.dark) .adr-text {
-  color: rgb(243 244 246);
+/* ---- 暗黑模式（html.dark） ---- */
+html.dark .adr-trigger,
+.dark .adr-trigger {
+  border-color: rgb(75 85 99 / 0.7);
+  background: rgb(31 41 55 / 0.98);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
 }
 
-:global(.dark) .adr-text.is-placeholder,
-:global(.dark) .adr-sep,
-:global(.dark) .adr-caret {
-  color: rgb(148 163 184);
+html.dark .adr.is-open .adr-trigger,
+html.dark .adr-trigger:hover,
+.dark .adr.is-open .adr-trigger,
+.dark .adr-trigger:hover {
+  border-color: rgb(96 165 250 / 0.55);
+  box-shadow: 0 0 0 3px rgba(96, 165, 250, 0.18);
 }
 
-:global(.dark) .adr-panel {
-  border-color: rgb(55 65 81);
-  background: rgb(17 24 39);
-  box-shadow: 0 18px 40px -12px rgba(0, 0, 0, 0.55);
+html.dark .adr-text,
+.dark .adr-text {
+  color: rgb(229 231 235);
 }
 
-:global(.dark) .adr-chip {
-  border-color: rgb(55 65 81);
-  background: rgb(31 41 55);
+html.dark .adr-text.is-placeholder,
+html.dark .adr-sep,
+html.dark .adr-caret,
+html.dark .adr-clear,
+.dark .adr-text.is-placeholder,
+.dark .adr-sep,
+.dark .adr-caret,
+.dark .adr-clear {
+  color: rgb(156 163 175);
+}
+
+html.dark .adr-clear:hover,
+.dark .adr-clear:hover {
+  background: rgb(55 65 81);
   color: rgb(209 213 219);
 }
 
-:global(.dark) .adr-chip.is-active {
+html.dark .adr-panel,
+.dark .adr-panel {
+  border-color: rgb(75 85 99 / 0.65);
+  background: rgb(31 41 55);
+  box-shadow:
+    0 18px 40px -12px rgba(0, 0, 0, 0.55),
+    0 0 0 1px rgba(255, 255, 255, 0.04) inset;
+}
+
+html.dark .adr-chip,
+.dark .adr-chip {
+  border-color: rgb(75 85 99 / 0.7);
+  background: rgb(17 24 39 / 0.65);
+  color: rgb(209 213 219);
+}
+
+html.dark .adr-chip:hover,
+.dark .adr-chip:hover {
+  border-color: rgb(96 165 250 / 0.55);
+  background: rgb(30 58 138 / 0.35);
+  color: rgb(147 197 253);
+}
+
+html.dark .adr-chip.is-active,
+.dark .adr-chip.is-active {
+  border-color: transparent;
+  background: linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%);
+  color: #fff;
+  box-shadow: 0 2px 8px rgba(59, 130, 246, 0.35);
+}
+
+html.dark .adr-month-label,
+.dark .adr-month-label {
+  color: rgb(229 231 235);
+}
+
+html.dark .adr-week span,
+html.dark .adr-hint,
+html.dark .adr-colon,
+html.dark .adr-time-title,
+html.dark .adr-time-preview,
+.dark .adr-week span,
+.dark .adr-hint,
+.dark .adr-colon,
+.dark .adr-time-title,
+.dark .adr-time-preview {
+  color: rgb(148 163 184);
+}
+
+html.dark .adr-nav,
+.dark .adr-nav {
+  background: rgb(17 24 39 / 0.75);
+  color: rgb(203 213 225);
+}
+
+html.dark .adr-nav:hover,
+.dark .adr-nav:hover {
+  background: rgb(30 58 138 / 0.35);
+  color: rgb(147 197 253);
+}
+
+html.dark .adr-day,
+.dark .adr-day {
+  color: rgb(209 213 219);
+}
+
+html.dark .adr-day:hover:not(:disabled),
+.dark .adr-day:hover:not(:disabled) {
+  background: rgb(30 58 138 / 0.35);
+  color: rgb(147 197 253);
+}
+
+html.dark .adr-day.is-out,
+.dark .adr-day.is-out {
+  color: rgb(71 85 105);
+}
+
+html.dark .adr-day.is-today,
+.dark .adr-day.is-today {
+  box-shadow: inset 0 0 0 1px rgb(96 165 250 / 0.7);
+}
+
+html.dark .adr-day.is-in,
+.dark .adr-day.is-in {
+  background: rgba(59, 130, 246, 0.22);
+  color: rgb(147 197 253);
+}
+
+html.dark .adr-day.is-start,
+html.dark .adr-day.is-end,
+.dark .adr-day.is-start,
+.dark .adr-day.is-end {
   background: linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%);
   color: #fff;
 }
 
-:global(.dark) .adr-month-label,
-:global(.dark) .adr-day {
-  color: rgb(226 232 240);
+html.dark .adr-time-block,
+.dark .adr-time-block {
+  border-color: rgb(75 85 99 / 0.55);
+  background: rgb(17 24 39 / 0.55);
 }
 
-:global(.dark) .adr-day.is-out {
-  color: rgb(71 85 105);
+html.dark .adr-btn.ghost,
+.dark .adr-btn.ghost {
+  background: rgb(55 65 81);
+  color: rgb(209 213 219);
 }
 
-:global(.dark) .adr-day.is-in {
-  background: rgba(59, 130, 246, 0.2);
-  color: rgb(147 197 253);
+html.dark .adr-btn.ghost:hover,
+.dark .adr-btn.ghost:hover {
+  background: rgb(75 85 99);
+  color: rgb(243 244 246);
 }
 
-:global(.dark) .adr-nav,
-:global(.dark) .adr-btn.ghost {
-  background: rgb(31 41 55);
-  color: rgb(203 213 225);
+html.dark .adr-btn.primary,
+.dark .adr-btn.primary {
+  background: linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%);
+  color: #fff;
 }
-
-:global(.dark) .adr-time-block {
-  border-color: rgb(55 65 81);
-  background: rgb(31 41 55);
-}
-
 </style>

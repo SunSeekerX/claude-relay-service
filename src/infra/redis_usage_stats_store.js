@@ -9,7 +9,7 @@ import { getDateInTimezone, getDateStringInTimezone, getHourInTimezone } from '.
 // 均经同一单例解析。私有 _normalizeModelName 仅本域使用，一并迁出。
 // ===
 export const attach = function attach(redisClient) {
-  // 📊 使用统计相关操作（支持缓存token统计和模型信息）
+  // 使用统计相关操作（支持缓存token统计和模型信息）
   // 标准化模型名称，用于统计聚合
   redisClient._normalizeModelName = function (model) {
     if (!model || model === 'unknown') {
@@ -435,7 +435,7 @@ export const attach = function attach(redisClient) {
     await pipeline.exec()
   }
 
-  // 📊 记录账户级别的使用统计
+  // 记录账户级别的使用统计
   redisClient.incrementAccountUsage = async function (
     accountId,
     totalTokens,
@@ -722,7 +722,7 @@ export const attach = function attach(redisClient) {
 
       if (!hasAnyAlltimeData) {
         // alltime 数据不存在，回退到旧扫描逻辑
-        logger.warn('⚠️ alltime 模型数据不存在，回退到 SCAN 模式（建议运行迁移脚本）')
+        logger.warn('alltime 模型数据不存在，回退到 SCAN 模式（建议运行迁移脚本）')
         for (const keyId of keyIds) {
           for (const model of models) {
             const pattern = RedisKeys.usage.keyModelAnyPattern(keyId, model)
@@ -818,7 +818,7 @@ export const attach = function attach(redisClient) {
         .expire(listKey, TTL.usageRecords) // 默认保留90天
         .exec()
     } catch (error) {
-      logger.error(`❌ Failed to append usage record for key ${keyId}:`, error)
+      logger.error(`Failed to append usage record for key ${keyId}:`, error)
     }
   }
 
@@ -837,18 +837,18 @@ export const attach = function attach(redisClient) {
           try {
             return JSON.parse(entry)
           } catch (error) {
-            logger.warn('⚠️ Failed to parse usage record entry:', error)
+            logger.warn('Failed to parse usage record entry:', error)
             return null
           }
         })
         .filter(Boolean)
     } catch (error) {
-      logger.error(`❌ Failed to load usage records for key ${keyId}:`, error)
+      logger.error(`Failed to load usage records for key ${keyId}:`, error)
       return []
     }
   }
 
-  // 📊 获取账户使用统计
+  // 获取账户使用统计
   redisClient.getAccountUsageStats = async function (accountId, accountType = null) {
     const accountKey = RedisKeys.accountUsage.total(accountId)
     const today = getDateStringInTimezone()
@@ -926,7 +926,7 @@ export const attach = function attach(redisClient) {
     }
   }
 
-  // 📈 获取所有账户的使用统计
+  // 获取所有账户的使用统计
   redisClient.getAllAccountsUsageStats = async function () {
     try {
       // 使用 getAllIdsByIndex 获取账户 ID（自动处理索引/SCAN 回退）
@@ -964,12 +964,12 @@ export const attach = function attach(redisClient) {
 
       return accountStats
     } catch (error) {
-      logger.error('❌ Failed to get all accounts usage stats:', error)
+      logger.error('Failed to get all accounts usage stats:', error)
       return []
     }
   }
 
-  // 🧹 清空所有API Key的使用统计数据（使用 scanKeys + batchDelChunked 优化）
+  // 清空所有API Key的使用统计数据（使用 scanKeys + batchDelChunked 优化）
   redisClient.resetAllUsageStats = async function () {
     const client = this.getClientSafe()
     const stats = {
@@ -1034,7 +1034,7 @@ export const attach = function attach(redisClient) {
     }
   }
 
-  // 📊 获取账户会话窗口内的使用统计（包含模型细分）
+  // 获取账户会话窗口内的使用统计（包含模型细分）
   redisClient.getAccountSessionWindowUsage = async function (accountId, windowStart, windowEnd) {
     try {
       if (!windowStart || !windowEnd) {
@@ -1053,12 +1053,12 @@ export const attach = function attach(redisClient) {
       const endDate = new Date(windowEnd)
 
       // 添加日志以调试时间窗口
-      logger.debug(`📊 Getting session window usage for account ${accountId}`)
-      logger.debug(`   Window: ${windowStart} to ${windowEnd}`)
-      logger.debug(`   Start UTC: ${startDate.toISOString()}, End UTC: ${endDate.toISOString()}`)
+      logger.debug(`Getting session window usage for account ${accountId}`)
+      logger.debug(`Window: ${windowStart} to ${windowEnd}`)
+      logger.debug(`Start UTC: ${startDate.toISOString()}, End UTC: ${endDate.toISOString()}`)
 
       // 获取窗口内所有可能的小时键
-      // 重要：需要使用配置的时区来构建键名，因为数据存储时使用的是配置时区
+      // 小时键名按配置时区构建，与写入时区一致
       const hourlyKeys = []
       const currentHour = new Date(startDate)
       currentHour.setMinutes(0)
@@ -1071,7 +1071,7 @@ export const attach = function attach(redisClient) {
         const tzHour = String(getHourInTimezone(currentHour)).padStart(2, '0')
         const key = RedisKeys.accountUsage.hourly(accountId, `${tzDateStr}:${tzHour}`)
 
-        logger.debug(`   Adding hourly key: ${key}`)
+        logger.debug(`Adding hourly key: ${key}`)
         hourlyKeys.push(key)
         currentHour.setHours(currentHour.getHours() + 1)
       }
@@ -1092,7 +1092,7 @@ export const attach = function attach(redisClient) {
       let totalRequests = 0
       const modelUsage = {}
 
-      logger.debug(`   Processing ${results.length} hourly results`)
+      logger.debug(`Processing ${results.length} hourly results`)
 
       for (const [error, data] of results) {
         if (error || !data || Object.keys(data).length === 0) {
@@ -1115,7 +1115,7 @@ export const attach = function attach(redisClient) {
         totalRequests += hourRequests
 
         if (hourAllTokens > 0) {
-          logger.debug(`   Hour data: allTokens=${hourAllTokens}, requests=${hourRequests}`)
+          logger.debug(`Hour data: allTokens=${hourAllTokens}, requests=${hourRequests}`)
         }
 
         // 处理每个模型的数据
@@ -1162,11 +1162,11 @@ export const attach = function attach(redisClient) {
         }
       }
 
-      logger.debug(`📊 Session window usage summary:`)
-      logger.debug(`   Total allTokens: ${totalAllTokens}`)
-      logger.debug(`   Total requests: ${totalRequests}`)
-      logger.debug(`   Input: ${totalInputTokens}, Output: ${totalOutputTokens}`)
-      logger.debug(`   Cache Create: ${totalCacheCreateTokens}, Cache Read: ${totalCacheReadTokens}`)
+      logger.debug(`Session window usage summary:`)
+      logger.debug(`Total allTokens: ${totalAllTokens}`)
+      logger.debug(`Total requests: ${totalRequests}`)
+      logger.debug(`Input: ${totalInputTokens}, Output: ${totalOutputTokens}`)
+      logger.debug(`Cache Create: ${totalCacheCreateTokens}, Cache Read: ${totalCacheReadTokens}`)
 
       return {
         totalInputTokens,
@@ -1178,7 +1178,7 @@ export const attach = function attach(redisClient) {
         modelUsage,
       }
     } catch (error) {
-      logger.error(`❌ Failed to get session window usage for account ${accountId}:`, error)
+      logger.error(`Failed to get session window usage for account ${accountId}:`, error)
       return {
         totalInputTokens: 0,
         totalOutputTokens: 0,

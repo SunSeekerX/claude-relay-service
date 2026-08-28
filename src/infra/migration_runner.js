@@ -26,17 +26,17 @@ export const runVersionGated = async (redis) => {
   const currentVersion = getAppVersion()
   const migratedVersion = await redis.getMigratedVersion()
   if (versionGt(currentVersion, '1.1.250') && versionGt(currentVersion, migratedVersion)) {
-    logger.info(`🔄 检测到新版本 ${currentVersion}，检查数据迁移...`)
+    logger.info(`检测到新版本 ${currentVersion}，检查数据迁移...`)
     try {
       if (await redis.needsGlobalStatsMigration()) {
         await redis.migrateGlobalStats()
       }
       await redis.cleanupSystemMetrics()
     } catch (err) {
-      logger.error('⚠️ 数据迁移出错，但不影响启动:', err)
+      logger.error('数据迁移出错，但不影响启动:', err)
     }
     await redis.setMigratedVersion(currentVersion)
-    logger.success(`✅ 数据迁移完成，版本: ${currentVersion}`)
+    logger.success(`数据迁移完成，版本: ${currentVersion}`)
   }
 }
 
@@ -52,14 +52,14 @@ export const runMarker = async (redis, id) => {
   if (!migration) {
     throw new Error(`Unknown migration: ${id}`)
   }
-  logger.info(`🔄 运行一次性迁移 ${id}...`)
+  logger.info(`运行一次性迁移 ${id}...`)
   // up 必须幂等可重入且失败抛错(见 registry.js 契约);抛错 → 跳过 markApplied → 下次重跑
   await migration.up(redis)
   // applied 台账是去重优化:写失败不中断启动,下次重跑 up(契约要求 up 幂等,故重跑无害)
   try {
     await ledger.markApplied(client, id, Date.now())
-    logger.success(`✅ 一次性迁移 ${id} 完成`)
+    logger.success(`一次性迁移 ${id} 完成`)
   } catch (e) {
-    logger.error(`⚠️ 迁移 ${id} 完成但台账写入失败(下次将重跑,依赖 up 幂等):`, e)
+    logger.error(`迁移 ${id} 完成但台账写入失败(下次将重跑,依赖 up 幂等):`, e)
   }
 }

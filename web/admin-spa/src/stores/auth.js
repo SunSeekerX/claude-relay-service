@@ -3,6 +3,7 @@ import { ref, computed } from 'vue'
 import router from '@/router'
 
 import { loginApi, getAuthUserApi, getOemSettingsApi } from '@/libs/http_apis'
+import { isOk, msgOf, dataOf } from '@/libs/http_envelope'
 
 export const useAuthStore = defineStore('auth', () => {
   // 状态
@@ -32,15 +33,17 @@ export const useAuthStore = defineStore('auth', () => {
     try {
       const result = await loginApi(credentials)
 
-      if (result.success) {
-        authToken.value = result.token
-        username.value = result.username || credentials.username
+      if (isOk(result)) {
+        const data = dataOf(result, {})
+        const nextToken = data.token
+        authToken.value = nextToken
+        username.value = data.username || credentials.username
         isLoggedIn.value = true
-        localStorage.setItem('authToken', result.token)
+        localStorage.setItem('authToken', nextToken)
 
         await router.push('/dashboard')
       } else {
-        loginError.value = result.message || '登录失败'
+        loginError.value = msgOf(result, '登录失败')
       }
     } catch (error) {
       loginError.value = error.message || '登录失败，请检查用户名和密码'
@@ -49,32 +52,48 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
-  function logout() {
+  // 只清本地会话，不跳转（路由守卫 / 启动校验失败时用）
+  const clearAuthLocal = () => {
     isLoggedIn.value = false
     authToken.value = ''
     username.value = ''
     localStorage.removeItem('authToken')
+  }
+
+  function logout() {
+    clearAuthLocal()
     router.push('/login')
   }
 
-  function checkAuth() {
-    if (authToken.value) {
-      isLoggedIn.value = true
-      // 验证token有效性
-      verifyToken()
+  // 从 localStorage 恢复并校验 token；返回是否仍有效
+  // 路由守卫会 await 本方法，避免刷新后 isLoggedIn 仍为 false 导致进登录页/被踢回
+  async function checkAuth() {
+    if (!authToken.value) {
+      authToken.value = localStorage.getItem('authToken') || ''
     }
-  }
+    if (!authToken.value) {
+      isLoggedIn.value = false
+      return false
+    }
+    // 本会话已确认登录，跳过重复请求
+    if (isLoggedIn.value) {
+      return true
+    }
 
-  async function verifyToken() {
     try {
       const userResult = await getAuthUserApi()
-      if (!userResult.success || !userResult.user) {
-        logout()
-        return
+      const userPayload = dataOf(userResult, {})?.user
+      if (!isOk(userResult) || !userPayload) {
+        clearAuthLocal()
+        return false
       }
-      username.value = userResult.user.username
+      username.value = userPayload.username
+      isLoggedIn.value = true
+      return true
     } catch (error) {
-      logout()
+      console.error(error)
+      clearAuthLocal()
+      return false
     }
   }
 
@@ -111,7 +130,7 @@ export const useAuthStore = defineStore('auth', () => {
     oemLoading.value = true
     try {
       const result = await getOemSettingsApi()
-      if (result.success && result.data) {
+      if (isOk(result) && result.data) {
         applyOemSettings(result.data)
       }
     } catch (error) {

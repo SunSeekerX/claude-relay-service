@@ -1,5 +1,6 @@
 import express from 'express'
 import axios from 'axios'
+
 import { grokAccountService } from './account_grok_service.js'
 import { testModelConfigService } from '../relay/relay_test_model_config_service.js'
 import { apiKeyService } from '../apikey/apikey_service.js'
@@ -7,12 +8,14 @@ import { accountGroupService } from './account_group_service.js'
 import { redis } from '../../infra/redis.js'
 import { RedisKeys } from '../../infra/redis_key.js'
 import { authenticateAdmin } from '../../infra/middleware_auth.js'
-import { logger } from '../../common/logger.js'
 import { stripReadonlyAccountFields } from '../../common/common_helper.js'
 import { extractErrorMessage } from '../../common/test_payload_helper.js'
 import { ProxyHelper } from '../proxy/proxy_helper.js'
 import { proxyResolver } from '../proxy/proxy_resolver.js'
 import * as xaiHelper from '../../common/xai_helper.js'
+import { asyncRoute } from '../../common/route_handler.js'
+import { ok, badRequest, notFound, fail } from '../../common/http_result.js'
+import { parseObjectBody } from '../../common/parse_body.js'
 /**
  * Admin Routes - Grok / xAI 账户管理
  */
@@ -20,73 +23,75 @@ import * as xaiHelper from '../../common/xai_helper.js'
 export const router = express.Router()
 
 // 生成 OAuth 授权 URL
-router.post('/grok-accounts/generate-auth-url', authenticateAdmin, async (req, res) => {
-  try {
-    const { proxy, proxyGroupId, proxyId, redirectUri } = req.body || {}
+router.post(
+  '/grok-accounts/generate-auth-url',
+  authenticateAdmin,
+  asyncRoute('Failed to generate Grok OAuth URL', async (req) => {
+    const { proxy, proxyGroupId, proxyId, redirectUri } = parseObjectBody(req.body, '生成Grok授权URL')
     // 绑池 fail-closed：有池绑定必须走 resolveAuthProxy
     const effectiveProxy = proxyResolver.resolveAuthProxy({ proxyGroupId, proxyId, platform: 'grok' }, 'grok', proxy)
-    const result = await grokAccountService.generateAuthUrl({
+    return grokAccountService.generateAuthUrl({
       proxy: effectiveProxy,
       redirectUri,
       proxyBound: !!(proxyGroupId || proxyId),
     })
-    res.json({ success: true, data: result })
-  } catch (error) {
-    console.error(error)
-    logger.error('Failed to generate Grok OAuth URL:', error)
-    res.status(500).json({ error: 'Failed to generate auth URL', message: error.message })
-  }
-})
+  }),
+)
 
 // 用 code 换 token（不创建账户）
-router.post('/grok-accounts/exchange-code', authenticateAdmin, async (req, res) => {
-  try {
-    const { sessionId, code, state, redirectUri, proxy, proxyGroupId, proxyId } = req.body || {}
+router.post(
+  '/grok-accounts/exchange-code',
+  authenticateAdmin,
+  asyncRoute('Failed to exchange Grok OAuth code', async (req) => {
+    const { sessionId, code, state, redirectUri, proxy, proxyGroupId, proxyId } = parseObjectBody(
+      req.body,
+      'Grok授权码交换',
+    )
     if (!sessionId || !code) {
-      return res.status(400).json({ error: 'sessionId and code are required' })
+      throw badRequest('sessionId and code are required')
     }
     // exchange 阶段优先用 session 里存的授权代理；若调用方仍传池绑定则再解析
     let effectiveProxy = proxy || null
     if (proxyGroupId || proxyId) {
       effectiveProxy = proxyResolver.resolveAuthProxy({ proxyGroupId, proxyId, platform: 'grok' }, 'grok', proxy)
     }
-    const tokenInfo = await grokAccountService.exchangeCode({
-      sessionId,
-      code,
-      state,
-      redirectUri,
-      proxy: effectiveProxy,
-    })
-    res.json({
-      success: true,
-      data: {
+    try {
+      const tokenInfo = await grokAccountService.exchangeCode({
+        sessionId,
+        code,
+        state,
+        redirectUri,
+        proxy: effectiveProxy,
+      })
+      return {
         ...tokenInfo,
         accessToken: tokenInfo.accessToken,
         refreshToken: tokenInfo.refreshToken,
-      },
-    })
-  } catch (error) {
-    console.error(error)
-    logger.error('Failed to exchange Grok OAuth code:', error)
-    res.status(400).json({ error: 'Failed to exchange code', message: error.message })
-  }
-})
+      }
+    } catch (error) {
+      throw badRequest(error.message)
+    }
+  }),
+)
 
 // OAuth 一键创建账户
-router.post('/grok-accounts/create-from-oauth', authenticateAdmin, async (req, res) => {
-  try {
-    const account = await grokAccountService.createAccountFromOAuth(req.body || {})
-    res.json({ success: true, data: account })
-  } catch (error) {
-    console.error(error)
-    logger.error('Failed to create Grok account from OAuth:', error)
-    res.status(400).json({ error: 'Failed to create account', message: error.message })
-  }
-})
+router.post(
+  '/grok-accounts/create-from-oauth',
+  authenticateAdmin,
+  asyncRoute('Failed to create Grok account from OAuth', async (req) => {
+    try {
+      return await grokAccountService.createAccountFromOAuth(parseObjectBody(req.body, '从OAuth创建Grok账户'))
+    } catch (error) {
+      throw badRequest(error.message)
+    }
+  }),
+)
 
 // 列表
-router.get('/grok-accounts', authenticateAdmin, async (req, res) => {
-  try {
+router.get(
+  '/grok-accounts',
+  authenticateAdmin,
+  asyncRoute('Failed to list Grok accounts', async (req) => {
     const { groupId } = req.query
     let accounts = await grokAccountService.getAllAccounts(true)
 
@@ -145,7 +150,7 @@ router.get('/grok-accounts', authenticateAdmin, async (req, res) => {
     }
     const statsResults = await statsPipeline.exec()
 
-    const accountsWithStats = accounts.map((account, index) => {
+    return accounts.map((account, index) => {
       const [errTotal, total] = statsResults[index * 3] || []
       const [errDaily, daily] = statsResults[index * 3 + 1] || []
       const [errMonthly, monthly] = statsResults[index * 3 + 2] || []
@@ -166,216 +171,217 @@ router.get('/grok-accounts', authenticateAdmin, async (req, res) => {
         },
       }
     })
-
-    res.json({ success: true, data: accountsWithStats })
-  } catch (error) {
-    console.error(error)
-    logger.error('Failed to list Grok accounts:', error)
-    res.status(500).json({ error: 'Failed to list accounts', message: error.message })
-  }
-})
+  }),
+)
 
 // 创建（API Key 或已有 token）
-router.post('/grok-accounts', authenticateAdmin, async (req, res) => {
-  try {
-    const body = stripReadonlyAccountFields(req.body || {})
-    const account = await grokAccountService.createAccount(body)
-    res.json({ success: true, data: account })
-  } catch (error) {
-    console.error(error)
-    logger.error('Failed to create Grok account:', error)
-    res.status(400).json({ error: 'Failed to create account', message: error.message })
-  }
-})
+router.post(
+  '/grok-accounts',
+  authenticateAdmin,
+  asyncRoute('Failed to create Grok account', async (req) => {
+    try {
+      const body = stripReadonlyAccountFields(parseObjectBody(req.body, '创建Grok账户'))
+      return await grokAccountService.createAccount(body)
+    } catch (error) {
+      throw badRequest(error.message)
+    }
+  }),
+)
 
 // 详情
-router.get('/grok-accounts/:id', authenticateAdmin, async (req, res) => {
-  try {
+router.get(
+  '/grok-accounts/:id',
+  authenticateAdmin,
+  asyncRoute('Failed to get Grok account', async (req) => {
     const account = await grokAccountService.getAccount(req.params.id, { decryptSecrets: false })
     if (!account) {
-      return res.status(404).json({ error: 'Account not found' })
+      throw notFound('Account not found')
     }
-    res.json({
-      success: true,
-      data: {
-        ...account,
-        accessToken: account.accessToken ? '***' : '',
-        refreshToken: account.refreshToken ? '***' : '',
-        apiKey: account.apiKey ? '***' : '',
-        idToken: account.idToken ? '***' : '',
-      },
-    })
-  } catch (error) {
-    console.error(error)
-    res.status(500).json({ error: 'Failed to get account', message: error.message })
-  }
-})
+    return {
+      ...account,
+      accessToken: account.accessToken ? '***' : '',
+      refreshToken: account.refreshToken ? '***' : '',
+      apiKey: account.apiKey ? '***' : '',
+      idToken: account.idToken ? '***' : '',
+    }
+  }),
+)
 
 // 更新
-router.put('/grok-accounts/:id', authenticateAdmin, async (req, res) => {
-  try {
-    const updates = stripReadonlyAccountFields(req.body || {})
-    // 前端可能传 *** 表示不改
-    for (const field of ['accessToken', 'refreshToken', 'apiKey', 'idToken']) {
-      if (updates[field] === '***' || updates[field] === '') {
-        delete updates[field]
+router.put(
+  '/grok-accounts/:id',
+  authenticateAdmin,
+  asyncRoute('Failed to update Grok account', async (req) => {
+    try {
+      const updates = stripReadonlyAccountFields(parseObjectBody(req.body, '更新Grok账户'))
+      // 前端可能传 *** 表示不改
+      for (const field of ['accessToken', 'refreshToken', 'apiKey', 'idToken']) {
+        if (updates[field] === '***' || updates[field] === '') {
+          delete updates[field]
+        }
       }
+      await grokAccountService.updateAccount(req.params.id, updates)
+      return ok()
+    } catch (error) {
+      throw badRequest(error.message)
     }
-    await grokAccountService.updateAccount(req.params.id, updates)
-    res.json({ success: true })
-  } catch (error) {
-    console.error(error)
-    logger.error('Failed to update Grok account:', error)
-    res.status(400).json({ error: 'Failed to update account', message: error.message })
-  }
-})
+  }),
+)
 
 // 删除
-router.delete('/grok-accounts/:id', authenticateAdmin, async (req, res) => {
-  try {
+router.delete(
+  '/grok-accounts/:id',
+  authenticateAdmin,
+  asyncRoute('Failed to delete Grok account', async (req) => {
     await grokAccountService.deleteAccount(req.params.id)
-    res.json({ success: true })
-  } catch (error) {
-    console.error(error)
-    res.status(500).json({ error: 'Failed to delete account', message: error.message })
-  }
-})
+    return ok()
+  }),
+)
 
 // 切换调度
-router.put('/grok-accounts/:id/toggle-schedulable', authenticateAdmin, async (req, res) => {
-  try {
-    const result = await grokAccountService.toggleSchedulable(req.params.id)
-    res.json({ success: true, data: result })
-  } catch (error) {
-    console.error(error)
-    res.status(400).json({ error: 'Failed to toggle schedulable', message: error.message })
-  }
-})
+router.put(
+  '/grok-accounts/:id/toggle-schedulable',
+  authenticateAdmin,
+  asyncRoute('Failed to toggle Grok schedulable', async (req) => {
+    try {
+      return await grokAccountService.toggleSchedulable(req.params.id)
+    } catch (error) {
+      throw badRequest(error.message)
+    }
+  }),
+)
 
 // 刷新 token
-router.post('/grok-accounts/:id/refresh-token', authenticateAdmin, async (req, res) => {
-  try {
-    const account = await grokAccountService.refreshAccountToken(req.params.id)
-    res.json({
-      success: true,
-      data: {
+router.post(
+  '/grok-accounts/:id/refresh-token',
+  authenticateAdmin,
+  asyncRoute('Failed to refresh Grok token', async (req) => {
+    try {
+      const account = await grokAccountService.refreshAccountToken(req.params.id)
+      return {
         id: account.id,
         expiresAt: account.expiresAt,
         lastRefresh: account.lastRefresh,
         status: account.status,
-      },
-    })
-  } catch (error) {
-    console.error(error)
-    res.status(400).json({ error: 'Failed to refresh token', message: error.message })
-  }
-})
+      }
+    } catch (error) {
+      throw badRequest(error.message)
+    }
+  }),
+)
 
 // 重置状态
-router.post('/grok-accounts/:id/reset-status', authenticateAdmin, async (req, res) => {
-  try {
-    await grokAccountService.resetAccountStatus(req.params.id)
-    res.json({ success: true })
-  } catch (error) {
-    console.error(error)
-    res.status(400).json({ error: 'Failed to reset status', message: error.message })
-  }
-})
+router.post(
+  '/grok-accounts/:id/reset-status',
+  authenticateAdmin,
+  asyncRoute('Failed to reset Grok status', async (req) => {
+    try {
+      await grokAccountService.resetAccountStatus(req.params.id)
+      return ok()
+    } catch (error) {
+      throw badRequest(error.message)
+    }
+  }),
+)
 
 // 配额探测
-router.get('/grok-accounts/:id/quota', authenticateAdmin, async (req, res) => {
-  try {
-    const quota = await grokAccountService.queryQuota(req.params.id)
-    res.json({ success: true, data: quota })
-  } catch (error) {
-    console.error(error)
-    res.status(400).json({ error: 'Failed to query quota', message: error.message })
-  }
-})
+router.get(
+  '/grok-accounts/:id/quota',
+  authenticateAdmin,
+  asyncRoute('Failed to query Grok quota', async (req) => {
+    try {
+      return await grokAccountService.queryQuota(req.params.id)
+    } catch (error) {
+      throw badRequest(error.message)
+    }
+  }),
+)
 
 // runtime sanity
-router.get('/grok/runtime-sanity', authenticateAdmin, async (req, res) => {
-  try {
-    res.json({ success: true, data: grokAccountService.runtimeSanity() })
-  } catch (error) {
-    console.error(error)
-    res.status(500).json({ error: 'Failed to run sanity check', message: error.message })
-  }
-})
+router.get(
+  '/grok/runtime-sanity',
+  authenticateAdmin,
+  asyncRoute('Failed to run Grok sanity check', async () => grokAccountService.runtimeSanity()),
+)
 
 // SSO cookie 批量导入
-router.post('/grok-accounts/sso-to-oauth', authenticateAdmin, async (req, res) => {
-  try {
-    const body = req.body || {}
-    const result = await grokAccountService.createAccountsFromSSO({
-      ssoTokens: body.sso_tokens || body.ssoTokens || [],
-      ssoToken: body.sso_token || body.ssoToken || '',
-      proxy: body.proxy || null,
-      proxyGroupId: body.proxyGroupId || body.proxy_group_id || '',
-      proxyId: body.proxyId || body.proxy_id || '',
-      name: body.name || '',
-      priority: body.priority,
-      groupId: body.groupId || body.group_id || '',
-      baseUrl: body.baseUrl || body.base_url || '',
-    })
-    res.json({ success: true, data: result })
-  } catch (error) {
-    console.error(error)
-    logger.error('Failed Grok SSO import:', error)
-    res.status(400).json({ error: 'SSO import failed', message: error.message })
-  }
-})
+router.post(
+  '/grok-accounts/sso-to-oauth',
+  authenticateAdmin,
+  asyncRoute('Failed Grok SSO import', async (req) => {
+    try {
+      const body = parseObjectBody(req.body, 'Grok SSO导入')
+      return await grokAccountService.createAccountsFromSSO({
+        ssoTokens: body.sso_tokens || body.ssoTokens || [],
+        ssoToken: body.sso_token || body.ssoToken || '',
+        proxy: body.proxy || null,
+        proxyGroupId: body.proxyGroupId || body.proxy_group_id || '',
+        proxyId: body.proxyId || body.proxy_id || '',
+        name: body.name || '',
+        priority: body.priority,
+        groupId: body.groupId || body.group_id || '',
+        baseUrl: body.baseUrl || body.base_url || '',
+      })
+    } catch (error) {
+      throw badRequest(error.message)
+    }
+  }),
+)
 
 // OAuth 批量对账
-router.post('/grok/oauth/reconcile', authenticateAdmin, async (req, res) => {
-  try {
-    const body = req.body || {}
-    const result = await grokAccountService.reconcileOAuthAccounts({
-      mode: body.mode || (body.apply === true ? 'apply' : 'dry_run'),
-      limit: body.limit,
-      nearExpiryMinutes: body.nearExpiryMinutes || body.near_expiry_minutes,
-    })
-    res.json({ success: true, data: result })
-  } catch (error) {
-    console.error(error)
-    res.status(400).json({ error: 'Reconcile failed', message: error.message })
-  }
-})
+router.post(
+  '/grok/oauth/reconcile',
+  authenticateAdmin,
+  asyncRoute('Grok reconcile failed', async (req) => {
+    try {
+      const body = parseObjectBody(req.body, 'Grok OAuth对账')
+      return await grokAccountService.reconcileOAuthAccounts({
+        mode: body.mode || (body.apply === true ? 'apply' : 'dry_run'),
+        limit: body.limit,
+        nearExpiryMinutes: body.nearExpiryMinutes || body.near_expiry_minutes,
+      })
+    } catch (error) {
+      throw badRequest(error.message)
+    }
+  }),
+)
 
 // 媒体资格探测
-router.get('/grok-accounts/:id/media-eligibility', authenticateAdmin, async (req, res) => {
-  try {
-    const result = await grokAccountService.ensureMediaEligible(req.params.id)
-    res.json({
-      success: true,
-      data: {
+router.get(
+  '/grok-accounts/:id/media-eligibility',
+  authenticateAdmin,
+  asyncRoute('Failed to probe media eligibility', async (req) => {
+    try {
+      const result = await grokAccountService.ensureMediaEligible(req.params.id)
+      return {
         eligible: result.eligible,
         reason: result.reason,
         planType: result.account?.planType || '',
-        subscriptionTier: result.account?.subscriptionTier || '',
-      },
-    })
-  } catch (error) {
-    console.error(error)
-    res.status(400).json({ error: 'Failed to probe media eligibility', message: error.message })
-  }
-})
+        subscriptionTiers: result.account?.subscriptionTiers || '',
+      }
+    } catch (error) {
+      throw badRequest(error.message)
+    }
+  }),
+)
 
 // 连通性测试
-router.post('/grok-accounts/:accountId/test', authenticateAdmin, async (req, res) => {
-  try {
+router.post(
+  '/grok-accounts/:accountId/test',
+  authenticateAdmin,
+  asyncRoute('Grok account test failed', async (req) => {
     const { accountId } = req.params
     const account = await grokAccountService.ensureFreshToken(accountId)
     if (!account) {
-      return res.status(404).json({ error: 'Account not found' })
+      throw notFound('Account not found')
     }
 
-    const model =
-      req.body?.model || (await testModelConfigService.resolveAccountModel?.('grok', req.body?.model)) || 'grok-4.5'
+    const body = parseObjectBody(req.body, '测试Grok账户')
+    const model = body.model || (await testModelConfigService.resolveAccountModel?.('grok', body.model)) || 'grok-4.5'
     const mappedModel = xaiHelper.mapModel(model)
     const token = account.authType === 'apikey' ? account.apiKey : account.accessToken
     if (!token) {
-      return res.status(400).json({ error: 'No credential available' })
+      throw badRequest('No credential available')
     }
 
     const url = xaiHelper.buildChatCompletionsUrl(grokAccountService.getUpstreamBaseUrl(account))
@@ -405,25 +411,16 @@ router.post('/grok-accounts/:accountId/test', authenticateAdmin, async (req, res
 
     const latencyMs = Date.now() - started
     if (response.status >= 200 && response.status < 300) {
-      return res.json({
-        success: true,
-        data: {
-          ok: true,
-          status: response.status,
-          latencyMs,
-          model: mappedModel,
-        },
-      })
+      return {
+        ok: true,
+        status: response.status,
+        latencyMs,
+        model: mappedModel,
+      }
     }
 
-    res.status(400).json({
-      success: false,
-      error: 'Upstream test failed',
-      message: extractErrorMessage(response.data) || `status ${response.status}`,
+    return fail(400, extractErrorMessage(response.data) || `status ${response.status}`, {
       data: { status: response.status, latencyMs, model: mappedModel },
     })
-  } catch (error) {
-    console.error(error)
-    res.status(500).json({ error: 'Test failed', message: error.message })
-  }
-})
+  }),
+)

@@ -24,7 +24,7 @@ const runConcurrent = async (items, fn, concurrency) => {
           try {
             await fn(items[i])
           } catch (error) {
-            logger.error('❌ [ProxyHealth] concurrent task failed:', error)
+            logger.error('[ProxyHealth] concurrent task failed:', error)
           }
         }
       })(),
@@ -92,14 +92,14 @@ class ProxyHealthService {
     }
     this._loadConfig()
     if (config.proxy?.pool?.enabled === false || !this.healthEnabled) {
-      logger.info('🌐 Proxy health check disabled')
+      logger.info('Proxy health check disabled')
       return
     }
     this.timer = setInterval(() => {
-      this._tick().catch((e) => logger.error('❌ Proxy health tick failed:', e.message))
+      this._tick().catch((e) => logger.error('Proxy health tick failed:', e.message))
     }, this.intervalMs)
     this.started = true
-    logger.success(`🌐 Proxy health check started (interval=${this.intervalMs}ms)`)
+    logger.success(`Proxy health check started (interval=${this.intervalMs}ms)`)
   }
 
   stop() {
@@ -186,7 +186,7 @@ class ProxyHealthService {
         error: errorMsg || null,
         checkedAt: new Date().toISOString(),
       })
-      .catch((error) => logger.error('❌ [ProxyHealth] push health history failed:', error))
+      .catch((error) => logger.error('[ProxyHealth] push health history failed:', error))
 
     return { healthy, latencyMs, statusCode }
   }
@@ -278,11 +278,11 @@ class ProxyHealthService {
     }
     await redis
       .setProxyQualityResult(proxyId, result)
-      .catch((error) => logger.error('❌ [ProxyHealth] save quality result failed:', error))
+      .catch((error) => logger.error('[ProxyHealth] save quality result failed:', error))
     if (exitInfo) {
       await redis
         .setProxyExitInfo(proxyId, exitInfo)
-        .catch((error) => logger.error('❌ [ProxyHealth] save exit info failed:', error))
+        .catch((error) => logger.error('[ProxyHealth] save exit info failed:', error))
     }
     return result
   }

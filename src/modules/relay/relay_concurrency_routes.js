@@ -3,6 +3,9 @@ import { redis } from '../../infra/redis.js'
 import { logger } from '../../common/logger.js'
 import { authenticateAdmin } from '../../infra/middleware_auth.js'
 import { calculateWaitTimeStats } from '../../common/stats_helper.js'
+import { asyncRoute } from '../../common/route_handler.js'
+import { ok } from '../../common/http_result.js'
+import { parseObjectBody } from '../../common/parse_body.js'
 /**
  * 并发管理 API 路由
  * 提供并发状态查看和手动清理功能
@@ -14,8 +17,10 @@ export const router = express.Router()
  * GET /admin/concurrency
  * 获取所有并发状态
  */
-router.get('/concurrency', authenticateAdmin, async (req, res) => {
-  try {
+router.get(
+  '/concurrency',
+  authenticateAdmin,
+  asyncRoute('Failed to get concurrency status', async () => {
     const status = await redis.getAllConcurrencyStatus()
 
     // 为每个 API Key 获取排队计数
@@ -37,27 +42,21 @@ router.get('/concurrency', authenticateAdmin, async (req, res) => {
       totalQueuedRequests: statusWithQueue.reduce((sum, s) => sum + s.queueCount, 0),
     }
 
-    res.json({
-      success: true,
+    return {
       summary,
       concurrencyStatus: statusWithQueue,
-    })
-  } catch (error) {
-    logger.error('❌ Failed to get concurrency status:', error)
-    res.status(500).json({
-      success: false,
-      error: 'Failed to get concurrency status',
-      message: error.message,
-    })
-  }
-})
+    }
+  }),
+)
 
 /**
  * GET /admin/concurrency-queue/stats
  * 获取排队统计信息
  */
-router.get('/concurrency-queue/stats', authenticateAdmin, async (req, res) => {
-  try {
+router.get(
+  '/concurrency-queue/stats',
+  authenticateAdmin,
+  asyncRoute('Failed to get queue stats', async () => {
     // 获取所有有统计数据的 API Key
     const statsKeys = await redis.scanConcurrencyQueueStatsKeys()
     const queueKeys = await redis.scanConcurrencyQueueKeys()
@@ -124,174 +123,119 @@ router.get('/concurrency-queue/stats', authenticateAdmin, async (req, res) => {
       globalWaitTimeStats.globalP90ForVisualizationOnly = true
     }
 
-    res.json({
-      success: true,
+    return {
       globalStats,
       globalWaitTimeStats,
       perKeyStats,
-    })
-  } catch (error) {
-    logger.error('❌ Failed to get queue stats:', error)
-    res.status(500).json({
-      success: false,
-      error: 'Failed to get queue stats',
-      message: error.message,
-    })
-  }
-})
+    }
+  }),
+)
 
 /**
  * DELETE /admin/concurrency-queue/:apiKeyId
  * 清理特定 API Key 的排队计数
  */
-router.delete('/concurrency-queue/:apiKeyId', authenticateAdmin, async (req, res) => {
-  try {
+router.delete(
+  '/concurrency-queue/:apiKeyId',
+  authenticateAdmin,
+  asyncRoute('Failed to clear queue', async (req) => {
     const { apiKeyId } = req.params
     await redis.clearConcurrencyQueue(apiKeyId)
 
-    logger.warn(`🧹 Admin ${req.admin?.username || 'unknown'} cleared queue for key ${apiKeyId}`)
+    logger.warn(`Admin ${req.admin?.username || 'unknown'} cleared queue for key ${apiKeyId}`)
 
-    res.json({
-      success: true,
-      message: `Successfully cleared queue for API key ${apiKeyId}`,
-    })
-  } catch (error) {
-    logger.error(`❌ Failed to clear queue for ${req.params.apiKeyId}:`, error)
-    res.status(500).json({
-      success: false,
-      error: 'Failed to clear queue',
-      message: error.message,
-    })
-  }
-})
+    return ok(undefined, `Successfully cleared queue for API key ${apiKeyId}`)
+  }),
+)
 
 /**
  * DELETE /admin/concurrency-queue
  * 清理所有排队计数
  */
-router.delete('/concurrency-queue', authenticateAdmin, async (req, res) => {
-  try {
+router.delete(
+  '/concurrency-queue',
+  authenticateAdmin,
+  asyncRoute('Failed to clear all queues', async (req) => {
     const cleared = await redis.clearAllConcurrencyQueues()
 
-    logger.warn(`🧹 Admin ${req.admin?.username || 'unknown'} cleared ALL queues`)
+    logger.warn(`Admin ${req.admin?.username || 'unknown'} cleared ALL queues`)
 
-    res.json({
-      success: true,
-      message: 'Successfully cleared all queues',
-      cleared,
-    })
-  } catch (error) {
-    logger.error('❌ Failed to clear all queues:', error)
-    res.status(500).json({
-      success: false,
-      error: 'Failed to clear all queues',
-      message: error.message,
-    })
-  }
-})
+    return ok({ cleared }, 'Successfully cleared all queues')
+  }),
+)
 
 /**
  * GET /admin/concurrency/:apiKeyId
  * 获取特定 API Key 的并发状态详情
  */
-router.get('/concurrency/:apiKeyId', authenticateAdmin, async (req, res) => {
-  try {
+router.get(
+  '/concurrency/:apiKeyId',
+  authenticateAdmin,
+  asyncRoute('Failed to get concurrency status', async (req) => {
     const { apiKeyId } = req.params
     const status = await redis.getConcurrencyStatus(apiKeyId)
     const queueCount = await redis.getConcurrencyQueueCount(apiKeyId)
 
-    res.json({
-      success: true,
+    return {
       concurrencyStatus: {
         ...status,
         queueCount,
       },
-    })
-  } catch (error) {
-    logger.error(`❌ Failed to get concurrency status for ${req.params.apiKeyId}:`, error)
-    res.status(500).json({
-      success: false,
-      error: 'Failed to get concurrency status',
-      message: error.message,
-    })
-  }
-})
+    }
+  }),
+)
 
 /**
  * DELETE /admin/concurrency/:apiKeyId
  * 强制清理特定 API Key 的并发计数
  */
-router.delete('/concurrency/:apiKeyId', authenticateAdmin, async (req, res) => {
-  try {
+router.delete(
+  '/concurrency/:apiKeyId',
+  authenticateAdmin,
+  asyncRoute('Failed to clear concurrency', async (req) => {
     const { apiKeyId } = req.params
     const result = await redis.forceClearConcurrency(apiKeyId)
 
-    logger.warn(`🧹 Admin ${req.admin?.username || 'unknown'} force cleared concurrency for key ${apiKeyId}`)
+    logger.warn(`Admin ${req.admin?.username || 'unknown'} force cleared concurrency for key ${apiKeyId}`)
 
-    res.json({
-      success: true,
-      message: `Successfully cleared concurrency for API key ${apiKeyId}`,
-      result,
-    })
-  } catch (error) {
-    logger.error(`❌ Failed to clear concurrency for ${req.params.apiKeyId}:`, error)
-    res.status(500).json({
-      success: false,
-      error: 'Failed to clear concurrency',
-      message: error.message,
-    })
-  }
-})
+    return ok({ result }, `Successfully cleared concurrency for API key ${apiKeyId}`)
+  }),
+)
 
 /**
  * DELETE /admin/concurrency
  * 强制清理所有并发计数
  */
-router.delete('/concurrency', authenticateAdmin, async (req, res) => {
-  try {
+router.delete(
+  '/concurrency',
+  authenticateAdmin,
+  asyncRoute('Failed to clear all concurrency', async (req) => {
     const result = await redis.forceClearAllConcurrency()
 
-    logger.warn(`🧹 Admin ${req.admin?.username || 'unknown'} force cleared ALL concurrency`)
+    logger.warn(`Admin ${req.admin?.username || 'unknown'} force cleared ALL concurrency`)
 
-    res.json({
-      success: true,
-      message: 'Successfully cleared all concurrency',
-      result,
-    })
-  } catch (error) {
-    logger.error('❌ Failed to clear all concurrency:', error)
-    res.status(500).json({
-      success: false,
-      error: 'Failed to clear all concurrency',
-      message: error.message,
-    })
-  }
-})
+    return ok({ result }, 'Successfully cleared all concurrency')
+  }),
+)
 
 /**
  * POST /admin/concurrency/cleanup
  * 清理过期的并发条目（不影响活跃请求）
  */
-router.post('/concurrency/cleanup', authenticateAdmin, async (req, res) => {
-  try {
-    const { apiKeyId } = req.body
+router.post(
+  '/concurrency/cleanup',
+  authenticateAdmin,
+  asyncRoute('Failed to cleanup expired concurrency', async (req) => {
+    const { apiKeyId } = parseObjectBody(req.body, '并发清理')
     const result = await redis.cleanupExpiredConcurrency(apiKeyId || null)
 
-    logger.info(`🧹 Admin ${req.admin?.username || 'unknown'} cleaned up expired concurrency`)
+    logger.info(`Admin ${req.admin?.username || 'unknown'} cleaned up expired concurrency`)
 
-    res.json({
-      success: true,
-      message: apiKeyId
+    return ok(
+      { result },
+      apiKeyId
         ? `Successfully cleaned up expired concurrency for API key ${apiKeyId}`
         : 'Successfully cleaned up all expired concurrency',
-      result,
-    })
-  } catch (error) {
-    logger.error('❌ Failed to cleanup expired concurrency:', error)
-    res.status(500).json({
-      success: false,
-      error: 'Failed to cleanup expired concurrency',
-      message: error.message,
-    })
-  }
-})
+    )
+  }),
+)

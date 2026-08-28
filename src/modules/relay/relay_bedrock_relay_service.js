@@ -36,7 +36,7 @@ const getNodeHttpHandler = () => {
     const handlerPath = require.resolve('@smithy/node-http-handler', { paths: [bedrockDir] })
     _NodeHttpHandler = require(handlerPath).NodeHttpHandler
   } catch (error) {
-    logger.warn('⚠️ 无法加载 @smithy/node-http-handler，Bedrock 代理池绑定将不生效:', error.message)
+    logger.warn('无法加载 @smithy/node-http-handler，Bedrock 代理池绑定将不生效:', error.message)
     _NodeHttpHandler = null
   }
   return _NodeHttpHandler
@@ -86,7 +86,7 @@ class BedrockRelayService {
         : { requestTimeout, connectionTimeout: 10000 },
     }
     if (proxyAgent && NodeHttpHandler) {
-      logger.info(`🌐 [Bedrock] using pooled proxy proxyId=${proxyId || 'static'}`)
+      logger.info(`[Bedrock] using pooled proxy proxyId=${proxyId || 'static'}`)
     }
 
     // 如果账户配置了特定的AWS凭证，使用它们
@@ -98,14 +98,14 @@ class BedrockRelayService {
       }
     } else if (bedrockAccount?.bearerToken) {
       // Bedrock API Key (ABSK) 模式：需要通过 middleware 注入 Bearer Token，
-      // 因为 BedrockRuntimeClient 默认使用 SigV4 签名，不支持 token 配置
-      // 使用占位凭证防止 "Could not load credentials" 错误
+      // BedrockRuntimeClient 默认使用 SigV4 签名，不支持 token 配置
+      // 使用占位凭证防止 "Could not load credentials"错误
       // SigV4 签名会生成 Authorization header，但随后被 middleware 替换为 Bearer Token
       clientConfig.credentials = {
         accessKeyId: 'BEDROCK_API_KEY_PLACEHOLDER',
         secretAccessKey: 'BEDROCK_API_KEY_PLACEHOLDER',
       }
-      logger.debug(`🔑 使用 Bearer Token 认证 - 账户: ${bedrockAccount.name || 'unknown'}`)
+      logger.debug(`使用 Bearer Token 认证 - 账户: ${bedrockAccount.name || 'unknown'}`)
     } else {
       // 检查是否有环境变量凭证
       if (env.AWS_ACCESS_KEY_ID && env.AWS_SECRET_ACCESS_KEY) {
@@ -138,12 +138,12 @@ class BedrockRelayService {
         },
         { step: 'finalizeRequest', name: 'bedrockBearerTokenAuth', override: true, priority: 'low' },
       )
-      logger.debug(`🔑 Bearer Token middleware 已注入 - 账户: ${bedrockAccount.name || 'unknown'}`)
+      logger.debug(`Bearer Token middleware 已注入 - 账户: ${bedrockAccount.name || 'unknown'}`)
     }
 
     this.clients.set(clientKey, client)
 
-    logger.debug(`🔧 Created Bedrock client for region: ${targetRegion}, account: ${bedrockAccount?.name || 'default'}`)
+    logger.debug(`Created Bedrock client for region: ${targetRegion}, account: ${bedrockAccount?.name || 'default'}`)
     return client
   }
 
@@ -156,11 +156,11 @@ class BedrockRelayService {
     let proxyReport = null
 
     try {
-      // 📬 用户消息队列处理
+      // 用户消息队列处理
       if (getUserMessageQueueService().isUserMessageRequest(requestBody)) {
         // 校验 accountId 非空，避免空值污染队列锁键
         if (!accountId || accountId === '') {
-          logger.error('❌ accountId missing for queue lock in Bedrock handleNonStreamRequest')
+          logger.error('accountId missing for queue lock in Bedrock handleNonStreamRequest')
           throw new Error('accountId missing for queue lock')
         }
         const queueResult = await getUserMessageQueueService().acquireQueueLock(accountId)
@@ -184,7 +184,7 @@ class BedrockRelayService {
           })
 
           logger.warn(
-            `📬 User message queue ${errorType} for Bedrock account ${accountId}`,
+            `User message queue ${errorType} for Bedrock account ${accountId}`,
             isBackendError ? { backendError: queueResult.errorMessage } : {},
           )
           return {
@@ -208,7 +208,7 @@ class BedrockRelayService {
           queueLockAcquired = true
           queueRequestId = queueResult.requestId
           logger.debug(
-            `📬 User message queue lock acquired for Bedrock account ${accountId}, requestId: ${queueRequestId}`,
+            `User message queue lock acquired for Bedrock account ${accountId}, requestId: ${queueRequestId}`,
           )
         }
       }
@@ -228,7 +228,7 @@ class BedrockRelayService {
         accept: 'application/json',
       })
 
-      logger.debug(`🚀 Bedrock非流式请求 - 模型: ${modelId}, 区域: ${region}`)
+      logger.debug(`Bedrock非流式请求 - 模型: ${modelId}, 区域: ${region}`)
 
       const startTime = Date.now()
       const response = await client.send(command)
@@ -237,18 +237,18 @@ class BedrockRelayService {
       // 被动健康检查：拿到 SDK 响应即代理传输成功（上游错误由 _handleBedrockError 走 catch 分支区分）
       proxyResolver.report(proxyId, contextKey, null)
 
-      // 📬 请求已发送成功，立即释放队列锁（无需等待响应处理完成）
-      // 因为限流基于请求发送时刻计算（RPM），不是请求完成时刻
+      // 请求已发送成功，立即释放队列锁（无需等待响应处理完成）
+      // 限流基于请求发送时刻计算（RPM），不是请求完成时刻
       if (queueLockAcquired && queueRequestId && accountId) {
         try {
           await getUserMessageQueueService().releaseQueueLock(accountId, queueRequestId)
           queueLockAcquired = false // 标记已释放，防止 finally 重复释放
           logger.debug(
-            `📬 User message queue lock released early for Bedrock account ${accountId}, requestId: ${queueRequestId}`,
+            `User message queue lock released early for Bedrock account ${accountId}, requestId: ${queueRequestId}`,
           )
         } catch (releaseError) {
           logger.error(
-            `❌ Failed to release user message queue lock early for Bedrock account ${accountId}:`,
+            `Failed to release user message queue lock early for Bedrock account ${accountId}:`,
             releaseError.message,
           )
         }
@@ -258,7 +258,7 @@ class BedrockRelayService {
       const responseBody = JSON.parse(new TextDecoder().decode(response.body))
       const claudeResponse = this._convertFromBedrockFormat(responseBody)
 
-      logger.info(`✅ Bedrock请求完成 - 模型: ${modelId}, 耗时: ${duration}ms`)
+      logger.info(`Bedrock请求完成 - 模型: ${modelId}, 耗时: ${duration}ms`)
 
       return {
         success: true,
@@ -268,21 +268,21 @@ class BedrockRelayService {
         duration,
       }
     } catch (error) {
-      logger.error('❌ Bedrock非流式请求失败:', error)
+      logger.error('Bedrock非流式请求失败:', error)
       // 被动健康检查：上报连接级故障（classifyBusinessTraffic 区分传输错误 vs 上游响应，不误熔断）
       proxyResolver.report(proxyReport?.proxyId, proxyReport?.contextKey, error)
       throw this._handleBedrockError(error, accountId, bedrockAccount, requestBody)
     } finally {
-      // 📬 释放用户消息队列锁（兜底，正常情况下已在请求发送后提前释放）
+      // 释放用户消息队列锁（兜底，正常情况下已在请求发送后提前释放）
       if (queueLockAcquired && queueRequestId && accountId) {
         try {
           await getUserMessageQueueService().releaseQueueLock(accountId, queueRequestId)
           logger.debug(
-            `📬 User message queue lock released in finally for Bedrock account ${accountId}, requestId: ${queueRequestId}`,
+            `User message queue lock released in finally for Bedrock account ${accountId}, requestId: ${queueRequestId}`,
           )
         } catch (releaseError) {
           logger.error(
-            `❌ Failed to release user message queue lock for Bedrock account ${accountId}:`,
+            `Failed to release user message queue lock for Bedrock account ${accountId}:`,
             releaseError.message,
           )
         }
@@ -300,11 +300,11 @@ class BedrockRelayService {
     let proxyReport = null
 
     try {
-      // 📬 用户消息队列处理
+      // 用户消息队列处理
       if (getUserMessageQueueService().isUserMessageRequest(requestBody)) {
         // 校验 accountId 非空，避免空值污染队列锁键
         if (!accountId || accountId === '') {
-          logger.error('❌ accountId missing for queue lock in Bedrock handleStreamRequest')
+          logger.error('accountId missing for queue lock in Bedrock handleStreamRequest')
           throw new Error('accountId missing for queue lock')
         }
         const queueResult = await getUserMessageQueueService().acquireQueueLock(accountId)
@@ -329,7 +329,7 @@ class BedrockRelayService {
           })
 
           logger.warn(
-            `📬 User message queue ${errorType} for Bedrock account ${accountId} (stream)`,
+            `User message queue ${errorType} for Bedrock account ${accountId} (stream)`,
             isBackendError ? { backendError: queueResult.errorMessage } : {},
           )
           if (!res.headersSent) {
@@ -358,7 +358,7 @@ class BedrockRelayService {
           queueLockAcquired = true
           queueRequestId = queueResult.requestId
           logger.debug(
-            `📬 User message queue lock acquired for Bedrock account ${accountId} (stream), requestId: ${queueRequestId}`,
+            `User message queue lock acquired for Bedrock account ${accountId} (stream), requestId: ${queueRequestId}`,
           )
         }
       }
@@ -378,7 +378,7 @@ class BedrockRelayService {
         accept: 'application/json',
       })
 
-      logger.debug(`🌊 Bedrock流式请求 - 模型: ${modelId}, 区域: ${region}`)
+      logger.debug(`Bedrock流式请求 - 模型: ${modelId}, 区域: ${region}`)
 
       // 创建 AbortController 用于客户端断开时取消上游请求（只用 res 判据）
       abortController = new AbortController()
@@ -387,7 +387,7 @@ class BedrockRelayService {
           res,
           () => {
             if (abortController && !abortController.signal.aborted) {
-              logger.info(`🔌 客户端断开，取消 Bedrock 上游请求 - 账户: ${accountId}`)
+              logger.info(`客户端断开，取消 Bedrock 上游请求 - 账户: ${accountId}`)
               abortController.abort()
             }
           },
@@ -401,28 +401,28 @@ class BedrockRelayService {
       // 被动健康检查：拿到 SDK 流式响应即代理传输成功
       proxyResolver.report(proxyReport?.proxyId, proxyReport?.contextKey, null)
 
-      // 📬 请求已发送成功，立即释放队列锁（无需等待响应处理完成）
-      // 因为限流基于请求发送时刻计算（RPM），不是请求完成时刻
+      // 请求已发送成功，立即释放队列锁（无需等待响应处理完成）
+      // 限流基于请求发送时刻计算（RPM），不是请求完成时刻
       if (queueLockAcquired && queueRequestId && accountId) {
         try {
           await getUserMessageQueueService().releaseQueueLock(accountId, queueRequestId)
           queueLockAcquired = false // 标记已释放，防止 finally 重复释放
           logger.debug(
-            `📬 User message queue lock released early for Bedrock stream account ${accountId}, requestId: ${queueRequestId}`,
+            `User message queue lock released early for Bedrock stream account ${accountId}, requestId: ${queueRequestId}`,
           )
         } catch (releaseError) {
           logger.error(
-            `❌ Failed to release user message queue lock early for Bedrock stream account ${accountId}:`,
+            `Failed to release user message queue lock early for Bedrock stream account ${accountId}:`,
             releaseError.message,
           )
         }
       }
 
       // 设置SSE响应头
-      // ⚠️ 关键修复：尊重 auth.js 提前设置的 Connection: close
+      // 关键修复：尊重 auth.js 提前设置的 Connection: close
       const existingConnection = res.getHeader ? res.getHeader('Connection') : null
       if (existingConnection) {
-        logger.debug(`🔌 [Bedrock Stream] Preserving existing Connection header: ${existingConnection}`)
+        logger.debug(`[Bedrock Stream] Preserving existing Connection header: ${existingConnection}`)
       }
       res.writeHead(200, {
         'Content-Type': 'text/event-stream',
@@ -440,7 +440,7 @@ class BedrockRelayService {
       for await (const chunk of response.body) {
         // 客户端已断开，停止处理
         if (abortController.signal.aborted) {
-          logger.debug(`🔌 Bedrock 流处理中止 - 客户端已断开`)
+          logger.debug(`Bedrock 流处理中止 - 客户端已断开`)
           break
         }
 
@@ -466,7 +466,7 @@ class BedrockRelayService {
       }
 
       const duration = Date.now() - startTime
-      logger.info(`✅ Bedrock流式请求完成 - 模型: ${modelId}, 耗时: ${duration}ms`)
+      logger.info(`Bedrock流式请求完成 - 模型: ${modelId}, 耗时: ${duration}ms`)
 
       // 发送结束事件
       res.write('event: done\n')
@@ -482,14 +482,14 @@ class BedrockRelayService {
     } catch (error) {
       // 客户端主动断开，不算错误
       if (abortController?.signal?.aborted) {
-        logger.info(`🔌 Bedrock 流请求因客户端断开而中止 - 账户: ${accountId}`)
+        logger.info(`Bedrock 流请求因客户端断开而中止 - 账户: ${accountId}`)
         if (!res.writableEnded) {
           res.end()
         }
         return { success: false, aborted: true }
       }
 
-      logger.error('❌ Bedrock流式请求失败:', error)
+      logger.error('Bedrock流式请求失败:', error)
 
       // 被动健康检查：上报连接级故障（classifyBusinessTraffic 区分传输错误 vs 上游响应，不误熔断）
       proxyResolver.report(proxyReport?.proxyId, proxyReport?.contextKey, error)
@@ -508,7 +508,7 @@ class BedrockRelayService {
           res.end()
         }
       } catch (writeError) {
-        logger.error('❌ Failed to write error response:', writeError.message)
+        logger.error('Failed to write error response:', writeError.message)
         if (!res.writableEnded) {
           res.end()
         }
@@ -516,16 +516,16 @@ class BedrockRelayService {
 
       throw bedrockError
     } finally {
-      // 📬 释放用户消息队列锁（兜底，正常情况下已在请求发送后提前释放）
+      // 释放用户消息队列锁（兜底，正常情况下已在请求发送后提前释放）
       if (queueLockAcquired && queueRequestId && accountId) {
         try {
           await getUserMessageQueueService().releaseQueueLock(accountId, queueRequestId)
           logger.debug(
-            `📬 User message queue lock released in finally for Bedrock stream account ${accountId}, requestId: ${queueRequestId}`,
+            `User message queue lock released in finally for Bedrock stream account ${accountId}, requestId: ${queueRequestId}`,
           )
         } catch (releaseError) {
           logger.error(
-            `❌ Failed to release user message queue lock for Bedrock stream account ${accountId}:`,
+            `Failed to release user message queue lock for Bedrock stream account ${accountId}:`,
             releaseError.message,
           )
         }
@@ -540,25 +540,25 @@ class BedrockRelayService {
     // 优先使用账户配置的模型
     if (bedrockAccount?.defaultModel) {
       selectedModel = bedrockAccount.defaultModel
-      logger.info(`🎯 使用账户配置的模型: ${selectedModel}`, {
+      logger.info(`使用账户配置的模型: ${selectedModel}`, {
         metadata: { source: 'account', accountId: bedrockAccount.id },
       })
     }
     // 检查请求中指定的模型
     else if (requestBody.model) {
       selectedModel = requestBody.model
-      logger.info(`🎯 使用请求指定的模型: ${selectedModel}`, { metadata: { source: 'request' } })
+      logger.info(`使用请求指定的模型: ${selectedModel}`, { metadata: { source: 'request' } })
     }
     // 使用默认模型
     else {
       selectedModel = this.defaultModel
-      logger.info(`🎯 使用系统默认模型: ${selectedModel}`, { metadata: { source: 'default' } })
+      logger.info(`使用系统默认模型: ${selectedModel}`, { metadata: { source: 'default' } })
     }
 
     // 如果是标准Claude模型名，需要映射为Bedrock格式
     const bedrockModel = this._mapToBedrockModel(selectedModel)
     if (bedrockModel !== selectedModel) {
-      logger.info(`🔄 模型映射: ${selectedModel} → ${bedrockModel}`, {
+      logger.info(`模型映射: ${selectedModel} → ${bedrockModel}`, {
         metadata: { originalModel: selectedModel, bedrockModel },
       })
     }
@@ -581,7 +581,7 @@ class BedrockRelayService {
 
     // 从 Bedrock ID 中提取核心模型名
     // 格式: {region}.anthropic.{model-name}-v{version}:{variant}
-    // 或:   anthropic.{model-name}-v{version}:{variant}
+    // 或: anthropic.{model-name}-v{version}:{variant}
     const match = bedrockModelId.match(/(?:.*\.)?anthropic\.(claude-.+?)(?:-v\d+)?(?::\d+)?$/)
     if (match) {
       return match[1]
@@ -665,7 +665,7 @@ class BedrockRelayService {
     }
 
     // 如果没有找到映射，返回原始模型名（可能会导致错误，但保持向后兼容）
-    logger.warn(`⚠️ 未找到模型映射: ${cleanModelName}，使用原始模型名`, {
+    logger.warn(`未找到模型映射: ${cleanModelName}，使用原始模型名`, {
       metadata: { originalModel: modelName },
     })
     return cleanModelName
@@ -700,7 +700,7 @@ class BedrockRelayService {
     }
 
     if (obj.cache_control && typeof obj.cache_control === 'object') {
-      // Keep only the "type" field that Bedrock accepts
+      // Keep only the "type"field that Bedrock accepts
       obj.cache_control = { type: obj.cache_control.type || 'ephemeral' }
     }
 
@@ -912,10 +912,10 @@ class BedrockRelayService {
         },
       ]
 
-      logger.debug(`📋 返回Bedrock可用模型 ${models.length} 个, 区域: ${region}`)
+      logger.debug(`返回Bedrock可用模型 ${models.length} 个, 区域: ${region}`)
       return models
     } catch (error) {
-      logger.error('❌ 获取Bedrock模型列表失败:', error)
+      logger.error('获取Bedrock模型列表失败:', error)
       return []
     }
   }

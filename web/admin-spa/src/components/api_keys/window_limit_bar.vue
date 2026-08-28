@@ -221,12 +221,12 @@ const formatTime = (seconds) => {
 
 // 格式化Token数 - 暂时未使用
 // const formatTokens = (count) => {
-//   if (count >= 1000000) {
-//     return (count / 1000000).toFixed(1) + 'M'
-//   } else if (count >= 1000) {
-//     return (count / 1000).toFixed(1) + 'K'
-//   }
-//   return count.toString()
+// if (count >= 1000000) {
+// return (count / 1000000).toFixed(1) + 'M'
+// } else if (count >= 1000) {
+// return (count / 1000).toFixed(1) + 'K'
+// }
+// return count.toString()
 // }
 </script>
 

@@ -86,10 +86,10 @@ export const attach = function attach(redisClient) {
       `
 
       const count = await this.client.eval(luaScript, 1, key, requestId, expireAt, now, ttl)
-      logger.database(`🔢 Incremented concurrency for key ${apiKeyId}: ${count} (request ${requestId})`)
+      logger.database(`Incremented concurrency for key ${apiKeyId}: ${count} (request ${requestId})`)
       return count
     } catch (error) {
-      logger.error('❌ Failed to increment concurrency:', error)
+      logger.error('Failed to increment concurrency:', error)
       throw error
     }
   }
@@ -132,11 +132,11 @@ export const attach = function attach(redisClient) {
 
       const refreshed = await this.client.eval(luaScript, 1, key, requestId, expireAt, now, ttl)
       if (refreshed === 1) {
-        logger.debug(`🔄 Refreshed concurrency lease for key ${apiKeyId} (request ${requestId})`)
+        logger.debug(`Refreshed concurrency lease for key ${apiKeyId} (request ${requestId})`)
       }
       return refreshed
     } catch (error) {
-      logger.error('❌ Failed to refresh concurrency lease:', error)
+      logger.error('Failed to refresh concurrency lease:', error)
       return 0
     }
   }
@@ -168,10 +168,10 @@ export const attach = function attach(redisClient) {
       `
 
       const count = await this.client.eval(luaScript, 1, key, requestId || '', now)
-      logger.database(`🔢 Decremented concurrency for key ${apiKeyId}: ${count} (request ${requestId || 'n/a'})`)
+      logger.database(`Decremented concurrency for key ${apiKeyId}: ${count} (request ${requestId || 'n/a'})`)
       return count
     } catch (error) {
-      logger.error('❌ Failed to decrement concurrency:', error)
+      logger.error('Failed to decrement concurrency:', error)
       throw error
     }
   }
@@ -193,12 +193,12 @@ export const attach = function attach(redisClient) {
       const count = await this.client.eval(luaScript, 1, key, now)
       return parseInt(count || 0)
     } catch (error) {
-      logger.error('❌ Failed to get concurrency:', error)
+      logger.error('Failed to get concurrency:', error)
       return 0
     }
   }
 
-  // 🏢 Claude Console 账户并发控制（复用现有并发机制）
+  // Claude Console 账户并发控制（复用现有并发机制）
   // 增加 Console 账户并发计数
   redisClient.incrConsoleAccountConcurrency = async function (accountId, requestId, leaseSeconds = null) {
     if (!requestId) {
@@ -284,7 +284,7 @@ export const attach = function attach(redisClient) {
         // 检查键类型，只处理 Sorted Set
         const keyType = await client.type(key)
         if (keyType !== 'zset') {
-          logger.debug(`🔢 getAllConcurrencyStatus skipped non-zset key: ${key} (type: ${keyType})`)
+          logger.debug(`getAllConcurrencyStatus skipped non-zset key: ${key} (type: ${keyType})`)
           continue
         }
 
@@ -321,7 +321,7 @@ export const attach = function attach(redisClient) {
 
       return results
     } catch (error) {
-      logger.error('❌ Failed to get all concurrency status:', error)
+      logger.error('Failed to get all concurrency status:', error)
       throw error
     }
   }
@@ -348,7 +348,7 @@ export const attach = function attach(redisClient) {
       // 检查键类型，只处理 Sorted Set
       const keyType = await client.type(key)
       if (keyType !== 'zset') {
-        logger.warn(`⚠️ getConcurrencyStatus: key ${key} has unexpected type: ${keyType}, expected zset`)
+        logger.warn(`getConcurrencyStatus: key ${key} has unexpected type: ${keyType}, expected zset`)
         return {
           apiKeyId,
           key,
@@ -394,7 +394,7 @@ export const attach = function attach(redisClient) {
         exists: true,
       }
     } catch (error) {
-      logger.error(`❌ Failed to get concurrency status for ${apiKeyId}:`, error)
+      logger.error(`Failed to get concurrency status for ${apiKeyId}:`, error)
       throw error
     }
   }
@@ -416,14 +416,14 @@ export const attach = function attach(redisClient) {
       } else if (keyType !== 'none') {
         // 非 zset 且非空的遗留键
         isLegacy = true
-        logger.warn(`⚠️ forceClearConcurrency: key ${key} has unexpected type: ${keyType}, will be deleted`)
+        logger.warn(`forceClearConcurrency: key ${key} has unexpected type: ${keyType}, will be deleted`)
       }
 
       // 删除键（无论什么类型）
       await client.del(key)
 
       logger.warn(
-        `🧹 Force cleared concurrency for key ${apiKeyId}, removed ${beforeCount} entries${isLegacy ? ' (legacy key)' : ''}`,
+        `Force cleared concurrency for key ${apiKeyId}, removed ${beforeCount} entries${isLegacy ? '(legacy key)' : ''}`,
       )
 
       return {
@@ -435,7 +435,7 @@ export const attach = function attach(redisClient) {
         success: true,
       }
     } catch (error) {
-      logger.error(`❌ Failed to force clear concurrency for ${apiKeyId}:`, error)
+      logger.error(`Failed to force clear concurrency for ${apiKeyId}:`, error)
       throw error
     }
   }
@@ -480,7 +480,7 @@ export const attach = function attach(redisClient) {
       }
 
       logger.warn(
-        `🧹 Force cleared all concurrency: ${clearedKeys.length} keys, ${totalCleared} entries, ${legacyCleared} legacy keys`,
+        `Force cleared all concurrency: ${clearedKeys.length} keys, ${totalCleared} entries, ${legacyCleared} legacy keys`,
       )
 
       return {
@@ -491,7 +491,7 @@ export const attach = function attach(redisClient) {
         success: true,
       }
     } catch (error) {
-      logger.error('❌ Failed to force clear all concurrency:', error)
+      logger.error('Failed to force clear all concurrency:', error)
       throw error
     }
   }
@@ -551,7 +551,7 @@ export const attach = function attach(redisClient) {
       }
 
       logger.info(
-        `🧹 Cleaned up expired concurrency: ${totalCleaned} entries from ${cleanedKeys.length} keys, ${legacyCleaned} legacy keys removed`,
+        `Cleaned up expired concurrency: ${totalCleaned} entries from ${cleanedKeys.length} keys, ${legacyCleaned} legacy keys removed`,
       )
 
       return {
@@ -563,7 +563,7 @@ export const attach = function attach(redisClient) {
         success: true,
       }
     } catch (error) {
-      logger.error('❌ Failed to cleanup expired concurrency:', error)
+      logger.error('Failed to cleanup expired concurrency:', error)
       throw error
     }
   }

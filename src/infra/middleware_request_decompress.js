@@ -94,10 +94,10 @@ export const requestDecompress = async (req, res, next) => {
 
   const decompress = DECOMPRESSORS[encoding]
   if (typeof decompress !== 'function') {
-    logger.warn(`⚠️ Content-Encoding "${encoding}" unsupported by Node.js ${process.version} (zstd needs >= 22.15)`)
+    logger.warn(`Content-Encoding "${encoding}"unsupported by Node.js ${process.version} (zstd needs >= 22.15)`)
     return res.status(415).json({
       error: 'Unsupported Media Type',
-      message: `Content-Encoding "${encoding}" is not supported by this server runtime`,
+      message: `Content-Encoding "${encoding}"is not supported by this server runtime`,
     })
   }
 
@@ -112,12 +112,12 @@ export const requestDecompress = async (req, res, next) => {
     req.headers['content-length'] = String(decompressed.length)
     replaceRequestBodyStream(req, decompressed)
     logger.debug(
-      `📦 Decompressed ${encoding} request body: ${compressed.length} → ${decompressed.length} bytes (${req.method} ${req.path})`,
+      `Decompressed ${encoding} request body: ${compressed.length} → ${decompressed.length} bytes (${req.method} ${req.path})`,
     )
     return next()
   } catch (error) {
     if (error.tooLarge) {
-      logger.security(`🚨 Compressed request body too large from ${req.ip}: ${encoding}`)
+      logger.security(`Compressed request body too large from ${req.ip}: ${encoding}`)
       return res.status(413).json({
         error: 'Payload Too Large',
         message: 'Request body size exceeds limit',
@@ -125,7 +125,7 @@ export const requestDecompress = async (req, res, next) => {
       })
     }
     if (error.code === 'ERR_BUFFER_TOO_LARGE') {
-      logger.security(`🚨 Decompressed request body too large from ${req.ip}: ${encoding}`)
+      logger.security(`Decompressed request body too large from ${req.ip}: ${encoding}`)
       return res.status(413).json({
         error: 'Payload Too Large',
         message: 'Decompressed request body size exceeds limit',
@@ -133,7 +133,7 @@ export const requestDecompress = async (req, res, next) => {
       })
     }
     console.error(error)
-    logger.error(`💥 Failed to decompress ${encoding} request body:`, error)
+    logger.error(`Failed to decompress ${encoding} request body:`, error)
     return res.status(400).json({
       error: 'Bad Request',
       message: `Failed to decompress ${encoding} request body`,

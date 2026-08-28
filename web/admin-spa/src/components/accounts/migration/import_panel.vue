@@ -1,14 +1,14 @@
 <template>
-  <div class="space-y-5">
+  <div class="space-y-3">
     <p class="text-sm text-gray-500 dark:text-gray-400">
-      支持 CRS 原生导出、sub2api 数据包、CLIProxyAPI auth 文件（.json 或 .zip）。
+      支持 CRS / sub2api / CLIProxyAPI（.json 或 .zip）
     </p>
 
-    <!-- 文件选择 -->
+    <!-- 文件选择：紧凑横条 -->
     <div
-      class="flex flex-col items-center gap-3 rounded-xl border-2 border-dashed border-gray-300 px-6 py-8 dark:border-gray-600"
+      class="flex items-center gap-2 rounded-lg border border-dashed border-gray-300 px-3 py-2.5 dark:border-gray-600"
     >
-      <i class="i-lucide-file-input text-3xl text-gray-400" />
+      <i class="i-lucide-file-input shrink-0 text-base text-gray-400" />
       <input
         ref="fileInput"
         accept=".json,.zip"
@@ -17,60 +17,63 @@
         @change="onFileChange"
       />
       <button
-        class="rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300"
-        @click="$refs.fileInput.click()"
+        class="shrink-0 rounded-md border border-gray-200 bg-white px-2.5 py-1 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200"
+        type="button"
+        @click="fileInput?.click()"
       >
         选择文件
       </button>
-      <span v-if="file" class="text-sm text-gray-600 dark:text-gray-400">{{ file.name }}</span>
+      <span class="min-w-0 flex-1 truncate text-sm text-gray-500 dark:text-gray-400">
+        {{ file ? file.name : '未选择文件' }}
+      </span>
     </div>
 
     <!-- 预检结果 -->
-    <div v-if="inspectResult" class="rounded-xl border border-gray-200 p-4 dark:border-gray-700">
-      <div class="mb-3 flex flex-wrap gap-3 text-sm">
-        <span class="font-medium text-gray-700 dark:text-gray-300">
-          格式：{{ formatLabel(inspectResult.format) }}
+    <div
+      v-if="inspectResult"
+      class="rounded-lg border border-gray-200 dark:border-gray-700"
+    >
+      <div
+        class="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-gray-100 px-2.5 py-1.5 text-sm dark:border-gray-700"
+      >
+        <span class="font-medium text-gray-700 dark:text-gray-200">
+          {{ formatLabel(inspectResult.format) }}
         </span>
-        <span class="text-green-600 dark:text-green-400"
-          >可导入 {{ inspectResult.summary.importable }}</span
+        <span class="text-green-600 dark:text-green-400">
+          可导入 {{ inspectResult.summary.importable }}
+        </span>
+        <span
+          v-if="inspectResult.summary.conflicts"
+          class="text-amber-600 dark:text-amber-400"
         >
-        <span v-if="inspectResult.summary.conflicts" class="text-yellow-600 dark:text-yellow-400">
           冲突 {{ inspectResult.summary.conflicts }}
         </span>
         <span v-if="inspectResult.summary.unsupported" class="text-gray-500">
-          不支持 {{ inspectResult.summary.unsupported }}
+          跳过 {{ inspectResult.summary.unsupported }}
         </span>
       </div>
-      <div class="max-h-52 overflow-y-auto rounded-lg bg-gray-50 dark:bg-gray-900/40">
+      <div class="max-h-40 overflow-y-auto">
         <div
-          v-for="(item, i) in inspectResult.items"
-          :key="i"
-          class="border-b border-gray-100 px-3 py-2 text-xs last:border-0 dark:border-gray-700/50"
+          v-for="(item, index) in inspectResult.items"
+          :key="index"
+          class="flex items-center justify-between gap-2 border-b border-gray-50 px-2.5 py-1.5 text-sm last:border-0 dark:border-gray-800"
         >
-          <div class="flex items-center justify-between gap-3">
-            <span class="truncate text-gray-700 dark:text-gray-300">
-              <span
-                class="mr-2 inline-block rounded bg-gray-200 px-1.5 py-0.5 text-[10px] dark:bg-gray-700"
-              >
-                {{ item.platform }}
-              </span>
-              {{ item.name }}
+          <span class="min-w-0 truncate text-gray-700 dark:text-gray-300">
+            <span
+              class="mr-1.5 inline-block rounded bg-gray-100 px-1 py-0.5 text-sm text-gray-500 dark:bg-gray-700 dark:text-gray-300"
+            >
+              {{ item.platform }}
             </span>
-            <span :class="actionClass(item.action)">{{ actionLabel(item.action) }}</span>
-          </div>
-          <div
-            v-if="Array.isArray(item.warnings) && item.warnings.length > 0"
-            class="mt-1 space-y-1 text-gray-500 dark:text-gray-400"
-          >
-            <div v-for="(warning, warningIndex) in item.warnings" :key="warningIndex">
-              {{ warning }}
-            </div>
-          </div>
+            {{ item.name }}
+          </span>
+          <span class="shrink-0" :class="actionClass(item.action)">
+            {{ actionLabel(item.action) }}
+          </span>
         </div>
       </div>
       <div
         v-if="Array.isArray(inspectResult.errors) && inspectResult.errors.length > 0"
-        class="mt-3 space-y-1 rounded-lg bg-red-50 px-3 py-2 text-xs text-red-600 dark:bg-red-900/20 dark:text-red-300"
+        class="space-y-0.5 border-t border-red-100 bg-red-50 px-2.5 py-1.5 text-sm text-red-600 dark:border-red-900/40 dark:bg-red-900/20 dark:text-red-300"
       >
         <div v-for="(error, index) in inspectResult.errors" :key="index">
           {{ error.message || error }}
@@ -78,47 +81,56 @@
       </div>
     </div>
 
-    <!-- 选项 -->
-    <div v-if="inspectResult" class="flex gap-4 text-sm">
-      <label class="flex items-center gap-2 text-gray-700 dark:text-gray-300">
-        <input v-model="allowCreate" class="rounded" type="checkbox" />新建账户
-      </label>
-      <label class="flex items-center gap-2 text-gray-700 dark:text-gray-300">
-        <input v-model="allowUpdate" class="rounded" type="checkbox" />更新已有账户
-      </label>
-    </div>
-
-    <div class="flex gap-3">
-      <button
-        class="flex-1 rounded-lg border border-gray-200 px-4 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-600 dark:text-gray-300"
-        :disabled="!file || busy"
-        @click="doInspect"
-      >
-        <i
-          class="mr-1.5"
-          :class="busy && phase === 'inspect' ? 'i-lucide-loader-circle animate-spin' : 'i-lucide-search'"
-        />
-        预检
-      </button>
-      <button
-        class="flex-1 rounded-lg bg-gradient-to-r from-green-500 to-green-600 px-4 py-2.5 text-sm font-medium text-white shadow-md hover:shadow-lg disabled:opacity-50"
-        :disabled="!inspectResult || busy || inspectResult.summary.importable === 0"
-        @click="doImport"
-      >
-        <i
-          class="mr-1.5"
-          :class="busy && phase === 'import' ? 'i-lucide-loader-circle animate-spin' : 'i-lucide-upload'"
-        />
-        执行导入
-      </button>
+    <!-- 选项 + 操作同一行 -->
+    <div class="flex flex-wrap items-center gap-2">
+      <template v-if="inspectResult">
+        <label class="inline-flex items-center gap-1.5 text-sm text-gray-700 dark:text-gray-300">
+          <input v-model="allowCreate" class="rounded" type="checkbox" />
+          新建
+        </label>
+        <label class="inline-flex items-center gap-1.5 text-sm text-gray-700 dark:text-gray-300">
+          <input v-model="allowUpdate" class="rounded" type="checkbox" />
+          更新
+        </label>
+      </template>
+      <div class="ml-auto flex gap-2">
+        <button
+          class="inline-flex items-center gap-1 rounded-lg border border-gray-200 px-2.5 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-800"
+          :disabled="!file || busy"
+          type="button"
+          @click="doInspect"
+        >
+          <i
+            v-if="busy && phase === 'inspect'"
+            class="i-lucide-loader-circle animate-spin"
+          />
+          <i v-else class="i-lucide-search" />
+          预检
+        </button>
+        <button
+          class="inline-flex items-center gap-1 rounded-lg bg-green-600 px-2.5 py-1.5 text-sm font-medium text-white hover:bg-green-700 disabled:opacity-50"
+          :disabled="!inspectResult || busy || inspectResult.summary.importable === 0"
+          type="button"
+          @click="doImport"
+        >
+          <i
+            v-if="busy && phase === 'import'"
+            class="i-lucide-loader-circle animate-spin"
+          />
+          <i v-else class="i-lucide-upload" />
+          导入
+        </button>
+      </div>
     </div>
   </div>
 </template>
 
 <script setup>
 import { ref } from 'vue'
+
 import { showToast } from '@/libs/tools'
 import { inspectAccountImportApi, importAccountsApi } from '@/libs/http_apis'
+import { isOk, msgOf } from '@/libs/http_envelope'
 
 const emit = defineEmits(['imported'])
 
@@ -134,117 +146,105 @@ const phase = ref('')
 const FORMAT_LABELS = {
   crs: 'CRS 原生',
   sub2api: 'sub2api',
-  'cliproxyapi-json': 'CLIProxyAPI (单文件)',
-  'cliproxyapi-zip': 'CLIProxyAPI (zip)',
+  'cliproxyapi-json': 'CLIProxyAPI',
+  'cliproxyapi-zip': 'CLIProxyAPI zip',
   unknown: '未识别'
 }
-function formatLabel(f) {
-  return FORMAT_LABELS[f] || f
-}
+
+const formatLabel = (format) => FORMAT_LABELS[format] || format
 
 const ACTION_LABELS = {
   create: '新建',
   update: '更新',
-  conflict: '冲突·跳过',
-  unsupported: '不支持'
+  conflict: '冲突',
+  unsupported: '跳过'
 }
-function actionLabel(a) {
-  return ACTION_LABELS[a] || a
-}
-function actionClass(a) {
-  if (a === 'create') {
-    return 'text-green-600 dark:text-green-400'
-  }
-  if (a === 'update') {
-    return 'text-blue-600 dark:text-blue-400'
-  }
-  if (a === 'conflict') {
-    return 'text-yellow-600 dark:text-yellow-400'
-  }
+
+const actionLabel = (action) => ACTION_LABELS[action] || action
+
+const actionClass = (action) => {
+  if (action === 'create') return 'text-green-600 dark:text-green-400'
+  if (action === 'update') return 'text-blue-600 dark:text-blue-400'
+  if (action === 'conflict') return 'text-amber-600 dark:text-amber-400'
   return 'text-gray-400'
 }
 
 // File -> base64（去掉 dataURL 前缀）
-function readAsBase64(f) {
-  return new Promise((resolve, reject) => {
+const readAsBase64 = (targetFile) =>
+  new Promise((resolve, reject) => {
     const reader = new FileReader()
     reader.onload = () => {
       const result = String(reader.result || '')
       resolve(result.includes(',') ? result.split(',')[1] : result)
     }
     reader.onerror = () => reject(reader.error || new Error('读取文件失败'))
-    reader.readAsDataURL(f)
+    reader.readAsDataURL(targetFile)
   })
-}
 
-async function onFileChange(e) {
-  const f = e.target.files && e.target.files[0]
+const onFileChange = async (event) => {
+  const nextFile = event.target.files && event.target.files[0]
   inspectResult.value = null
-  if (!f) {
+  if (!nextFile) {
     file.value = null
     contentBase64.value = ''
     return
   }
-  file.value = f
+  file.value = nextFile
   try {
-    contentBase64.value = await readAsBase64(f)
-  } catch (err) {
-    showToast(err.message || '读取文件失败', 'error')
+    contentBase64.value = await readAsBase64(nextFile)
+  } catch (error) {
+    showToast(error.message || '读取文件失败', 'error')
     file.value = null
     contentBase64.value = ''
   }
 }
 
-async function doInspect() {
-  if (!contentBase64.value) {
-    return
-  }
+const doInspect = async () => {
+  if (!contentBase64.value) return
   busy.value = true
   phase.value = 'inspect'
   try {
-    const res = await inspectAccountImportApi({
+    const response = await inspectAccountImportApi({
       filename: file.value?.name,
       contentBase64: contentBase64.value
     })
-    if (!res || res.success === false) {
-      showToast(res?.message || res?.error || '预检失败', 'error')
+    if (!isOk(response)) {
+      showToast(msgOf(response, '预检失败'), 'error')
       return
     }
-    inspectResult.value = res
-    if (res.format === 'unknown') {
+    inspectResult.value = response
+    if (response.format === 'unknown') {
       showToast('无法识别文件格式', 'warning')
     }
-  } catch (err) {
-    showToast(err.message || '预检失败', 'error')
+  } catch (error) {
+    showToast(error.message || '预检失败', 'error')
   } finally {
     busy.value = false
     phase.value = ''
   }
 }
 
-async function doImport() {
-  if (!contentBase64.value) {
-    return
-  }
+const doImport = async () => {
+  if (!contentBase64.value) return
   busy.value = true
   phase.value = 'import'
   try {
-    const res = await importAccountsApi({
+    const response = await importAccountsApi({
       filename: file.value?.name,
       contentBase64: contentBase64.value,
       options: { allowCreate: allowCreate.value, allowUpdate: allowUpdate.value }
     })
-    if (!res || res.success === false) {
-      showToast(res?.message || res?.error || '导入失败', 'error')
+    if (!isOk(response)) {
+      showToast(msgOf(response, '导入失败'), 'error')
       return
     }
     showToast(
-      `导入完成：新建 ${res.created}，更新 ${res.updated}，跳过 ${res.skipped}，失败 ${res.failed}`,
-      res.failed > 0 ? 'warning' : 'success'
+      `导入完成：新建 ${response.created}，更新 ${response.updated}，跳过 ${response.skipped}，失败 ${response.failed}`,
+      response.failed > 0 ? 'warning' : 'success'
     )
     emit('imported')
-  } catch (err) {
-    showToast(err.message || '导入失败', 'error')
+  } catch (error) {
+    showToast(error.message || '导入失败', 'error')
   } finally {
     busy.value = false
     phase.value = ''

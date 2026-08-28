@@ -1,7 +1,7 @@
 import { ProxyHelper } from '../proxy/proxy_helper.js'
 import { redis } from '../../infra/redis.js'
 import { logger } from '../../common/logger.js'
-import { createEncryptor } from '../../common/common_helper.js'
+import { createEncryptor, isModelInMapping, getMappedModelName } from '../../common/common_helper.js'
 import * as upstreamErrorHelper from '../relay/relay_upstream_error_helper.js'
 import { RedisKeys } from '../../infra/redis_key.js'
 import { webhookNotifier } from '../webhook/webhook_notifier.js'
@@ -12,17 +12,17 @@ class CcrAccountService {
     // 使用 commonHelper 的加密器
     this._encryptor = createEncryptor('ccr-account-salt')
 
-    // 🧹 定期清理缓存（每10分钟）
+    // 定期清理缓存（每10分钟）
     setInterval(
       () => {
         this._encryptor.clearCache()
-        logger.info('🧹 CCR account decrypt cache cleanup completed', this._encryptor.getStats())
+        logger.info('CCR account decrypt cache cleanup completed', this._encryptor.getStats())
       },
       10 * 60 * 1000,
     )
   }
 
-  // 🏢 创建CCR账户
+  // 创建CCR账户
   async createAccount(options = {}) {
     const {
       name = 'CCR Account',
@@ -67,7 +67,7 @@ class CcrAccountService {
       isActive: isActive.toString(),
       accountType,
 
-      // ✅ 新增：账户订阅到期时间（业务字段，手动管理）
+      // 新增：账户订阅到期时间（业务字段，手动管理）
       // 注意：CCR 使用 API Key 认证，没有 OAuth token，因此没有 expiresAt
       subscriptionExpiresAt: options.subscriptionExpiresAt || null,
 
@@ -102,7 +102,7 @@ class CcrAccountService {
       await client.sadd(RedisKeys.accounts.sharedCcr, accountId)
     }
 
-    logger.success(`🏢 Created CCR account: ${name} (${accountId})`)
+    logger.success(`Created CCR account: ${name} (${accountId})`)
 
     return {
       id: accountId,
@@ -126,7 +126,7 @@ class CcrAccountService {
     }
   }
 
-  // 📋 获取所有CCR账户
+  // 获取所有CCR账户
   async getAllAccounts() {
     try {
       const accountIds = await redis.getAllIdsByIndex(
@@ -168,7 +168,7 @@ class CcrAccountService {
             rateLimitInfo,
             schedulable: accountData.schedulable !== 'false', // 默认为true，只有明确设置为false才不可调度
 
-            // ✅ 前端显示订阅过期时间（业务字段）
+            // 前端显示订阅过期时间（业务字段）
             expiresAt: accountData.subscriptionExpiresAt || null,
 
             // 额度管理相关
@@ -184,12 +184,12 @@ class CcrAccountService {
 
       return accounts
     } catch (error) {
-      logger.error('❌ Failed to get CCR accounts:', error)
+      logger.error('Failed to get CCR accounts:', error)
       throw error
     }
   }
 
-  // 🔍 获取单个账户（内部使用，包含敏感信息）
+  // 获取单个账户（内部使用，包含敏感信息）
   async getAccount(accountId) {
     const client = redis.getClientSafe()
     logger.debug(`[DEBUG] Getting CCR account data for ID: ${accountId}`)
@@ -234,7 +234,7 @@ class CcrAccountService {
     return accountData
   }
 
-  // 📝 更新账户
+  // 更新账户
   async updateAccount(accountId, updates) {
     try {
       const existingAccount = await this.getAccount(accountId)
@@ -300,7 +300,7 @@ class CcrAccountService {
         updatedData.quotaResetTime = updates.quotaResetTime
       }
 
-      // ✅ 直接保存 subscriptionExpiresAt（如果提供）
+      // 直接保存 subscriptionExpiresAt（如果提供）
       // CCR 使用 API Key，没有 token 刷新逻辑，不会覆盖此字段
       if (updates.subscriptionExpiresAt !== undefined) {
         updatedData.subscriptionExpiresAt = updates.subscriptionExpiresAt
@@ -336,15 +336,15 @@ class CcrAccountService {
         }
       }
 
-      logger.success(`📝 Updated CCR account: ${accountId}`)
+      logger.success(`Updated CCR account: ${accountId}`)
       return await this.getAccount(accountId)
     } catch (error) {
-      logger.error(`❌ Failed to update CCR account ${accountId}:`, error)
+      logger.error(`Failed to update CCR account ${accountId}:`, error)
       throw error
     }
   }
 
-  // 🗑️ 删除账户
+  // 删除账户
   async deleteAccount(accountId) {
     try {
       const client = redis.getClientSafe()
@@ -362,15 +362,15 @@ class CcrAccountService {
         throw new Error('CCR Account not found or already deleted')
       }
 
-      logger.success(`🗑️ Deleted CCR account: ${accountId}`)
+      logger.success(`Deleted CCR account: ${accountId}`)
       return { success: true }
     } catch (error) {
-      logger.error(`❌ Failed to delete CCR account ${accountId}:`, error)
+      logger.error(`Failed to delete CCR account ${accountId}:`, error)
       throw error
     }
   }
 
-  // 🚫 标记账户为限流状态
+  // 标记账户为限流状态
   async markAccountRateLimited(accountId) {
     try {
       const client = redis.getClientSafe()
@@ -381,24 +381,14 @@ class CcrAccountService {
 
       // disableAutoProtection 检查
       if (account.disableAutoProtection === true || account.disableAutoProtection === 'true') {
-        logger.info(`🛡️ Account ${accountId} has auto-protection disabled, skipping markAccountRateLimited`)
-        upstreamErrorHelper
-          .recordErrorHistory(
-            accountId,
-            'ccr',
-            429,
-            'rate_limit',
-            upstreamErrorHelper.buildErrorContext({
-              reason: 'auto_protection_disabled_rate_limit',
-            }),
-          )
-          .catch(() => {})
+        logger.info(`Account ${accountId} has auto-protection disabled, skipping markAccountRateLimited`)
+        // 详细错误历史由 relay 层 markTempUnavailable 写入，此处只跳过自动暂停
         return { success: true, skipped: true }
       }
 
       // 如果限流时间设置为 0，表示不启用限流机制，直接返回
       if (account.rateLimitDuration === 0) {
-        logger.info(`ℹ️ CCR account ${account.name} (${accountId}) has rate limiting disabled, skipping rate limit`)
+        logger.info(`ℹ CCR account ${account.name} (${accountId}) has rate limiting disabled, skipping rate limit`)
         return { success: true, skipped: true }
       }
 
@@ -410,15 +400,15 @@ class CcrAccountService {
         errorMessage: 'Rate limited by upstream service',
       })
 
-      logger.warn(`⏱️ Marked CCR account as rate limited: ${account.name} (${accountId})`)
+      logger.warn(`Marked CCR account as rate limited: ${account.name} (${accountId})`)
       return { success: true, rateLimitedAt: now }
     } catch (error) {
-      logger.error(`❌ Failed to mark CCR account as rate limited: ${accountId}`, error)
+      logger.error(`Failed to mark CCR account as rate limited: ${accountId}`, error)
       throw error
     }
   }
 
-  // ✅ 移除账户限流状态
+  // 移除账户限流状态
   async removeAccountRateLimit(accountId) {
     try {
       const client = redis.getClientSafe()
@@ -438,7 +428,7 @@ class CcrAccountService {
       if (quotaStoppedAt) {
         newStatus = 'quota_exceeded'
         errorMessage = 'Account stopped due to quota exceeded'
-        logger.info(`ℹ️ CCR account ${accountId} rate limit removed but remains stopped due to quota exceeded`)
+        logger.info(`ℹ CCR account ${accountId} rate limit removed but remains stopped due to quota exceeded`)
       } else {
         logger.success(`Removed rate limit for CCR account: ${accountId}`)
       }
@@ -450,12 +440,12 @@ class CcrAccountService {
 
       return { success: true, newStatus }
     } catch (error) {
-      logger.error(`❌ Failed to remove rate limit for CCR account: ${accountId}`, error)
+      logger.error(`Failed to remove rate limit for CCR account: ${accountId}`, error)
       throw error
     }
   }
 
-  // 🔍 检查账户是否被限流
+  // 检查账户是否被限流
   async isAccountRateLimited(accountId) {
     try {
       const client = redis.getClientSafe()
@@ -478,12 +468,12 @@ class CcrAccountService {
       }
       return false
     } catch (error) {
-      logger.error(`❌ Failed to check rate limit status for CCR account: ${accountId}`, error)
+      logger.error(`Failed to check rate limit status for CCR account: ${accountId}`, error)
       return false
     }
   }
 
-  // 🔥 标记账户为过载状态
+  // 标记账户为过载状态
   async markAccountOverloaded(accountId) {
     try {
       const client = redis.getClientSafe()
@@ -494,18 +484,8 @@ class CcrAccountService {
 
       // disableAutoProtection 检查
       if (account.disableAutoProtection === true || account.disableAutoProtection === 'true') {
-        logger.info(`🛡️ Account ${accountId} has auto-protection disabled, skipping markAccountOverloaded`)
-        upstreamErrorHelper
-          .recordErrorHistory(
-            accountId,
-            'ccr',
-            529,
-            'overload',
-            upstreamErrorHelper.buildErrorContext({
-              reason: 'auto_protection_disabled_overload',
-            }),
-          )
-          .catch(() => {})
+        logger.info(`Account ${accountId} has auto-protection disabled, skipping markAccountOverloaded`)
+        // 详细错误历史由 relay 层 markTempUnavailable 写入，此处只跳过自动暂停
         return { success: true, skipped: true }
       }
 
@@ -516,15 +496,15 @@ class CcrAccountService {
         errorMessage: 'Account overloaded',
       })
 
-      logger.warn(`🔥 Marked CCR account as overloaded: ${account.name} (${accountId})`)
+      logger.warn(`Marked CCR account as overloaded: ${account.name} (${accountId})`)
       return { success: true, overloadedAt: now }
     } catch (error) {
-      logger.error(`❌ Failed to mark CCR account as overloaded: ${accountId}`, error)
+      logger.error(`Failed to mark CCR account as overloaded: ${accountId}`, error)
       throw error
     }
   }
 
-  // ✅ 移除账户过载状态
+  // 移除账户过载状态
   async removeAccountOverload(accountId) {
     try {
       const client = redis.getClientSafe()
@@ -541,12 +521,12 @@ class CcrAccountService {
       logger.success(`Removed overload status for CCR account: ${accountId}`)
       return { success: true }
     } catch (error) {
-      logger.error(`❌ Failed to remove overload status for CCR account: ${accountId}`, error)
+      logger.error(`Failed to remove overload status for CCR account: ${accountId}`, error)
       throw error
     }
   }
 
-  // 🔍 检查账户是否过载
+  // 检查账户是否过载
   async isAccountOverloaded(accountId) {
     try {
       const client = redis.getClientSafe()
@@ -554,12 +534,12 @@ class CcrAccountService {
       const status = await client.hget(accountKey, 'status')
       return status === 'overloaded'
     } catch (error) {
-      logger.error(`❌ Failed to check overload status for CCR account: ${accountId}`, error)
+      logger.error(`Failed to check overload status for CCR account: ${accountId}`, error)
       return false
     }
   }
 
-  // 🚫 标记账户为未授权状态
+  // 标记账户为未授权状态
   async markAccountUnauthorized(accountId) {
     try {
       const client = redis.getClientSafe()
@@ -570,18 +550,8 @@ class CcrAccountService {
 
       // disableAutoProtection 检查
       if (account.disableAutoProtection === true || account.disableAutoProtection === 'true') {
-        logger.info(`🛡️ Account ${accountId} has auto-protection disabled, skipping markAccountUnauthorized`)
-        upstreamErrorHelper
-          .recordErrorHistory(
-            accountId,
-            'ccr',
-            401,
-            'auth_error',
-            upstreamErrorHelper.buildErrorContext({
-              reason: 'auto_protection_disabled_unauthorized',
-            }),
-          )
-          .catch(() => {})
+        logger.info(`Account ${accountId} has auto-protection disabled, skipping markAccountUnauthorized`)
+        // 详细错误历史由 relay 层 markTempUnavailable 写入，此处只跳过自动暂停
         return { success: true, skipped: true }
       }
 
@@ -590,15 +560,15 @@ class CcrAccountService {
         errorMessage: 'API key invalid or unauthorized',
       })
 
-      logger.warn(`🚫 Marked CCR account as unauthorized: ${account.name} (${accountId})`)
+      logger.warn(`Marked CCR account as unauthorized: ${account.name} (${accountId})`)
       return { success: true }
     } catch (error) {
-      logger.error(`❌ Failed to mark CCR account as unauthorized: ${accountId}`, error)
+      logger.error(`Failed to mark CCR account as unauthorized: ${accountId}`, error)
       throw error
     }
   }
 
-  // 🔄 处理模型映射
+  // 处理模型映射
   _processModelMapping(supportedModels) {
     // 如果是空值，返回空对象（支持所有模型）
     if (!supportedModels || (Array.isArray(supportedModels) && supportedModels.length === 0)) {
@@ -624,64 +594,27 @@ class CcrAccountService {
     return {}
   }
 
-  // 🔍 检查模型是否被支持
+  // 检查模型是否被支持 — 委托公共 helper，含 prefix* 通配
   isModelSupported(modelMapping, requestedModel) {
-    // 如果映射表为空，支持所有模型
-    if (!modelMapping || Object.keys(modelMapping).length === 0) {
-      return true
-    }
-
-    // 检查请求的模型是否在映射表的键中（精确匹配）
-    if (Object.prototype.hasOwnProperty.call(modelMapping, requestedModel)) {
-      return true
-    }
-
-    // 尝试大小写不敏感匹配
-    const requestedModelLower = requestedModel.toLowerCase()
-    for (const key of Object.keys(modelMapping)) {
-      if (key.toLowerCase() === requestedModelLower) {
-        return true
-      }
-    }
-
-    return false
+    return isModelInMapping(modelMapping, requestedModel)
   }
 
-  // 🔄 获取映射后的模型名称
+  // 获取映射后的模型名称 — 委托公共 helper，含 prefix* 通配
   getMappedModel(modelMapping, requestedModel) {
-    // 如果映射表为空，返回原模型
-    if (!modelMapping || Object.keys(modelMapping).length === 0) {
-      return requestedModel
-    }
-
-    // 精确匹配
-    if (modelMapping[requestedModel]) {
-      return modelMapping[requestedModel]
-    }
-
-    // 大小写不敏感匹配
-    const requestedModelLower = requestedModel.toLowerCase()
-    for (const [key, value] of Object.entries(modelMapping)) {
-      if (key.toLowerCase() === requestedModelLower) {
-        return value
-      }
-    }
-
-    // 如果不存在映射则返回原模型名
-    return requestedModel
+    return getMappedModelName(modelMapping, requestedModel)
   }
 
-  // 🔐 加密敏感数据
+  // 加密敏感数据
   _encryptSensitiveData(data) {
     return this._encryptor.encrypt(data)
   }
 
-  // 🔓 解密敏感数据
+  // 解密敏感数据
   _decryptSensitiveData(encryptedData) {
     return this._encryptor.decrypt(encryptedData)
   }
 
-  // 🔍 获取限流状态信息
+  // 获取限流状态信息
   _getRateLimitInfo(accountData) {
     const { rateLimitedAt } = accountData
     const rateLimitDuration = parseInt(accountData.rateLimitDuration) || 60
@@ -710,12 +643,12 @@ class CcrAccountService {
     }
   }
 
-  // 🔧 创建代理客户端
+  // 创建代理客户端
   _createProxyAgent(proxy) {
     return ProxyHelper.createProxyAgent(proxy)
   }
 
-  // 💰 检查配额使用情况（可选实现）
+  // 检查配额使用情况（可选实现）
   async checkQuotaUsage(accountId) {
     try {
       const account = await this.getAccount(accountId)
@@ -756,7 +689,7 @@ class CcrAccountService {
           quotaStoppedAt: new Date().toISOString(),
         })
         logger.warn(
-          `💰 CCR account ${account.name} (${accountId}) quota exceeded: $${dailyUsage.toFixed(2)} / $${dailyQuota.toFixed(2)}`,
+          ` CCR account ${account.name} (${accountId}) quota exceeded: $${dailyUsage.toFixed(2)} / $${dailyQuota.toFixed(2)}`,
         )
 
         // 发送 Webhook 通知
@@ -777,12 +710,12 @@ class CcrAccountService {
 
       return isExceeded
     } catch (error) {
-      logger.error(`❌ Failed to check quota usage for CCR account ${accountId}:`, error)
+      logger.error(`Failed to check quota usage for CCR account ${accountId}:`, error)
       return false
     }
   }
 
-  // 🔄 重置每日使用量（可选实现）
+  // 重置每日使用量（可选实现）
   async resetDailyUsage(accountId) {
     try {
       const client = redis.getClientSafe()
@@ -793,12 +726,12 @@ class CcrAccountService {
       })
       return { success: true }
     } catch (error) {
-      logger.error(`❌ Failed to reset daily usage for CCR account: ${accountId}`, error)
+      logger.error(`Failed to reset daily usage for CCR account: ${accountId}`, error)
       throw error
     }
   }
 
-  // 🚫 检查账户是否超额
+  // 检查账户是否超额
   async isAccountQuotaExceeded(accountId) {
     try {
       const account = await this.getAccount(accountId)
@@ -831,17 +764,17 @@ class CcrAccountService {
           errorMessage: `Daily quota exceeded: $${dailyUsage.toFixed(2)} / $${dailyQuota.toFixed(2)}`,
           quotaStoppedAt: new Date().toISOString(),
         })
-        logger.warn(`💰 CCR account ${account.name} (${accountId}) quota exceeded`)
+        logger.warn(`CCR account ${account.name} (${accountId}) quota exceeded`)
       }
 
       return isExceeded
     } catch (error) {
-      logger.error(`❌ Failed to check quota for CCR account ${accountId}:`, error)
+      logger.error(`Failed to check quota for CCR account ${accountId}:`, error)
       return false
     }
   }
 
-  // 🔄 重置所有CCR账户的每日使用量
+  // 重置所有CCR账户的每日使用量
   async resetAllDailyUsage() {
     try {
       const accounts = await this.getAllAccounts()
@@ -858,12 +791,12 @@ class CcrAccountService {
       logger.success(`Reset daily usage for ${resetCount} CCR accounts`)
       return { success: true, resetCount }
     } catch (error) {
-      logger.error('❌ Failed to reset all CCR daily usage:', error)
+      logger.error('Failed to reset all CCR daily usage:', error)
       throw error
     }
   }
 
-  // 📊 获取CCR账户使用统计（含每日费用）
+  // 获取CCR账户使用统计（含每日费用）
   async getAccountUsageStats(accountId) {
     try {
       // 使用统一的 Redis 统计
@@ -890,12 +823,12 @@ class CcrAccountService {
         fullUsageStats: usageStats,
       }
     } catch (error) {
-      logger.error('❌ Failed to get CCR account usage stats:', error)
+      logger.error('Failed to get CCR account usage stats:', error)
       return null
     }
   }
 
-  // 🔄 重置CCR账户所有异常状态
+  // 重置CCR账户所有异常状态
   async resetAccountStatus(accountId) {
     try {
       const accountData = await this.getAccount(accountId)
@@ -949,13 +882,13 @@ class CcrAccountService {
 
       return { success: true, accountId }
     } catch (error) {
-      logger.error(`❌ Failed to reset CCR account status: ${accountId}`, error)
+      logger.error(`Failed to reset CCR account status: ${accountId}`, error)
       throw error
     }
   }
 
   /**
-   * ⏰ 检查账户订阅是否过期
+   * 检查账户订阅是否过期
    * @param {Object} account - 账户对象
    * @returns {boolean} - true: 已过期, false: 未过期
    */

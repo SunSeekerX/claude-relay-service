@@ -20,14 +20,14 @@ const isDryRun = args.includes('--dry-run')
 
 async function fixUsageStats() {
   try {
-    logger.info('🔧 开始修复使用统计数据...')
+    logger.info('开始修复使用统计数据...')
     if (isDryRun) {
-      logger.info('📝 DRY RUN 模式 - 不会实际修改数据')
+      logger.info('DRY RUN 模式 - 不会实际修改数据')
     }
 
     // 连接到 Redis
     await redis.connect()
-    logger.success('✅ 已连接到 Redis')
+    logger.success('已连接到 Redis')
 
     const client = redis.getClientSafe()
 
@@ -42,7 +42,7 @@ async function fixUsageStats() {
     }
 
     // 1. 修复 API Key 级别的总统计
-    logger.info('\n📊 修复 API Key 总统计数据...')
+    logger.info('\n修复 API Key 总统计数据...')
     const apiKeyPattern = 'apikey:*'
     const apiKeys = await client.keys(apiKeyPattern)
     stats.totalKeys = apiKeys.length
@@ -79,7 +79,7 @@ async function fixUsageStats() {
     }
 
     // 2. 修复每日统计数据
-    logger.info('\n📅 修复每日统计数据...')
+    logger.info('\n修复每日统计数据...')
     const dailyPattern = 'usage:daily:*'
     const dailyKeys = await client.keys(dailyPattern)
 
@@ -109,7 +109,7 @@ async function fixUsageStats() {
     }
 
     // 3. 修复每月统计数据
-    logger.info('\n📆 修复每月统计数据...')
+    logger.info('\n修复每月统计数据...')
     const monthlyPattern = 'usage:monthly:*'
     const monthlyKeys = await client.keys(monthlyPattern)
 
@@ -139,7 +139,7 @@ async function fixUsageStats() {
     }
 
     // 4. 修复模型级别的统计数据
-    logger.info('\n🤖 修复模型级别统计数据...')
+    logger.info('\n修复模型级别统计数据...')
     const modelPatterns = [
       'usage:model:daily:*',
       'usage:model:monthly:*',
@@ -178,7 +178,7 @@ async function fixUsageStats() {
 
     // 5. 验证修复结果
     if (!isDryRun) {
-      logger.info('\n✅ 验证修复结果...')
+      logger.info('\n验证修复结果...')
 
       // 随机抽样验证
       const sampleSize = Math.min(5, apiKeys.length)
@@ -190,12 +190,12 @@ async function fixUsageStats() {
         logger.info(`  样本 ${keyId}:`)
         logger.info(`    Total tokens: ${usage.total.tokens}`)
         logger.info(`    All tokens: ${usage.total.allTokens}`)
-        logger.info(`    一致性: ${usage.total.tokens === usage.total.allTokens ? '✅' : '❌'}`)
+        logger.info(`    一致性: ${usage.total.tokens === usage.total.allTokens ? '' : ''}`)
       }
     }
 
     // 打印统计结果
-    logger.info('\n📊 修复统计：')
+    logger.info('\n修复统计：')
     logger.info(`  总 API Keys: ${stats.totalKeys}`)
     logger.info(`  修复的总统计: ${stats.fixedTotalKeys}`)
     logger.info(`  修复的日统计: ${stats.fixedDailyKeys}`)
@@ -204,13 +204,13 @@ async function fixUsageStats() {
     logger.info(`  错误数: ${stats.errors}`)
 
     if (isDryRun) {
-      logger.info('\n💡 这是 DRY RUN - 没有实际修改数据')
+      logger.info('\n这是 DRY RUN - 没有实际修改数据')
       logger.info('   运行不带 --dry-run 参数来实际执行修复')
     } else {
-      logger.success('\n✅ 数据修复完成！')
+      logger.success('\n数据修复完成！')
     }
   } catch (error) {
-    logger.error('❌ 修复过程出错:', error)
+    logger.error('修复过程出错:', error)
     process.exit(1)
   } finally {
     await redis.disconnect()
@@ -219,6 +219,6 @@ async function fixUsageStats() {
 
 // 执行修复
 fixUsageStats().catch((error) => {
-  logger.error('❌ 未处理的错误:', error)
+  logger.error('未处理的错误:', error)
   process.exit(1)
 })

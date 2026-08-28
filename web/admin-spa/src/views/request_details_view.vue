@@ -1,8 +1,8 @@
 <template>
-  <div class="request-details-container">
+  <div class="request-details-container flex h-full min-h-0 flex-col overflow-hidden">
     <!-- 去掉内层 .card：外层 MainLayout 已是卡片，避免卡片套卡片 -->
-    <div class="relative">
-      <div class="mb-3 flex flex-col gap-2 sm:gap-3">
+    <div class="flex min-h-0 flex-1 flex-col overflow-hidden">
+      <div class="mb-2 flex shrink-0 flex-col gap-2 sm:gap-2.5">
         <div class="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
           <div>
             <!-- 页面标题「请求明细」与主 Tab 重复，已移除；保留采集状态/保留时长徽章 -->
@@ -46,7 +46,7 @@
                 请求明细采集尚未开启
               </h3>
               <p class="mt-2 text-sm text-gray-500 dark:text-gray-400">
-                到系统设置开启“请求明细采集”后，后台会开始记录新的请求摘要。历史请求不会回填。
+                到「系统设置 → 转发配置」开启“请求明细采集”后，后台会开始记录新的请求摘要。历史请求不会回填。
               </p>
             </div>
             <div class="flex flex-col gap-2 sm:flex-row">
@@ -95,61 +95,82 @@
             请求明细采集已关闭，当前展示的是仍在保留期内的历史记录；不会继续写入新的请求明细。
           </div>
 
-          <div class="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
-            <div class="summary-card">
-              <p class="summary-label">总请求</p>
-              <p class="summary-value">{{ formatNumber(summary.totalRequests) }}</p>
-            </div>
-            <div class="summary-card">
-              <p class="summary-label">输入 / 输出</p>
-              <p class="summary-value">{{ formatNumber(summary.inputTokens) }}</p>
-              <p class="summary-sub">输出 {{ formatNumber(summary.outputTokens) }}</p>
-            </div>
-            <div class="summary-card">
-              <p class="summary-label">缓存命中率</p>
-              <p class="summary-value text-cyan-600 dark:text-cyan-400">
-                {{ formatPercent(summary.cacheHitRate) }}
-              </p>
-              <p class="summary-sub">
-                读 / (输入 + 读 + 建)：{{ formatNumber(summary.cacheHitNumerator) }} /
-                {{ formatNumber(summary.cacheHitDenominator) }}
-              </p>
-            </div>
-            <div class="summary-card">
-              <p class="summary-label">总费用</p>
-              <p class="summary-value text-amber-600 dark:text-amber-400">
-                {{ formatCost(summary.totalCost) }}
-              </p>
-            </div>
-            <div class="summary-card">
-              <p class="summary-label">平均耗时</p>
-              <p class="summary-value">{{ formatDuration(summary.avgDurationMs) }}</p>
+          <div
+            class="rounded-xl border border-gray-200 bg-white px-3 py-2 shadow-sm dark:border-gray-700 dark:bg-gray-900"
+          >
+            <div
+              class="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-gray-600 dark:text-gray-400"
+            >
+              <span class="inline-flex items-center gap-1 whitespace-nowrap">
+                <span>总请求:</span>
+                <span class="font-semibold text-gray-900 dark:text-gray-100">{{
+                  formatNumber(summary.totalRequests)
+                }}</span>
+              </span>
+              <span class="inline-flex items-center gap-1 whitespace-nowrap">
+                <span>输入:</span>
+                <span class="font-semibold text-blue-600 dark:text-blue-400">{{
+                  formatNumber(summary.inputTokens)
+                }}</span>
+              </span>
+              <span class="inline-flex items-center gap-1 whitespace-nowrap">
+                <span>输出:</span>
+                <span class="font-semibold text-green-600 dark:text-green-400">{{
+                  formatNumber(summary.outputTokens)
+                }}</span>
+              </span>
+              <span class="inline-flex items-center gap-1 whitespace-nowrap" :title="`读 / (输入 + 读 + 建)：${formatNumber(summary.cacheHitNumerator)} / ${formatNumber(summary.cacheHitDenominator)}`">
+                <span>缓存命中:</span>
+                <span class="font-semibold text-cyan-600 dark:text-cyan-400">{{
+                  formatPercent(summary.cacheHitRate)
+                }}</span>
+              </span>
+              <span class="inline-flex items-center gap-1 whitespace-nowrap">
+                <span>总费用:</span>
+                <span class="font-semibold text-amber-600 dark:text-amber-400">{{
+                  formatCost(summary.totalCost)
+                }}</span>
+              </span>
+              <span class="inline-flex items-center gap-1 whitespace-nowrap">
+                <span>平均耗时:</span>
+                <span class="font-semibold text-gray-900 dark:text-gray-100">{{
+                  formatDuration(summary.avgDurationMs)
+                }}</span>
+                <template v-if="summary.avgFirstTokenMs != null">
+                  <span class="text-gray-400">·</span>
+                  <span>首字</span>
+                  <span class="font-semibold text-gray-900 dark:text-gray-100">{{
+                    formatDuration(summary.avgFirstTokenMs)
+                  }}</span>
+                </template>
+              </span>
             </div>
           </div>
 
           <div
-            class="rounded-2xl border border-gray-200 bg-gray-50/70 p-4 dark:border-gray-700 dark:bg-gray-800/40"
+            class="rounded-xl border border-gray-200 bg-gray-50/70 p-2.5 dark:border-gray-700 dark:bg-gray-800/40"
           >
             <div class="request-toolbar">
               <div class="request-filters">
-                <div class="request-filter-row request-filter-row-primary">
-                  <div class="toolbar-control group">
+                <!-- 一行 flex 换行：按内容定宽，搜索框可伸但封顶 -->
+                <div class="request-filter-row">
+                  <div class="toolbar-control toolbar-control--date group">
                     <div
                       class="toolbar-control-glow bg-gradient-to-r from-blue-500 to-purple-500"
                     ></div>
                     <AppDateRangePicker
                       v-model="filters.dateRange"
-                      class="toolbar-element w-full min-w-0"
+                      class="toolbar-element min-w-0"
                       clearable
                       presets="filter"
                     />
                   </div>
 
-                  <div class="toolbar-control group">
+                  <div class="toolbar-control toolbar-control--search group">
                     <div
                       class="toolbar-control-glow bg-gradient-to-r from-cyan-500 to-teal-500"
                     ></div>
-                    <div class="toolbar-element relative w-full">
+                    <div class="toolbar-search-wrap toolbar-element">
                       <i class="input-affix-icon input-affix-icon--left i-lucide-search text-cyan-500" />
                       <input
                         v-model="filters.keyword"
@@ -159,10 +180,8 @@
                       />
                     </div>
                   </div>
-                </div>
 
-                <div class="request-filter-row request-filter-row-secondary">
-                  <div class="toolbar-control">
+                  <div class="toolbar-control toolbar-control--dd">
                     <CustomDropdown
                       v-model="filters.apiKeyId"
                       accent="indigo"
@@ -171,10 +190,11 @@
                       :options="apiKeyDropdownOptions"
                       placeholder="所有 API Key"
                       searchable
+                      size="sm"
                     />
                   </div>
 
-                  <div class="toolbar-control">
+                  <div class="toolbar-control toolbar-control--dd">
                     <CustomDropdown
                       v-model="filters.accountId"
                       accent="purple"
@@ -183,10 +203,11 @@
                       :options="accountDropdownOptions"
                       placeholder="所有账户"
                       searchable
+                      size="sm"
                     />
                   </div>
 
-                  <div class="toolbar-control">
+                  <div class="toolbar-control toolbar-control--dd">
                     <CustomDropdown
                       v-model="filters.model"
                       accent="green"
@@ -195,10 +216,11 @@
                       :options="modelDropdownOptions"
                       placeholder="所有模型"
                       searchable
+                      size="sm"
                     />
                   </div>
 
-                  <div class="toolbar-control">
+                  <div class="toolbar-control toolbar-control--dd">
                     <CustomDropdown
                       v-model="filters.endpoint"
                       accent="orange"
@@ -207,16 +229,18 @@
                       :options="endpointDropdownOptions"
                       placeholder="所有接口"
                       searchable
+                      size="sm"
                     />
                   </div>
 
-                  <div class="toolbar-control">
+                  <div class="toolbar-control toolbar-control--sort">
                     <CustomDropdown
                       v-model="filters.sortOrder"
                       accent="gray"
                       icon="i-lucide-arrow-down-wide-narrow"
                       :options="sortOrderOptions"
                       placeholder="时间排序"
+                      size="sm"
                     />
                   </div>
                 </div>
@@ -224,7 +248,7 @@
 
               <div class="request-toolbar-actions">
                 <button
-                  class="toolbar-action-button group relative flex items-center justify-center gap-2 rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm font-medium text-gray-700 shadow-sm transition-all duration-200 hover:border-gray-300 hover:shadow-md disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:border-gray-500"
+                  class="toolbar-action-button group relative inline-flex items-center justify-center gap-1 rounded-md border border-gray-200 bg-white px-2.5 py-1 text-sm font-medium text-gray-700 shadow-sm transition hover:border-gray-300 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:border-gray-500"
                   :disabled="loading"
                   @click="refreshRecords"
                 >
@@ -241,7 +265,7 @@
                 </button>
 
                 <button
-                  class="toolbar-action-button group relative flex items-center justify-center gap-2 rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm font-medium text-gray-700 shadow-sm transition-all duration-200 hover:border-gray-300 hover:shadow-md dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:border-gray-500"
+                  class="toolbar-action-button group relative inline-flex items-center justify-center gap-1 rounded-md border border-gray-200 bg-white px-2.5 py-1 text-sm font-medium text-gray-700 shadow-sm transition hover:border-gray-300 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:border-gray-500"
                   @click="resetFilters"
                 >
                   <span
@@ -252,7 +276,7 @@
                 </button>
 
                 <button
-                  class="toolbar-action-button group relative flex items-center justify-center gap-2 rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm font-medium text-gray-700 shadow-sm transition-all duration-200 hover:border-gray-300 hover:shadow-md disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:border-gray-500"
+                  class="toolbar-action-button group relative inline-flex items-center justify-center gap-1 rounded-md border border-gray-200 bg-white px-2.5 py-1 text-sm font-medium text-gray-700 shadow-sm transition hover:border-gray-300 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:border-gray-500"
                   :disabled="exporting"
                   @click="exportCsv"
                 >
@@ -275,7 +299,7 @@
                     </div>
                   </template>
                   <button
-                    class="toolbar-action-button group relative flex items-center justify-center gap-2 rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm font-medium text-gray-700 shadow-sm transition-all duration-200 hover:border-gray-300 hover:shadow-md disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:border-gray-500"
+                    class="toolbar-action-button group relative inline-flex items-center justify-center gap-1 rounded-md border border-gray-200 bg-white px-2.5 py-1 text-sm font-medium text-gray-700 shadow-sm transition hover:border-gray-300 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:border-gray-500"
                     :disabled="requestDetailBodyPreviewPurging"
                     @click="handleRequestDetailBodyPreviewPurge"
                   >
@@ -297,17 +321,17 @@
         </template>
       </div>
 
-      <div class="table-wrapper">
+      <div class="table-wrapper flex min-h-0 flex-1 flex-col overflow-hidden">
         <div
           v-if="loading"
-          class="flex items-center justify-center p-12 text-gray-500 dark:text-gray-400"
+          class="flex flex-1 items-center justify-center p-12 text-gray-500 dark:text-gray-400"
         >
           <i class="i-lucide-loader-circle animate-spin mr-2" />加载中...
         </div>
 
         <div
           v-else-if="records.length === 0"
-          class="flex flex-col items-center gap-3 p-12 text-center text-gray-500 dark:text-gray-400"
+          class="flex flex-1 flex-col items-center justify-center gap-3 p-12 text-center text-gray-500 dark:text-gray-400"
         >
           <i class="i-lucide-inbox text-2xl text-cyan-500" />
           <p class="text-base font-semibold text-gray-700 dark:text-gray-200">暂无请求明细</p>
@@ -316,145 +340,152 @@
           </p>
         </div>
 
-        <div v-else class="space-y-4">
-          <div class="table-container hidden xl:block">
-            <table class="request-table w-full divide-y divide-gray-200 dark:divide-gray-700">
-              <thead
-                class="sticky top-0 z-10 bg-gradient-to-b from-gray-50 to-gray-100/90 backdrop-blur-sm dark:from-gray-700 dark:to-gray-800/90"
-              >
-                <tr>
-                  <th
-                    class="min-w-[170px] px-3 py-4 text-left text-sm font-bold uppercase tracking-wider text-gray-700 dark:text-gray-300"
-                  >
-                    统计时间
-                  </th>
-                  <th
-                    class="min-w-[170px] px-3 py-4 text-left text-sm font-bold uppercase tracking-wider text-gray-700 dark:text-gray-300"
-                  >
-                    API Key
-                  </th>
-                  <th
-                    class="min-w-[170px] px-3 py-4 text-left text-sm font-bold uppercase tracking-wider text-gray-700 dark:text-gray-300"
-                  >
-                    使用账户
-                  </th>
-                  <th
-                    class="min-w-[140px] px-3 py-4 text-left text-sm font-bold uppercase tracking-wider text-gray-700 dark:text-gray-300"
-                  >
-                    模型
-                  </th>
-                  <th
-                    class="min-w-[110px] px-3 py-4 text-left text-sm font-bold uppercase tracking-wider text-gray-700 dark:text-gray-300"
-                  >
-                    推理
-                  </th>
-                  <th
-                    class="min-w-[180px] px-3 py-4 text-left text-sm font-bold uppercase tracking-wider text-gray-700 dark:text-gray-300"
-                  >
-                    接口
-                  </th>
-                  <th
-                    class="min-w-[96px] px-3 py-4 text-left text-sm font-bold uppercase tracking-wider text-gray-700 dark:text-gray-300"
-                  >
-                    输入
-                  </th>
-                  <th
-                    class="min-w-[96px] px-3 py-4 text-left text-sm font-bold uppercase tracking-wider text-gray-700 dark:text-gray-300"
-                  >
-                    输出
-                  </th>
-                  <th
-                    class="min-w-[110px] px-3 py-4 text-left text-sm font-bold uppercase tracking-wider text-gray-700 dark:text-gray-300"
-                  >
-                    缓存读取
-                  </th>
-                  <th
-                    class="min-w-[110px] px-3 py-4 text-left text-sm font-bold uppercase tracking-wider text-gray-700 dark:text-gray-300"
-                  >
-                    缓存创建
-                  </th>
-                  <th
-                    class="min-w-[110px] px-3 py-4 text-left text-sm font-bold uppercase tracking-wider text-gray-700 dark:text-gray-300"
-                  >
-                    缓存命中率
-                  </th>
-                  <th
-                    class="min-w-[100px] px-3 py-4 text-left text-sm font-bold uppercase tracking-wider text-gray-700 dark:text-gray-300"
-                  >
-                    费用
-                  </th>
-                  <th
-                    class="min-w-[100px] px-3 py-4 text-left text-sm font-bold uppercase tracking-wider text-gray-700 dark:text-gray-300"
-                  >
-                    耗时
-                  </th>
-                  <th
-                    class="min-w-[96px] px-3 py-4 text-right text-sm font-bold uppercase tracking-wider text-gray-700 dark:text-gray-300"
-                  >
-                    操作
-                  </th>
+        <div v-else class="flex min-h-0 flex-1 flex-col overflow-hidden">
+          <!-- 桌面：表体内滚动，表头 sticky -->
+          <div class="table-container hidden min-h-0 flex-1 md:block">
+            <table class="request-table w-full table-fixed divide-y divide-gray-200 dark:divide-gray-700">
+              <colgroup>
+                <col class="w-[14%]" />
+                <col class="w-[18%]" />
+                <col class="w-[24%]" />
+                <col class="w-[26%]" />
+                <col class="w-[12%]" />
+                <col class="w-[6%]" />
+              </colgroup>
+              <thead class="sticky top-0 z-10 bg-gray-50 dark:bg-gray-800">
+                <tr class="text-left text-sm font-medium text-gray-500 dark:text-gray-400">
+                  <th class="px-2 py-2">时间</th>
+                  <th class="px-2 py-2">Key / 账户</th>
+                  <th class="px-2 py-2">模型 / 接口</th>
+                  <th class="px-2 py-2">Token</th>
+                  <th class="px-2 py-2">费用 / 耗时</th>
+                  <th class="px-2 py-2 text-right"></th>
                 </tr>
               </thead>
-              <tbody
-                class="divide-y divide-gray-200 bg-white dark:divide-gray-700 dark:bg-gray-900"
-              >
+              <tbody class="divide-y divide-gray-100 bg-white dark:divide-gray-800 dark:bg-gray-900">
                 <tr
                   v-for="record in records"
                   :key="record.requestId"
-                  class="request-row hover:bg-gray-50/90 dark:hover:bg-gray-800/70"
+                  class="hover:bg-gray-50 dark:hover:bg-gray-800/70"
                 >
-                  <td class="table-cell">
-                    <div class="font-medium">{{ formatDate(record.timestamp) }}</div>
-                    <div class="text-sm text-gray-500 dark:text-gray-400">
-                      {{ record.requestId }}
+                  <td class="table-cell align-top">
+                    <div
+                      class="cursor-pointer font-medium text-gray-900 hover:text-blue-600 dark:text-gray-100 dark:hover:text-blue-400"
+                      title="点击复制时间"
+                      @click="copyText(formatDate(record.timestamp), '时间')"
+                    >
+                      {{ formatDate(record.timestamp) }}
+                    </div>
+                    <div
+                      class="cursor-pointer truncate text-sm text-gray-400 hover:text-blue-500"
+                      :title="`点击复制 Request ID：${record.requestId || ''}`"
+                      @click="copyText(record.requestId, 'Request ID')"
+                    >
+                      {{ shortId(record.requestId) }}
                     </div>
                   </td>
-                  <td class="table-cell">
-                    <div class="font-semibold">
+                  <td class="table-cell align-top">
+                    <div
+                      class="cursor-pointer truncate font-medium text-gray-900 hover:text-blue-600 dark:text-gray-100 dark:hover:text-blue-400"
+                      :title="`点击复制 API Key：${record.apiKeyName || record.apiKeyId || ''}`"
+                      @click="copyText(record.apiKeyName || record.apiKeyId, 'API Key')"
+                    >
                       {{ record.apiKeyName || record.apiKeyId || '-' }}
                     </div>
-                    <div class="text-sm text-gray-500 dark:text-gray-400">
-                      {{ record.apiKeyId || '-' }}
-                    </div>
-                  </td>
-                  <td class="table-cell">
-                    <div class="font-semibold">
+                    <div
+                      class="cursor-pointer truncate text-sm text-gray-500 hover:text-blue-500 dark:text-gray-400"
+                      :title="`点击复制账户：${record.accountName || record.accountId || ''}`"
+                      @click="copyText(record.accountName || record.accountId, '账户')"
+                    >
                       {{ record.accountName || record.accountId || '-' }}
+                      <template v-if="record.accountTypeName || record.accountType">
+                        · {{ record.accountTypeName || record.accountType }}
+                      </template>
+                    </div>
+                  </td>
+                  <td class="table-cell align-top">
+                    <div
+                      class="cursor-pointer truncate font-medium text-gray-900 hover:text-blue-600 dark:text-gray-100 dark:hover:text-blue-400"
+                      :title="`点击复制模型：${record.model || ''}`"
+                      @click="copyText(record.model, '模型')"
+                    >
+                      {{ record.model || '-' }}
+                      <span
+                        v-if="formatReasoning(record.reasoningDisplay) !== '-'"
+                        class="ml-1 font-normal text-violet-600 dark:text-violet-400"
+                        :title="`点击复制推理：${formatReasoning(record.reasoningDisplay)}`"
+                        @click.stop="copyText(formatReasoning(record.reasoningDisplay), '推理')"
+                      >{{ formatReasoning(record.reasoningDisplay) }}</span>
+                    </div>
+                    <div
+                      class="cursor-pointer truncate text-sm text-gray-500 hover:text-blue-500 dark:text-gray-400"
+                      :title="`点击复制接口：${record.endpoint || ''}`"
+                      @click="copyText(record.endpoint, '接口')"
+                    >
+                      <span class="text-gray-400">{{ record.method || 'POST' }}</span>
+                      {{ shortEndpoint(record.endpoint) }}
+                      <template v-if="record.isLongContextRequest">
+                        · <span class="text-amber-600 dark:text-amber-400">长上下文</span>
+                      </template>
+                    </div>
+                  </td>
+                  <td class="table-cell align-top">
+                    <div class="flex flex-wrap gap-x-2 gap-y-0.5 text-sm leading-5">
+                      <span>
+                        <span class="text-gray-400">入</span>
+                        <span class="font-medium text-blue-600 dark:text-blue-400">{{
+                          formatNumber(record.inputTokens)
+                        }}</span>
+                      </span>
+                      <span>
+                        <span class="text-gray-400">出</span>
+                        <span class="font-medium text-green-600 dark:text-green-400">{{
+                          formatNumber(record.outputTokens)
+                        }}</span>
+                      </span>
+                      <span>
+                        <span class="text-gray-400">读</span>
+                        <span class="font-medium text-cyan-600 dark:text-cyan-400">{{
+                          formatNumber(record.cacheReadTokens)
+                        }}</span>
+                      </span>
+                      <span>
+                        <span class="text-gray-400">建</span>
+                        <span class="font-medium text-purple-600 dark:text-purple-400">{{
+                          formatCacheCreate(
+                            record.cacheCreateTokens,
+                            record.cacheCreateNotApplicable
+                          )
+                        }}</span>
+                      </span>
+                      <span class="text-gray-500 dark:text-gray-400">
+                        命中 {{ formatPercent(record.cacheHitRate) }}
+                      </span>
+                    </div>
+                  </td>
+                  <td class="table-cell align-top">
+                    <div class="font-semibold text-amber-600 dark:text-amber-400">
+                      {{ formatCost(record.cost) }}
+                      <span
+                        v-if="formatServiceTier(record.serviceTier)"
+                        class="ml-1 inline-flex rounded-full px-1.5 py-0.5 text-sm font-medium"
+                        :class="serviceTierClass(record.serviceTier)"
+                        :title="record.serviceTier"
+                      >
+                        {{ formatServiceTier(record.serviceTier) }}
+                      </span>
                     </div>
                     <div class="text-sm text-gray-500 dark:text-gray-400">
-                      {{ record.accountTypeName || record.accountType || '-' }}
+                      {{ formatDuration(record.durationMs) }}
+                      <template v-if="record.firstTokenMs != null">
+                        · 首字 {{ formatDuration(record.firstTokenMs) }}
+                      </template>
                     </div>
                   </td>
-                  <td class="table-cell">{{ record.model }}</td>
-                  <td class="table-cell">{{ formatReasoning(record.reasoningDisplay) }}</td>
-                  <td class="table-cell">
-                    <div>{{ record.endpoint || '-' }}</div>
-                    <div class="text-sm text-gray-500 dark:text-gray-400">
-                      {{ record.method || 'POST' }}
-                    </div>
-                  </td>
-                  <td class="table-cell text-blue-600 dark:text-blue-400">
-                    {{ formatNumber(record.inputTokens) }}
-                  </td>
-                  <td class="table-cell text-green-600 dark:text-green-400">
-                    {{ formatNumber(record.outputTokens) }}
-                  </td>
-                  <td class="table-cell text-cyan-600 dark:text-cyan-400">
-                    {{ formatNumber(record.cacheReadTokens) }}
-                  </td>
-                  <td class="table-cell text-purple-600 dark:text-purple-400">
-                    {{
-                      formatCacheCreate(record.cacheCreateTokens, record.cacheCreateNotApplicable)
-                    }}
-                  </td>
-                  <td class="table-cell">{{ formatPercent(record.cacheHitRate) }}</td>
-                  <td class="table-cell text-amber-600 dark:text-amber-400">
-                    {{ formatCost(record.cost) }}
-                  </td>
-                  <td class="table-cell">{{ formatDuration(record.durationMs) }}</td>
-                  <td class="table-cell text-right">
+                  <td class="table-cell align-top text-right">
                     <button
-                      class="inline-flex items-center rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 shadow-sm transition-all duration-200 hover:border-gray-300 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:border-gray-500 dark:hover:bg-gray-700"
+                      class="rounded border border-gray-200 px-1.5 py-0.5 text-sm text-gray-600 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-800"
+                      type="button"
                       @click="openDetail(record.requestId)"
                     >
                       详情
@@ -465,59 +496,79 @@
             </table>
           </div>
 
-          <div class="space-y-3 xl:hidden">
+          <!-- 小屏卡片：区域内滚动 -->
+          <div class="min-h-0 flex-1 space-y-2 overflow-y-auto md:hidden">
             <div
               v-for="record in records"
               :key="record.requestId"
-              class="card p-4 transition-shadow hover:shadow-lg"
+              class="w-full rounded-lg border border-gray-200 bg-white p-2.5 text-left dark:border-gray-700 dark:bg-gray-900"
             >
-              <div class="flex items-start justify-between gap-3">
-                <div>
-                  <p class="text-sm font-bold text-gray-900 dark:text-gray-100">
-                    {{ record.model }}
+              <div class="flex items-start justify-between gap-2">
+                <div class="min-w-0">
+                  <p
+                    class="cursor-pointer truncate text-sm font-semibold text-gray-900 hover:text-blue-600 dark:text-gray-100"
+                    @click="copyText(record.model, '模型')"
+                  >
+                    {{ record.model || '-' }}
+                    <span
+                      v-if="formatReasoning(record.reasoningDisplay) !== '-'"
+                      class="font-normal text-violet-600 dark:text-violet-400"
+                    >· {{ formatReasoning(record.reasoningDisplay) }}</span>
                   </p>
-                  <p class="text-sm text-gray-500 dark:text-gray-400">
-                    {{ formatDate(record.timestamp) }}
-                  </p>
-                  <p class="text-sm text-gray-500 dark:text-gray-400">
-                    {{ record.endpoint || '-' }}
+                  <p
+                    class="cursor-pointer text-sm text-gray-500 dark:text-gray-400"
+                    @click="copyText(record.requestId, 'Request ID')"
+                  >
+                    {{ formatDate(record.timestamp) }} · {{ shortId(record.requestId) }}
                   </p>
                 </div>
-                <button
-                  class="inline-flex items-center rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 shadow-sm transition-all duration-200 hover:border-gray-300 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:border-gray-500 dark:hover:bg-gray-700"
-                  @click="openDetail(record.requestId)"
-                >
-                  详情
-                </button>
+                <div class="flex shrink-0 flex-col items-end gap-1">
+                  <p class="text-sm font-semibold text-amber-600 dark:text-amber-400">
+                    {{ formatCost(record.cost) }}
+                    <span
+                      v-if="formatServiceTier(record.serviceTier)"
+                      class="ml-1 inline-flex rounded-full px-1.5 py-0.5 text-sm font-medium"
+                      :class="serviceTierClass(record.serviceTier)"
+                    >
+                      {{ formatServiceTier(record.serviceTier) }}
+                    </span>
+                  </p>
+                  <p class="text-sm text-gray-500">
+                    {{ formatDuration(record.durationMs) }}
+                    <template v-if="record.firstTokenMs != null">
+                      · 首字 {{ formatDuration(record.firstTokenMs) }}
+                    </template>
+                  </p>
+                  <button
+                    class="rounded border border-gray-200 px-1.5 py-0.5 text-sm text-gray-600 dark:border-gray-600 dark:text-gray-300"
+                    type="button"
+                    @click="openDetail(record.requestId)"
+                  >
+                    详情
+                  </button>
+                </div>
               </div>
-              <div class="mt-3 grid grid-cols-2 gap-2 text-sm text-gray-700 dark:text-gray-300">
-                <div>API Key：{{ record.apiKeyName || '-' }}</div>
-                <div>账户：{{ record.accountName || '-' }}</div>
-                <div>推理：{{ formatReasoning(record.reasoningDisplay) }}</div>
-                <div>输入：{{ formatNumber(record.inputTokens) }}</div>
-                <div>输出：{{ formatNumber(record.outputTokens) }}</div>
-                <div>缓存读：{{ formatNumber(record.cacheReadTokens) }}</div>
-                <div>
-                  缓存建：{{
-                    formatCacheCreate(record.cacheCreateTokens, record.cacheCreateNotApplicable)
-                  }}
-                </div>
-                <div>命中率：{{ formatPercent(record.cacheHitRate) }}</div>
-                <div>耗时：{{ formatDuration(record.durationMs) }}</div>
-                <div class="text-amber-600 dark:text-amber-400">
-                  费用：{{ formatCost(record.cost) }}
-                </div>
-                <div class="text-sm text-gray-500 dark:text-gray-400">{{ record.requestId }}</div>
-              </div>
+              <p
+                class="mt-1 cursor-pointer truncate text-sm text-gray-600 hover:text-blue-600 dark:text-gray-300"
+                @click="copyText(record.apiKeyName || record.apiKeyId, 'API Key')"
+              >
+                {{ record.apiKeyName || record.apiKeyId || '-' }}
+                · {{ record.accountName || record.accountId || '-' }}
+              </p>
+              <p class="mt-1 text-sm text-gray-600 dark:text-gray-300">
+                入 {{ formatNumber(record.inputTokens) }}
+                · 出 {{ formatNumber(record.outputTokens) }}
+                · 读 {{ formatNumber(record.cacheReadTokens) }}
+                · 建
+                {{
+                  formatCacheCreate(record.cacheCreateTokens, record.cacheCreateNotApplicable)
+                }}
+                · 命中 {{ formatPercent(record.cacheHitRate) }}
+              </p>
             </div>
           </div>
 
-          <div
-            class="flex flex-col gap-3 border-t border-gray-200 px-4 pb-4 pt-4 dark:border-gray-700 sm:flex-row sm:items-center sm:justify-between"
-          >
-            <div class="text-sm text-gray-500 dark:text-gray-400">
-              共 {{ pagination.totalRecords }} 条记录
-            </div>
+          <div class="shrink-0 border-t border-gray-200 px-2 pb-2 pt-2 dark:border-gray-700">
             <AppPagination
               v-model:current-page="pagination.currentPage"
               v-model:page-size="pagination.pageSize"
@@ -548,6 +599,7 @@ import {
   getRequestDetailBodyPreviewStatsApi,
   purgeRequestDetailBodyPreviewApi
 } from '@/libs/http_apis'
+import { isOk, msgOf } from '@/libs/http_envelope'
 import { showToast, formatDate, formatNumber, debounce } from '@/libs/tools'
 import RequestDetailModal from '@/components/admin/request_detail_modal.vue'
 import AppTooltip from '@/components/common/app_tooltip.vue'
@@ -627,6 +679,7 @@ const summary = reactive({
   cacheCreateTokens: 0,
   totalCost: 0,
   avgDurationMs: 0,
+  avgFirstTokenMs: null,
   cacheHitRate: 0,
   cacheHitNumerator: 0,
   cacheHitDenominator: 0,
@@ -749,6 +802,10 @@ const syncResponseState = (data) => {
   summary.cacheCreateTokens = summaryData.cacheCreateTokens || 0
   summary.totalCost = summaryData.totalCost || 0
   summary.avgDurationMs = summaryData.avgDurationMs || 0
+  summary.avgFirstTokenMs =
+    summaryData.avgFirstTokenMs === null || summaryData.avgFirstTokenMs === undefined
+      ? null
+      : summaryData.avgFirstTokenMs
   summary.cacheHitRate = summaryData.cacheHitRate || 0
   summary.cacheHitNumerator = summaryData.cacheHitNumerator || 0
   summary.cacheHitDenominator = summaryData.cacheHitDenominator || 0
@@ -771,8 +828,8 @@ const fetchRecords = async (page = pagination.currentPage) => {
   try {
     const response = await getRequestDetailsApi(buildParams(page))
     if (version !== fetchVersion) return
-    if (response?.success === false) {
-      showToast(response.message || '加载请求明细失败', 'error')
+    if (!isOk(response)) {
+      showToast(msgOf(response, '加载请求明细失败'), 'error')
       return
     }
     syncResponseState(response.data || {})
@@ -824,8 +881,8 @@ const handleRequestDetailBodyPreviewPurge = async () => {
   try {
     const statsResponse = await getRequestDetailBodyPreviewStatsApi()
 
-    if (statsResponse?.success === false) {
-      showToast(statsResponse.message || '检查历史请求体预览失败', 'error')
+    if (!isOk(statsResponse)) {
+      showToast(msgOf(statsResponse, '检查历史请求体预览失败'), 'error')
       return
     }
 
@@ -843,12 +900,12 @@ const handleRequestDetailBodyPreviewPurge = async () => {
     requestDetailBodyPreviewPurging.value = true
     const purgeResponse = await purgeRequestDetailBodyPreviewApi()
 
-    if (purgeResponse?.success === false) {
-      showToast(purgeResponse.message || '清理历史请求体预览失败', 'error')
+    if (!isOk(purgeResponse)) {
+      showToast(msgOf(purgeResponse, '清理历史请求体预览失败'), 'error')
       return
     }
 
-    showToast(purgeResponse?.message || '清理完毕', 'success')
+    showToast(msgOf(purgeResponse, '清理完毕'), 'success')
   } catch (error) {
     showToast('清理历史请求体预览失败', 'error')
     console.error(error)
@@ -857,7 +914,7 @@ const handleRequestDetailBodyPreviewPurge = async () => {
   }
 }
 
-const goToSettings = () => router.push('/settings/branding')
+const goToSettings = () => router.push('/settings/claude')
 const openDetail = (requestId) => {
   activeRequestId.value = requestId
   detailVisible.value = true
@@ -912,6 +969,7 @@ const exportCsv = async () => {
       '使用账户',
       '消费类型',
       '模型',
+      '档位',
       '推理',
       '接口',
       '输入',
@@ -920,7 +978,8 @@ const exportCsv = async () => {
       '缓存创建',
       '缓存命中率',
       '费用',
-      '耗时(ms)'
+      '耗时(ms)',
+      '首字(ms)'
     ]
 
     const rows = [headers.join(',')]
@@ -932,6 +991,7 @@ const exportCsv = async () => {
         record.accountName || record.accountId || '',
         record.accountTypeName || record.accountType || '',
         record.model || '',
+        formatServiceTier(record.serviceTier) || record.serviceTier || '',
         formatReasoning(record.reasoningDisplay),
         record.endpoint || '',
         record.inputTokens || 0,
@@ -940,7 +1000,8 @@ const exportCsv = async () => {
         formatCacheCreate(record.cacheCreateTokens, record.cacheCreateNotApplicable),
         formatPercent(record.cacheHitRate),
         formatCost(record.cost),
-        record.durationMs || 0
+        record.durationMs || 0,
+        record.firstTokenMs != null ? record.firstTokenMs : ''
       ]
       rows.push(row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(','))
     })
@@ -985,9 +1046,60 @@ const formatRetentionHours = (value) => {
 
   return `保留 ${hours} 小时`
 }
+const copyText = async (value, label = '内容') => {
+  const text = String(value ?? '').trim()
+  if (!text || text === '-') {
+    showToast(`没有可复制的${label}`, 'info')
+    return
+  }
+  try {
+    await navigator.clipboard.writeText(text)
+    showToast(`已复制${label}`, 'success')
+  } catch (_error) {
+    showToast('复制失败，请手动复制', 'error')
+  }
+}
+
+const shortId = (value) => {
+  const text = String(value || '').trim()
+  if (!text) return '-'
+  if (text.length <= 12) return text
+  return `${text.slice(0, 6)}…${text.slice(-4)}`
+}
+
+const shortEndpoint = (value) => {
+  const text = String(value || '').trim()
+  if (!text) return '-'
+  // 过长路径只留末两段，完整路径 hover title
+  const parts = text.split('/').filter(Boolean)
+  if (parts.length <= 3 && text.length <= 36) return text
+  if (parts.length >= 2) return `…/${parts.slice(-2).join('/')}`
+  return text.length > 36 ? `…${text.slice(-32)}` : text
+}
+
 const formatDuration = (value) => `${Number(value || 0)}ms`
 const formatPercent = (value) => `${Number(value || 0).toFixed(2)}%`
 const formatReasoning = (value) => value || '-'
+// OpenAI service_tier：fast/priority 同溢价档
+const formatServiceTier = (tier) => {
+  if (typeof tier !== 'string' || !tier.trim()) return ''
+  const normalized = tier.trim().toLowerCase()
+  if (normalized === 'fast' || normalized === 'priority') return 'Fast'
+  if (normalized === 'ultrafast') return 'Ultrafast'
+  if (normalized === 'flex') return 'Flex'
+  if (normalized === 'default' || normalized === 'auto') return 'Default'
+  return tier
+}
+const serviceTierClass = (tier) => {
+  const normalized = typeof tier === 'string' ? tier.trim().toLowerCase() : ''
+  if (normalized === 'fast' || normalized === 'priority' || normalized === 'ultrafast') {
+    return 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300'
+  }
+  if (normalized === 'flex') {
+    return 'bg-sky-100 text-sky-800 dark:bg-sky-900/40 dark:text-sky-300'
+  }
+  return 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300'
+}
 
 const debouncedKeywordFetch = debounce(() => {
   pagination.currentPage = 1
@@ -1032,69 +1144,64 @@ onMounted(() => {
 </script>
 
 <style scoped>
-.summary-card {
-  border: 1px solid rgba(226, 232, 240, 0.95);
-  border-radius: 16px;
-  padding: 18px;
-  background: linear-gradient(135deg, rgba(255, 255, 255, 0.98), rgba(248, 250, 252, 0.96));
-  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.04);
-}
-
-.dark .summary-card { background: linear-gradient(135deg, rgba(31, 41, 55, 0.96), rgba(17, 24, 39, 0.94));
-  border-color: rgba(75, 85, 99, 0.55);
-}
-
-.summary-label {
-  font-size: 14px;
-  font-weight: 600;
-  color: rgb(107 114 128);
-}
-
-.summary-value {
-  margin-top: 8px;
-  font-size: 24px;
-  font-weight: 800;
-  color: rgb(15 23 42);
-}
-
-.dark .summary-value {
-  color: rgb(241 245 249);
-}
-
-.summary-sub {
-  margin-top: 6px;
-  font-size: 14px;
-  color: rgb(100 116 139);
-}
 
 .request-toolbar {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 8px;
 }
 
 .request-filters {
   min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
+  flex: 1 1 auto;
 }
 
 .request-filter-row {
-  display: grid;
-  gap: 12px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
   min-width: 0;
-}
-
-.request-filter-row-primary,
-.request-filter-row-secondary {
-  grid-template-columns: minmax(0, 1fr);
 }
 
 .toolbar-control {
   position: relative;
   min-width: 0;
+  flex: 0 0 auto;
 }
+
+/* 日期：内容宽，上限约 20rem */
+.toolbar-control--date {
+  width: auto;
+  max-width: min(20rem, 100%);
+}
+
+/* 搜索：宽度交给全局 .toolbar-search-wrap（18rem） */
+.toolbar-control--search {
+  flex: 0 0 auto;
+  width: auto;
+  max-width: 100%;
+}
+
+/* 筛选下拉：固定可读宽度 */
+.toolbar-control--dd {
+  width: 10.5rem;
+}
+
+.toolbar-control--sort {
+  width: 8.5rem;
+}
+
+.toolbar-control--dd :deep(.cute-dropdown),
+.toolbar-control--sort :deep(.cute-dropdown) {
+  width: 100%;
+}
+
+.toolbar-control--date :deep(.adr) {
+  width: auto;
+  max-width: 100%;
+}
+
 
 .toolbar-control-glow {
   position: absolute;
@@ -1115,20 +1222,29 @@ onMounted(() => {
 
 .request-toolbar-actions {
   display: flex;
-  flex-direction: column;
-  gap: 12px;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  align-content: flex-start;
+  gap: 6px;
 }
 
 .toolbar-action-button {
-  min-width: 112px;
+  min-width: 0;
+  height: 2rem; /* 32px，与紧凑筛选控件同高，禁止被 stretch 拉高 */
+  min-height: 2rem;
+  max-height: 2rem;
+  padding: 0 0.625rem !important;
   white-space: nowrap;
+  flex: 0 0 auto;
+  align-self: center;
 }
 
 .table-cell {
-  padding: 14px 16px;
+  padding: 8px 8px;
   font-size: 14px;
   color: rgb(31 41 55);
-  vertical-align: middle;
+  vertical-align: top;
   text-align: left;
 }
 
@@ -1142,6 +1258,8 @@ onMounted(() => {
   border: 1px solid rgba(0, 0, 0, 0.05);
   width: 100%;
   position: relative;
+  /* 占满标题/筛选下方剩余高度，由表体内滚动 */
+  min-height: 0;
 }
 
 .dark .table-wrapper {
@@ -1149,61 +1267,50 @@ onMounted(() => {
 }
 
 .table-container {
-  overflow-x: auto;
-  overflow-y: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
   margin: 0;
   padding: 0;
   max-width: 100%;
-  position: relative;
-  -webkit-overflow-scrolling: touch;
+  width: 100%;
+  min-height: 0;
+  /* 兜底：父级 flex 未生效时仍限制高度 */
+  max-height: min(70vh, calc(100vh - 22rem));
 }
 
-.table-container table {
-  min-width: 1500px;
-  border-collapse: collapse;
-  table-layout: auto;
-}
-
+.table-container table,
 .request-table {
-  width: max(100%, 1500px);
+  width: 100%;
+  min-width: 0;
+  /* separate 才能稳定 sticky thead；collapse 下部分浏览器表头滚动会跟着跑 */
+  border-collapse: separate;
+  border-spacing: 0;
+  table-layout: fixed;
 }
 
-.table-container::-webkit-scrollbar {
-  height: 8px;
+.table-container thead th {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: rgb(249 250 251);
+  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.06);
 }
 
-.table-container::-webkit-scrollbar-track { background: #f3f4f6;
-  border-radius: 4px;
+:global(.dark) .table-container thead th,
+.dark .table-container thead th {
+  background: rgb(31 41 55);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.06);
 }
 
-.table-container::-webkit-scrollbar-thumb { background: #d1d5db;
-  border-radius: 4px;
+.request-table tbody tr:nth-child(even) {
+  background: rgba(249, 250, 251, 0.65);
 }
 
-.table-container::-webkit-scrollbar-thumb:hover { background: #9ca3af;
-}
-
-.dark .table-container::-webkit-scrollbar-track { background: rgba(31, 41, 55, 0.9);
-}
-
-.dark .table-container::-webkit-scrollbar-thumb { background: rgba(107, 114, 128, 0.9);
-}
-
-.request-table tbody tr:nth-child(even) { background: rgba(249, 250, 251, 0.65);
-}
-
-.dark .request-table tbody tr:nth-child(even) { background: rgba(31, 41, 55, 0.55);
+.dark .request-table tbody tr:nth-child(even) {
+  background: rgba(31, 41, 55, 0.55);
 }
 
 @media (min-width: 768px) {
-  .request-filter-row-primary {
-    grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr);
-  }
-
-  .request-filter-row-secondary {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-
   .request-toolbar-actions {
     flex-direction: row;
     flex-wrap: wrap;
@@ -1218,18 +1325,10 @@ onMounted(() => {
     gap: 16px;
   }
 
-  .request-filter-row-primary {
-    grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr);
-  }
-
-  .request-filter-row-secondary {
-    grid-template-columns: repeat(5, minmax(0, 1fr));
-  }
-
   .request-toolbar-actions {
-    align-self: stretch;
+    align-self: start;
     justify-content: flex-end;
-    flex-wrap: nowrap;
+    flex-wrap: wrap;
   }
 }
 </style>

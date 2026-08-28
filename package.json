@@ -78,6 +78,7 @@
     "string-similarity": "^4.0.4",
     "table": "^6.9.0",
     "winston": "^3.19.0",
+    "zod": "^3.24.0",
     "winston-daily-rotate-file": "^5.0.0"
   },
   "devDependencies": {

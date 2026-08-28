@@ -27,7 +27,7 @@ const OAUTH_SESSION_TTL_SECONDS = Math.floor((xaiHelper.XAI_DEFAULTS.sessionTtlM
 setInterval(
   () => {
     encryptor.clearCache()
-    logger.info('🧹 Grok decrypt cache cleanup completed', encryptor.getStats())
+    logger.info('Grok decrypt cache cleanup completed', encryptor.getStats())
   },
   10 * 60 * 1000,
 ).unref?.()
@@ -799,16 +799,8 @@ class GrokAccountService {
       return
     }
     if (account.disableAutoProtection === true || account.disableAutoProtection === 'true') {
-      logger.info(`🛡️ Grok account ${accountId} has auto-protection disabled, skip markAccountRateLimited`)
-      upstreamErrorHelper
-        .recordErrorHistory(
-          accountId,
-          'grok',
-          429,
-          'rate_limit',
-          upstreamErrorHelper.buildErrorContext({ reason: 'auto_protection_disabled_rate_limit' }),
-        )
-        .catch((e) => console.error(e))
+      logger.info(`Grok account ${accountId} has auto-protection disabled, skip markAccountRateLimited`)
+      // 详细错误历史由 relay 层 markTempUnavailable 写入，此处只跳过自动暂停
       return
     }
 
@@ -832,16 +824,8 @@ class GrokAccountService {
       return
     }
     if (account.disableAutoProtection === true || account.disableAutoProtection === 'true') {
-      logger.info(`🛡️ Grok account ${accountId} has auto-protection disabled, skip markAccountUnauthorized`)
-      upstreamErrorHelper
-        .recordErrorHistory(
-          accountId,
-          'grok',
-          401,
-          'auth_error',
-          upstreamErrorHelper.buildErrorContext({ reason: 'auto_protection_disabled_unauthorized' }),
-        )
-        .catch((e) => console.error(e))
+      logger.info(`Grok account ${accountId} has auto-protection disabled, skip markAccountUnauthorized`)
+      // 详细错误历史由 relay 层 markTempUnavailable 写入，此处只跳过自动暂停
       return
     }
 

@@ -51,7 +51,7 @@
           </div>
         </div>
         <p class="mt-3 text-sm text-blue-700 dark:text-blue-200 sm:text-sm">
-          💡 在 Droid CLI 中选择自定义模型即可使用新的 Droid 账号池；确保服务地址可被本地访问。
+          在 Droid CLI 中选择自定义模型即可使用新的 Droid 账号池；确保服务地址可被本地访问。
         </p>
       </div>
     </div>

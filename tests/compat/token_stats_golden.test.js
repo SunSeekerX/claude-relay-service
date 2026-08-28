@@ -1,7 +1,7 @@
 import { redis } from '../../src/infra/redis.js'
 // Golden 测试:在 compat 抽取(四期)之前,黑盒锁死两个 token 标准化闭包的现行行为。
-//   - getUsageStats 内 handleLegacyData(redis.js:1720):API Key 维度,旧单字段按 30/70 拆 input/output
-//   - getAccountUsageStats 内 handleAccountData(redis.js:2225):账户维度,不拆分
+// - getUsageStats 内 handleLegacyData(redis.js:1720):API Key 维度,旧单字段按 30/70 拆 input/output
+// - getAccountUsageStats 内 handleAccountData(redis.js:2225):账户维度,不拆分
 // 四期抽出 compat 纯函数后,白盒测试复用同一批 case;两套全绿 = 行为逐字节一致。
 
 jest.mock('../../config/config', () => ({ system: { timezoneOffset: 8 } }), { virtual: true })

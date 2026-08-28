@@ -1,4 +1,5 @@
 import express from 'express'
+
 import { bedrockAccountService } from './account_bedrock_service.js'
 import { testModelConfigService } from '../relay/relay_test_model_config_service.js'
 import { apiKeyService } from '../apikey/apikey_service.js'
@@ -9,22 +10,23 @@ import { logger } from '../../common/logger.js'
 import { webhookNotifier } from '../webhook/webhook_notifier.js'
 import { formatAccountExpiry, mapExpiryField } from '../admin/admin_utils_routes.js'
 import { stripReadonlyAccountFields } from '../../common/common_helper.js'
-/**
- * Admin Routes - Bedrock Accounts Management
- * AWS Bedrock 账户管理路由
- */
+import { asyncRoute, SEND_RAW } from '../../common/route_handler.js'
+import { ok, badRequest, notFound, HttpError } from '../../common/http_result.js'
+import { parseObjectBody } from '../../common/parse_body.js'
+// Admin Routes - Bedrock Accounts Management
+// AWS Bedrock 账户管理路由
 
 export const router = express.Router()
 
-// ☁️ Bedrock 账户管理
-
 // 获取所有Bedrock账户
-router.get('/', authenticateAdmin, async (req, res) => {
-  try {
+router.get(
+  '/',
+  authenticateAdmin,
+  asyncRoute('Failed to get Bedrock accounts', async (req) => {
     const { platform, groupId } = req.query
     const result = await bedrockAccountService.getAllAccounts()
     if (!result.success) {
-      return res.status(500).json({ error: 'Failed to get Bedrock accounts', message: result.error })
+      throw new HttpError(500, result.error || 'Failed to get Bedrock accounts')
     }
 
     let accounts = result.data
@@ -72,7 +74,7 @@ router.get('/', authenticateAdmin, async (req, res) => {
             },
           }
         } catch (statsError) {
-          logger.warn(`⚠️ Failed to get usage stats for Bedrock account ${account.id}:`, statsError.message)
+          logger.warn(`Failed to get usage stats for Bedrock account ${account.id}:`, statsError.message)
           try {
             const groupInfos = await accountGroupService.getAccountGroups(account.id)
             const formattedAccount = formatAccountExpiry(account)
@@ -86,7 +88,7 @@ router.get('/', authenticateAdmin, async (req, res) => {
               },
             }
           } catch (groupError) {
-            logger.warn(`⚠️ Failed to get group info for account ${account.id}:`, groupError.message)
+            logger.warn(`Failed to get group info for account ${account.id}:`, groupError.message)
             return {
               ...account,
               groupInfos: [],
@@ -101,16 +103,15 @@ router.get('/', authenticateAdmin, async (req, res) => {
       }),
     )
 
-    return res.json({ success: true, data: accountsWithStats })
-  } catch (error) {
-    logger.error('❌ Failed to get Bedrock accounts:', error)
-    return res.status(500).json({ error: 'Failed to get Bedrock accounts', message: error.message })
-  }
-})
+    return accountsWithStats
+  }),
+)
 
 // 创建新的Bedrock账户
-router.post('/', authenticateAdmin, async (req, res) => {
-  try {
+router.post(
+  '/',
+  authenticateAdmin,
+  asyncRoute('Failed to create Bedrock account', async (req) => {
     const {
       name,
       description,
@@ -122,27 +123,25 @@ router.post('/', authenticateAdmin, async (req, res) => {
       accountType,
       credentialType,
       proxy,
-    } = req.body
+    } = parseObjectBody(req.body, '创建Bedrock账户')
 
     if (!name) {
-      return res.status(400).json({ error: 'Name is required' })
+      throw badRequest('Name is required')
     }
 
     // 验证priority的有效性（1-100）
     if (priority !== undefined && (priority < 1 || priority > 100)) {
-      return res.status(400).json({ error: 'Priority must be between 1 and 100' })
+      throw badRequest('Priority must be between 1 and 100')
     }
 
     // 验证accountType的有效性
     if (accountType && !['shared', 'dedicated'].includes(accountType)) {
-      return res.status(400).json({ error: 'Invalid account type. Must be "shared" or "dedicated"' })
+      throw badRequest('Invalid account type. Must be "shared" or "dedicated"')
     }
 
     // 验证credentialType的有效性
     if (credentialType && !['access_key', 'bearer_token'].includes(credentialType)) {
-      return res.status(400).json({
-        error: 'Invalid credential type. Must be "access_key" or "bearer_token"',
-      })
+      throw badRequest('Invalid credential type. Must be "access_key" or "bearer_token"')
     }
 
     const result = await bedrockAccountService.createAccount({
@@ -159,62 +158,57 @@ router.post('/', authenticateAdmin, async (req, res) => {
     })
 
     if (!result.success) {
-      return res.status(500).json({ error: 'Failed to create Bedrock account', message: result.error })
+      throw new HttpError(500, result.error || 'Failed to create Bedrock account')
     }
 
-    logger.success(`☁️ Admin created Bedrock account: ${name}`)
-    const formattedAccount = formatAccountExpiry(result.data)
-    return res.json({ success: true, data: formattedAccount })
-  } catch (error) {
-    logger.error('❌ Failed to create Bedrock account:', error)
-    return res.status(500).json({ error: 'Failed to create Bedrock account', message: error.message })
-  }
-})
+    logger.success(`Admin created Bedrock account: ${name}`)
+    return formatAccountExpiry(result.data)
+  }),
+)
 
 // 更新Bedrock账户
-router.put('/:accountId', authenticateAdmin, async (req, res) => {
-  try {
+router.put(
+  '/:accountId',
+  authenticateAdmin,
+  asyncRoute('Failed to update Bedrock account', async (req) => {
     const { accountId } = req.params
-    const updates = req.body
+    const updates = parseObjectBody(req.body, '更新Bedrock账户')
 
-    // ✅ 【新增】映射字段名：前端的 expiresAt -> 后端的 subscriptionExpiresAt
+    // 【新增】映射字段名：前端的 expiresAt -> 后端的 subscriptionExpiresAt
     // review#3：剥离外部传入的状态类字段，禁止伪造自动停用证据
     const mappedUpdates = stripReadonlyAccountFields(mapExpiryField(updates, 'Bedrock', accountId))
 
     // 验证priority的有效性（1-100）
     if (mappedUpdates.priority !== undefined && (mappedUpdates.priority < 1 || mappedUpdates.priority > 100)) {
-      return res.status(400).json({ error: 'Priority must be between 1 and 100' })
+      throw badRequest('Priority must be between 1 and 100')
     }
 
     // 验证accountType的有效性
     if (mappedUpdates.accountType && !['shared', 'dedicated'].includes(mappedUpdates.accountType)) {
-      return res.status(400).json({ error: 'Invalid account type. Must be "shared" or "dedicated"' })
+      throw badRequest('Invalid account type. Must be "shared" or "dedicated"')
     }
 
     // 验证credentialType的有效性
     if (mappedUpdates.credentialType && !['access_key', 'bearer_token'].includes(mappedUpdates.credentialType)) {
-      return res.status(400).json({
-        error: 'Invalid credential type. Must be "access_key" or "bearer_token"',
-      })
+      throw badRequest('Invalid credential type. Must be "access_key" or "bearer_token"')
     }
 
     const result = await bedrockAccountService.updateAccount(accountId, mappedUpdates)
 
     if (!result.success) {
-      return res.status(500).json({ error: 'Failed to update Bedrock account', message: result.error })
+      throw new HttpError(500, result.error || 'Failed to update Bedrock account')
     }
 
-    logger.success(`📝 Admin updated Bedrock account: ${accountId}`)
-    return res.json({ success: true, message: 'Bedrock account updated successfully' })
-  } catch (error) {
-    logger.error('❌ Failed to update Bedrock account:', error)
-    return res.status(500).json({ error: 'Failed to update Bedrock account', message: error.message })
-  }
-})
+    logger.success(`Admin updated Bedrock account: ${accountId}`)
+    return ok(undefined, 'Bedrock account updated successfully')
+  }),
+)
 
 // 删除Bedrock账户
-router.delete('/:accountId', authenticateAdmin, async (req, res) => {
-  try {
+router.delete(
+  '/:accountId',
+  authenticateAdmin,
+  asyncRoute('Failed to delete Bedrock account', async (req) => {
     const { accountId } = req.params
 
     // 自动解绑所有绑定的 API Keys
@@ -223,7 +217,7 @@ router.delete('/:accountId', authenticateAdmin, async (req, res) => {
     const result = await bedrockAccountService.deleteAccount(accountId)
 
     if (!result.success) {
-      return res.status(500).json({ error: 'Failed to delete Bedrock account', message: result.error })
+      throw new HttpError(500, result.error || 'Failed to delete Bedrock account')
     }
 
     let message = 'Bedrock账号已成功删除'
@@ -231,26 +225,21 @@ router.delete('/:accountId', authenticateAdmin, async (req, res) => {
       message += `，${unboundCount} 个 API Key 已切换为共享池模式`
     }
 
-    logger.success(`🗑️ Admin deleted Bedrock account: ${accountId}, unbound ${unboundCount} keys`)
-    return res.json({
-      success: true,
-      message,
-      unboundKeys: unboundCount,
-    })
-  } catch (error) {
-    logger.error('❌ Failed to delete Bedrock account:', error)
-    return res.status(500).json({ error: 'Failed to delete Bedrock account', message: error.message })
-  }
-})
+    logger.success(`Admin deleted Bedrock account: ${accountId}, unbound ${unboundCount} keys`)
+    return ok({ unboundKeys: unboundCount }, message)
+  }),
+)
 
 // 切换Bedrock账户状态
-router.put('/:accountId/toggle', authenticateAdmin, async (req, res) => {
-  try {
+router.put(
+  '/:accountId/toggle',
+  authenticateAdmin,
+  asyncRoute('Failed to toggle Bedrock account status', async (req) => {
     const { accountId } = req.params
 
     const accountResult = await bedrockAccountService.getAccount(accountId)
     if (!accountResult.success) {
-      return res.status(404).json({ error: 'Account not found' })
+      throw notFound('Account not found')
     }
 
     const newStatus = !accountResult.data.isActive
@@ -259,25 +248,24 @@ router.put('/:accountId/toggle', authenticateAdmin, async (req, res) => {
     })
 
     if (!updateResult.success) {
-      return res.status(500).json({ error: 'Failed to toggle account status', message: updateResult.error })
+      throw new HttpError(500, updateResult.error || 'Failed to toggle account status')
     }
 
-    logger.success(`🔄 Admin toggled Bedrock account status: ${accountId} -> ${newStatus ? 'active' : 'inactive'}`)
-    return res.json({ success: true, isActive: newStatus })
-  } catch (error) {
-    logger.error('❌ Failed to toggle Bedrock account status:', error)
-    return res.status(500).json({ error: 'Failed to toggle account status', message: error.message })
-  }
-})
+    logger.success(`Admin toggled Bedrock account status: ${accountId} -> ${newStatus ? 'active' : 'inactive'}`)
+    return { isActive: newStatus }
+  }),
+)
 
 // 切换Bedrock账户调度状态
-router.put('/:accountId/toggle-schedulable', authenticateAdmin, async (req, res) => {
-  try {
+router.put(
+  '/:accountId/toggle-schedulable',
+  authenticateAdmin,
+  asyncRoute('Failed to toggle Bedrock account schedulable status', async (req) => {
     const { accountId } = req.params
 
     const accountResult = await bedrockAccountService.getAccount(accountId)
     if (!accountResult.success) {
-      return res.status(404).json({ error: 'Account not found' })
+      throw notFound('Account not found')
     }
 
     const newSchedulable = !accountResult.data.schedulable
@@ -286,7 +274,7 @@ router.put('/:accountId/toggle-schedulable', authenticateAdmin, async (req, res)
     })
 
     if (!updateResult.success) {
-      return res.status(500).json({ error: 'Failed to toggle schedulable status', message: updateResult.error })
+      throw new HttpError(500, updateResult.error || 'Failed to toggle schedulable status')
     }
 
     // 如果账号被禁用，发送webhook通知
@@ -303,40 +291,37 @@ router.put('/:accountId/toggle-schedulable', authenticateAdmin, async (req, res)
     }
 
     logger.success(
-      `🔄 Admin toggled Bedrock account schedulable status: ${accountId} -> ${
+      ` Admin toggled Bedrock account schedulable status: ${accountId} -> ${
         newSchedulable ? 'schedulable' : 'not schedulable'
       }`,
     )
-    return res.json({ success: true, schedulable: newSchedulable })
-  } catch (error) {
-    logger.error('❌ Failed to toggle Bedrock account schedulable status:', error)
-    return res.status(500).json({ error: 'Failed to toggle schedulable status', message: error.message })
-  }
-})
+    return { schedulable: newSchedulable }
+  }),
+)
 
 // 测试Bedrock账户连接（SSE 流式）
-router.post('/:accountId/test', authenticateAdmin, async (req, res) => {
-  try {
+router.post(
+  '/:accountId/test',
+  authenticateAdmin,
+  asyncRoute('Failed to test Bedrock account', async (req, res) => {
     const { accountId } = req.params
 
     // 请求显式指定优先，否则用后台配置的默认测试模型（单一事实源）
-    const model = await testModelConfigService.resolveAccountModel('bedrock', req.body.model)
+    const body = parseObjectBody(req.body, '测试Bedrock账户')
+    const model = await testModelConfigService.resolveAccountModel('bedrock', body.model)
     await bedrockAccountService.testAccountConnection(accountId, res, model)
-  } catch (error) {
-    logger.error('❌ Failed to test Bedrock account:', error)
-    // 错误已在服务层处理，这里仅做日志记录
-  }
-})
+    return SEND_RAW
+  }),
+)
 
 // 重置 Bedrock 账户状态
-router.post('/:accountId/reset-status', authenticateAdmin, async (req, res) => {
-  try {
+router.post(
+  '/:accountId/reset-status',
+  authenticateAdmin,
+  asyncRoute('Failed to reset Bedrock account status', async (req) => {
     const { accountId } = req.params
     const result = await bedrockAccountService.resetAccountStatus(accountId)
     logger.success(`Admin reset status for Bedrock account: ${accountId}`)
-    return res.json({ success: true, data: result })
-  } catch (error) {
-    logger.error('❌ Failed to reset Bedrock account status:', error)
-    return res.status(500).json({ error: 'Failed to reset status', message: error.message })
-  }
-})
+    return result
+  }),
+)

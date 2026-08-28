@@ -6,6 +6,7 @@ import { handleResponses, CODEX_CLI_INSTRUCTIONS } from './relay_openai_routes.j
 import { apiKeyService } from '../apikey/apikey_service.js'
 import { GeminiToOpenAIConverter } from './relay_gemini_to_openai.js'
 import { CodexToOpenAIConverter } from './relay_codex_to_openai.js'
+import * as thinkingMap from './translator/relay_translator_thinking.js'
 import { grokRelayService } from './relay_grok_relay_service.js'
 import crypto from 'node:crypto'
 import {
@@ -15,7 +16,7 @@ import {
 // 从 handlers/geminiHandlers.js 导入 standard 处理函数（支持 OAuth + API Key 双账户类型）
 export const unifiedRoutes = express.Router()
 
-// 🔍 根据模型名称检测后端类型
+// 根据模型名称检测后端类型
 export const detectBackendFromModel = function detectBackendFromModel(modelName) {
   if (!modelName) {
     return 'claude' // 默认 Claude
@@ -47,11 +48,11 @@ export const detectBackendFromModel = function detectBackendFromModel(modelName)
   return 'claude'
 }
 
-// 🚀 智能后端路由处理器
+// 智能后端路由处理器
 export const routeToBackend = async function routeToBackend(req, res, requestedModel) {
   const backend = detectBackendFromModel(requestedModel)
 
-  logger.info(`🔀 Routing request - Model: ${requestedModel}, Backend: ${backend}`)
+  logger.info(`Routing request - Model: ${requestedModel}, Backend: ${backend}`)
 
   // 检查权限
   const { permissions } = req.apiKey
@@ -337,7 +338,7 @@ export const routeToBackend = async function routeToBackend(req, res, requestedM
   }
 }
 
-// 🔄 OpenAI 兼容的 chat/completions 端点（智能后端路由）
+// OpenAI 兼容的 chat/completions 端点（智能后端路由）
 unifiedRoutes.post('/v1/chat/completions', authenticateApiKey, async (req, res) => {
   try {
     // 验证必需参数
@@ -351,13 +352,24 @@ unifiedRoutes.post('/v1/chat/completions', authenticateApiKey, async (req, res) 
       })
     }
 
-    const requestedModel = req.body.model || 'claude-3-5-sonnet-20241022'
+    let requestedModel = req.body.model || 'claude-3-5-sonnet-20241022'
+    // 模型名后缀：-thinking / -high / -thinking-128 → reasoning_effort
+    const suffix = thinkingMap.parseThinkingModelSuffix(requestedModel)
+    if (suffix.baseModel && suffix.baseModel !== requestedModel) {
+      requestedModel = suffix.baseModel
+      req.body.model = requestedModel
+    }
+    if (suffix.forceOff) {
+      req.body.reasoning_effort = 'none'
+    } else if (suffix.effort && !req.body.reasoning_effort) {
+      req.body.reasoning_effort = suffix.effort
+    }
     req.body.model = requestedModel // 确保模型已设置
 
     // 使用统一的后端路由处理器
     await routeToBackend(req, res, requestedModel)
   } catch (error) {
-    logger.error('❌ OpenAI chat/completions error:', error)
+    logger.error('OpenAI chat/completions error:', error)
     if (!res.headersSent) {
       res.status(500).json({
         error: {
@@ -370,7 +382,7 @@ unifiedRoutes.post('/v1/chat/completions', authenticateApiKey, async (req, res) 
   }
 })
 
-// 🔄 OpenAI 兼容的 completions 端点（传统格式，智能后端路由）
+// OpenAI 兼容的 completions 端点（传统格式，智能后端路由）
 unifiedRoutes.post('/v1/completions', authenticateApiKey, async (req, res) => {
   try {
     // 验证必需参数
@@ -411,7 +423,7 @@ unifiedRoutes.post('/v1/completions', authenticateApiKey, async (req, res) => {
     // 使用统一的后端路由处理器
     await routeToBackend(req, res, requestedModel)
   } catch (error) {
-    logger.error('❌ OpenAI completions error:', error)
+    logger.error('OpenAI completions error:', error)
     if (!res.headersSent) {
       res.status(500).json({
         error: {

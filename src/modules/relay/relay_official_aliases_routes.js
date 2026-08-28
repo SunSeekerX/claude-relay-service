@@ -2,7 +2,7 @@ import express from 'express'
 import { authenticateApiKey } from '../../infra/middleware_auth.js'
 import { logger } from '../../common/logger.js'
 import { handleMessagesRequest, handleCountTokensRequest } from './relay_api_routes.js'
-import { handleResponses, handleModels as handleOpenAIModels } from './relay_openai_routes.js'
+import { handleResponses, handleModels as handleOpenAIModels, openaiRoutes } from './relay_openai_routes.js'
 import { unifiedRoutes } from './relay_unified_routes.js'
 import { router as standardGeminiRoutes } from './relay_standard_gemini_routes.js'
 import { modelService } from '../pricing/pricing_model_service.js'
@@ -102,5 +102,7 @@ export const createOfficialAliasRouter = () => {
   // ---------- Gemini 官方根路径（standard 内已是 /v1beta 与 /v1internal）----------
   router.use(standardGeminiRoutes)
 
+  // OpenAI embeddings / audio / moderations（挂到根路径，委托 openai router）
+  router.use(openaiRoutes)
   return router
 }

@@ -35,7 +35,7 @@ export const attach = function attach(redisClient) {
       await client.ltrim(key, 0, ACCOUNT_TEST_HISTORY_MAX - 1)
       await client.expire(key, ACCOUNT_TEST_HISTORY_TTL)
 
-      logger.debug(`📝 Saved test result for ${platform} account ${accountId}`)
+      logger.debug(`Saved test result for ${platform} account ${accountId}`)
     } catch (error) {
       logger.error(`Failed to save test result for ${accountId}:`, error)
     }
@@ -115,7 +115,7 @@ export const attach = function attach(redisClient) {
    * @param {string} platform - 平台类型
    * @param {Object} config - 配置对象
    * @param {boolean} config.enabled - 是否启用定时测试
-   * @param {string} config.cronExpression - Cron 表达式 (如 "0 8 * * *" 表示每天8点)
+   * @param {string} config.cronExpression - Cron 表达式 (如 "0 8 * * *"表示每天8点)
    * @param {string} config.model - 测试使用的模型
    */
   redisClient.saveAccountTestConfig = async function (accountId, platform, testConfig) {

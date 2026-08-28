@@ -136,6 +136,7 @@
 import { ref, computed, onMounted, watch } from 'vue'
 
 import { getAccountBalanceApi, refreshAccountBalanceApi } from '@/libs/http_apis'
+import { isOk, msgOf } from '@/libs/http_envelope'
 import { formatNumber } from '@/libs/tools'
 
 const props = defineProps({
@@ -271,10 +272,10 @@ const load = async () => {
     queryApi: props.queryMode === 'api' ? true : props.queryMode === 'auto' ? 'auto' : false
   }
   const response = await getAccountBalanceApi(props.accountId, params)
-  if (response?.success) {
+  if (isOk(response)) {
     balanceData.value = response.data
   } else {
-    requestError.value = response?.error || '加载失败'
+    requestError.value = msgOf(response, '加载失败')
   }
   loading.value = false
 }
@@ -288,11 +289,11 @@ const refresh = async () => {
   requestError.value = null
 
   const response = await refreshAccountBalanceApi(props.accountId, { platform: props.platform })
-  if (response?.success) {
+  if (isOk(response)) {
     balanceData.value = response.data
     emit('refreshed', response.data)
   } else {
-    requestError.value = response?.error || '刷新失败'
+    requestError.value = msgOf(response, '刷新失败')
   }
   refreshing.value = false
 }

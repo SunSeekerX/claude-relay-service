@@ -34,7 +34,7 @@ export const startDeviceAuthorization = async function startDeviceAuthorization(
   const agent = ProxyHelper.createProxyAgent(proxyConfig)
 
   try {
-    logger.info('🔐 请求 WorkOS 设备码授权', {
+    logger.info('请求 WorkOS 设备码授权', {
       url: WORKOS_DEVICE_AUTHORIZE_URL,
       hasProxy: !!agent,
     })
@@ -75,7 +75,7 @@ export const startDeviceAuthorization = async function startDeviceAuthorization(
     }
   } catch (error) {
     if (error.response) {
-      logger.error('❌ WorkOS 设备码授权失败', {
+      logger.error('WorkOS 设备码授权失败', {
         status: error.response.status,
         data: error.response.data,
       })
@@ -85,7 +85,7 @@ export const startDeviceAuthorization = async function startDeviceAuthorization(
       )
     }
 
-    logger.error('❌ 请求 WorkOS 设备码授权异常', {
+    logger.error('请求 WorkOS 设备码授权异常', {
       message: error.message,
     })
     throw new WorkOSDeviceAuthError(error.message)
@@ -133,7 +133,7 @@ export const pollDeviceAuthorization = async function pollDeviceAuthorization(de
       throw new WorkOSDeviceAuthError('WorkOS 返回结果缺少 access_token', 'missing_access_token')
     }
 
-    logger.success('🤖 Droid 授权完成，获取到访问令牌', {
+    logger.success('Droid 授权完成，获取到访问令牌', {
       hasRefreshToken: !!data.refresh_token,
     })
 
@@ -157,14 +157,14 @@ export const pollDeviceAuthorization = async function pollDeviceAuthorization(de
         throw new WorkOSDeviceAuthError(errorDescription, errorCode)
       }
 
-      logger.error('❌ WorkOS 设备授权轮询失败', {
+      logger.error('WorkOS 设备授权轮询失败', {
         status: error.response.status,
         data: responseData,
       })
       throw new WorkOSDeviceAuthError(errorDescription, errorCode)
     }
 
-    logger.error('❌ WorkOS 设备授权轮询异常', {
+    logger.error('WorkOS 设备授权轮询异常', {
       message: error.message,
     })
     throw new WorkOSDeviceAuthError(error.message)

@@ -200,6 +200,7 @@ import {
   updateDefaultBalanceScriptApi,
   testDefaultBalanceScriptApi
 } from '@/libs/http_apis'
+import { isOk, msgOf } from '@/libs/http_envelope'
 import { showToast } from '@/libs/tools'
 
 const form = reactive({
@@ -242,7 +243,7 @@ const presetScript = `({
 
 const loadConfig = async () => {
   const res = await getDefaultBalanceScriptApi()
-  if (res?.success && res.data) {
+  if (isOk(res) && res.data) {
     Object.assign(form, res.data)
   }
 }
@@ -250,10 +251,10 @@ const loadConfig = async () => {
 const saveConfig = async () => {
   saving.value = true
   const res = await updateDefaultBalanceScriptApi({ ...form })
-  if (res?.success) {
+  if (isOk(res)) {
     showToast('配置已保存', 'success')
   } else {
-    showToast(res?.message || '保存失败', 'error')
+    showToast(msgOf(res, '保存失败'), 'error')
   }
   saving.value = false
 }
@@ -263,11 +264,11 @@ const testScript = async () => {
   testResult.value = null
   const payload = { ...form, ...testForm, scriptBody: form.scriptBody }
   const res = await testDefaultBalanceScriptApi(payload)
-  if (res?.success) {
+  if (isOk(res)) {
     testResult.value = res.data
     showToast('测试完成', 'success')
   } else {
-    showToast(res?.error || '测试失败', 'error')
+    showToast(msgOf(res, '测试失败'), 'error')
   }
   testing.value = false
 }

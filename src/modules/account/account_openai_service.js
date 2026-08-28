@@ -14,11 +14,11 @@ import crypto from 'node:crypto'
 export const encryptor = createEncryptor('openai-account-salt')
 const { encrypt, decrypt } = encryptor
 
-// 🧹 定期清理缓存（每10分钟）
+// 定期清理缓存（每10分钟）
 setInterval(
   () => {
     encryptor.clearCache()
-    logger.info('🧹 OpenAI decrypt cache cleanup completed', encryptor.getStats())
+    logger.info('OpenAI decrypt cache cleanup completed', encryptor.getStats())
   },
   10 * 60 * 1000,
 )
@@ -130,19 +130,19 @@ const refreshAccessToken = async function refreshAccessToken(refreshToken, proxy
       requestOptions.httpAgent = proxyAgent
       requestOptions.httpsAgent = proxyAgent
       requestOptions.proxy = false
-      logger.info(`🌐 Using proxy for OpenAI token refresh: ${ProxyHelper.getProxyDescription(proxy)}`)
+      logger.info(`Using proxy for OpenAI token refresh: ${ProxyHelper.getProxyDescription(proxy)}`)
     } else {
-      logger.debug('🌐 No proxy configured for OpenAI token refresh')
+      logger.debug('No proxy configured for OpenAI token refresh')
     }
 
     // 发送请求
-    logger.info('🔍 发送 token 刷新请求，使用代理:', !!requestOptions.httpsAgent)
+    logger.info('发送 token 刷新请求，使用代理:', !!requestOptions.httpsAgent)
     const response = await axios(requestOptions)
 
     if (response.status === 200 && response.data) {
       const result = response.data
 
-      logger.info('✅ Successfully refreshed OpenAI token')
+      logger.info('Successfully refreshed OpenAI token')
 
       // 返回新的 token 信息
       return {
@@ -278,7 +278,7 @@ export const refreshAccountToken = async function refreshAccountToken(accountId)
 
     if (!lockAcquired) {
       // 如果无法获取锁，说明另一个进程正在刷新
-      logger.info(`🔒 Token refresh already in progress for OpenAI account: ${accountName} (${accountId})`)
+      logger.info(`Token refresh already in progress for OpenAI account: ${accountName} (${accountId})`)
       tokenRefreshLogger.logRefreshSkipped(accountId, accountName, 'openai', 'already_locked')
 
       // 等待一段时间后返回，期望其他进程已完成刷新
@@ -301,7 +301,7 @@ export const refreshAccountToken = async function refreshAccountToken(accountId)
 
     // 获取锁成功，开始刷新
     tokenRefreshLogger.logRefreshStart(accountId, accountName, 'openai')
-    logger.info(`🔄 Starting token refresh for OpenAI account: ${accountName} (${accountId})`)
+    logger.info(`Starting token refresh for OpenAI account: ${accountName} (${accountId})`)
 
     // 获取代理配置
     let proxy = null
@@ -396,7 +396,7 @@ export const refreshAccountToken = async function refreshAccountToken(accountId)
         reason: `Token refresh failed: ${error.message}`,
         timestamp: new Date().toISOString(),
       })
-      logger.info(`📢 Webhook notification sent for OpenAI account ${account?.name || accountName} refresh failure`)
+      logger.info(`Webhook notification sent for OpenAI account ${account?.name || accountName} refresh failure`)
     } catch (webhookError) {
       logger.error('Failed to send webhook notification:', webhookError)
     }
@@ -406,7 +406,7 @@ export const refreshAccountToken = async function refreshAccountToken(accountId)
     // 确保释放锁
     if (lockAcquired) {
       await tokenRefreshService.releaseRefreshLock(accountId, 'openai')
-      logger.debug(`🔓 Released refresh lock for OpenAI account ${accountId}`)
+      logger.debug(`Released refresh lock for OpenAI account ${accountId}`)
     }
   }
 }
@@ -461,7 +461,7 @@ export const createAccount = async function createAccount(accountData) {
       ? new Date(Date.now() + oauthData.expires_in * 1000).toISOString()
       : new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString(), // OAuth Token 过期时间（技术字段）
 
-    // ✅ 新增：账户订阅到期时间（业务字段，手动管理）
+    // 新增：账户订阅到期时间（业务字段，手动管理）
     subscriptionExpiresAt: accountData.subscriptionExpiresAt || null,
 
     // 状态字段
@@ -509,7 +509,7 @@ export const getAccount = async function getAccount(accountId) {
   }
   // 注意：accessToken 在 openaiRoutes.js 中会被单独解密，这里不解密
   // if (accountData.accessToken) {
-  //   accountData.accessToken = decrypt(accountData.accessToken)
+  // accountData.accessToken = decrypt(accountData.accessToken)
   // }
   if (accountData.refreshToken) {
     accountData.refreshToken = decrypt(accountData.refreshToken)
@@ -570,7 +570,7 @@ export const updateAccount = async function updateAccount(accountId, updates) {
     updates.proxy = typeof updates.proxy === 'string' ? updates.proxy : JSON.stringify(updates.proxy)
   }
 
-  // ✅ 如果通过路由映射更新了 subscriptionExpiresAt，直接保存
+  // 如果通过路由映射更新了 subscriptionExpiresAt，直接保存
   // subscriptionExpiresAt 是业务字段，与 token 刷新独立
   if (updates.subscriptionExpiresAt !== undefined) {
     // 直接保存，不做任何调整
@@ -725,7 +725,7 @@ export const getAllAccounts = async function getAllAccounts() {
         accessToken: maskedAccessToken,
         refreshToken: maskedRefreshToken,
 
-        // ✅ 前端显示订阅过期时间（业务字段）
+        // 前端显示订阅过期时间（业务字段）
         tokenExpiresAt,
         subscriptionExpiresAt,
         expiresAt: subscriptionExpiresAt,
@@ -858,7 +858,7 @@ export const selectAvailableAccount = async function selectAvailableAccount(apiK
     if (account && account.isActive === 'true' && !isRateLimited(account) && !isSubscriptionExpired(account)) {
       availableAccounts.push(account)
     } else if (account && isSubscriptionExpired(account)) {
-      logger.debug(`⏰ Skipping expired OpenAI account: ${account.name}, expired at ${account.subscriptionExpiresAt}`)
+      logger.debug(`Skipping expired OpenAI account: ${account.name}, expired at ${account.subscriptionExpiresAt}`)
     }
   }
 
@@ -915,18 +915,8 @@ export const setAccountRateLimited = async function setAccountRateLimited(
   if (isLimited) {
     const account = await getAccount(accountId)
     if (account && (account.disableAutoProtection === true || account.disableAutoProtection === 'true')) {
-      logger.info(`🛡️ Account ${accountId} has auto-protection disabled, skipping setAccountRateLimited`)
-      upstreamErrorHelper
-        .recordErrorHistory(
-          accountId,
-          'openai',
-          429,
-          'rate_limit',
-          upstreamErrorHelper.buildErrorContext({
-            reason: 'auto_protection_disabled_rate_limit',
-          }),
-        )
-        .catch(() => {})
+      logger.info(`Account ${accountId} has auto-protection disabled, skipping setAccountRateLimited`)
+      // 详细错误历史由 relay 层 markTempUnavailable 写入，此处只跳过自动暂停
       return
     }
   }
@@ -943,14 +933,14 @@ export const setAccountRateLimited = async function setAccountRateLimited(
     const resetTime = new Date(Date.now() + resetsInSeconds * 1000).toISOString()
     updates.rateLimitResetAt = resetTime
     logger.info(
-      `🕐 Account ${accountId} will be reset at ${resetTime} (in ${resetsInSeconds} seconds / ${Math.ceil(resetsInSeconds / 60)} minutes)`,
+      ` Account ${accountId} will be reset at ${resetTime} (in ${resetsInSeconds} seconds / ${Math.ceil(resetsInSeconds / 60)} minutes)`,
     )
   } else if (isLimited) {
     // 如果没有提供重置时间，使用默认的60分钟
     const defaultResetSeconds = 60 * 60 // 1小时
     const resetTime = new Date(Date.now() + defaultResetSeconds * 1000).toISOString()
     updates.rateLimitResetAt = resetTime
-    logger.warn(`⚠️ No reset time provided for account ${accountId}, using default 60 minutes. Reset at ${resetTime}`)
+    logger.warn(`No reset time provided for account ${accountId}, using default 60 minutes. Reset at ${resetTime}`)
   } else if (!isLimited) {
     updates.rateLimitResetAt = null
   }
@@ -975,14 +965,14 @@ export const setAccountRateLimited = async function setAccountRateLimited(
           : 'Account rate limited (429 error). Estimated reset in 1 hour',
         timestamp: new Date().toISOString(),
       })
-      logger.info(`📢 Webhook notification sent for OpenAI account ${account.name} rate limit`)
+      logger.info(`Webhook notification sent for OpenAI account ${account.name} rate limit`)
     } catch (webhookError) {
       logger.error('Failed to send rate limit webhook notification:', webhookError)
     }
   }
 }
 
-// 🚫 标记账户为未授权状态（401错误）
+// 标记账户为未授权状态（401错误）
 export const markAccountUnauthorized = async function markAccountUnauthorized(
   accountId,
   reason = 'OpenAI账号认证失败（401错误）',
@@ -994,18 +984,8 @@ export const markAccountUnauthorized = async function markAccountUnauthorized(
 
   // disableAutoProtection 检查
   if (account.disableAutoProtection === true || account.disableAutoProtection === 'true') {
-    logger.info(`🛡️ Account ${accountId} has auto-protection disabled, skipping markAccountUnauthorized`)
-    upstreamErrorHelper
-      .recordErrorHistory(
-        accountId,
-        'openai',
-        401,
-        'auth_error',
-        upstreamErrorHelper.buildErrorContext({
-          reason: 'auto_protection_disabled_unauthorized',
-        }),
-      )
-      .catch(() => {})
+    logger.info(`Account ${accountId} has auto-protection disabled, skipping markAccountUnauthorized`)
+    // 详细错误历史由 relay 层 markTempUnavailable 写入，此处只跳过自动暂停
     return
   }
 
@@ -1022,7 +1002,7 @@ export const markAccountUnauthorized = async function markAccountUnauthorized(
   }
 
   await updateAccount(accountId, updates)
-  logger.warn(`🚫 Marked OpenAI account ${account.name || accountId} as unauthorized due to 401 error`)
+  logger.warn(`Marked OpenAI account ${account.name || accountId} as unauthorized due to 401 error`)
 
   try {
     await webhookNotifier.sendAccountAnomalyNotification({
@@ -1034,13 +1014,13 @@ export const markAccountUnauthorized = async function markAccountUnauthorized(
       reason,
       timestamp: now,
     })
-    logger.info(`📢 Webhook notification sent for OpenAI account ${account.name} unauthorized state`)
+    logger.info(`Webhook notification sent for OpenAI account ${account.name} unauthorized state`)
   } catch (webhookError) {
     logger.error('Failed to send unauthorized webhook notification:', webhookError)
   }
 }
 
-// 🔄 重置账户所有异常状态
+// 重置账户所有异常状态
 export const resetAccountStatus = async function resetAccountStatus(accountId) {
   const account = await getAccount(accountId)
   if (!account) {
@@ -1060,7 +1040,7 @@ export const resetAccountStatus = async function resetAccountStatus(accountId) {
   }
 
   await updateAccount(accountId, updates)
-  logger.info(`✅ Reset all error status for OpenAI account ${accountId}`)
+  logger.info(`Reset all error status for OpenAI account ${accountId}`)
 
   // 清除临时不可用状态
   await upstreamErrorHelper.clearTempUnavailable(accountId, 'openai').catch(() => {})
@@ -1076,7 +1056,7 @@ export const resetAccountStatus = async function resetAccountStatus(accountId) {
       reason: 'Account status manually reset',
       timestamp: new Date().toISOString(),
     })
-    logger.info(`📢 Webhook notification sent for OpenAI account ${account.name} status reset`)
+    logger.info(`Webhook notification sent for OpenAI account ${account.name} status reset`)
   } catch (webhookError) {
     logger.error('Failed to send status reset webhook notification:', webhookError)
   }
@@ -1170,7 +1150,7 @@ export const updateAccountUsage = async function updateAccountUsage(accountId, t
   await updateAccount(accountId, updates)
 }
 
-// 为了兼容性，保留recordUsage作为updateAccountUsage的别名
+// 兼容保留 recordUsage 作为 updateAccountUsage 别名
 export const recordUsage = updateAccountUsage
 
 export const updateCodexUsageSnapshot = async function updateCodexUsageSnapshot(accountId, usageSnapshot) {

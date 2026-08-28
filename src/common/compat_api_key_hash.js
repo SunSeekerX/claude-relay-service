@@ -4,12 +4,12 @@ import { RedisKeys } from '../infra/redis_key.js'
 // 来源:src/models/redis.js(findApiKeyByHash/setApiKeyHash/deleteApiKeyHash 内部逻辑,逐字搬迁)
 // 收拢日期:2026-06-03
 // 原始语义:认证用新结构 apikey:hash_map(hash -> keyId);历史遗留旧结构 apikey_hash:{hash}(Hash)。
-//   - resolveKeyIdByHash:读 hash_map,miss 时回退旧结构并回填(认证热路径)
-//   - writeApiKeyHashDual:创建/更新时双写新旧结构
-//   - deleteApiKeyHashDual:删除/轮换时双删,避免旧 Key 失效后回退命中
-//   旧结构的全量回填另由 apiKeyIndexService.rebuildHashMap() 每次启动兜底(自愈)。
+// - resolveKeyIdByHash:读 hash_map,miss 时回退旧结构并回填(认证热路径)
+// - writeApiKeyHashDual:创建/更新时双写新旧结构
+// - deleteApiKeyHashDual:删除/轮换时双删,避免旧 Key 失效后回退命中
+// 旧结构的全量回填另由 apiKeyIndexService.rebuildHashMap() 每次启动兜底(自愈)。
 // 下线条件:确认 Redis 中旧结构 apikey_hash:* 已全部清退、hash_map 完整后,
-//   可移除旧结构回退/双写/双删,仅保留 hash_map。
+// 可移除旧结构回退/双写/双删,仅保留 hash_map。
 
 // 读 hash -> keyId:新表 miss 时回退旧结构 apikey_hash:* 并回填(返回 keyId 或 null/空)
 export const resolveKeyIdByHash = async (client, hashedKey) => {

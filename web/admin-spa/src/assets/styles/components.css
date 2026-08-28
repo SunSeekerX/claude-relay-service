@@ -324,7 +324,8 @@ html.dark .stat-card {
 }
 
 .form-input.form-input--with-icon {
-  padding-right: 3rem;
+  /* 给右侧显隐按钮留空，避免长密钥/密码被挡住 */
+  padding-right: 2.75rem;
 }
 
 .form-input:hover {
@@ -371,14 +372,14 @@ html.dark .stat-card {
   background: rgba(0, 0, 0, 0.75);
 }
 
+/* dialog compact defaults：更紧凑圆角与内边距，宽屏可更宽 */
 .modal-content {
   background: rgba(255, 255, 255, 0.98);
-  border-radius: 24px;
+  border-radius: 12px;
   border: 1px solid rgba(255, 255, 255, 0.3);
   box-shadow:
     0 10px 25px -5px rgba(0, 0, 0, 0.15),
     0 0 0 1px rgba(255, 255, 255, 0.05);
-  /* 移除模糊效果 */
 }
 
 .dark .modal-content {
@@ -394,9 +395,9 @@ html.dark .stat-card {
   min-height: 0;
   overflow-x: hidden;
   overflow-y: auto;
-  padding-right: 8px;
-  /* 非 flex 布局回退，避免内容把弹窗撑出视口 */
-  max-height: calc(90vh - 160px);
+  padding-right: 4px;
+  /* 非 flex 布局回退：按视口吃高度，优先 92dvh */
+  max-height: calc(92dvh - 120px);
 }
 .modal-content.flex > form.flex > .modal-scroll-content,
 .modal-content.flex > .modal-scroll-content {
@@ -588,22 +589,25 @@ html.dark .stat-card {
 
 /* ========== 密码/密钥显隐按钮（全局统一） ========== */
 .form-input.form-input--with-icon {
-  padding-right: 3rem;
+  /* 给右侧显隐按钮留空，避免长密钥/密码被挡住 */
+  padding-right: 2.75rem;
 }
 
 .password-toggle {
   position: absolute;
   top: 0;
-  right: 0;
+  /* 与 .form-input 的 margin-right: 3px 对齐，按钮落在输入框右内侧 */
+  right: 3px;
   bottom: 0;
+  z-index: 1;
   display: inline-flex;
-  width: 3rem;
+  width: 2.5rem;
   align-items: center;
   justify-content: center;
   margin: 0;
   padding: 0;
   border: 0 !important;
-  border-radius: 0;
+  border-radius: 0 12px 12px 0;
   background: transparent !important;
   box-shadow: none !important;
   color: var(--text-muted, rgb(156 163 175));
@@ -611,6 +615,8 @@ html.dark .stat-card {
   outline: none !important;
   -webkit-appearance: none;
   appearance: none;
+  /* 不拦截选区拖到边缘以外；点击仍可用 */
+  pointer-events: auto;
 }
 
 .password-toggle:hover {
@@ -626,16 +632,18 @@ html.dark .stat-card {
 .password-toggle i,
 .password-toggle .password-toggle__icon {
   display: block;
-  width: 1.25rem !important;
-  height: 1.25rem !important;
-  font-size: 1.25rem;
+  width: 1.125rem !important;
+  height: 1.125rem !important;
+  font-size: 1.125rem;
   line-height: 1;
   background-color: currentColor;
+  pointer-events: none;
 }
 
 .wide-card-input.form-input--with-icon,
-input.form-input--with-icon {
-  padding-right: 3rem;
+input.form-input--with-icon,
+.form-input.form-input--with-icon {
+  padding-right: 2.75rem;
 }
 
 
@@ -856,6 +864,53 @@ html.dark .form-input:focus,
 html.dark .form-input:disabled,
 .dark .form-input:disabled {
   opacity: 0.55;
+}
+
+/* Chrome/Edge 自动填充会强制浅色底+深色字，用 inset 阴影盖掉并跟主题色 */
+/* 覆盖 .form-input 与余额脚本等处的 .input-text */
+.form-input:-webkit-autofill,
+.form-input:-webkit-autofill:hover,
+.form-input:-webkit-autofill:focus,
+.form-input:-webkit-autofill:active,
+.input-text:-webkit-autofill,
+.input-text:-webkit-autofill:hover,
+.input-text:-webkit-autofill:focus,
+.input-text:-webkit-autofill:active {
+  -webkit-text-fill-color: var(--text-primary, #111827);
+  caret-color: var(--text-primary, #111827);
+  /* 推迟浏览器回写背景，配合 inset 阴影把黄底盖住 */
+  transition: background-color 99999s ease-out 0s;
+  box-shadow: 0 0 0 1000px var(--surface-muted, rgba(249, 250, 251, 0.92)) inset;
+}
+
+html.dark .form-input:-webkit-autofill,
+html.dark .form-input:-webkit-autofill:hover,
+html.dark .form-input:-webkit-autofill:focus,
+html.dark .form-input:-webkit-autofill:active,
+html.dark .input-text:-webkit-autofill,
+html.dark .input-text:-webkit-autofill:hover,
+html.dark .input-text:-webkit-autofill:focus,
+html.dark .input-text:-webkit-autofill:active,
+.dark .form-input:-webkit-autofill,
+.dark .form-input:-webkit-autofill:hover,
+.dark .form-input:-webkit-autofill:focus,
+.dark .form-input:-webkit-autofill:active,
+.dark .input-text:-webkit-autofill,
+.dark .input-text:-webkit-autofill:hover,
+.dark .input-text:-webkit-autofill:focus,
+.dark .input-text:-webkit-autofill:active {
+  -webkit-text-fill-color: rgb(229 231 235);
+  caret-color: rgb(229 231 235);
+  box-shadow: 0 0 0 1000px rgb(31 41 55) inset;
+}
+
+html.dark .form-input:-webkit-autofill:focus,
+html.dark .input-text:-webkit-autofill:focus,
+.dark .form-input:-webkit-autofill:focus,
+.dark .input-text:-webkit-autofill:focus {
+  box-shadow:
+    0 0 0 1000px rgb(17 24 39) inset,
+    0 0 0 3px rgba(var(--primary-rgb, 96 165 250), 0.22);
 }
 
 

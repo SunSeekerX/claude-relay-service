@@ -246,7 +246,7 @@ describe('JSON 格式正确性验证', () => {
 
     it('旧 sessionHelper 提取失败', () => {
       // 旧正则 /session_([a-f0-9-]{36})/ 在 JSON 中匹配 "session_id" 但 capture 不到
-      // 因为 'i' 不在 [a-f0-9-] 中
+      // 'i' 不在 [a-f0-9-] 中
       expect(oldExtractSessionFromMetadata(JSON_USERID)).toBeNull()
     })
 
@@ -322,10 +322,10 @@ describe('JSON 格式正确性验证', () => {
 describe('rewriteUserId 哈希 seed 一致性', () => {
   it('旧格式：新旧代码使用完全相同的 seed 做哈希', () => {
     // 旧代码 seed: `${effectiveScheduler}::${sessionTail}`
-    //   sessionTail = userId.slice(pivot + 'session_'.length)
-    //              = SESSION_UUID
+    // sessionTail = userId.slice(pivot + 'session_'.length)
+    // = SESSION_UUID
     // 新代码 seed: `${effectiveScheduler}::${parsed.sessionId}`
-    //   parsed.sessionId = SESSION_UUID (regex capture)
+    // parsed.sessionId = SESSION_UUID (regex capture)
     // 两者 seed 完全相同
     const body1 = { metadata: { user_id: OLD_USERID } }
     const body2 = { metadata: { user_id: OLD_USERID } }

@@ -2,224 +2,284 @@
   <ModalTransition>
     <div
       v-if="show"
-      class="request-detail-modal fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-2 pt-[6vh] sm:p-4"
+      class="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/40 p-2 sm:p-3"
       @click.self="emitClose"
     >
       <div
-        :class="[
-          'modal-content w-full rounded-2xl bg-white shadow-xl dark:bg-gray-900',
-          isMobileViewport ? 'min-h-[100dvh] max-w-none rounded-none' : 'max-w-[960px]'
-        ]"
+        class="modal-content my-auto flex w-full flex-col overflow-hidden bg-white shadow-xl dark:bg-gray-900"
+        :class="isMobileViewport ? 'min-h-[100dvh] max-w-none' : 'max-h-[92vh] max-w-3xl rounded-xl'"
       >
-    <div class="border-b border-gray-200 px-5 py-4 dark:border-gray-700">
-      <div class="flex flex-wrap items-start justify-between gap-3 sm:flex-nowrap sm:items-center">
-        <div class="min-w-0 flex-1">
-          <h3 class="text-lg font-bold text-gray-900 dark:text-gray-100">
-            {{ detail?.model || '加载中...' }}
-          </h3>
-          <p class="mt-1 break-all text-sm text-gray-500 dark:text-gray-400 sm:text-sm">
-            Request ID: {{ requestId || '未知' }}
-          </p>
-        </div>
-        <div class="flex items-center gap-2 self-start sm:self-center">
-          <span
-            v-if="detail"
-            :class="[
-              'rounded-full px-2 py-0.5 text-sm font-semibold text-white',
-              statusTagType(detail.statusCode) === 'success'
-                ? 'bg-green-600'
-                : statusTagType(detail.statusCode) === 'warning'
-                  ? 'bg-amber-500'
-                  : statusTagType(detail.statusCode) === 'danger'
-                    ? 'bg-red-600'
-                    : 'bg-gray-600'
-            ]"
+        <!-- 顶栏 -->
+        <div
+          class="flex shrink-0 items-center gap-2 border-b border-gray-200 px-3 py-2 dark:border-gray-700"
+        >
+          <div class="min-w-0 flex-1">
+            <div class="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+              <h3 class="truncate text-sm font-semibold text-gray-900 dark:text-gray-100">
+                {{ detail?.model || (loading ? '加载中...' : '请求详情') }}
+              </h3>
+              <span
+                v-if="detail"
+                class="rounded px-1.5 py-0.5 text-sm font-semibold text-white"
+                :class="statusClass(detail.statusCode)"
+              >
+                {{ detail.statusCode || 200 }}
+              </span>
+              <span
+                v-if="detail"
+                class="text-sm text-gray-500 dark:text-gray-400"
+              >
+                {{ formatDuration(detail.durationMs) }}
+                <template v-if="detail.firstTokenMs != null">
+                  · 首字 {{ formatDuration(detail.firstTokenMs) }}
+                </template>
+                · {{ detail.stream ? '流式' : '非流式' }}
+              </span>
+            </div>
+            <p class="mt-0.5 truncate text-sm text-gray-500 dark:text-gray-400">
+              {{ requestId || '-' }}
+              <template v-if="detail?.timestamp">
+                · {{ formatDate(detail.timestamp) }}
+              </template>
+            </p>
+          </div>
+          <button
+            aria-label="关闭"
+            class="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-gray-500 hover:bg-gray-100 hover:text-gray-800 dark:text-gray-300 dark:hover:bg-gray-800 dark:hover:text-gray-100"
+            type="button"
+            @click="emitClose"
           >
-            {{ detail.statusCode || 200 }}
-          </span>
-          <button aria-label="关闭" class="modal-close-button" type="button" @click="emitClose">
-            <i class="i-lucide-x" />
+            <i class="i-lucide-x text-base" />
           </button>
         </div>
-      </div>
-    </div>
 
-    <div class="relative space-y-4 px-5 py-4" :class="{ 'opacity-60': loading }">
-      <div
-        v-if="!loading && !detail"
-        class="rounded-xl border border-dashed border-gray-300 p-8 text-center text-sm text-gray-500 dark:border-gray-700 dark:text-gray-400"
-      >
-        未找到该请求详情
-      </div>
-
-      <template v-else-if="detail">
-        <div class="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-          <div class="info-card">
-            <p class="info-label">接口</p>
-            <p class="info-value">{{ detail.endpoint || '-' }}</p>
-            <p class="info-sub">{{ detail.method || 'POST' }}</p>
-          </div>
-          <div class="info-card">
-            <p class="info-label">耗时</p>
-            <p class="info-value">{{ formatDuration(detail.durationMs) }}</p>
-            <p class="info-sub">{{ detail.stream ? '流式请求' : '非流式请求' }}</p>
-          </div>
-          <div class="info-card">
-            <p class="info-label">费用</p>
-            <p class="info-value text-amber-600 dark:text-amber-400">
-              {{ formatCost(detail.cost) }}
-            </p>
-            <p class="info-sub">
-              {{ detail.costRecomputed ? '估算成本' : '真实成本' }}
-              {{ formatCost(detail.realCost) }}
-              <span v-if="detail.usedFallbackPricing">unknown fallback</span>
-            </p>
-          </div>
-          <div class="info-card">
-            <p class="info-label">缓存命中率</p>
-            <p class="info-value text-cyan-600 dark:text-cyan-400">
-              {{ formatPercent(detail.cacheHitRate) }}
-            </p>
-            <p class="info-sub">{{ cacheHitRateLabel }}</p>
-          </div>
-        </div>
-
-        <div class="grid gap-4 xl:grid-cols-[1.2fr,0.8fr]">
+        <!-- 内容 -->
+        <div class="min-h-0 flex-1 overflow-y-auto px-3 py-2" :class="{ 'opacity-60': loading }">
           <div
-            class="rounded-xl border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-800 dark:bg-gray-900"
+            v-if="!loading && !detail"
+            class="py-8 text-center text-sm text-gray-500 dark:text-gray-400"
           >
-            <h4 class="section-title">基础信息</h4>
-            <div class="grid gap-3 md:grid-cols-2">
-              <div>
-                <p class="field-label">时间</p>
-                <p class="field-value">{{ formatDate(detail.timestamp) }}</p>
-              </div>
-              <div>
-                <p class="field-label">API Key</p>
-                <p class="field-value">{{ detail.apiKeyName || detail.apiKeyId || '-' }}</p>
-                <p class="field-sub">{{ detail.apiKeyId || '-' }}</p>
-              </div>
-              <div>
-                <p class="field-label">使用账户</p>
-                <p class="field-value">{{ detail.accountName || detail.accountId || '-' }}</p>
-                <p class="field-sub">{{ detail.accountTypeName || detail.accountType || '-' }}</p>
-              </div>
-              <div>
-                <p class="field-label">模型</p>
-                <p class="field-value">{{ detail.model || '-' }}</p>
-                <p class="field-sub">
-                  {{ detail.isLongContextRequest ? '长上下文请求' : '标准上下文' }}
-                </p>
-              </div>
-              <div>
-                <p class="field-label">推理</p>
-                <p class="field-value">{{ formatReasoning(detail.reasoningDisplay) }}</p>
-                <p class="field-sub">
-                  {{ detail.reasoningSource ? `来源：${detail.reasoningSource}` : '未指定' }}
-                </p>
-              </div>
-            </div>
+            未找到该请求详情
           </div>
 
-          <div
-            class="rounded-xl border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-800 dark:bg-gray-900"
-          >
-            <h4 class="section-title">Token 明细</h4>
-            <div class="space-y-2 text-sm">
-              <div class="metric-row">
-                <span>输入</span>
-                <span class="font-semibold text-blue-600 dark:text-blue-400">{{
-                  formatNumber(detail.inputTokens)
-                }}</span>
+          <template v-else-if="detail">
+            <!-- 概要键值 -->
+            <dl class="divide-y divide-gray-100 text-sm dark:divide-gray-800">
+              <div class="grid grid-cols-[5.5rem_1fr] gap-x-2 py-1.5 sm:grid-cols-[6rem_1fr]">
+                <dt class="text-gray-500 dark:text-gray-400">接口</dt>
+                <dd class="min-w-0 break-all text-gray-900 dark:text-gray-100">
+                  <span class="font-medium">{{ detail.method || 'POST' }}</span>
+                  {{ detail.endpoint || '-' }}
+                </dd>
               </div>
-              <div class="metric-row">
-                <span>输出</span>
-                <span class="font-semibold text-green-600 dark:text-green-400">{{
-                  formatNumber(detail.outputTokens)
-                }}</span>
+              <div class="grid grid-cols-[5.5rem_1fr] gap-x-2 py-1.5 sm:grid-cols-[6rem_1fr]">
+                <dt class="text-gray-500 dark:text-gray-400">API Key</dt>
+                <dd class="min-w-0 text-gray-900 dark:text-gray-100">
+                  <span class="font-medium">{{ detail.apiKeyName || detail.apiKeyId || '-' }}</span>
+                  <span
+                    v-if="detail.apiKeyId && detail.apiKeyName"
+                    class="ml-1 break-all text-gray-500 dark:text-gray-400"
+                  >{{ detail.apiKeyId }}</span>
+                </dd>
               </div>
-              <div class="metric-row">
-                <span>缓存读取</span>
-                <span class="font-semibold text-cyan-600 dark:text-cyan-400">{{
-                  formatNumber(detail.cacheReadTokens)
-                }}</span>
+              <div class="grid grid-cols-[5.5rem_1fr] gap-x-2 py-1.5 sm:grid-cols-[6rem_1fr]">
+                <dt class="text-gray-500 dark:text-gray-400">账户</dt>
+                <dd class="min-w-0 text-gray-900 dark:text-gray-100">
+                  <span class="font-medium">{{ detail.accountName || detail.accountId || '-' }}</span>
+                  <span class="ml-1 text-gray-500 dark:text-gray-400">
+                    {{ detail.accountTypeName || detail.accountType || '' }}
+                  </span>
+                </dd>
               </div>
-              <div class="metric-row">
-                <span>缓存创建</span>
-                <span class="font-semibold text-purple-600 dark:text-purple-400">{{
-                  formatCacheCreate(detail.cacheCreateTokens, detail.cacheCreateNotApplicable)
-                }}</span>
+              <div class="grid grid-cols-[5.5rem_1fr] gap-x-2 py-1.5 sm:grid-cols-[6rem_1fr]">
+                <dt class="text-gray-500 dark:text-gray-400">上下文</dt>
+                <dd class="text-gray-900 dark:text-gray-100">
+                  {{ detail.isLongContextRequest ? '长上下文' : '标准' }}
+                  <span class="mx-1 text-gray-300 dark:text-gray-600">·</span>
+                  缓存命中
+                  <span class="font-medium text-cyan-600 dark:text-cyan-400">
+                    {{ formatPercent(detail.cacheHitRate) }}
+                  </span>
+                </dd>
+              </div>
+              <div class="grid grid-cols-[5.5rem_1fr] gap-x-2 py-1.5 sm:grid-cols-[6rem_1fr]">
+                <dt class="text-gray-500 dark:text-gray-400">耗时</dt>
+                <dd class="text-gray-900 dark:text-gray-100">
+                  <span class="font-medium">{{ formatDuration(detail.durationMs) }}</span>
+                  <template v-if="detail.firstTokenMs != null">
+                    <span class="mx-1 text-gray-300 dark:text-gray-600">·</span>
+                    首字
+                    <span class="font-medium">{{ formatDuration(detail.firstTokenMs) }}</span>
+                  </template>
+                  <span class="ml-1 text-gray-500 dark:text-gray-400">
+                    {{ detail.stream ? '流式' : '非流式' }}
+                  </span>
+                </dd>
+              </div>
+              <div class="grid grid-cols-[5.5rem_1fr] gap-x-2 py-1.5 sm:grid-cols-[6rem_1fr]">
+                <dt class="text-gray-500 dark:text-gray-400">推理</dt>
+                <dd class="text-gray-900 dark:text-gray-100">
+                  <span class="font-medium">{{ formatReasoning(detail.reasoningDisplay) }}</span>
+                  <span
+                    v-if="detail.reasoningSource"
+                    class="ml-1 text-gray-500 dark:text-gray-400"
+                  >{{ detail.reasoningSource }}</span>
+                </dd>
               </div>
               <div
-                class="metric-row border-t border-dashed border-gray-200 pt-2 dark:border-gray-700"
+                v-if="formatServiceTier(detail.serviceTier)"
+                class="grid grid-cols-[5.5rem_1fr] gap-x-2 py-1.5 sm:grid-cols-[6rem_1fr]"
               >
-                <span>总 Token</span>
-                <span class="font-semibold text-gray-900 dark:text-gray-100">{{
-                  formatNumber(detail.totalTokens)
-                }}</span>
+                <dt class="text-gray-500 dark:text-gray-400">档位</dt>
+                <dd class="text-gray-900 dark:text-gray-100">
+                  <span
+                    class="inline-flex rounded-full px-2 py-0.5 text-sm font-medium"
+                    :class="serviceTierClass(detail.serviceTier)"
+                  >
+                    {{ formatServiceTier(detail.serviceTier) }}
+                  </span>
+                  <span
+                    v-if="detail.serviceTier"
+                    class="ml-1 text-gray-500 dark:text-gray-400"
+                  >{{ detail.serviceTier }}</span>
+                </dd>
               </div>
-            </div>
-          </div>
-        </div>
+              <div
+                v-if="protocolBridgeLabel || inferredBridgeLabel || detail.tokenCountEstimate"
+                class="grid grid-cols-[5.5rem_1fr] gap-x-2 py-1.5 sm:grid-cols-[6rem_1fr]"
+              >
+                <dt class="text-gray-500 dark:text-gray-400">协议</dt>
+                <dd class="flex flex-wrap items-center gap-2 text-gray-900 dark:text-gray-100">
+                  <span
+                    v-if="protocolBridgeLabel || inferredBridgeLabel"
+                    class="rounded-full bg-indigo-100 px-2 py-0.5 text-sm font-medium text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300"
+                  >
+                    桥接 {{ protocolBridgeLabel || inferredBridgeLabel }}
+                  </span>
+                  <span
+                    v-if="detail.tokenCountEstimate"
+                    class="rounded-full bg-amber-100 px-2 py-0.5 text-sm font-medium text-amber-700 dark:bg-amber-900/40 dark:text-amber-300"
+                    :title="detail.tokenCountEstimateMethod || 'char_heuristic'"
+                  >
+                    Token 估算
+                  </span>
+                </dd>
+              </div>
+            </dl>
 
-        <div
-          class="rounded-xl border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-800 dark:bg-gray-900"
-        >
-          <h4 class="section-title">费用拆分</h4>
-          <div class="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
-            <div class="cost-chip">
-              <span>输入</span>
-              <strong>{{ formatCost(costBreakdown.input) }}</strong>
+            <!-- Token / 费用表 -->
+            <div class="mt-2 overflow-hidden rounded-lg border border-gray-200 dark:border-gray-700">
+              <table class="w-full text-sm">
+                <thead class="bg-gray-50 text-left text-gray-500 dark:bg-gray-800/80 dark:text-gray-400">
+                  <tr>
+                    <th class="px-2.5 py-1.5 font-medium">项目</th>
+                    <th class="px-2.5 py-1.5 text-right font-medium">Token</th>
+                    <th class="px-2.5 py-1.5 text-right font-medium">费用</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-gray-100 dark:divide-gray-800">
+                  <tr>
+                    <td class="px-2.5 py-1.5 text-gray-600 dark:text-gray-300">输入</td>
+                    <td class="px-2.5 py-1.5 text-right font-medium text-blue-600 dark:text-blue-400">
+                      {{ formatNumber(detail.inputTokens) }}
+                    </td>
+                    <td class="px-2.5 py-1.5 text-right text-gray-900 dark:text-gray-100">
+                      {{ formatCost(costBreakdown.input) }}
+                    </td>
+                  </tr>
+                  <tr>
+                    <td class="px-2.5 py-1.5 text-gray-600 dark:text-gray-300">输出</td>
+                    <td class="px-2.5 py-1.5 text-right font-medium text-green-600 dark:text-green-400">
+                      {{ formatNumber(detail.outputTokens) }}
+                    </td>
+                    <td class="px-2.5 py-1.5 text-right text-gray-900 dark:text-gray-100">
+                      {{ formatCost(costBreakdown.output) }}
+                    </td>
+                  </tr>
+                  <tr>
+                    <td class="px-2.5 py-1.5 text-gray-600 dark:text-gray-300">缓存读取</td>
+                    <td class="px-2.5 py-1.5 text-right font-medium text-cyan-600 dark:text-cyan-400">
+                      {{ formatNumber(detail.cacheReadTokens) }}
+                    </td>
+                    <td class="px-2.5 py-1.5 text-right text-gray-900 dark:text-gray-100">
+                      {{ formatCost(costBreakdown.cacheRead) }}
+                    </td>
+                  </tr>
+                  <tr>
+                    <td class="px-2.5 py-1.5 text-gray-600 dark:text-gray-300">缓存创建</td>
+                    <td class="px-2.5 py-1.5 text-right font-medium text-purple-600 dark:text-purple-400">
+                      {{ formatCacheCreate(detail.cacheCreateTokens, detail.cacheCreateNotApplicable) }}
+                    </td>
+                    <td class="px-2.5 py-1.5 text-right text-gray-900 dark:text-gray-100">
+                      {{
+                        formatCacheCreateCost(
+                          costBreakdown.cacheCreate,
+                          detail.cacheCreateNotApplicable
+                        )
+                      }}
+                    </td>
+                  </tr>
+                  <tr class="bg-gray-50/80 dark:bg-gray-800/40">
+                    <td class="px-2.5 py-1.5 font-semibold text-gray-800 dark:text-gray-100">
+                      合计
+                      <span class="ml-1 font-normal text-gray-500 dark:text-gray-400">
+                        {{ detail.costRecomputed ? '估算' : '真实' }}
+                        <template v-if="detail.usedFallbackPricing"> · fallback</template>
+                      </span>
+                    </td>
+                    <td class="px-2.5 py-1.5 text-right font-semibold text-gray-900 dark:text-gray-100">
+                      {{ formatNumber(detail.totalTokens) }}
+                    </td>
+                    <td class="px-2.5 py-1.5 text-right font-semibold text-amber-600 dark:text-amber-400">
+                      {{ formatCost(detail.cost) }}
+                      <template v-if="showRealCostBeside">
+                        <span class="ml-1 font-normal text-gray-500 dark:text-gray-400">
+                          ({{ formatCost(detail.realCost) }})
+                        </span>
+                      </template>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
             </div>
-            <div class="cost-chip">
-              <span>输出</span>
-              <strong>{{ formatCost(costBreakdown.output) }}</strong>
-            </div>
-            <div class="cost-chip">
-              <span>缓存创建</span>
-              <strong>{{
-                formatCacheCreateCost(costBreakdown.cacheCreate, detail.cacheCreateNotApplicable)
-              }}</strong>
-            </div>
-            <div class="cost-chip">
-              <span>缓存读取</span>
-              <strong>{{ formatCost(costBreakdown.cacheRead) }}</strong>
-            </div>
-            <div class="cost-chip">
-              <span>总计</span>
-              <strong>{{ formatCost(costBreakdown.total || detail.cost) }}</strong>
-            </div>
-          </div>
-        </div>
 
-        <div
-          class="rounded-xl border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-800 dark:bg-gray-900"
-        >
-          <div class="mb-3 flex items-center justify-between gap-3">
-            <h4 class="section-title mb-0">Request Body 快照</h4>
-            <button v-if="hasRequestBodySnapshot" class="rounded-md border border-gray-200 px-2 py-1 text-sm text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-700" type="button" @click="copySnapshot">
-              复制 JSON
-            </button>
-          </div>
-          <div v-if="hasRequestBodySnapshot" class="snapshot-panel">
-            <pre>{{ formattedSnapshot }}</pre>
-          </div>
-          <div
-            v-else-if="!bodyPreviewEnabled"
-            class="rounded-lg border border-dashed border-amber-300 bg-amber-50/70 px-4 py-6 text-sm text-amber-700 dark:border-amber-900/60 dark:bg-amber-950/20 dark:text-amber-300"
-          >
-            请求体预览已关闭，当前仅保留请求摘要字段，不展示请求体快照。
-          </div>
-          <div
-            v-else
-            class="rounded-lg border border-dashed border-gray-300 px-4 py-6 text-sm text-gray-500 dark:border-gray-700 dark:text-gray-400"
-          >
-            未保存请求体快照
-          </div>
+            <!-- Request Body -->
+            <div class="mt-2">
+              <div class="mb-1 flex items-center justify-between gap-2">
+                <p class="text-sm font-medium text-gray-700 dark:text-gray-200">Request Body</p>
+                <button
+                  v-if="hasRequestBodySnapshot"
+                  class="rounded border border-gray-200 px-1.5 py-0.5 text-sm text-gray-600 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-800"
+                  type="button"
+                  @click="copySnapshot"
+                >
+                  复制
+                </button>
+              </div>
+              <div
+                v-if="hasRequestBodySnapshot"
+                class="max-h-[40vh] overflow-auto rounded-lg bg-slate-900 p-2.5"
+              >
+                <pre class="m-0 whitespace-pre-wrap break-words text-sm leading-relaxed text-slate-200">{{
+                  formattedSnapshot
+                }}</pre>
+              </div>
+              <p
+                v-else-if="!bodyPreviewEnabled"
+                class="rounded-lg border border-dashed border-amber-300 bg-amber-50/70 px-2.5 py-2 text-sm text-amber-700 dark:border-amber-900/60 dark:bg-amber-950/20 dark:text-amber-300"
+              >
+                请求体预览已关闭，仅保留摘要字段。
+              </p>
+              <p
+                v-else
+                class="rounded-lg border border-dashed border-gray-300 px-2.5 py-2 text-sm text-gray-500 dark:border-gray-700 dark:text-gray-400"
+              >
+                未保存请求体快照
+              </p>
+            </div>
+          </template>
         </div>
-      </template>
-    </div>
-  </div>
+      </div>
     </div>
   </ModalTransition>
 </template>
@@ -228,6 +288,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import ModalTransition from '@/components/common/modal_transition.vue'
 import { getRequestDetailApi } from '@/libs/http_apis'
+import { isOk, msgOf } from '@/libs/http_envelope'
 import { showToast, formatNumber } from '@/libs/tools'
 import { formatLocalDateTime } from '@/libs/time'
 
@@ -260,6 +321,37 @@ const costBreakdown = computed(() => {
   }
 })
 
+// 计费与真实成本数值不同时，合计列旁再标真实成本
+const showRealCostBeside = computed(() => {
+  if (!detail.value) return false
+  const billed = Number(detail.value.cost || 0)
+  const real = Number(detail.value.realCost || 0)
+  return Number.isFinite(billed) && Number.isFinite(real) && Math.abs(billed - real) > 1e-9
+})
+
+// 后端写入的跨协议桥标记
+const protocolBridgeLabel = computed(() => {
+  const value = detail.value?.protocolBridge
+  return typeof value === 'string' && value.trim() ? value.trim() : ''
+})
+
+// 无显式标记时：/v1/messages 打到 openai/grok 账户则推断为桥接
+const inferredBridgeLabel = computed(() => {
+  if (protocolBridgeLabel.value) return ''
+  const endpoint = String(detail.value?.endpoint || '')
+  const accountType = String(detail.value?.accountType || '').toLowerCase()
+  if (!endpoint.includes('/v1/messages') && !endpoint.endsWith('/messages')) {
+    return ''
+  }
+  if (accountType === 'openai' || accountType === 'openai-responses') {
+    return 'claude-messages→openai'
+  }
+  if (accountType === 'grok') {
+    return 'claude-messages→grok'
+  }
+  return ''
+})
+
 const previewSuffixPattern = /\.\.\.\[\d+ chars\]$/
 
 const tryFormatJsonString = (value) => {
@@ -269,7 +361,7 @@ const tryFormatJsonString = (value) => {
 
   try {
     return JSON.stringify(JSON.parse(value), null, 2)
-  } catch (error) {
+  } catch (_error) {
     return null
   }
 }
@@ -384,8 +476,6 @@ const formattedSnapshot = computed(() => {
   return JSON.stringify(snapshotSource, null, 2)
 })
 
-const cacheHitRateLabel = computed(() => '读 / (输入 + 读 + 建)')
-
 const emitClose = () => emit('close')
 
 const fetchDetail = async () => {
@@ -400,8 +490,8 @@ const fetchDetail = async () => {
   try {
     const response = await getRequestDetailApi(targetRequestId)
     if (targetRequestId !== props.requestId || !props.show) return
-    if (response?.success === false) {
-      showToast(response.message || '加载请求详情失败', 'error')
+    if (!isOk(response)) {
+      showToast(msgOf(response, '加载请求详情失败'), 'error')
       return
     }
     bodyPreviewEnabled.value = response.data?.bodyPreviewEnabled === true
@@ -427,7 +517,7 @@ const copySnapshot = async () => {
   try {
     await navigator.clipboard.writeText(formattedSnapshot.value)
     showToast('已复制请求快照', 'success')
-  } catch (error) {
+  } catch (_error) {
     showToast('复制失败，请手动复制', 'error')
   }
 }
@@ -438,6 +528,26 @@ const formatPercent = (value) => `${Number(value || 0).toFixed(2)}%`
 const formatCacheCreate = (value, notApplicable = false) =>
   notApplicable ? '-' : formatNumber(value)
 const formatReasoning = (value) => value || '-'
+// OpenAI service_tier：fast/priority 同溢价档，ultrafast/flex 单独标
+const formatServiceTier = (tier) => {
+  if (typeof tier !== 'string' || !tier.trim()) return ''
+  const normalized = tier.trim().toLowerCase()
+  if (normalized === 'fast' || normalized === 'priority') return 'Fast'
+  if (normalized === 'ultrafast') return 'Ultrafast'
+  if (normalized === 'flex') return 'Flex'
+  if (normalized === 'default' || normalized === 'auto') return 'Default'
+  return tier
+}
+const serviceTierClass = (tier) => {
+  const normalized = typeof tier === 'string' ? tier.trim().toLowerCase() : ''
+  if (normalized === 'fast' || normalized === 'priority' || normalized === 'ultrafast') {
+    return 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300'
+  }
+  if (normalized === 'flex') {
+    return 'bg-sky-100 text-sky-800 dark:bg-sky-900/40 dark:text-sky-300'
+  }
+  return 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300'
+}
 const formatCost = (value) => {
   const num = Number(value || 0)
   if (num >= 1) return `$${num.toFixed(2)}`
@@ -447,10 +557,10 @@ const formatCost = (value) => {
 const formatCacheCreateCost = (value, notApplicable = false) =>
   notApplicable ? '-' : formatCost(value)
 
-const statusTagType = (statusCode) => {
-  if (statusCode >= 500) return 'danger'
-  if (statusCode >= 400) return 'warning'
-  return 'success'
+const statusClass = (statusCode) => {
+  if (statusCode >= 500) return 'bg-red-600'
+  if (statusCode >= 400) return 'bg-amber-500'
+  return 'bg-green-600'
 }
 
 const syncViewportState = () => {
@@ -487,168 +597,3 @@ onBeforeUnmount(() => {
   window.removeEventListener('resize', syncViewportState)
 })
 </script>
-
-<style scoped>
-
-
-
-.modal-close-button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 40px;
-  height: 40px;
-  border-radius: 9999px;
-  color: rgb(100 116 139);
-  transition: all 0.2s ease;
-}
-
-.modal-close-button:hover {
-  background: rgba(148, 163, 184, 0.14);
-  color: rgb(51 65 85);
-}
-
-.dark .modal-close-button {
-  color: rgb(203 213 225);
-}
-
-.dark .modal-close-button:hover {
-  background: rgba(71, 85, 105, 0.35);
-  color: rgb(248 250 252);
-}
-
-.info-card {
-  border: 1px solid rgba(148, 163, 184, 0.2);
-  border-radius: 16px;
-  padding: 16px;
-  background: linear-gradient(135deg, rgba(255, 255, 255, 0.98), rgba(240, 249, 255, 0.94));
-}
-
-.dark .info-card {
-  background: linear-gradient(135deg, rgba(17, 24, 39, 0.94), rgba(15, 23, 42, 0.92));
-  border-color: rgba(71, 85, 105, 0.35);
-}
-
-.info-label,
-.field-label {
-  font-size: 14px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: rgb(100 116 139);
-}
-
-.dark .info-label,
-.dark .field-label {
-  color: rgb(148 163 184);
-}
-
-.info-value,
-.field-value {
-  margin-top: 6px;
-  font-size: 18px;
-  font-weight: 700;
-  color: rgb(15 23 42);
-}
-
-.dark .info-value,
-.dark .field-value {
-  color: rgb(241 245 249);
-}
-
-.info-sub,
-.field-sub {
-  margin-top: 4px;
-  font-size: 14px;
-  color: rgb(100 116 139);
-}
-
-.dark .info-sub,
-.dark .field-sub {
-  color: rgb(148 163 184);
-}
-
-.section-title {
-  margin-bottom: 12px;
-  font-size: 14px;
-  font-weight: 700;
-  color: rgb(30 41 59);
-}
-
-.dark .section-title {
-  color: rgb(226 232 240);
-}
-
-.metric-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  color: rgb(71 85 105);
-}
-
-.dark .metric-row {
-  color: rgb(203 213 225);
-}
-
-.cost-chip {
-  border-radius: 14px;
-  background: rgb(248 250 252);
-  padding: 12px 14px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  font-size: 14px;
-}
-
-.dark .cost-chip {
-  background: rgba(30, 41, 59, 0.75);
-  color: rgb(203 213 225);
-}
-
-.dark .cost-chip strong {
-  color: rgb(241 245 249);
-}
-
-.snapshot-panel {
-  max-height: 380px;
-  overflow: auto;
-  border-radius: 14px;
-  background: rgb(15 23 42);
-  padding: 16px;
-}
-
-.snapshot-panel pre {
-  margin: 0;
-  white-space: pre-wrap;
-  word-break: break-word;
-  font-size: 14px;
-  line-height: 1.55;
-  color: rgb(226 232 240);
-}
-
-@media (max-width: 767px) {
-  
-  
-  .info-card {
-    padding: 14px;
-  }
-
-  .info-value,
-  .field-value {
-    font-size: 16px;
-  }
-
-  .cost-chip {
-    padding: 10px 12px;
-  }
-
-  .snapshot-panel {
-    max-height: min(42vh, 420px);
-    padding: 14px;
-  }
-
-  .snapshot-panel pre {
-    font-size: 14px;
-    line-height: 1.5;
-  }
-}
-</style>

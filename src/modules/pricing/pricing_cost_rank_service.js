@@ -85,7 +85,7 @@ class CostRankService {
       logger.warn('CostRankService already initialized, re-initializing...')
     }
 
-    logger.info('🔄 Initializing CostRankService...')
+    logger.info('Initializing CostRankService...')
 
     try {
       // 启动时立即更新所有索引（异步，不阻塞启动）
@@ -105,7 +105,7 @@ class CostRankService {
       this.isInitialized = true
       logger.success('CostRankService initialized')
     } catch (error) {
-      logger.error('❌ Failed to initialize CostRankService:', error)
+      logger.error('Failed to initialize CostRankService:', error)
       throw error
     }
   }
@@ -197,7 +197,7 @@ class CostRankService {
       // 5. 更新元数据
       await this._updateMeta(client, metaKey, startTime, keyIds.length)
 
-      logger.info(`📊 Updated cost rank for ${timeRange}: ${keyIds.length} keys in ${Date.now() - startTime}ms`)
+      logger.info(`Updated cost rank for ${timeRange}: ${keyIds.length} keys in ${Date.now() - startTime}ms`)
     } catch (error) {
       await client.hset(metaKey, 'status', 'failed')
       logger.error(`Failed to update cost rank for ${timeRange}:`, error)
@@ -447,7 +447,7 @@ class CostRankService {
       throw new Error('Redis client not available')
     }
 
-    logger.info(`📊 Calculating custom range costs: ${startDate} to ${endDate}`)
+    logger.info(`Calculating custom range costs: ${startDate} to ${endDate}`)
     const startTime = Date.now()
 
     // 1. 获取所有未删除的 API Key IDs
@@ -461,7 +461,7 @@ class CostRankService {
     const costs = await this._calculateCostsInBatches(keyIds, { startDate, endDate })
 
     const duration = Date.now() - startTime
-    logger.info(`📊 Custom range costs calculated: ${keyIds.length} keys in ${duration}ms`)
+    logger.info(`Custom range costs calculated: ${keyIds.length} keys in ${duration}ms`)
 
     return costs
   }

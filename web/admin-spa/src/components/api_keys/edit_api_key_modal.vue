@@ -2,10 +2,10 @@
   <ModalTransition @after-leave="onClosed">
     <div
       v-if="visible"
-      class="modal fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4"
+      class="modal fixed inset-0 z-50 flex items-center justify-center p-3"
     >
       <div
-        class="modal-content mx-auto flex max-h-[90vh] w-full max-w-4xl flex-col overflow-hidden p-3 sm:p-4"
+        class="modal-content mx-auto flex max-h-[92vh] w-full max-w-5xl flex-col overflow-hidden p-2.5 sm:p-3"
       >
         <div class="mb-3 flex items-center justify-between">
           <div class="flex items-center gap-2 sm:gap-3">
@@ -30,7 +30,7 @@
           class="flex min-h-0 flex-1 flex-col overflow-hidden"
           @submit.prevent="updateApiKey"
         >
-          <div class="modal-scroll-content custom-scrollbar min-h-0 flex-1 space-y-3 overflow-y-auto sm:space-y-4">
+          <div class="modal-scroll-content custom-scrollbar min-h-0 flex-1 space-y-3 overflow-y-auto sm:space-y-3">
           <div>
             <label
               class="mb-1.5 block text-sm font-semibold text-gray-700 dark:text-gray-300 sm:mb-3 sm:text-sm"
@@ -121,7 +121,7 @@
               class="mb-1.5 block text-sm font-semibold text-gray-700 dark:text-gray-300 sm:mb-3 sm:text-sm"
               >标签</label
             >
-            <div class="space-y-4">
+            <div class="space-y-3">
               <!-- 已选择的标签 -->
               <div v-if="form.tags.length > 0">
                 <div class="mb-2 text-sm font-medium text-gray-600 dark:text-gray-400">
@@ -257,7 +257,7 @@
               <!-- 示例说明 -->
               <div class="rounded-lg bg-blue-100 p-2 dark:bg-blue-900/30">
                 <h5 class="mb-1 text-sm font-semibold text-blue-800 dark:text-blue-400">
-                  💡 使用示例
+                  使用示例
                 </h5>
                 <div class="space-y-0.5 text-sm text-blue-700 dark:text-blue-300">
                   <div>
@@ -852,8 +852,27 @@
               </div>
             </div>
             <p class="mt-2 text-sm text-gray-500 dark:text-gray-400">
-              修改绑定账号将影响此API Key的请求路由
+              修改绑定账号将影响此 API Key 的请求路由。
             </p>
+            <div
+              class="mt-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-800 dark:border-blue-800 dark:bg-blue-900/20 dark:text-blue-200"
+            >
+              <p class="font-medium">跨协议桥接（仅专属绑定）</p>
+              <ul class="mt-1 list-disc space-y-1 pl-5">
+                <li>
+                  绑定 <span class="font-medium">OpenAI</span> 专属账号后：Claude 客户端
+                  <code class="font-mono">/v1/messages</code>
+                  若 model 为 gpt/o/codex 族，会自动桥到 Responses。
+                </li>
+                <li>
+                  绑定 <span class="font-medium">Grok</span> 专属账号后：model 为 grok/composer
+                  时，同样可从
+                  <code class="font-mono">/v1/messages</code>
+                  桥到 Grok。
+                </li>
+                <li>未绑定专属账号时，/v1/messages 只走 Claude 族池，不会跨协议。</li>
+              </ul>
+            </div>
           </div>
 
           <div>
@@ -1036,6 +1055,7 @@ import { ref, reactive, computed, onMounted, watch } from 'vue'
 
 import ModalTransition from '@/components/common/modal_transition.vue'
 import { showToast } from '@/libs/tools'
+import { isOk, msgOf } from '@/libs/http_envelope'
 import { useClientsStore } from '@/stores/clients'
 import { useApiKeysStore } from '@/stores/api_keys'
 import * as httpApis from '@/libs/http_apis'
@@ -1499,11 +1519,11 @@ const updateApiKey = async () => {
 
     const result = await httpApis.updateApiKeyApi(props.apiKey.id, data)
 
-    if (result.success) {
+    if (isOk(result)) {
       emit('success')
       requestClose()
     } else {
-      showToast(result.message || '更新失败', 'error')
+      showToast(msgOf(result, '更新失败'), 'error')
     }
   } catch (error) {
     showToast('更新失败', 'error')
@@ -1543,7 +1563,7 @@ const refreshAccounts = async () => {
     // 合并Claude OAuth账户和Claude Console账户
     const claudeAccounts = []
 
-    if (claudeData.success) {
+    if (isOk(claudeData)) {
       claudeData.data?.forEach((account) => {
         claudeAccounts.push({
           ...account,
@@ -1553,7 +1573,7 @@ const refreshAccounts = async () => {
       })
     }
 
-    if (claudeConsoleData.success) {
+    if (isOk(claudeConsoleData)) {
       claudeConsoleData.data?.forEach((account) => {
         claudeAccounts.push({
           ...account,
@@ -1568,7 +1588,7 @@ const refreshAccounts = async () => {
     // 合并 Gemini OAuth 和 Gemini API 账号
     const geminiAccounts = []
 
-    if (geminiData.success) {
+    if (isOk(geminiData)) {
       ;(geminiData.data || []).forEach((account) => {
         geminiAccounts.push({
           ...account,
@@ -1578,7 +1598,7 @@ const refreshAccounts = async () => {
       })
     }
 
-    if (geminiApiData.success) {
+    if (isOk(geminiApiData)) {
       ;(geminiApiData.data || []).forEach((account) => {
         geminiAccounts.push({
           ...account,
@@ -1593,7 +1613,7 @@ const refreshAccounts = async () => {
     // 合并 OpenAI 和 OpenAI-Responses 账号
     const openaiAccounts = []
 
-    if (openaiData.success) {
+    if (isOk(openaiData)) {
       ;(openaiData.data || []).forEach((account) => {
         openaiAccounts.push({
           ...account,
@@ -1603,7 +1623,7 @@ const refreshAccounts = async () => {
       })
     }
 
-    if (openaiResponsesData.success) {
+    if (isOk(openaiResponsesData)) {
       ;(openaiResponsesData.data || []).forEach((account) => {
         openaiAccounts.push({
           ...account,
@@ -1615,14 +1635,14 @@ const refreshAccounts = async () => {
 
     localAccounts.value.openai = openaiAccounts
 
-    if (bedrockData.success) {
+    if (isOk(bedrockData)) {
       localAccounts.value.bedrock = (bedrockData.data || []).map((account) => ({
         ...account,
         isDedicated: account.accountType === 'dedicated'
       }))
     }
 
-    if (droidData.success) {
+    if (isOk(droidData)) {
       localAccounts.value.droid = (droidData.data || []).map((account) => ({
         ...account,
         platform: 'droid',
@@ -1630,7 +1650,7 @@ const refreshAccounts = async () => {
       }))
     }
 
-    if (grokData.success) {
+    if (isOk(grokData)) {
       localAccounts.value.grok = (grokData.data || []).map((account) => ({
         ...account,
         platform: 'grok',
@@ -1639,10 +1659,13 @@ const refreshAccounts = async () => {
     }
 
     // 处理分组数据
-    if (groupsData.success) {
+    if (isOk(groupsData)) {
       const allGroups = groupsData.data || []
       localAccounts.value.claudeGroups = allGroups.filter((g) => g.platform === 'claude')
-      localAccounts.value.geminiGroups = allGroups.filter((g) => g.platform === 'gemini')
+      // Gemini 选择器同时展示 antigravity 分组（绑定字段同为 geminiAccountId）
+      localAccounts.value.geminiGroups = allGroups.filter(
+        (g) => g.platform === 'gemini' || g.platform === 'antigravity',
+      )
       localAccounts.value.openaiGroups = allGroups.filter((g) => g.platform === 'openai')
       localAccounts.value.droidGroups = allGroups.filter((g) => g.platform === 'droid')
       localAccounts.value.grokGroups = allGroups.filter((g) => g.platform === 'grok')
@@ -1660,7 +1683,7 @@ const refreshAccounts = async () => {
 const loadUsers = async () => {
   try {
     const response = await httpApis.getUsersApi()
-    if (response.success) {
+    if (isOk(response)) {
       availableUsers.value = response.data || []
     }
   } catch (error) {
@@ -1831,7 +1854,7 @@ onMounted(async () => {
   if (form.enableOpenAIResponsesPayloadRules && form.openaiResponsesPayloadRules.length === 0) {
     addPayloadRule()
   }
-  // 初始化活跃状态，默认为 true（强制转换为布尔值，因为Redis返回字符串）
+  // 初始化活跃状态，默认 true（Redis 返回字符串，强制转布尔）
   form.isActive =
     props.apiKey.isActive === undefined ||
     props.apiKey.isActive === true ||

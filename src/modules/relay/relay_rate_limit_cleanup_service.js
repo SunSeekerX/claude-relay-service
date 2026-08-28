@@ -26,13 +26,13 @@ class RateLimitCleanupService {
    */
   start(intervalMinutes = 5) {
     if (this.cleanupInterval) {
-      logger.warn('⚠️ Rate limit cleanup service is already running')
+      logger.warn('Rate limit cleanup service is already running')
       return
     }
 
     this.intervalMs = intervalMinutes * 60 * 1000
 
-    logger.info(`🧹 Starting rate limit cleanup service (interval: ${intervalMinutes} minutes)`)
+    logger.info(`Starting rate limit cleanup service (interval: ${intervalMinutes} minutes)`)
 
     // 立即执行一次清理
     this.performCleanup()
@@ -50,7 +50,7 @@ class RateLimitCleanupService {
     if (this.cleanupInterval) {
       clearInterval(this.cleanupInterval)
       this.cleanupInterval = null
-      logger.info('🛑 Rate limit cleanup service stopped')
+      logger.info('Rate limit cleanup service stopped')
     }
   }
 
@@ -59,7 +59,7 @@ class RateLimitCleanupService {
    */
   async performCleanup() {
     if (this.isRunning) {
-      logger.debug('⏭️ Cleanup already in progress, skipping this cycle')
+      logger.debug('Cleanup already in progress, skipping this cycle')
       return
     }
 
@@ -67,7 +67,7 @@ class RateLimitCleanupService {
     const startTime = Date.now()
 
     try {
-      logger.debug('🔍 Starting rate limit cleanup check...')
+      logger.debug('Starting rate limit cleanup check...')
 
       const results = {
         openai: { checked: 0, cleared: 0, errors: [] },
@@ -100,14 +100,14 @@ class RateLimitCleanupService {
 
       if (totalCleared > 0 || results.tokenRefresh.refreshed > 0) {
         logger.info(
-          `✅ Rate limit cleanup completed: ${totalCleared}/${totalChecked} accounts cleared, ${results.tokenRefresh.refreshed} tokens refreshed (${duration}ms)`,
+          `Rate limit cleanup completed: ${totalCleared}/${totalChecked} accounts cleared, ${results.tokenRefresh.refreshed} tokens refreshed (${duration}ms)`,
         )
-        logger.info(`   OpenAI: ${results.openai.cleared}/${results.openai.checked}`)
-        logger.info(`   Claude: ${results.claude.cleared}/${results.claude.checked}`)
-        logger.info(`   Claude Console: ${results.claudeConsole.cleared}/${results.claudeConsole.checked}`)
-        logger.info(`   Quota Exceeded: ${results.quotaExceeded.cleared}/${results.quotaExceeded.checked}`)
+        logger.info(`OpenAI: ${results.openai.cleared}/${results.openai.checked}`)
+        logger.info(`Claude: ${results.claude.cleared}/${results.claude.checked}`)
+        logger.info(`Claude Console: ${results.claudeConsole.cleared}/${results.claudeConsole.checked}`)
+        logger.info(`Quota Exceeded: ${results.quotaExceeded.cleared}/${results.quotaExceeded.checked}`)
         if (results.tokenRefresh.checked > 0 || results.tokenRefresh.refreshed > 0) {
-          logger.info(`   Token Refresh: ${results.tokenRefresh.refreshed}/${results.tokenRefresh.checked} refreshed`)
+          logger.info(`Token Refresh: ${results.tokenRefresh.refreshed}/${results.tokenRefresh.checked} refreshed`)
         }
 
         // 发送 webhook 恢复通知
@@ -115,7 +115,7 @@ class RateLimitCleanupService {
           await this.sendRecoveryNotifications()
         }
       } else {
-        logger.debug(`🔍 Rate limit cleanup check completed: no expired limits found (${duration}ms)`)
+        logger.debug(`Rate limit cleanup check completed: no expired limits found (${duration}ms)`)
       }
 
       // 记录错误
@@ -127,10 +127,10 @@ class RateLimitCleanupService {
         ...results.tokenRefresh.errors,
       ]
       if (allErrors.length > 0) {
-        logger.warn(`⚠️ Encountered ${allErrors.length} errors during cleanup:`, allErrors)
+        logger.warn(`Encountered ${allErrors.length} errors during cleanup:`, allErrors)
       }
     } catch (error) {
-      logger.error('❌ Rate limit cleanup failed:', error)
+      logger.error('Rate limit cleanup failed:', error)
     } finally {
       // 确保无论成功或失败都重置列表，避免重复通知
       this.clearedAccounts = []
@@ -163,7 +163,7 @@ class RateLimitCleanupService {
 
             if (!isStillLimited) {
               result.cleared++
-              logger.info(`🧹 Auto-cleared expired rate limit for OpenAI account: ${account.name} (${account.id})`)
+              logger.info(`Auto-cleared expired rate limit for OpenAI account: ${account.name} (${account.id})`)
 
               // 记录已清理的账户信息
               this.clearedAccounts.push({
@@ -221,7 +221,7 @@ class RateLimitCleanupService {
                 await claudeAccountService.removeAccountRateLimit(account.id)
               }
               result.cleared++
-              logger.info(`🧹 Auto-cleared expired rate limit for Claude account: ${account.name} (${account.id})`)
+              logger.info(`Auto-cleared expired rate limit for Claude account: ${account.name} (${account.id})`)
 
               // 记录已清理的账户信息
               this.clearedAccounts.push({
@@ -264,7 +264,7 @@ class RateLimitCleanupService {
           result.cleared += fiveHourResult.recovered
 
           logger.info(
-            `🕐 Claude 5-hour limit recovery: ${fiveHourResult.recovered}/${fiveHourResult.checked} accounts recovered`,
+            `Claude 5-hour limit recovery: ${fiveHourResult.recovered}/${fiveHourResult.checked} accounts recovered`,
           )
         }
       } catch (error) {
@@ -322,9 +322,7 @@ class RateLimitCleanupService {
                 })
               }
 
-              logger.info(
-                `🧹 Auto-cleared expired rate limit for Claude Console account: ${account.name} (${account.id})`,
-              )
+              logger.info(`Auto-cleared expired rate limit for Claude Console account: ${account.name} (${account.id})`)
 
               // 记录已清理的账户信息
               this.clearedAccounts.push({
@@ -368,9 +366,7 @@ class RateLimitCleanupService {
 
             if (!isStillExceeded) {
               result.cleared++
-              logger.info(
-                `🧹 Auto-recovered quota exceeded for Claude Console account: ${account.name} (${account.id})`,
-              )
+              logger.info(`Auto-recovered quota exceeded for Claude Console account: ${account.name} (${account.id})`)
 
               // 记录已恢复的账户信息
               this.clearedAccounts.push({
@@ -448,14 +444,14 @@ class RateLimitCleanupService {
         try {
           await claudeAccountService.refreshAccountToken(account.id)
           result.refreshed++
-          logger.info(`🔄 Proactively refreshed token: ${account.name} (${account.id})`)
+          logger.info(`Proactively refreshed token: ${account.name} (${account.id})`)
         } catch (error) {
           result.errors.push({
             accountId: account.id,
             accountName: account.name,
             error: error.message,
           })
-          logger.warn(`⚠️ Proactive refresh failed for ${account.name}: ${error.message}`)
+          logger.warn(`Proactive refresh failed for ${account.name}: ${error.message}`)
         }
       }
     } catch (error) {
@@ -468,7 +464,7 @@ class RateLimitCleanupService {
    * 手动触发一次清理（供 API 或 CLI 调用）
    */
   async manualCleanup() {
-    logger.info('🧹 Manual rate limit cleanup triggered')
+    logger.info('Manual rate limit cleanup triggered')
     await this.performCleanup()
   }
 
@@ -490,7 +486,7 @@ class RateLimitCleanupService {
       const platforms = Object.keys(groupedAccounts)
       const totalAccounts = this.clearedAccounts.length
 
-      let message = `🎉 共有 ${totalAccounts} 个账户的限流状态已恢复\n\n`
+      let message = `共有 ${totalAccounts} 个账户的限流状态已恢复\n\n`
 
       for (const platform of platforms) {
         const accounts = groupedAccounts[platform]
@@ -511,9 +507,9 @@ class RateLimitCleanupService {
         timestamp: new Date().toISOString(),
       })
 
-      logger.info(`📢 已发送限流恢复通知，涉及 ${totalAccounts} 个账户`)
+      logger.info(`已发送限流恢复通知，涉及 ${totalAccounts} 个账户`)
     } catch (error) {
-      logger.error('❌ 发送限流恢复通知失败:', error)
+      logger.error('发送限流恢复通知失败:', error)
     }
   }
 

@@ -137,16 +137,17 @@
             </div>
           </div>
 
-          <!-- 自定义日期选择 -->
+          <!-- 自定义日期选择：项目内单点时间选择器 -->
           <div v-if="localForm.expireDuration === 'custom'" class="animate-fadeIn">
             <label class="mb-2 block text-sm font-semibold text-gray-700 dark:text-gray-300"
               >选择日期和时间</label
             >
-            <input
+            <AppDateRangePicker
               v-model="localForm.customExpireDate"
-              class="form-input w-full border-transparent dark:border-transparent dark:bg-gray-700 dark:text-gray-200"
+              class="w-full"
+              mode="single"
               :min="minDateTime"
-              type="datetime-local"
+              :presets="false"
               @change="updateCustomExpiryPreview"
             />
             <p class="mt-2 text-sm text-gray-500 dark:text-gray-400">
@@ -231,11 +232,8 @@
 import { ref, reactive, computed, watch } from 'vue'
 import ModalTransition from '@/components/common/modal_transition.vue'
 import ConfirmModal from '@/components/common/confirm_modal.vue'
-import {
-  formatDateTimeLocalValue,
-  getDateTimeLocalMinValue,
-  localDateTimeInputToISOString
-} from '@/libs/time'
+import AppDateRangePicker from '@/components/common/app_date_range_picker.vue'
+import { toStoreDateTime, localDateTimeInputToISOString } from '@/libs/time'
 
 const props = defineProps({
   show: {
@@ -305,9 +303,7 @@ const quickOptions = [
 ]
 
 // 计算最小日期时间
-const minDateTime = computed(() => {
-  return getDateTimeLocalMinValue(1)
-})
+const minDateTime = computed(() => toStoreDateTime(new Date(Date.now() + 60_000)))
 
 // 监听显示状态，初始化表单
 watch(
@@ -335,7 +331,7 @@ const initializeForm = () => {
 
   if (props.apiKey.expiresAt) {
     localForm.expireDuration = 'custom'
-    localForm.customExpireDate = formatDateTimeLocalValue(props.apiKey.expiresAt)
+    localForm.customExpireDate = toStoreDateTime(props.apiKey.expiresAt)
     localForm.expiresAt = props.apiKey.expiresAt
   } else {
     localForm.expireDuration = ''

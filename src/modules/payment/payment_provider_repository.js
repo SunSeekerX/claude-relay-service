@@ -92,7 +92,7 @@ class ProviderRepository {
       const json = decrypt(encrypted)
       return json ? JSON.parse(json) : {}
     } catch (e) {
-      logger.error('❌ [payment] decrypt provider config failed:', e)
+      logger.error('[payment] decrypt provider config failed:', e)
       return {}
     }
   }

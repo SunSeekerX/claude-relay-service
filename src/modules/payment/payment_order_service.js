@@ -214,7 +214,7 @@ class PaymentOrderService {
       try {
         payResult = await provider.createPayment(order, providerConfig)
       } catch (error) {
-        logger.error(`❌ [payment] createPayment failed order=${order.id}:`, error)
+        logger.error(`[payment] createPayment failed order=${order.id}:`, error)
         await orderRepository.casStatus(order.id, ORDER_STATUS.PENDING, ORDER_STATUS.CANCELLED, {
           failedReason: 'create payment failed',
         })
@@ -231,7 +231,7 @@ class PaymentOrderService {
       try {
         await orderRepository.setFields(order.id, payFields)
       } catch (e) {
-        logger.error(`❌ [payment] setFields failed (order ${order.id} 仍有效、上游已建单):`, e)
+        logger.error(`[payment] setFields failed (order ${order.id} 仍有效、上游已建单):`, e)
       }
       await paymentAudit.record(
         order.id,
@@ -261,7 +261,7 @@ class PaymentOrderService {
   // 可从 pending / expired / cancelled → paid（后两者=上游已付、本地曾误关或取消后到账）。
   async confirmPayment(order, { paidAmount = null, tradeNo = '' } = {}) {
     if (paidAmount !== null && paidAmount > 0 && !this._amountMatches(paidAmount, order.payAmount)) {
-      logger.error(`❌ [payment] amount mismatch order=${order.id} paid=${paidAmount} expect=${order.payAmount}`)
+      logger.error(`[payment] amount mismatch order=${order.id} paid=${paidAmount} expect=${order.payAmount}`)
       throw new Error('支付金额不匹配')
     }
     // 已 paid/completed：只履约
@@ -465,7 +465,7 @@ class PaymentOrderService {
           await paymentAudit.record(id, 'ORDER_FULFILL_STUCK_RETRY', {})
         }
       } catch (error) {
-        logger.error(`❌ [payment] fulfill stuck paid order=${id}:`, error)
+        logger.error(`[payment] fulfill stuck paid order=${id}:`, error)
       }
     }
 
@@ -493,7 +493,7 @@ class PaymentOrderService {
               recovered += 1
             }
           } catch (error) {
-            logger.error(`❌ [payment] fulfill paid-on-pending-idx order=${id}:`, error)
+            logger.error(`[payment] fulfill paid-on-pending-idx order=${id}:`, error)
           }
           await orderRepository.removeFromPendingIndex(id)
           continue
@@ -524,7 +524,7 @@ class PaymentOrderService {
               })
             } catch (confirmError) {
               // 可能已 pending→paid 成功、fulfill 失败：读最新状态分流
-              logger.error(`❌ [payment] expire paid-but-fulfill-failed order=${id}:`, confirmError)
+              logger.error(`[payment] expire paid-but-fulfill-failed order=${id}:`, confirmError)
               const latest = await orderRepository.getById(id)
               if (latest && latest.status === ORDER_STATUS.PAID) {
                 // 已 paid：立刻再 fulfill；失败则留下 status=paid，靠①每轮扫补，禁止 reschedulePending
@@ -532,7 +532,7 @@ class PaymentOrderService {
                   await this.fulfillOrder(id)
                   recovered += 1
                 } catch (fulfillError) {
-                  logger.error(`❌ [payment] fulfill after confirm partial order=${id}:`, fulfillError)
+                  logger.error(`[payment] fulfill after confirm partial order=${id}:`, fulfillError)
                   await paymentAudit.record(order.id, 'ORDER_FULFILL_RETRY', {
                     error: fulfillError.message || String(fulfillError),
                     stage: 'paid',
@@ -560,7 +560,7 @@ class PaymentOrderService {
             queryFailed = true
           }
         } catch (error) {
-          logger.error(`❌ [payment] expire pre-query failed order=${id}:`, error)
+          logger.error(`[payment] expire pre-query failed order=${id}:`, error)
           queryFailed = true
         }
         if (queryFailed) {
@@ -604,8 +604,8 @@ class PaymentOrderService {
   }
 
   // 对账（cron 调用）：清掉实例当日额度 hash 里的失效预留——
-  //   ① 进程崩溃遗留的孤儿预留（HSET 成功但订单未落库 → 订单不存在）；
-  //   ② 订单已终态但释放失败遗留（cancelled/expired/failed 仍在 hash）。
+  // ① 进程崩溃遗留的孤儿预留（HSET 成功但订单未落库 → 订单不存在）；
+  // ② 订单已终态但释放失败遗留（cancelled/expired/failed 仍在 hash）。
   // 逐 orderId 核对订单真相，确认应清才 HDEL，与并发下单/释放无竞态（它们 HSET/HDEL 的是各自 orderId）。
   // 「订单不存在」分崩溃孤儿 vs「预留刚成、落库未完」的在途单：后者 reservedAtMs 很新，靠宽限期区分，
   // 只清够老的孤儿、绝不误清在途；终态订单订单在、确认失败，立即清。扫描覆盖完整 providerDaily TTL 天数，
@@ -751,7 +751,7 @@ class PaymentOrderService {
   // ② channelRefundAttemptAt 在而①不在 = 渠道调用结果未知（in-doubt）→ 拒绝自动重调渠道，转人工裁决；
   // ③ 账本回收 hash 有记录 = 额度已扣、渠道确定未调 → 按实扣额续退；
   // ④ 无记录 = 额度未扣（CAS 后 reverse 前中断，或前次回滚已收回）→ 按当前余额重新原子回收后续退，
-  //    无可回收则解锁回 COMPLETED。
+  // 无可回收则解锁回 COMPLETED。
   async _resumeRefund(orderId, operator) {
     // withConfigSnapshot:true 取渠道配置快照供 _executeChannelRefund 调渠道（同 _approveRefundLocked）
     const order = await orderRepository.getById(orderId, { withConfigSnapshot: true })
@@ -812,8 +812,8 @@ class PaymentOrderService {
   }
 
   // in-doubt 人工裁决（管理员先在渠道后台核对流水，再二选一）。与 approveRefund 共用 per-order 锁互斥：
-  //   refunded     渠道已退款 → 补 channelRefundedAt 并经重入只补终态（量/额自账本推导，绝不再调渠道）
-  //   not_refunded 渠道未退款 → 回滚已扣额度并解锁回 COMPLETED（要继续退款重新审批，走全新校验）
+  // refunded     渠道已退款 → 补 channelRefundedAt 并经重入只补终态（量/额自账本推导，绝不再调渠道）
+  // not_refunded 渠道未退款 → 回滚已扣额度并解锁回 COMPLETED（要继续退款重新审批，走全新校验）
   async resolveRefundInDoubt(orderId, outcome, { operator = 'admin' } = {}) {
     if (!['refunded', 'not_refunded'].includes(outcome)) {
       throw new Error(`无效裁决结论: ${outcome}`)
@@ -845,7 +845,7 @@ class PaymentOrderService {
         try {
           await paymentAudit.record(orderId, 'REFUND_RESOLVED', { outcome }, operator)
         } catch (auditError) {
-          logger.error('❌ [payment] audit record failed:', auditError)
+          logger.error('[payment] audit record failed:', auditError)
         }
         return result
       }
@@ -859,7 +859,7 @@ class PaymentOrderService {
       try {
         await paymentAudit.record(orderId, 'REFUND_RESOLVED', { outcome, reversedQuota: quota }, operator)
       } catch (auditError) {
-        logger.error('❌ [payment] audit record failed:', auditError)
+        logger.error('[payment] audit record failed:', auditError)
       }
       return { success: true, resolved: 'not_refunded', reversedQuota: quota }
     } finally {
@@ -884,7 +884,7 @@ class PaymentOrderService {
     // 在「先 reverse 后 rollback」的锁内调用纪律下不可达，出现即异常态（额度可能未退回），不可静默成功
     if (rollbackError || !(rolled > 0)) {
       logger.error(
-        `❌ [payment] unreverse failed/refused order=${order.id} quota=${reversed} rolled=${rolled}:`,
+        `[payment] unreverse failed/refused order=${order.id} quota=${reversed} rolled=${rolled}:`,
         rollbackError,
       )
       try {
@@ -895,14 +895,14 @@ class PaymentOrderService {
           operator,
         )
       } catch (auditError) {
-        logger.error('❌ [payment] audit record failed:', auditError)
+        logger.error('[payment] audit record failed:', auditError)
       }
     }
     // 清渠道在途标记（走到回滚=渠道结果已知为失败/未调），避免下轮重入被误判 in-doubt
     try {
       await orderRepository.setFields(order.id, { channelRefundAttemptAt: '' })
     } catch (e) {
-      logger.error(`❌ [payment] clear attempt marker failed order=${order.id}:`, e)
+      logger.error(`[payment] clear attempt marker failed order=${order.id}:`, e)
     }
     await orderRepository.casStatus(order.id, ORDER_STATUS.REFUNDING, ORDER_STATUS.COMPLETED, {
       failedReason: reason,
@@ -922,7 +922,7 @@ class PaymentOrderService {
         channelRefundAttemptAt: new Date().toISOString(),
       })
     } catch (error) {
-      logger.error(`❌ [payment] persist attempt marker failed order=${order.id}:`, error)
+      logger.error(`[payment] persist attempt marker failed order=${order.id}:`, error)
       await this._rollbackRefund(order, reversed, operator, 'persist attempt marker failed')
       throw error
     }
@@ -943,7 +943,7 @@ class PaymentOrderService {
       // 渠道调用抛异常 ≠ 确定失败：超时/连接中断/响应丢失时渠道可能已退款。不回滚、不清在途标记、
       // 订单留 REFUNDING——重入命中 in-doubt 转人工裁决。适配器契约：确认「未执行/已拒绝」须
       // return {success:false}（走自动回滚、可重试），throw 一律按结果未知处理
-      logger.error(`❌ [payment] refund call threw (in-doubt) order=${order.id}:`, error)
+      logger.error(`[payment] refund call threw (in-doubt) order=${order.id}:`, error)
       try {
         await paymentAudit.record(
           order.id,
@@ -952,7 +952,7 @@ class PaymentOrderService {
           operator,
         )
       } catch (auditError) {
-        logger.error('❌ [payment] audit record failed:', auditError)
+        logger.error('[payment] audit record failed:', auditError)
       }
       throw new Error(
         '渠道退款调用异常、结果未知（in-doubt）：订单保持退款中，请核对渠道流水后在订单管理执行「退款裁决」',
@@ -989,7 +989,7 @@ class PaymentOrderService {
         break
       } catch (error) {
         lastError = error
-        logger.error(`❌ [payment] finalize refund attempt ${attempt}/3 failed order=${order.id}:`, error)
+        logger.error(`[payment] finalize refund attempt ${attempt}/3 failed order=${order.id}:`, error)
         if (attempt < 3) {
           await new Promise((resolve) => setTimeout(resolve, attempt * 200))
         }
@@ -997,7 +997,7 @@ class PaymentOrderService {
     }
     if (lastError) {
       logger.error(
-        `❌ [payment] CRITICAL: channel refunded but finalize failed order=${order.id} amount=${actualRefundAmount} quota=${reversed}`,
+        `[payment] CRITICAL: channel refunded but finalize failed order=${order.id} amount=${actualRefundAmount} quota=${reversed}`,
         lastError,
       )
       throw new Error('渠道退款已成功但终态落库失败：存储恢复后重新审批将自动补终态或转入 in-doubt 人工核对')
@@ -1008,7 +1008,7 @@ class PaymentOrderService {
       const current = await orderRepository.getById(order.id)
       if (!current || current.status !== ORDER_STATUS.REFUNDED) {
         logger.error(
-          `❌ [payment] CRITICAL: finalize status conflict order=${order.id} status=${current ? current.status : 'missing'} amount=${actualRefundAmount}（渠道已退款）`,
+          `[payment] CRITICAL: finalize status conflict order=${order.id} status=${current ? current.status : 'missing'} amount=${actualRefundAmount}（渠道已退款）`,
         )
         throw new Error(`渠道已退款但订单状态异常（${current ? current.status : '不存在'}），终态冲突，请人工核对处理`)
       }
@@ -1022,7 +1022,7 @@ class PaymentOrderService {
         operator,
       )
     } catch (auditError) {
-      logger.error('❌ [payment] audit record failed:', auditError)
+      logger.error('[payment] audit record failed:', auditError)
     }
     logger.info(`[payment] refunded order=${order.id} amount=${actualRefundAmount} reversedQuota=${reversed}`)
     return { success: true, refundAmount: actualRefundAmount, reversedQuota: reversed }

@@ -27,7 +27,7 @@ const getAccountNameCacheService = () => {
 // ===
 
 export const attach = function attach(redisClient) {
-  // 🔑 API Key 相关操作
+  // API Key 相关操作
   redisClient.setApiKey = async function (keyId, keyData, hashedKey = null) {
     const key = RedisKeys.apiKey.byId(keyId)
     const client = this.getClientSafe()
@@ -413,7 +413,7 @@ export const attach = function attach(redisClient) {
           excludeDeleted,
         })
       } catch (error) {
-        logger.warn('⚠️ 索引查询失败，降级到全量扫描:', error.message)
+        logger.warn('索引查询失败，降级到全量扫描:', error.message)
       }
     }
 
@@ -531,7 +531,7 @@ export const attach = function attach(redisClient) {
     }
   }
 
-  // 🔍 通过哈希值查找API Key（性能优化）
+  // 通过哈希值查找API Key（性能优化）
   redisClient.findApiKeyByHash = async function (hashedKey) {
     const keyId = await resolveKeyIdByHash(this.client, hashedKey)
 

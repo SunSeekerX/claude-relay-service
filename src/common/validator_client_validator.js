@@ -78,10 +78,10 @@ export class ClientValidator {
     const requestPath = req.originalUrl || req.path || ''
 
     // 记录验证开始
-    logger.api(`🔍 Starting client validation for User-Agent: "${userAgent}"`)
-    logger.api(`   Allowed clients: ${allowedClients.join(', ')}`)
-    logger.api(`   Request path: ${requestPath}`)
-    logger.api(`   Request from IP: ${clientIP}`)
+    logger.api(`Starting client validation for User-Agent: "${userAgent}"`)
+    logger.api(`Allowed clients: ${allowedClients.join(', ')}`)
+    logger.api(`Request path: ${requestPath}`)
+    logger.api(`Request from IP: ${clientIP}`)
 
     // 遍历所有允许的客户端进行验证
     for (const clientId of allowedClients) {
@@ -94,7 +94,7 @@ export class ClientValidator {
 
       // 路径白名单检查：先检查路径是否允许该客户端访问
       if (!clientDefinitions.isPathAllowedForClient(clientId, requestPath)) {
-        logger.debug(`Path "${requestPath}" not allowed for ${validator.getName()}, skipping`)
+        logger.debug(`Path "${requestPath}"not allowed for ${validator.getName()}, skipping`)
         continue
       }
 
@@ -103,9 +103,9 @@ export class ClientValidator {
       try {
         if (validator.validate(req)) {
           // 验证成功
-          logger.api(`✅ Client validated: ${validator.getName()} (${clientId})`)
-          logger.api(`   Matched User-Agent: "${userAgent}"`)
-          logger.api(`   Allowed path: "${requestPath}"`)
+          logger.api(`Client validated: ${validator.getName()} (${clientId})`)
+          logger.api(`Matched User-Agent: "${userAgent}"`)
+          logger.api(`Allowed path: "${requestPath}"`)
 
           return {
             allowed: true,
@@ -121,7 +121,7 @@ export class ClientValidator {
     }
 
     // 没有匹配的客户端
-    logger.api(`❌ No matching client found for User-Agent: "${userAgent}" and path: "${requestPath}"`)
+    logger.api(`No matching client found for User-Agent: "${userAgent}"and path: "${requestPath}"`)
     return {
       allowed: false,
       matchedClient: null,

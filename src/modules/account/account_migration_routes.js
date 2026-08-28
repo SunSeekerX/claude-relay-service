@@ -1,36 +1,30 @@
 import express from 'express'
 import { authenticateAdmin } from '../../infra/middleware_auth.js'
+import { asyncRoute, SEND_RAW } from '../../common/route_handler.js'
+import { badRequest, HttpError } from '../../common/http_result.js'
 import { logger } from '../../common/logger.js'
+import { parseObjectBody } from '../../common/parse_body.js'
 import * as migrationService from './account_migration_service.js'
 /**
  * Admin Routes - Account Migration (import/export)
- * 新增的账户导入导出能力，全部走新路径，不触碰 /admin/sync/export-accounts 契约。
- *
- *   GET  /admin/accounts/export?format=crs|sub2api|cliproxyapi&ids=a,b,c
- *   POST /admin/accounts/import/inspect   { filename, contentBase64 }
- *   POST /admin/accounts/import           { filename, contentBase64, options }
+ * GET 导出：校验失败走信封；成功 zip/json 原样文件（SEND_RAW）
+ * POST import/inspect：JSON 信封
  */
 
 export const router = express.Router()
 
 const VALID_FORMATS = ['crs', 'sub2api', 'cliproxyapi']
 
-const toBool = function toBool(value) {
-  if (value === true || value === 'true') {
-    return true
-  }
-  if (value === false || value === 'false') {
-    return false
-  }
-  return false
-}
+const toBool = (value) => value === true || value === 'true'
 
 // 导出账户
-router.get('/accounts/export', authenticateAdmin, async (req, res) => {
-  try {
+router.get(
+  '/accounts/export',
+  authenticateAdmin,
+  asyncRoute('Account export failed', async (req, res) => {
     const format = String(req.query.format || 'crs').toLowerCase()
     if (!VALID_FORMATS.includes(format)) {
-      return res.status(400).json({ success: false, error: `invalid format: ${format}` })
+      throw badRequest(`invalid format: ${format}`)
     }
     const ids =
       typeof req.query.ids === 'string' && req.query.ids.trim()
@@ -39,81 +33,73 @@ router.get('/accounts/export', authenticateAdmin, async (req, res) => {
             .map((s) => s.trim())
             .filter(Boolean)
         : null
-    const includeSecrets = toBool(req.query.include_secrets)
-    if (!includeSecrets) {
-      return res.status(400).json({
-        success: false,
-        error: 'include_secrets_required',
-        message: 'Set include_secrets=true to export secrets',
+    if (!toBool(req.query.include_secrets)) {
+      throw new HttpError(400, 'Set include_secrets=true to export secrets', {
+        reason: 'include_secrets_required',
       })
     }
 
     const result = await migrationService.exportAccounts({ format, ids })
 
+    if (result.kind === 'empty') {
+      throw new HttpError(400, '没有可导出的账户（所选账户均不支持该格式或读取失败）', {
+        reason: 'no_exportable_accounts',
+        data: {
+          skipped: result.skipped || [],
+          readErrors: result.readErrors || [],
+        },
+      })
+    }
+
     res.setHeader('Content-Disposition', `attachment; filename="${result.filename}"`)
-    // 响应头只放计数（完整明细会随条目数线性膨胀，撞反代 header size 限制）；明细落服务端日志
     if (result.skipped && result.skipped.length > 0) {
       res.setHeader('X-Export-Skipped-Count', String(result.skipped.length))
-      logger.warn(`⚠️ Account export skipped ${result.skipped.length} account(s): ${JSON.stringify(result.skipped)}`)
+      logger.warn(`Account export skipped ${result.skipped.length} account(s): ${JSON.stringify(result.skipped)}`)
     }
     if (result.readErrors && result.readErrors.length > 0) {
       res.setHeader('X-Export-Read-Errors-Count', String(result.readErrors.length))
       logger.warn(
-        `⚠️ Account export read errors on ${result.readErrors.length} account(s): ${JSON.stringify(result.readErrors)}`,
+        ` Account export read errors on ${result.readErrors.length} account(s): ${JSON.stringify(result.readErrors)}`,
       )
-    }
-
-    if (result.kind === 'empty') {
-      return res.status(400).json({
-        success: false,
-        error: 'no_exportable_accounts',
-        message: '没有可导出的账户（所选账户均不支持该格式或读取失败）',
-        skipped: result.skipped || [],
-        readErrors: result.readErrors || [],
-      })
     }
 
     if (result.kind === 'zip') {
       res.setHeader('Content-Type', 'application/zip')
-      return res.send(result.buffer)
+      res.send(result.buffer)
+      return SEND_RAW
     }
     res.setHeader('Content-Type', 'application/json; charset=utf-8')
-    return res.send(JSON.stringify(result.payload, null, 2))
-  } catch (error) {
-    logger.error('❌ Account export failed:', error)
-    return res.status(500).json({ success: false, error: error.message })
-  }
-})
+    res.send(JSON.stringify(result.payload, null, 2))
+    return SEND_RAW
+  }),
+)
 
 // 导入预检
-router.post('/accounts/import/inspect', authenticateAdmin, async (req, res) => {
-  try {
-    const { filename, contentBase64 } = req.body || {}
+router.post(
+  '/accounts/import/inspect',
+  authenticateAdmin,
+  asyncRoute('Account import inspect failed', async (req) => {
+    const { filename, contentBase64 } = parseObjectBody(req.body, '导入账户预检')
     if (!contentBase64) {
-      return res.status(400).json({ success: false, error: 'contentBase64 is required' })
+      throw badRequest('contentBase64 is required')
     }
-    const result = await migrationService.inspectImport({ filename, contentBase64 })
-    return res.json({ success: true, ...result })
-  } catch (error) {
-    logger.error('❌ Account import inspect failed:', error)
-    return res.status(500).json({ success: false, error: error.message })
-  }
-})
+    return migrationService.inspectImport({ filename, contentBase64 })
+  }),
+)
 
 // 执行导入
-router.post('/accounts/import', authenticateAdmin, async (req, res) => {
-  try {
-    const { filename, contentBase64, options } = req.body || {}
+router.post(
+  '/accounts/import',
+  authenticateAdmin,
+  asyncRoute('Account import failed', async (req) => {
+    const { filename, contentBase64, options } = parseObjectBody(req.body, '导入账户')
     if (!contentBase64) {
-      return res.status(400).json({ success: false, error: 'contentBase64 is required' })
+      throw badRequest('contentBase64 is required')
     }
     const result = await migrationService.importAccounts({ filename, contentBase64, options })
     logger.info(
-      `📥 Account import done: format=${result.format} created=${result.created} updated=${result.updated} skipped=${result.skipped} failed=${result.failed}`,
+      ` Account import done: format=${result.format} created=${result.created} updated=${result.updated} skipped=${result.skipped} failed=${result.failed}`,
     )
-    return res.json({ success: true, ...result })
-  } catch (error) {
-    logger.error('❌ Account import failed:', error)
-    return res.status(500).json({ success: false, error: error.message })
-  }
-})
+    return result
+  }),
+)

@@ -28,7 +28,7 @@ export class ProxyHelper {
 
       // 验证必要字段
       if (!proxy.type || !proxy.host || !proxy.port) {
-        logger.warn('⚠️ Invalid proxy configuration: missing required fields (type, host, port)')
+        logger.warn('Invalid proxy configuration: missing required fields (type, host, port)')
         return null
       }
 
@@ -112,7 +112,7 @@ export class ProxyHelper {
 
         agent = new HttpsProxyAgent(proxyUrl, httpOptions)
       } else {
-        logger.warn(`⚠️ Unsupported proxy type: ${proxy.type}`)
+        logger.warn(`Unsupported proxy type: ${proxy.type}`)
         return null
       }
 
@@ -122,7 +122,7 @@ export class ProxyHelper {
 
       return agent
     } catch (error) {
-      logger.warn('⚠️ Failed to create proxy agent:', error.message)
+      logger.warn('Failed to create proxy agent:', error.message)
       return null
     }
   }
@@ -276,7 +276,7 @@ export class ProxyHelper {
       }
       return ProxyHelper.createProxyAgent(proxyConfig, options)
     } catch (error) {
-      logger.warn('⚠️ Failed to create proxy agent from url:', error.message)
+      logger.warn('Failed to create proxy agent from url:', error.message)
       return null
     }
   }
@@ -289,7 +289,7 @@ export class ProxyHelper {
    * @deprecated 使用 createProxyAgent 替代
    */
   static createProxy(proxyConfig, useIPv4 = true) {
-    logger.warn('⚠️ ProxyHelper.createProxy is deprecated, use createProxyAgent instead')
+    logger.warn('ProxyHelper.createProxy is deprecated, use createProxyAgent instead')
     return ProxyHelper.createProxyAgent(proxyConfig, { useIPv4 })
   }
 }

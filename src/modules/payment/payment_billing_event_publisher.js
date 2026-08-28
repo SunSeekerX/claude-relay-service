@@ -25,7 +25,7 @@ class BillingEventPublisher {
    */
   async publishBillingEvent(eventData) {
     if (!this.enabled) {
-      logger.debug('📭 Billing events disabled, skipping publish')
+      logger.debug('Billing events disabled, skipping publish')
       return null
     }
 
@@ -99,13 +99,13 @@ class BillingEventPublisher {
       )
 
       logger.debug(
-        `📤 Published billing event: ${messageId} | Key: ${eventData.keyId} | Cost: $${event.cost.total.toFixed(6)}`,
+        `Published billing event: ${messageId} | Key: ${eventData.keyId} | Cost: $${event.cost.total.toFixed(6)}`,
       )
 
       return messageId
     } catch (error) {
-      // ⚠️ 发布失败不影响主流程，只记录错误
-      logger.error('❌ Failed to publish billing event:', error)
+      // 发布失败不影响主流程，只记录错误
+      logger.error('Failed to publish billing event:', error)
       return null
     }
   }
@@ -152,10 +152,10 @@ class BillingEventPublisher {
       const results = await pipeline.exec()
       const successCount = results.filter((r) => r[0] === null).length
 
-      logger.info(`📤 Batch published ${successCount}/${events.length} billing events`)
+      logger.info(`Batch published ${successCount}/${events.length} billing events`)
       return successCount
     } catch (error) {
-      logger.error('❌ Failed to batch publish billing events:', error)
+      logger.error('Failed to batch publish billing events:', error)
       return 0
     }
   }
@@ -185,7 +185,7 @@ class BillingEventPublisher {
       if (error.message.includes('no such key')) {
         return { length: 0, groups: 0 }
       }
-      logger.error('❌ Failed to get stream info:', error)
+      logger.error('Failed to get stream info:', error)
       return null
     }
   }
@@ -209,7 +209,7 @@ class BillingEventPublisher {
         logger.debug(`Consumer group ${groupName} already exists`)
         return true
       }
-      logger.error(`❌ Failed to create consumer group ${groupName}:`, error)
+      logger.error(`Failed to create consumer group ${groupName}:`, error)
       return false
     }
   }

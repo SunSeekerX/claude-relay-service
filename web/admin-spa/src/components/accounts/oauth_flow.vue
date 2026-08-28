@@ -909,7 +909,7 @@
 
     <div class="flex gap-3 pt-4">
       <button
-        class="flex-1 rounded-xl bg-gray-100 px-6 py-3 font-semibold text-gray-700 transition-colors hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
+        class="toolbar-btn h-10 flex-1 px-6 text-sm font-semibold"
         type="button"
         @click="$emit('back')"
       >
@@ -921,7 +921,7 @@
           !(platform === 'claude' && authMethod === 'cookie') &&
           !(platform === 'grok' && authMethod === 'sso')
         "
-        class="btn btn-primary flex-1 px-6 py-3 font-semibold"
+        class="btn btn-primary h-10 flex-1 px-6 text-sm font-semibold"
         :disabled="!canExchange || exchanging"
         type="button"
         @click="exchangeCode"
@@ -936,6 +936,7 @@
 <script setup>
 import { ref, computed, watch, onBeforeUnmount } from 'vue'
 import { showToast } from '@/libs/tools'
+import { isOk, msgOf, dataOf } from '@/libs/http_envelope'
 import { useAccountsStore } from '@/stores/accounts'
 import CuteOptionCards from '@/components/common/cute_option_cards.vue'
 
@@ -1379,18 +1380,19 @@ const exchangeCode = async () => {
       tokenInfo = await accountsStore.exchangeOpenAICode(data)
     } else if (props.platform === 'droid') {
       const response = await accountsStore.exchangeDroidCode(data)
-      if (!response.success) {
-        if (response.pending) {
-          const message = response.message || '授权尚未完成，请在浏览器确认后稍候再次尝试。'
-          showToast(message, 'info')
-          if (typeof response.expiresIn === 'number' && response.expiresIn >= 0) {
-            startCountdown(response.expiresIn)
-          }
-          return
+      // pending 走 ok({pending:true}, msg)，isOk 为 true，须先读 data.pending
+      const payload = dataOf(response)
+      if (payload?.pending) {
+        showToast(msgOf(response, '授权尚未完成，请在浏览器确认后稍候再次尝试。'), 'info')
+        if (typeof payload.expiresIn === 'number' && payload.expiresIn >= 0) {
+          startCountdown(payload.expiresIn)
         }
-        throw new Error(response.message || '授权失败，请重试')
+        return
       }
-      tokenInfo = response.data
+      if (!isOk(response)) {
+        throw new Error(msgOf(response, '授权失败，请重试'))
+      }
+      tokenInfo = payload
       stopCountdown()
     } else if (props.platform === 'grok') {
       tokenInfo = await accountsStore.exchangeGrokCode(data)

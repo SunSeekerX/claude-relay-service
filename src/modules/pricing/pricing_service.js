@@ -36,12 +36,8 @@ const MAX_HASH_BYTES = 1024
 // 重定向跟随上限:GitHub/CDN 通常 1-2 跳,5 跳足够且能挡住跳转环
 const MAX_REDIRECTS = 5
 
-// 落库用:origin 明文(便于运维核对"数据从哪个站来"),pathname + query 一起加密。
-//
-// 为什么连 pathname 也加密:凭据不只出现在 query。签名式地址会把 token 放进路径,
-// 例如 /token/SECRET/prices.json、/s/AbCdEf123/pricing.json —— 只加密 query 的话
-// 这类凭据仍会明文进 Redis、进日志、并由状态接口回显。既然无法穷举凭据的位置,
-// 就把除 origin 以外的整段都当敏感数据处理。
+// 落库用:origin 明文(运维核对数据源),pathname + query 一起加密。
+// 凭据可在 query 也可在路径(/token/SECRET/…)；除 origin 外整段当敏感数据。
 const splitUrlForStorage = (url) => {
   const parsed = new URL(url)
   // pathname 恒以 '/' 开头,解密后据此判断是否解出了有效内容(见 joinUrlFromStorage)
@@ -56,16 +52,16 @@ const splitUrlForStorage = (url) => {
 // 换过 ENCRYPTION_KEY 的实例解不出旧值,此时路径都拿不到、拼不出可用地址,
 // 只能回落默认源(由 resolveSource 处理),但绝不能抛错中断定价服务。
 //
-// 关键:commonHelper 的 decrypt() 解密失败【不抛错,而是原样返回入参密文】(见其 catch),
-// 所以不能靠 try/catch 判失败,必须按返回值形态判断:成功解出的内容必以 '/' 开头(pathname),
-// 而密文是 "ivHex:cipherHex"。少了这一判,会把 iv:ciphertext 当路径拼进 URL。
+// 关键:commonHelper.decrypt() 失败不抛错、原样返回入参密文(见其 catch)。
+// 必须按返回值形态判断:成功解出内容必以 '/' 开头(pathname),密文是 "ivHex:cipherHex"。
+// 少了这一判会把 iv:ciphertext 当路径拼进 URL。
 const joinUrlFromStorage = (base, pathEncrypted, label) => {
   if (!base || !pathEncrypted) {
     return ''
   }
   const decrypted = encryptor.decrypt(pathEncrypted)
   if (!decrypted.startsWith('/')) {
-    logger.warn(`⚠️  ${label} 解密失败(可能换过 ENCRYPTION_KEY)，将回落默认源`)
+    logger.warn(` ${label} 解密失败(可能换过 ENCRYPTION_KEY)，将回落默认源`)
     return ''
   }
   return `${base}${decrypted}`
@@ -140,8 +136,8 @@ const privateIpReason = (ip) => {
 
 // 定价源地址进日志/回显前只保留 origin,丢掉 pathname、query 与 userinfo。
 // 与 splitUrlForStorage 同口径:凭据可能在 query(?token=)也可能在路径(/token/SECRET/…),
-// 无法穷举,所以除 origin 以外一律隐去。比 upstreamErrorHelper.sanitizeUrl(按已知参数名脱敏)更硬。
-// 管理端要核对"数据从哪个站来"看 origin 足够;要看完整地址应查自己填写时的记录。
+// 除 origin 以外一律隐去。比 upstreamErrorHelper.sanitizeUrl(按已知参数名脱敏)更硬。
+// 管理端核对数据源看 origin 即可;完整地址查填写时的记录。
 const maskUrl = (url) => {
   if (!url) {
     return url
@@ -192,14 +188,9 @@ class PricingService {
     }
 
     // [人工决策-2026-08-24 11:33:43] 覆盖层配置校验必须在构造期（= 模块加载期）做，
-    // 抛出的错误直接冒泡到 require，进程起不来。
-    //
-    // 不能放在 initialize()/loadPricingData() 里：那条链上每一层都有 catch —— 校验抛错会被
-    // loadPricingData 捕获后转 useFallbackPricing，fallback 再抛再被捕获，最终 pricingData={}，
-    // 而 initialize() 又吞掉异常照常返回。结果是「服务正常启动但定价表为空」，
-    // 所有请求落到静态/unknown 回退价，比它要防的静默改价更糟，且 fail-fast 形同虚设。
-    //
-    // 这是纯静态配置检查（不读网络/磁盘/Redis），没有"降级运行"的语义：配错就该起不来。
+    // 抛错直接冒泡到 require，进程起不来。
+    // 禁止放 initialize()/loadPricingData()：该链每层有 catch，抛错会被吞成 pricingData={}，
+    // 服务“正常启动”但定价表空、请求走静态/unknown 回退价。纯静态配置检查，配错即 fail-fast。
     this._assertPricingOverridesSafe()
   }
 
@@ -226,8 +217,8 @@ class PricingService {
   // 抛错能冒泡到 require 真正阻止启动。放到加载路径里会被吞成「定价表为空」，见构造函数注释。
   //
   // [人工决策-2026-08-24 11:33:43] 「只允许非计费字段」必须是代码强制而非注释约定。
-  // 覆盖层跑在全部 4 条定价加载路径上，若容许改价字段，一次误填就会静默改写实收金额，
-  // 且因为定价表读的是同一份数据、展示与实收会一起错、无从对账发现。故：fail-fast 优于告警。
+  // 覆盖层跑在全部 4 条定价加载路径上；容许改价字段会静默改写实收，展示与实收同源无从对账。
+  // 命中计费字段 fail-fast 抛错。
   _assertPricingOverridesSafe() {
     const violations = []
     for (const [modelName, patch] of Object.entries(pricingOverrides)) {
@@ -287,49 +278,31 @@ class PricingService {
     }
 
     if (applied.length > 0) {
-      logger.info(`💰 已应用本地定价修正: ${applied.join(' ')}`)
+      logger.info(`已应用本地定价修正: ${applied.join(' ')}`)
     }
     if (stale.length > 0) {
       logger.warn(
-        `💰 本地定价修正有冗余条目(源中缺失或源值已一致)，可从 config/pricingOverrides.js 移除: ${stale.join(' ')}`,
+        `本地定价修正有冗余条目(源中缺失或源值已一致)，可从 config/pricingOverrides.js 移除: ${stale.join(' ')}`,
       )
     }
     return jsonData
   }
 
   // OpenAI service_tier → 价格档后缀链（按优先级，命中即用；全缺则基础价）。
-  // 白名单判定（禁黑名单）：未知 tier 一律按基础价，避免上游新增档位被误当溢价档。
+  // 白名单判定：未知 tier 一律基础价，避免上游新档被误当溢价。
+  // priority/fast 同一溢价档（官方 Priority 更名 Fast；Codex 写 fast，回包归一 priority）。
   //
-  // priority/fast 是同一溢价档的两个名字（官方 Priority 已更名 Fast mode，Codex 客户端写 fast，
-  // 回包统一归一为 priority），只认 priority 会漏 fast 按基础价少收。
+  // [人工决策-2026-08-24 11:33:43] scale 不是溢价档，一律基础价：不得映射 _priority，也不得记 0。
+  // 官方：Scale 与 Fast 分离、不计 Scale 包、不自动转 Fast；opt-in Fast 仅 fast/priority。
+  // 曾把 scale 并入 _priority → Scale 系统性多收一倍。
+  // 记 0 会资损：service_tier 取值「上游回包优先、请求体兜底」，请求体客户端可控无白名单；
+  // 官方回包从不带 scale；客户端写 service_tier:"scale" 会 realCost=0 → usage:cost:total → 预付费不扣。
+  // usage:cost:total 是中转对下游 Key 的计价（叠服务/Key 倍率），不是 OpenAI 主体账单；
+  // 本项目无 Scale 容量包建模。推不出真实成本时按基础价（与 default/未知 tier 同口径）。
   //
-  // [人工决策-2026-08-24 11:33:43] scale 不是溢价档，一律按基础价：不得映射到 _priority，
-  // 也不得记为 0（两个方向都错过一次，这里把结论钉死，勿再改动）。
-  //
-  // 为什么不是 _priority：官方 Fast Mode 指南逐句排除了这种等价——
-  // 「Scale Tier and Fast mode are separate.」「Fast mode requests have separate billing and
-  // don't count against purchased Scale Tier TPM bundles.」「Scale Tier spillover traffic
-  // doesn't automatically move to Fast mode.」且能 opt-in Fast 的只有 fast / priority 两个值。
-  // 曾把 scale 当「同一档的旧代次名」并入 _priority，导致 Scale 请求系统性多收一倍。
-  //
-  // 为什么也不是 0（记 0 = 白送通道，是资损）：本服务的 service_tier 取值链是
-  // 「上游回包优先、请求体兜底」，而请求体的 service_tier 完全由客户端控制且无白名单校验；
-  // 官方响应的 service_tier 只会是 priority/default/fast/ultrafast/flex，从不回传 scale。
-  // 所以一旦 scale 记 0，任何客户端只要在请求体写 service_tier:"scale" 就能免费——
-  // realCost 直通 incrementDailyCost → usage:cost:total，而预付费余额正是由它派生
-  // （见 payment/balanceLedger.js），等于余额不扣、白用。
-  //
-  // 「额度内 Scale 流量不该按 token 计价」这个反驳在 OpenAI 账单口径上成立，但不适用本服务：
-  // usage:cost:total 记的是【中转服务对下游 API Key 的计价】（还要叠服务倍率与 Key 倍率），
-  // 不是 OpenAI 对账户主体的账单；本项目也不销售、不追踪 Scale Tier 容量包（无任何相关建模）。
-  // 推不出单请求真实成本时，按基础价与 default/未知 tier 同口径处理，是这里唯一安全的选择。
-  // 定价源也从来没有 *_scale 字段可依。
-  //
-  // [人工决策-2026-08-24 11:33:43] ultrafast 暂按 Fast(_priority) 同价计费。
-  // 官方已把 ultrafast 作为受控档（当前限 gpt-5.6-sol）、回包会带该值，但未公开任何价格，
-  // 定价源也还没有 *_ultrafast 字段。不进白名单会整单按基础价漏收，故先并入溢价档；
-  // 返回链把 _ultrafast 放在 _priority 之前——定价源日后补上该字段即自动生效，无需改码。
-  // 若官方实际 ultrafast 高于 Fast，此期间仍偏少收（已知取舍，优于按基础价漏收）。
+  // [人工决策-2026-08-24 11:33:43] ultrafast 暂按 Fast(_priority) 同价。
+  // 官方回包会带 ultrafast，未公开价格、定价源无 *_ultrafast；不进白名单会按基础价漏收。
+  // 后缀链 _ultrafast 在 _priority 前，源补字段后自动生效。偏少收优于按基础价漏收。
   _resolveServiceTierSuffix(serviceTier) {
     const tier = typeof serviceTier === 'string' ? serviceTier.trim().toLowerCase() : ''
     if (tier === 'ultrafast') {
@@ -383,15 +356,14 @@ class PricingService {
     return Array.from(thresholds).sort((a, b) => b - a)
   }
 
-  // 按「长上下文档 × service_tier 档」取价，逐级回退。litellm 的字段命名是
-  // <base>[_above_{N}k_tokens][_priority|_flex]，但组合并不齐全（272k 只有 _flex 变体、
-  // 200k 只有 _priority 变体），所以：
-  // ① 有完整组合字段直接用；② 两档都命中但无组合字段时，用「长上下文档 ÷ 基础价」的官方比率
-  //    去放大 tier 档价（两档是独立维度，对齐 sub2api 的 tier 价 × 长上下文倍率）；
+  // 按「长上下文档 × service_tier 档」取价，逐级回退。litellm 字段命名
+  // <base>[_above_{N}k_tokens][_priority|_flex]，组合不齐全（272k 仅 _flex、200k 仅 _priority）：
+  // ① 有完整组合字段直接用；② 两档都命中但无组合字段时，用「长上下文档 ÷ 基础价」官方比率
+  //    放大 tier 档价（两档独立维度，对齐 sub2api 的 tier 价 × 长上下文倍率）；
   // ③ 只命中一档取该档字段；④ 都没有回退基础价
   //
-  // tierSuffixes 是按优先级排的后缀链（如 ultrafast → ['_ultrafast','_priority']），
-  // 取第一个在该模型定价里真实存在的后缀，故新档位只需登记链、无需等定价源补齐字段
+  // tierSuffixes 按优先级排后缀链（如 ultrafast → ['_ultrafast','_priority']），
+  // 取该模型定价里第一个真实存在的后缀；新档位只登记链、不必等定价源补齐字段
   _resolveTieredPrice(pricing, baseField, contextSuffix, tierSuffixes) {
     const readField = (field) => {
       const value = pricing[field]
@@ -456,13 +428,12 @@ class PricingService {
     return url.startsWith('http://') ? http : https
   }
 
-  // 第二道防线:DNS 解析后校验。传给 http.get 的 lookup 选项,把连接前的解析结果拦下来,
-  // 解析出的任一 IP 命中禁止网段就直接失败。
+  // 第二道防线:DNS 解析后校验。传给 http.get 的 lookup 选项,连接前拦解析结果,
+  // 任一 IP 命中禁止网段直接失败。
   //
-  // 这是闭合"内部域名 / 解析到私网的公网域名 / DNS rebinding"的关键——字面量黑名单做不到,
-  // 因为要判的是解析结果而不是字面串。all:true 拿到全部记录逐个判(只判第一个会被多 A 记录绕过),
-  // 校验通过后【只把已校验的地址交给连接】,不让底层再解析一次,消除"校验用一个结果、连接用另一个"
-  // 的 TOCTOU 窗口(DNS rebinding 正是打这个窗口)。
+  // 闭合"内部域名 / 解析到私网的公网域名 / DNS rebinding"：判的是解析结果而非字面串。
+  // all:true 拿全部记录逐个判(只判第一个会被多 A 记录绕过)；
+  // 校验通过后【只把已校验地址交给连接】,不让底层再解析,消除 TOCTOU 窗口。
   _guardedLookup(label) {
     return (hostname, options, callback) => {
       dns.lookup(hostname, { ...options, all: true }, (error, addresses) => {
@@ -475,7 +446,7 @@ class PricingService {
           const ip = entry?.address || entry
           const reason = privateIpReason(ip)
           if (reason) {
-            logger.warn(`⚠️  ${label} 的域名 ${hostname} 解析到${reason}(${ip})，已阻止请求`)
+            logger.warn(` ${label} 的域名 ${hostname} 解析到${reason}(${ip})，已阻止请求`)
             callback(new Error(`${label}的域名解析到${reason}，已阻止访问内网`))
             return
           }
@@ -491,13 +462,13 @@ class PricingService {
     }
   }
 
-  // 校验管理端提交的定价源地址(第一道:字面量)。定价源会被服务端主动请求(定时轮询 + 手动拉取),
-  // 所以必须挡住"让服务端代为访问内网"和"把凭据存进 Redis/日志"两类问题。
+  // 校验管理端提交的定价源地址(第一道:字面量)。定价源由服务端主动请求(定时轮询 + 手动拉取),
+  // 必须挡住"代访内网"和"凭据进 Redis/日志"两类问题。
   //
-  // 两道防线共用 privateIpReason 判定,口径一致:
-  //   本函数     = 字面量校验(填的是 IP 就直接判;域名只查黑名单)
-  //   _guardedLookup = DNS 解析后校验(域名解析出的每个 IP 都判,挡内部域名/解析到私网/rebinding)
-  // 错误消息不回显原始 URL:畸形 URL 的 query 可能带 token,而错误会进日志(见 maskUrl 的理由)。
+  // 两道防线共用 privateIpReason,口径一致:
+  //   本函数     = 字面量校验(IP 直接判;域名查黑名单)
+  //   _guardedLookup = DNS 解析后校验(每个 IP 都判,挡内部域名/解析到私网/rebinding)
+  // 错误消息不回显原始 URL:畸形 URL 的 query 可能带 token,错误会进日志(见 maskUrl)。
   _assertSafeSourceUrl(rawUrl, label) {
     let parsed
     try {
@@ -557,7 +528,7 @@ class PricingService {
         stored = JSON.parse(raw)
       }
     } catch (error) {
-      logger.warn(`⚠️  读取定价源配置失败,回落默认源：${error.message}`)
+      logger.warn(` 读取定价源配置失败,回落默认源：${error.message}`)
       console.error(error)
     }
 
@@ -590,7 +561,7 @@ class PricingService {
 
     if (!trimmedPricingUrl) {
       await client.del(RedisKeys.pricingSource)
-      logger.info('💰 定价源已恢复默认(删除 Redis 覆盖记录)')
+      logger.info('定价源已恢复默认(删除 Redis 覆盖记录)')
     } else {
       // 校验通过后用 URL 归一化后的字符串落库(剥掉多余空白、统一编码)
       const safePricingUrl = this._assertSafeSourceUrl(trimmedPricingUrl, '定价 JSON 地址')
@@ -610,7 +581,7 @@ class PricingService {
         }),
       )
       // 日志只记 origin+path,不记 query(校验已挡掉 userinfo,query 里仍可能带 token 形态的参数)
-      logger.info(`💰 定价源已更新 pricingUrl=${maskUrl(safePricingUrl)} hashUrl=${maskUrl(safeHashUrl) || '-'}`)
+      logger.info(`定价源已更新 pricingUrl=${maskUrl(safePricingUrl)} hashUrl=${maskUrl(safeHashUrl) || '-'}`)
     }
 
     await this.resolveSource()
@@ -624,7 +595,7 @@ class PricingService {
       // 确保data目录存在
       if (!fs.existsSync(this.dataDir)) {
         fs.mkdirSync(this.dataDir, { recursive: true })
-        logger.info('📁 Created data directory')
+        logger.info('Created data directory')
       }
 
       // 先解析生效源(Redis 覆盖 > 默认),后续下载/校验都用它
@@ -652,7 +623,7 @@ class PricingService {
 
       logger.success('Pricing service initialized successfully')
     } catch (error) {
-      logger.error('❌ Failed to initialize pricing service:', error)
+      logger.error('Failed to initialize pricing service:', error)
     }
   }
 
@@ -662,14 +633,14 @@ class PricingService {
       const needsUpdate = this.needsUpdate()
 
       if (needsUpdate) {
-        logger.info('🔄 Updating model pricing data...')
+        logger.info('Updating model pricing data...')
         await this.downloadPricingData()
       } else {
         // 如果不需要更新，加载现有数据
         await this.loadPricingData()
       }
     } catch (error) {
-      logger.error('❌ Failed to check/update pricing:', error)
+      logger.error('Failed to check/update pricing:', error)
       // 如果更新失败，尝试使用fallback
       await this.useFallbackPricing()
     }
@@ -678,7 +649,7 @@ class PricingService {
   // 检查是否需要更新
   needsUpdate() {
     if (!fs.existsSync(this.pricingFile)) {
-      logger.info('📋 Pricing file not found, will download')
+      logger.info('Pricing file not found, will download')
       return true
     }
 
@@ -686,7 +657,7 @@ class PricingService {
     const fileAge = Date.now() - stats.mtime.getTime()
 
     if (fileAge > this.updateInterval) {
-      logger.info(`📋 Pricing file is ${Math.round(fileAge / (60 * 60 * 1000))} hours old, will update`)
+      logger.info(`Pricing file is ${Math.round(fileAge / (60 * 60 * 1000))} hours old, will update`)
       return true
     }
 
@@ -698,8 +669,8 @@ class PricingService {
     try {
       await this._downloadFromRemote()
     } catch (downloadError) {
-      logger.warn(`⚠️  Failed to download pricing data: ${downloadError.message}`)
-      logger.info('📋 Using local fallback pricing data...')
+      logger.warn(` Failed to download pricing data: ${downloadError.message}`)
+      logger.info('Using local fallback pricing data...')
       await this.useFallbackPricing()
     }
   }
@@ -714,7 +685,7 @@ class PricingService {
       this.syncWithRemoteHash()
     }, this.hashCheckInterval)
 
-    logger.info('🕒 已启用价格文件哈希轮询（每10分钟校验一次）')
+    logger.info('已启用价格文件哈希轮询（每10分钟校验一次）')
   }
 
   // 与远端哈希对比
@@ -728,7 +699,7 @@ class PricingService {
       // 每轮重新解析:管理端改源后无需重启即生效
       const { hashUrl } = await this.resolveSource()
       if (!hashUrl) {
-        logger.debug('💰 当前定价源未配置哈希文件地址,跳过哈希校验')
+        logger.debug('当前定价源未配置哈希文件地址,跳过哈希校验')
         return
       }
 
@@ -741,17 +712,17 @@ class PricingService {
       const localHash = this.computeLocalHash()
 
       if (!localHash) {
-        logger.info('📄 本地价格文件缺失，尝试下载最新版本')
+        logger.info('本地价格文件缺失，尝试下载最新版本')
         await this.downloadPricingData()
         return
       }
 
       if (remoteHash !== localHash) {
-        logger.info('🔁 检测到远端价格文件更新，开始下载最新数据')
+        logger.info('检测到远端价格文件更新，开始下载最新数据')
         await this.downloadPricingData()
       }
     } catch (error) {
-      logger.warn(`⚠️  哈希校验失败：${error.message}`)
+      logger.warn(` 哈希校验失败：${error.message}`)
     } finally {
       this.hashSyncInProgress = false
     }
@@ -950,13 +921,13 @@ class PricingService {
         const stats = fs.statSync(this.pricingFile)
         this.lastUpdated = stats.mtime
 
-        logger.info(`💰 Loaded pricing data for ${Object.keys(this.pricingData).length} models from cache`)
+        logger.info(`Loaded pricing data for ${Object.keys(this.pricingData).length} models from cache`)
       } else {
-        logger.warn('💰 No pricing data file found, will use fallback')
+        logger.warn('No pricing data file found, will use fallback')
         await this.useFallbackPricing()
       }
     } catch (error) {
-      logger.error('❌ Failed to load pricing data:', error)
+      logger.error('Failed to load pricing data:', error)
       await this.useFallbackPricing()
     }
   }
@@ -965,7 +936,7 @@ class PricingService {
   async useFallbackPricing() {
     try {
       if (fs.existsSync(this.fallbackFile)) {
-        logger.info('📋 Copying fallback pricing data to data directory...')
+        logger.info('Copying fallback pricing data to data directory...')
 
         // 读取fallback文件
         const fallbackData = fs.readFileSync(this.fallbackFile, 'utf8')
@@ -984,17 +955,17 @@ class PricingService {
         // 设置或重新设置文件监听器
         this.setupFileWatcher()
 
-        logger.warn(`⚠️  Using fallback pricing data for ${Object.keys(jsonData).length} models`)
+        logger.warn(` Using fallback pricing data for ${Object.keys(jsonData).length} models`)
         logger.info(
-          '💡 Note: This fallback data may be outdated. The system will try to update from the remote source on next check.',
+          'Note: This fallback data may be outdated. The system will try to update from the remote source on next check.',
         )
       } else {
-        logger.error('❌ Fallback pricing file not found at:', this.fallbackFile)
-        logger.error('❌ Please ensure the resources/model-pricing directory exists with the pricing file')
+        logger.error('Fallback pricing file not found at:', this.fallbackFile)
+        logger.error('Please ensure the resources/model-pricing directory exists with the pricing file')
         this.pricingData = {}
       }
     } catch (error) {
-      logger.error('❌ Failed to use fallback pricing data:', error)
+      logger.error('Failed to use fallback pricing data:', error)
       this.pricingData = {}
     }
   }
@@ -1013,10 +984,10 @@ class PricingService {
       if (!converted) {
         return null
       }
-      logger.debug(`💰 Using internal billing model for ${modelName}`)
+      logger.debug(`Using internal billing model for ${modelName}`)
       return this.ensureCachePricing(converted)
     } catch (error) {
-      logger.warn(`⚠️ Failed to resolve internal billing model for ${modelName}`)
+      logger.warn(`Failed to resolve internal billing model for ${modelName}`)
       console.error(error)
       return null
     }
@@ -1048,24 +1019,24 @@ class PricingService {
 
     // 尝试直接匹配
     if (this.pricingData[modelName]) {
-      logger.debug(`💰 Found exact pricing match for ${modelName}`)
+      logger.debug(`Found exact pricing match for ${modelName}`)
       return this.pricingData[modelName]
     }
 
     // basename 双查（vendor/foo → foo）
     const baseName = modelNameBasename(modelName)
     if (baseName && baseName !== modelName && this.pricingData[baseName]) {
-      logger.debug(`💰 Found pricing for ${modelName} via basename: ${baseName}`)
+      logger.debug(`Found pricing for ${modelName} via basename: ${baseName}`)
       return this.pricingData[baseName]
     }
     if (baseName && baseName !== modelName && GROK_MEDIA_FALLBACK_PRICING[baseName]) {
-      logger.debug(`💰 Using bundled Grok media fallback pricing for basename ${baseName}`)
+      logger.debug(`Using bundled Grok media fallback pricing for basename ${baseName}`)
       return this.ensureCachePricing({ ...GROK_MEDIA_FALLBACK_PRICING[baseName] })
     }
 
     // Grok Imagine 媒体：LiteLLM 种子未收录时的官方价兜底（内部模型优先已在上方处理）
     if (GROK_MEDIA_FALLBACK_PRICING[modelName]) {
-      logger.debug(`💰 Using bundled Grok media fallback pricing for ${modelName}`)
+      logger.debug(`Using bundled Grok media fallback pricing for ${modelName}`)
       return this.ensureCachePricing({ ...GROK_MEDIA_FALLBACK_PRICING[modelName] })
     }
 
@@ -1073,7 +1044,7 @@ class PricingService {
     if (modelName === 'gpt-5.5' && !this.pricingData['gpt-5.5']) {
       const fallbackPricing = this.pricingData['gpt-5']
       if (fallbackPricing) {
-        logger.info(`💰 Using gpt-5 pricing as fallback for ${modelName}`)
+        logger.info(`Using gpt-5 pricing as fallback for ${modelName}`)
         return fallbackPricing
       }
     }
@@ -1085,12 +1056,12 @@ class PricingService {
         return this.pricingData[modelName]
       }
       if (GPT56_SERIES_FALLBACK_PRICING[modelName]) {
-        logger.warn(`💰 Using bundled gpt-5.6 series fallback pricing for ${modelName} (not in pricing table)`)
+        logger.warn(`Using bundled gpt-5.6 series fallback pricing for ${modelName} (not in pricing table)`)
         return this.ensureCachePricing({ ...GPT56_SERIES_FALLBACK_PRICING[modelName] })
       }
       // 未知 5.6 变体：回退到 gpt-5.6 base 官方价，绝不回 gpt-5
       if (GPT56_SERIES_FALLBACK_PRICING['gpt-5.6']) {
-        logger.warn(`💰 Unknown ${modelName}; using bundled gpt-5.6 base pricing (not gpt-5)`)
+        logger.warn(`Unknown ${modelName}; using bundled gpt-5.6 base pricing (not gpt-5)`)
         return this.ensureCachePricing({ ...GPT56_SERIES_FALLBACK_PRICING['gpt-5.6'] })
       }
     }
@@ -1101,7 +1072,7 @@ class PricingService {
       // 提取不带区域前缀的模型名
       const withoutRegion = modelName.replace(/^(us|eu|apac)\./, '')
       if (this.pricingData[withoutRegion]) {
-        logger.debug(`💰 Found pricing for ${modelName} by removing region prefix: ${withoutRegion}`)
+        logger.debug(`Found pricing for ${modelName} by removing region prefix: ${withoutRegion}`)
         return this.pricingData[withoutRegion]
       }
     }
@@ -1112,7 +1083,7 @@ class PricingService {
     for (const [key, value] of Object.entries(this.pricingData)) {
       const normalizedKey = key.toLowerCase().replace(/[_-]/g, '')
       if (normalizedKey.includes(normalizedModel) || normalizedModel.includes(normalizedKey)) {
-        logger.debug(`💰 Found pricing for ${modelName} using fuzzy match: ${key}`)
+        logger.debug(`Found pricing for ${modelName} using fuzzy match: ${key}`)
         return value
       }
     }
@@ -1124,13 +1095,13 @@ class PricingService {
 
       for (const [key, value] of Object.entries(this.pricingData)) {
         if (key.includes(coreModel) || key.replace('anthropic.', '').includes(coreModel)) {
-          logger.debug(`💰 Found pricing for ${modelName} using Bedrock core model match: ${key}`)
+          logger.debug(`Found pricing for ${modelName} using Bedrock core model match: ${key}`)
           return value
         }
       }
     }
 
-    logger.debug(`💰 No pricing found for model: ${modelName}`)
+    logger.debug(`No pricing found for model: ${modelName}`)
     return null
   }
 
@@ -1295,14 +1266,12 @@ class PricingService {
     if (isLongContextModeEnabled && totalInputTokens > 200000) {
       if (ignores200kLongContextPricing) {
         logger.info(
-          `💰 Skipping 200K+ pricing for ${modelName}: Claude models use flat pricing regardless of context length`,
+          `Skipping 200K+ pricing for ${modelName}: Claude models use flat pricing regardless of context length`,
         )
       } else {
         isLongContextRequest = true
         useLongContextPricing = true
-        logger.info(
-          `💰 Using 200K+ pricing for ${modelName}: total input tokens = ${totalInputTokens.toLocaleString()}`,
-        )
+        logger.info(`Using 200K+ pricing for ${modelName}: total input tokens = ${totalInputTokens.toLocaleString()}`)
       }
     }
 
@@ -1340,12 +1309,12 @@ class PricingService {
     if (openaiContextThreshold > 0) {
       isLongContextRequest = true
       logger.info(
-        `💰 OpenAI long-context pricing for ${modelName}: total input ${totalInputTokens.toLocaleString()} > ${openaiContextThreshold.toLocaleString()}`,
+        `OpenAI long-context pricing for ${modelName}: total input ${totalInputTokens.toLocaleString()} > ${openaiContextThreshold.toLocaleString()}`,
       )
     }
     if (tierSuffixes.length > 0) {
       logger.info(
-        `💰 service_tier=${serviceTier} pricing tier ${tierSuffixes.join('>')} applied for ${normalizedModelName}`,
+        `service_tier=${serviceTier} pricing tier ${tierSuffixes.join('>')} applied for ${normalizedModelName}`,
       )
     }
 
@@ -1355,11 +1324,11 @@ class PricingService {
 
     if (isFastModeRequest && fastMultiplier > 1) {
       logger.info(
-        `🚀 Fast mode ${fastMultiplier}x multiplier applied for ${normalizedModelName} (from provider_specific_entry)`,
+        `Fast mode ${fastMultiplier}x multiplier applied for ${normalizedModelName} (from provider_specific_entry)`,
       )
     } else if (isFastModeRequest) {
       logger.warn(
-        `⚠️ Fast mode request detected but no fast pricing found for ${normalizedModelName}; fallback to standard profile`,
+        `Fast mode request detected but no fast pricing found for ${normalizedModelName}; fallback to standard profile`,
       )
     }
 
@@ -1614,7 +1583,7 @@ class PricingService {
         }
       }
     } catch (error) {
-      logger.warn('⚠️ Failed to merge internal billing models into effective pricing')
+      logger.warn('Failed to merge internal billing models into effective pricing')
       console.error(error)
     }
     return effective
@@ -1653,8 +1622,8 @@ class PricingService {
       await this._downloadFromRemote()
       return { success: true, message: 'Pricing data updated successfully' }
     } catch (error) {
-      logger.error('❌ Force update failed:', error)
-      logger.info('📋 Force update failed, using fallback pricing data...')
+      logger.error('Force update failed:', error)
+      logger.info('Force update failed, using fallback pricing data...')
       await this.useFallbackPricing()
       return {
         success: false,
@@ -1674,7 +1643,7 @@ class PricingService {
 
       // 只有文件存在时才设置监听器
       if (!fs.existsSync(this.pricingFile)) {
-        logger.debug('💰 Pricing file does not exist yet, skipping file watcher setup')
+        logger.debug('Pricing file does not exist yet, skipping file watcher setup')
         return
       }
 
@@ -1692,7 +1661,7 @@ class PricingService {
         // 检查文件是否真的被修改了（不仅仅是访问）
         if (curr.mtimeMs !== lastMtime) {
           lastMtime = curr.mtimeMs
-          logger.debug(`💰 Detected change in pricing file (mtime: ${new Date(curr.mtime).toISOString()})`)
+          logger.debug(`Detected change in pricing file (mtime: ${new Date(curr.mtime).toISOString()})`)
           this.handleFileChange()
         }
       })
@@ -1702,9 +1671,9 @@ class PricingService {
         close: () => fs.unwatchFile(this.pricingFile),
       }
 
-      logger.info('👁️  File watcher set up for model_pricing.json (polling every 60s)')
+      logger.info(' File watcher set up for model_pricing.json (polling every 60s)')
     } catch (error) {
-      logger.error('❌ Failed to setup file watcher:', error)
+      logger.error('Failed to setup file watcher:', error)
     }
   }
 
@@ -1717,7 +1686,7 @@ class PricingService {
 
     // 设置新的定时器（防抖500ms）
     this.reloadDebounceTimer = setTimeout(async () => {
-      logger.info('🔄 Reloading pricing data due to file change...')
+      logger.info('Reloading pricing data due to file change...')
       await this.reloadPricingData()
     }, 500)
   }
@@ -1727,7 +1696,7 @@ class PricingService {
     try {
       // 验证文件是否存在
       if (!fs.existsSync(this.pricingFile)) {
-        logger.warn('💰 Pricing file was deleted, using fallback')
+        logger.warn('Pricing file was deleted, using fallback')
         await this.useFallbackPricing()
         // 重新设置文件监听器（fallback会创建新文件）
         this.setupFileWatcher()
@@ -1757,10 +1726,10 @@ class PricingService {
       const gptModels = Object.keys(jsonData).filter((k) => k.includes('gpt')).length
       const geminiModels = Object.keys(jsonData).filter((k) => k.includes('gemini')).length
 
-      logger.debug(`💰 Model breakdown: Claude=${claudeModels}, GPT=${gptModels}, Gemini=${geminiModels}`)
+      logger.debug(`Model breakdown: Claude=${claudeModels}, GPT=${gptModels}, Gemini=${geminiModels}`)
     } catch (error) {
-      logger.error('❌ Failed to reload pricing data:', error)
-      logger.warn('💰 Keeping existing pricing data in memory')
+      logger.error('Failed to reload pricing data:', error)
+      logger.warn('Keeping existing pricing data in memory')
     }
   }
 
@@ -1769,12 +1738,12 @@ class PricingService {
     if (this.updateTimer) {
       clearInterval(this.updateTimer)
       this.updateTimer = null
-      logger.debug('💰 Pricing update timer cleared')
+      logger.debug('Pricing update timer cleared')
     }
     if (this.fileWatcher) {
       this.fileWatcher.close()
       this.fileWatcher = null
-      logger.debug('💰 File watcher closed')
+      logger.debug('File watcher closed')
     }
     if (this.reloadDebounceTimer) {
       clearTimeout(this.reloadDebounceTimer)
@@ -1783,7 +1752,7 @@ class PricingService {
     if (this.hashCheckTimer) {
       clearInterval(this.hashCheckTimer)
       this.hashCheckTimer = null
-      logger.debug('💰 Hash check timer cleared')
+      logger.debug('Hash check timer cleared')
     }
   }
 }

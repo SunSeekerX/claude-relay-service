@@ -43,7 +43,7 @@ export const browserFallbackMiddleware = (req, res, next) => {
     req.isBrowserFallback = true
     req.originalUserAgent = userAgent
 
-    // 🆕 关键修改：伪装成claude-cli请求以绕过客户端限制
+    // 关键修改：伪装成claude-cli请求以绕过客户端限制
     req.headers['user-agent'] = 'claude-cli/1.0.110 (external, cli, browser-fallback)'
 
     // 确保设置正确的认证头
@@ -60,10 +60,10 @@ export const browserFallbackMiddleware = (req, res, next) => {
       req.headers['anthropic-dangerous-direct-browser-access'] = 'true'
     }
 
-    logger.api(`🔧 Browser fallback activated for ${isChromeExtension ? 'Chrome extension' : 'browser'} request`)
-    logger.api(`   Original User-Agent: "${req.originalUserAgent}"`)
-    logger.api(`   Origin: "${origin}"`)
-    logger.api(`   Modified User-Agent: "${req.headers['user-agent']}"`)
+    logger.api(`Browser fallback activated for ${isChromeExtension ? 'Chrome extension' : 'browser'} request`)
+    logger.api(`Original User-Agent: "${req.originalUserAgent}"`)
+    logger.api(`Origin: "${origin}"`)
+    logger.api(`Modified User-Agent: "${req.headers['user-agent']}"`)
   }
 
   next()

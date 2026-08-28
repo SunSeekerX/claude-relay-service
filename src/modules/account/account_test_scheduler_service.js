@@ -40,12 +40,12 @@ class AccountTestSchedulerService {
    */
   async start() {
     if (this.isStarted) {
-      logger.warn('⚠️ Account test scheduler is already running')
+      logger.warn('Account test scheduler is already running')
       return
     }
 
     this.isStarted = true
-    logger.info('🚀 Starting account test scheduler service (node-cron mode)')
+    logger.info('Starting account test scheduler service (node-cron mode)')
 
     // 初始化所有已配置账户的定时任务
     await this._refreshAllTasks()
@@ -55,7 +55,7 @@ class AccountTestSchedulerService {
       this._refreshAllTasks()
     }, this.refreshIntervalMs)
 
-    logger.info(`📅 Account test scheduler started (refreshing configs every ${this.refreshIntervalMs / 1000}s)`)
+    logger.info(`Account test scheduler started (refreshing configs every ${this.refreshIntervalMs / 1000}s)`)
   }
 
   /**
@@ -70,12 +70,12 @@ class AccountTestSchedulerService {
     // 停止所有 cron 任务
     for (const [accountKey, taskInfo] of this.scheduledTasks.entries()) {
       taskInfo.task.stop()
-      logger.debug(`🛑 Stopped cron task for ${accountKey}`)
+      logger.debug(`Stopped cron task for ${accountKey}`)
     }
     this.scheduledTasks.clear()
 
     this.isStarted = false
-    logger.info('🛑 Account test scheduler stopped')
+    logger.info('Account test scheduler stopped')
   }
 
   /**
@@ -94,7 +94,7 @@ class AccountTestSchedulerService {
             .getEnabledTestAccounts(platform)
             .then((accounts) => accounts.map((acc) => ({ ...acc, platform })))
             .catch((error) => {
-              logger.warn(`⚠️ Failed to load test accounts for platform ${platform}:`, error)
+              logger.warn(`Failed to load test accounts for platform ${platform}:`, error)
               return []
             }),
         ),
@@ -105,7 +105,7 @@ class AccountTestSchedulerService {
 
       for (const { accountId, cronExpression, model: rawModel, platform } of flatAccounts) {
         if (!cronExpression) {
-          logger.warn(`⚠️ Account ${accountId} (${platform}) has no valid cron expression, skipping`)
+          logger.warn(`Account ${accountId} (${platform}) has no valid cron expression, skipping`)
           continue
         }
 
@@ -124,9 +124,9 @@ class AccountTestSchedulerService {
           }
           // 配置变了，停止旧任务
           existingTask.task.stop()
-          logger.info(`🔄 Updating cron task for ${accountKey}: ${cronExpression}, model: ${model}`)
+          logger.info(`Updating cron task for ${accountKey}: ${cronExpression}, model: ${model}`)
         } else {
-          logger.info(`➕ Creating cron task for ${accountKey}: ${cronExpression}, model: ${model}`)
+          logger.info(`Creating cron task for ${accountKey}: ${cronExpression}, model: ${model}`)
         }
 
         // 创建新的 cron 任务
@@ -138,11 +138,11 @@ class AccountTestSchedulerService {
         if (!activeAccountKeys.has(accountKey)) {
           taskInfo.task.stop()
           this.scheduledTasks.delete(accountKey)
-          logger.info(`➖ Removed cron task for ${accountKey} (disabled or deleted)`)
+          logger.info(`Removed cron task for ${accountKey} (disabled or deleted)`)
         }
       }
     } catch (error) {
-      logger.error('❌ Error refreshing account test tasks:', error)
+      logger.error('Error refreshing account test tasks:', error)
     }
   }
 
@@ -159,7 +159,7 @@ class AccountTestSchedulerService {
 
     // 验证 cron 表达式
     if (!this.validateCronExpression(cronExpression)) {
-      logger.error(`❌ Invalid cron expression for ${accountKey}: ${cronExpression}`)
+      logger.error(`Invalid cron expression for ${accountKey}: ${cronExpression}`)
       return
     }
 
@@ -195,14 +195,14 @@ class AccountTestSchedulerService {
 
     // 避免重复测试
     if (this.testingAccounts.has(accountKey)) {
-      logger.debug(`⏳ Account ${accountKey} is already being tested, skipping`)
+      logger.debug(`Account ${accountKey} is already being tested, skipping`)
       return
     }
 
     this.testingAccounts.add(accountKey)
 
     try {
-      logger.info(`🧪 Running scheduled test for ${platform} account: ${accountId} (model: ${model})`)
+      logger.info(`Running scheduled test for ${platform} account: ${accountId} (model: ${model})`)
 
       let testResult
 
@@ -233,14 +233,14 @@ class AccountTestSchedulerService {
 
       // 记录日志
       if (testResult.success) {
-        logger.info(`✅ Scheduled test passed for ${platform} account ${accountId} (${testResult.latencyMs}ms)`)
+        logger.info(`Scheduled test passed for ${platform} account ${accountId} (${testResult.latencyMs}ms)`)
       } else {
-        logger.warn(`❌ Scheduled test failed for ${platform} account ${accountId}: ${testResult.error}`)
+        logger.warn(`Scheduled test failed for ${platform} account ${accountId}: ${testResult.error}`)
       }
 
       return testResult
     } catch (error) {
-      logger.error(`❌ Error testing ${platform} account ${accountId}:`, error)
+      logger.error(`Error testing ${platform} account ${accountId}:`, error)
 
       const errorResult = {
         success: false,
@@ -305,7 +305,7 @@ class AccountTestSchedulerService {
    * @returns {Promise<Object>} 测试结果
    */
   async triggerTest(accountId, platform, model = 'claude-sonnet-4-5-20250929') {
-    logger.info(`🎯 Manual test triggered for ${platform} account: ${accountId} (model: ${model})`)
+    logger.info(`Manual test triggered for ${platform} account: ${accountId} (model: ${model})`)
     return await this._runAccountTest(accountId, platform, model)
   }
 
@@ -344,7 +344,7 @@ class AccountTestSchedulerService {
 
     await redis.saveAccountTestConfig(accountId, platform, testConfig)
     logger.info(
-      `📝 Test config updated for ${platform} account ${accountId}: enabled=${testConfig.enabled}, cronExpression=${testConfig.cronExpression}, model=${testConfig.model}`,
+      ` Test config updated for ${platform} account ${accountId}: enabled=${testConfig.enabled}, cronExpression=${testConfig.cronExpression}, model=${testConfig.model}`,
     )
 
     // 立即刷新任务，使配置立即生效
@@ -378,7 +378,7 @@ class AccountTestSchedulerService {
       // 缺省模型回退到后台"测试模型"全局配置（单一事实源）
       const model = testConfig.model || (await testModelConfigService.resolveAccountModel(platform, null))
       this._createCronTask(accountId, platform, testConfig.cronExpression, model)
-      logger.info(`🔄 Refreshed cron task for ${accountKey}: ${testConfig.cronExpression}, model: ${model}`)
+      logger.info(`Refreshed cron task for ${accountKey}: ${testConfig.cronExpression}, model: ${model}`)
     }
   }
 

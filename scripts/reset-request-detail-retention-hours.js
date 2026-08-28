@@ -44,10 +44,10 @@ async function resetRequestDetailRetentionHours() {
   let client = null
 
   try {
-    console.log('🔄 Resetting request detail retention configuration...')
-    console.log(`🕒 Target request detail retention: ${targetHours} hour(s)`)
+    console.log('Resetting request detail retention configuration...')
+    console.log(`Target request detail retention: ${targetHours} hour(s)`)
     if (isDryRun) {
-      console.log('📝 DRY RUN mode enabled; no data will be modified')
+      console.log('DRY RUN mode enabled; no data will be modified')
     }
     client = new Redis({
       host: env.REDIS_HOST || '127.0.0.1',
@@ -63,9 +63,9 @@ async function resetRequestDetailRetentionHours() {
     const currentConfig = rawConfig ? JSON.parse(rawConfig) : {}
     const requestDetailKeys = await scanRequestDetailKeys(client)
 
-    console.log(`📦 Found ${requestDetailKeys.length} request detail Redis key(s)`)
+    console.log(`Found ${requestDetailKeys.length} request detail Redis key(s)`)
     console.log(
-      `⚙️ Current config: requestDetailRetentionDays=${currentConfig.requestDetailRetentionDays ?? 'unset'}, requestDetailRetentionHours=${currentConfig.requestDetailRetentionHours ?? 'unset'}`,
+      `Current config: requestDetailRetentionDays=${currentConfig.requestDetailRetentionDays ?? 'unset'}, requestDetailRetentionHours=${currentConfig.requestDetailRetentionHours ?? 'unset'}`,
     )
 
     const nextConfig = {
@@ -88,12 +88,12 @@ async function resetRequestDetailRetentionHours() {
       await client.set(CONFIG_KEY, JSON.stringify(nextConfig))
     }
 
-    console.log(`${isDryRun ? '📝 Would delete' : '🧹 Deleted'} ${requestDetailKeys.length} request detail key(s)`)
+    console.log(`${isDryRun ? 'Would delete' : 'Deleted'} ${requestDetailKeys.length} request detail key(s)`)
     console.log(
-      `${isDryRun ? '📝 Would write' : '✅ Wrote'} requestDetailRetentionHours=${targetHours} and removed requestDetailRetentionDays`,
+      `${isDryRun ? 'Would write' : 'Wrote'} requestDetailRetentionHours=${targetHours} and removed requestDetailRetentionDays`,
     )
   } catch (error) {
-    console.error('❌ Failed to reset request detail retention configuration:', error)
+    console.error('Failed to reset request detail retention configuration:', error)
     process.exitCode = 1
   } finally {
     if (client) {

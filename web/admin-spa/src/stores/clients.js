@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import { getSupportedClientsApi } from '@/libs/http_apis'
+import { isOk, msgOf } from '@/libs/http_envelope'
 
 export const useClientsStore = defineStore('clients', {
   state: () => ({
@@ -14,8 +15,8 @@ export const useClientsStore = defineStore('clients', {
 
       this.loading = true
       const res = await getSupportedClientsApi()
-      if (res.success) this.supportedClients = res.data || []
-      else this.error = res.message
+      if (isOk(res)) this.supportedClients = res.data || []
+      else this.error = msgOf(res)
       this.loading = false
       return this.supportedClients
     }

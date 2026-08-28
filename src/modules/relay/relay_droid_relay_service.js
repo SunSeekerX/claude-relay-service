@@ -70,7 +70,7 @@ class DroidRelayService {
       if (lowerModel.includes('haiku')) {
         const mappedModel = 'claude-sonnet-4-20250514'
         if (originalModel !== mappedModel) {
-          logger.info(`🔄 将请求模型从 ${originalModel} 映射为 ${mappedModel}`)
+          logger.info(`将请求模型从 ${originalModel} 映射为 ${mappedModel}`)
         }
         normalizedBody.model = mappedModel
       }
@@ -84,7 +84,7 @@ class DroidRelayService {
       if (lowerModel === 'gpt-5') {
         const mappedModel = 'gpt-5-2025-08-07'
         if (originalModel !== mappedModel) {
-          logger.info(`🔄 将请求模型从 ${originalModel} 映射为 ${mappedModel}`)
+          logger.info(`将请求模型从 ${originalModel} 映射为 ${mappedModel}`)
         }
         normalizedBody.model = mappedModel
       }
@@ -116,13 +116,13 @@ class DroidRelayService {
       )
 
       if (totalTokens > 0) {
-        logger.api(`📊 Updated rate limit token count${context}: +${totalTokens}`)
+        logger.api(`Updated rate limit token count${context}: +${totalTokens}`)
       }
       if (typeof totalCost === 'number' && totalCost > 0) {
-        logger.api(`💰 Updated rate limit cost count${context}: +$${totalCost.toFixed(6)}`)
+        logger.api(`Updated rate limit cost count${context}: +$${totalCost.toFixed(6)}`)
       }
     } catch (error) {
-      logger.error(`❌ Failed to update rate limit counters${context}:`, error)
+      logger.error(`Failed to update rate limit counters${context}:`, error)
     }
   }
 
@@ -156,7 +156,7 @@ class DroidRelayService {
         if (mappedEntry) {
           await redis.extendSessionAccountMappingTTL(stickyKey)
           await droidAccountService.touchApiKeyUsage(account.id, mappedEntry.id)
-          logger.info(`🔐 使用已绑定的 Droid API Key ${mappedEntry.id}（Account: ${account.id}）`)
+          logger.info(`使用已绑定的 Droid API Key ${mappedEntry.id}（Account: ${account.id}）`)
           return mappedEntry
         }
 
@@ -176,7 +176,7 @@ class DroidRelayService {
     await droidAccountService.touchApiKeyUsage(account.id, selectedEntry.id)
 
     logger.info(
-      `🔐 随机选取 Droid API Key ${selectedEntry.id}（Account: ${account.id}, Active Keys: ${activeEntries.length}/${entries.length}）`,
+      `随机选取 Droid API Key ${selectedEntry.id}（Account: ${account.id}, Active Keys: ${activeEntries.length}/${entries.length}）`,
     )
 
     return selectedEntry
@@ -204,7 +204,7 @@ class DroidRelayService {
 
     try {
       logger.info(
-        `📤 Processing Droid API request for key: ${
+        `Processing Droid API request for key: ${
           keyInfo.name || keyInfo.id || 'unknown'
         }, endpoint: ${normalizedEndpoint}${sessionHash ? `, session: ${sessionHash}` : ''}`,
       )
@@ -236,21 +236,21 @@ class DroidRelayService {
 
       apiUrl = `${this.factoryApiBaseUrl}${endpointPath}`
 
-      logger.info(`🌐 Forwarding to Factory.ai: ${apiUrl}`)
+      logger.info(`Forwarding to Factory.ai: ${apiUrl}`)
 
       // 获取代理（保留 proxyId/contextKey 供被动健康检查上报）
       proxyResolution = proxyResolver.resolveAgent(account, 'droid')
       const proxyAgent = proxyResolution.agent
 
       if (proxyAgent) {
-        logger.info(`🌐 Using proxy for Droid request`)
+        logger.info(`Using proxy for Droid request`)
       }
 
       // 构建请求头
       headers = this._buildHeaders(accessToken, normalizedRequestBody, normalizedEndpoint, clientHeaders, account)
 
       if (selectedApiKey) {
-        logger.info(`🔑 Forwarding request with Droid API Key ${selectedApiKey.id} (Account: ${account.id})`)
+        logger.info(`Forwarding request with Droid API Key ${selectedApiKey.id} (Account: ${account.id})`)
       }
 
       // 处理请求体（注入 system prompt 等）
@@ -326,7 +326,7 @@ class DroidRelayService {
 
         const response = await axios(requestOptions)
 
-        logger.info(`✅ Factory.ai response status: ${response.status}`)
+        logger.info(`Factory.ai response status: ${response.status}`)
 
         // 被动健康检查：拿到 HTTP 响应即代理传输成功（含 4xx/5xx，不归咎代理）
         proxyResolver.report(proxyResolution.proxyId, proxyResolution.contextKey, null)
@@ -347,9 +347,9 @@ class DroidRelayService {
       proxyResolver.report(proxyResolution.proxyId, proxyResolution.contextKey, error)
       // 客户端主动断开连接是正常情况，使用 INFO 级别
       if (error.message === 'Client disconnected') {
-        logger.info(`🔌 Droid relay ended: Client disconnected`)
+        logger.info(`Droid relay ended: Client disconnected`)
       } else {
-        logger.error(`❌ Droid relay error: ${error.message}`, error)
+        logger.error(`Droid relay error: ${error.message}`, error)
       }
 
       const status = error?.response?.status
@@ -384,7 +384,7 @@ class DroidRelayService {
             clientApiKeyId,
           })
         } catch (handlingError) {
-          logger.error('❌ 处理 Droid 4xx 异常失败:', handlingError)
+          logger.error('处理 Droid 4xx 异常失败:', handlingError)
         }
       }
 
@@ -470,7 +470,7 @@ class DroidRelayService {
           const upstreamComplete = responseCompleted || upstreamResponse?.complete || clientResponse.writableEnded
 
           if (isConnectionReset && (upstreamComplete || hasForwardedData)) {
-            logger.debug('🔁 Droid stream连接在响应阶段被重置，视为正常结束:', {
+            logger.debug('Droid stream连接在响应阶段被重置，视为正常结束:', {
               message: error?.message,
               code: error?.code,
             })
@@ -481,7 +481,7 @@ class DroidRelayService {
             return
           }
 
-          logger.error('❌ Droid stream error:', error)
+          logger.error('Droid stream error:', error)
           const mappedStatus = this._mapNetworkErrorStatus(error)
           const errorBody = this._buildNetworkErrorBody(error)
 
@@ -529,7 +529,7 @@ class DroidRelayService {
 
       const req = https.request(options, (res) => {
         upstreamResponse = res
-        logger.info(`✅ Factory.ai stream response status: ${res.statusCode}`)
+        logger.info(`Factory.ai stream response status: ${res.statusCode}`)
 
         // 错误响应
         if (res.statusCode !== 200) {
@@ -537,13 +537,13 @@ class DroidRelayService {
 
           res.on('data', (chunk) => {
             chunks.push(chunk)
-            logger.info(`📦 got ${chunk.length} bytes of data`)
+            logger.info(`got ${chunk.length} bytes of data`)
           })
 
           res.on('end', () => {
-            logger.info('✅ res.end() reached')
+            logger.info('res.end() reached')
             const body = Buffer.concat(chunks).toString()
-            logger.error(`❌ Factory.ai error response body: ${body || '(empty)'}`)
+            logger.error(`Factory.ai error response body: ${body || '(empty)'}`)
             const errorContext = upstreamErrorHelper.buildErrorContext({
               url: apiUrl,
               method: 'POST',
@@ -571,7 +571,7 @@ class DroidRelayService {
                 sessionHash,
                 clientApiKeyId,
               }).catch((handlingError) => {
-                logger.error('❌ 处理 Droid 流式4xx 异常失败:', handlingError)
+                logger.error('处理 Droid 流式4xx 异常失败:', handlingError)
               })
             }
             if (!clientResponse.headersSent) {
@@ -584,7 +584,7 @@ class DroidRelayService {
           })
 
           res.on('close', () => {
-            logger.warn('⚠️ response closed before end event')
+            logger.warn('response closed before end event')
           })
 
           res.on('error', handleStreamError)
@@ -666,7 +666,7 @@ class DroidRelayService {
 
             logger.success(`Droid stream completed - Account: ${account.name}`)
           } else {
-            logger.success(`✅ Droid stream completed - Account: ${account.name}, usage recording skipped`)
+            logger.success(`Droid stream completed - Account: ${account.name}, usage recording skipped`)
           }
           resolveOnce({ statusCode: 200, streaming: true })
         })
@@ -704,7 +704,7 @@ class DroidRelayService {
 
       req.on('timeout', () => {
         req.destroy()
-        logger.error('❌ Droid request timeout')
+        logger.error('Droid request timeout')
         handleStreamError(new Error('Request timeout'))
       })
 
@@ -741,13 +741,13 @@ class DroidRelayService {
                 }
               }
 
-              logger.debug('📊 Droid Anthropic input usage:', currentUsageData)
+              logger.debug('Droid Anthropic input usage:', currentUsageData)
             }
 
             // message_delta 包含 output tokens
             if (data.type === 'message_delta' && data.usage) {
               currentUsageData.output_tokens = data.usage.output_tokens || 0
-              logger.debug('📊 Droid Anthropic output usage:', currentUsageData.output_tokens)
+              logger.debug('Droid Anthropic output usage:', currentUsageData.output_tokens)
             }
           } catch (parseError) {
             // 忽略解析错误
@@ -800,7 +800,7 @@ class DroidRelayService {
                 data.usage.cache_creation_input_tokens ||
                 0
 
-              logger.debug('📊 Droid OpenAI usage:', currentUsageData)
+              logger.debug('Droid OpenAI usage:', currentUsageData)
             }
 
             // 新 Response API 在 response.usage 中返回统计
@@ -825,7 +825,7 @@ class DroidRelayService {
               currentUsageData.cache_creation_input_tokens =
                 usage.input_tokens_details?.cache_creation_input_tokens || usage.cache_creation_input_tokens || 0
 
-              logger.debug('📊 Droid OpenAI response usage:', currentUsageData)
+              logger.debug('Droid OpenAI response usage:', currentUsageData)
             }
           } catch (parseError) {
             // 忽略解析错误
@@ -1261,9 +1261,9 @@ class DroidRelayService {
         droidCosts,
       )
 
-      logger.success(`✅ Droid request completed - Account: ${account.name}, Tokens: ${totalTokens}`)
+      logger.success(`Droid request completed - Account: ${account.name}, Tokens: ${totalTokens}`)
     } else {
-      logger.success(`✅ Droid request completed - Account: ${account.name}, usage recording skipped`)
+      logger.success(`Droid request completed - Account: ${account.name}, usage recording skipped`)
     }
 
     return {
@@ -1280,7 +1280,7 @@ class DroidRelayService {
     const totalTokens = this._getTotalTokens(usageObject)
 
     if (totalTokens <= 0) {
-      logger.debug('🪙 Droid usage 数据为空，跳过记录')
+      logger.debug('Droid usage 数据为空，跳过记录')
       return { realCost: 0, ratedCost: 0 }
     }
 
@@ -1308,17 +1308,17 @@ class DroidRelayService {
           //（Droid 不涉 service_tier 档，口径与改动前一致）
         )
       } else {
-        logger.warn('⚠️ 无法记录 Droid usage：缺少 API Key 和账户标识')
+        logger.warn('无法记录 Droid usage：缺少 API Key 和账户标识')
         return { realCost: 0, ratedCost: 0 }
       }
 
       logger.debug(
-        `📊 Droid usage recorded - Key: ${keyId || 'unknown'}, Account: ${accountId || 'unknown'}, Model: ${model}, Input: ${usageObject.input_tokens || 0}, Output: ${usageObject.output_tokens || 0}, Cache Create: ${usageObject.cache_creation_input_tokens || 0}, Cache Read: ${usageObject.cache_read_input_tokens || 0}, Total: ${totalTokens}`,
+        `Droid usage recorded - Key: ${keyId || 'unknown'}, Account: ${accountId || 'unknown'}, Model: ${model}, Input: ${usageObject.input_tokens || 0}, Output: ${usageObject.output_tokens || 0}, Cache Create: ${usageObject.cache_creation_input_tokens || 0}, Cache Read: ${usageObject.cache_read_input_tokens || 0}, Total: ${totalTokens}`,
       )
 
       return costs
     } catch (error) {
-      logger.error('❌ Failed to record Droid usage:', error)
+      logger.error('Failed to record Droid usage:', error)
       return { realCost: 0, ratedCost: 0 }
     }
   }
@@ -1341,7 +1341,7 @@ class DroidRelayService {
 
     const accountId = this._extractAccountId(account)
     if (!accountId) {
-      logger.warn('⚠️ 上游 4xx 处理被跳过：缺少有效的账户信息')
+      logger.warn('上游 4xx 处理被跳过：缺少有效的账户信息')
       return
     }
 
@@ -1358,21 +1358,18 @@ class DroidRelayService {
           // 标记API Key为异常状态而不是删除
           markResult = await droidAccountService.markApiKeyAsError(accountId, selectedAccountApiKey.id, errorMessage)
         } catch (error) {
-          logger.error(
-            `❌ 标记 Droid API Key ${selectedAccountApiKey.id} 异常状态（Account: ${accountId}）失败：`,
-            error,
-          )
+          logger.error(`标记 Droid API Key ${selectedAccountApiKey.id} 异常状态（Account: ${accountId}）失败：`, error)
         }
 
         await this._clearApiKeyStickyMapping(accountId, normalizedEndpoint, sessionHash)
 
         if (markResult?.marked) {
           logger.warn(
-            `⚠️ 上游返回 ${statusCode}，已标记 Droid API Key ${selectedAccountApiKey.id} 为异常状态（Account: ${accountId}）`,
+            `上游返回 ${statusCode}，已标记 Droid API Key ${selectedAccountApiKey.id} 为异常状态（Account: ${accountId}）`,
           )
         } else {
           logger.warn(
-            `⚠️ 上游返回 ${statusCode}，但未能标记 Droid API Key ${selectedAccountApiKey.id} 异常状态（Account: ${accountId}）：${markResult?.error || '未知错误'}`,
+            `上游返回 ${statusCode}，但未能标记 Droid API Key ${selectedAccountApiKey.id} 异常状态（Account: ${accountId}）：${markResult?.error || '未知错误'}`,
           )
         }
 
@@ -1385,10 +1382,10 @@ class DroidRelayService {
             await this._stopDroidAccountScheduling(accountId, statusCode, '所有API Key均已异常')
             await this._clearAccountStickyMapping(normalizedEndpoint, sessionHash, clientApiKeyId)
           } else {
-            logger.info(`ℹ️ Droid 账号 ${accountId} 仍有 ${activeEntries.length} 个可用 API Key`)
+            logger.info(`ℹ Droid 账号 ${accountId} 仍有 ${activeEntries.length} 个可用 API Key`)
           }
         } catch (error) {
-          logger.error(`❌ 检查可用API Key失败（Account: ${accountId}）：`, error)
+          logger.error(`检查可用API Key失败（Account: ${accountId}）：`, error)
           await this._stopDroidAccountScheduling(accountId, statusCode, 'API Key检查失败')
           await this._clearAccountStickyMapping(normalizedEndpoint, sessionHash, clientApiKeyId)
         }
@@ -1396,7 +1393,7 @@ class DroidRelayService {
         return
       }
 
-      logger.warn(`⚠️ 上游返回 ${statusCode}，但未获取到对应的 Droid API Key（Account: ${accountId}）`)
+      logger.warn(`上游返回 ${statusCode}，但未获取到对应的 Droid API Key（Account: ${accountId}）`)
       await this._stopDroidAccountScheduling(accountId, statusCode, '缺少可用 API Key')
       await this._clearAccountStickyMapping(normalizedEndpoint, sessionHash, clientApiKeyId)
       return
@@ -1429,12 +1426,12 @@ class DroidRelayService {
       const account = await droidAccountService.getAccount(accountId)
       if (account?.disableAutoProtection === true || account?.disableAutoProtection === 'true') {
         logger.info(
-          `🛡️ Droid 账号 ${accountId} 已关闭自动防护，跳过自动停止调度（状态码 ${statusCode}，原因：${reason || '4xx'}）`,
+          `Droid 账号 ${accountId} 已关闭自动防护，跳过自动停止调度（状态码 ${statusCode}，原因：${reason || '4xx'}）`,
         )
         return
       }
     } catch (error) {
-      logger.warn(`⚠️ 读取 Droid 账号自动防护配置失败：${accountId}`, error)
+      logger.warn(`读取 Droid 账号自动防护配置失败：${accountId}`, error)
     }
 
     const message = reason ? `${reason}` : '上游返回 4xx 错误'
@@ -1447,9 +1444,9 @@ class DroidRelayService {
         autoStoppedAt: new Date().toISOString(),
         errorMessage: `上游返回 ${statusCode}：${message}`,
       })
-      logger.warn(`🚫 已停止调度 Droid 账号 ${accountId}（状态码 ${statusCode}，原因：${message}）`)
+      logger.warn(`已停止调度 Droid 账号 ${accountId}（状态码 ${statusCode}，原因：${message}）`)
     } catch (error) {
-      logger.error(`❌ 停止调度 Droid 账号失败：${accountId}`, error)
+      logger.error(`停止调度 Droid 账号失败：${accountId}`, error)
     }
   }
 
@@ -1467,9 +1464,9 @@ class DroidRelayService {
 
     try {
       await redis.deleteSessionAccountMapping(stickyKey)
-      logger.debug(`🧹 已清理 Droid 粘性会话映射：${stickyKey}`)
+      logger.debug(`已清理 Droid 粘性会话映射：${stickyKey}`)
     } catch (error) {
-      logger.warn(`⚠️ 清理 Droid 粘性会话映射失败：${stickyKey}`, error)
+      logger.warn(`清理 Droid 粘性会话映射失败：${stickyKey}`, error)
     }
   }
 
@@ -1485,10 +1482,10 @@ class DroidRelayService {
       const stickyKey = this._composeApiKeyStickyKey(accountId, endpointType, sessionHash)
       if (stickyKey) {
         await redis.deleteSessionAccountMapping(stickyKey)
-        logger.debug(`🧹 已清理 Droid API Key 粘性映射：${stickyKey}`)
+        logger.debug(`已清理 Droid API Key 粘性映射：${stickyKey}`)
       }
     } catch (error) {
-      logger.warn(`⚠️ 清理 Droid API Key 粘性映射失败：${accountId}（endpoint: ${endpointType}）`, error)
+      logger.warn(`清理 Droid API Key 粘性映射失败：${accountId}（endpoint: ${endpointType}）`, error)
     }
   }
 

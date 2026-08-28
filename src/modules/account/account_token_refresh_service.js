@@ -25,7 +25,7 @@ class TokenRefreshService {
 
       if (result === 'OK') {
         this.lockValue.set(lockKey, lockId)
-        logger.debug(`🔒 Acquired lock ${lockKey} with ID ${lockId}, TTL: ${this.lockTTL}s`)
+        logger.debug(`Acquired lock ${lockKey} with ID ${lockId}, TTL: ${this.lockTTL}s`)
         return true
       }
       return false
@@ -45,7 +45,7 @@ class TokenRefreshService {
       const lockId = this.lockValue.get(lockKey)
 
       if (!lockId) {
-        logger.warn(`⚠️ No lock ID found for ${lockKey}, skipping release`)
+        logger.warn(`No lock ID found for ${lockKey}, skipping release`)
         return
       }
 
@@ -62,9 +62,9 @@ class TokenRefreshService {
 
       if (result === 1) {
         this.lockValue.delete(lockKey)
-        logger.debug(`🔓 Released lock ${lockKey} with ID ${lockId}`)
+        logger.debug(`Released lock ${lockKey} with ID ${lockId}`)
       } else {
-        logger.warn(`⚠️ Lock ${lockKey} was not released - value mismatch or already expired`)
+        logger.warn(`Lock ${lockKey} was not released - value mismatch or already expired`)
       }
     } catch (error) {
       logger.error(`Failed to release lock ${lockKey}:`, error)
@@ -134,7 +134,7 @@ class TokenRefreshService {
    */
   cleanup() {
     this.lockValue.clear()
-    logger.info('🧹 Cleaned up local lock records')
+    logger.info('Cleaned up local lock records')
   }
 }
 

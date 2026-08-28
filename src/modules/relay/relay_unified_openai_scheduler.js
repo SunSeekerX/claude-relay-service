@@ -1,6 +1,7 @@
 import * as openaiAccountService from '../account/account_openai_service.js'
 import { openaiResponsesAccountService } from '../account/account_openai_responses_service.js'
 import { accountGroupService } from '../account/account_group_service.js'
+import * as groupPolicy from '../account/account_group_policy.js'
 import { redis } from '../../infra/redis.js'
 import { logger } from '../../common/logger.js'
 import * as upstreamErrorHelper from './relay_upstream_error_helper.js'
@@ -8,7 +9,7 @@ import { RedisKeys, TTL } from '../../infra/redis_key.js'
 import { config as appConfig } from '../../../config/config.js'
 import { isSchedulable, isAutoProtectionDisabled, sortAccountsByPriority } from '../../common/common_helper.js'
 class UnifiedOpenAIScheduler {
-  // 🔧 辅助方法：检查账户是否被限流（兼容字符串和对象格式）
+  // 辅助方法：检查账户是否被限流（兼容字符串和对象格式）
   _isRateLimited(rateLimitStatus) {
     if (!rateLimitStatus) {
       return false
@@ -31,7 +32,7 @@ class UnifiedOpenAIScheduler {
     return false
   }
 
-  // 🔍 判断账号是否带有限流标记（即便已过期，用于自动恢复）
+  // 判断账号是否带有限流标记（即便已过期，用于自动恢复）
   _hasRateLimitFlag(rateLimitStatus) {
     if (!rateLimitStatus) {
       return false
@@ -48,7 +49,7 @@ class UnifiedOpenAIScheduler {
     return false
   }
 
-  // ✅ 确保账号在调度前完成限流恢复与 schedulable 校正
+  // 确保账号在调度前完成限流恢复与 schedulable 校正
   async _ensureAccountReadyForScheduling(account, accountId, { sanitized = true } = {}) {
     const hasRateLimitFlag = this._hasRateLimitFlag(account.rateLimitStatus)
     let rateLimitChecked = false
@@ -73,7 +74,7 @@ class UnifiedOpenAIScheduler {
       } else {
         account.schedulable = 'true'
       }
-      logger.info(`✅ OpenAI账号 ${account.name || accountId} 已解除限流，恢复调度权限`)
+      logger.info(`OpenAI账号 ${account.name || accountId} 已解除限流，恢复调度权限`)
     }
 
     if (hasRateLimitFlag) {
@@ -132,7 +133,16 @@ class UnifiedOpenAIScheduler {
   // - openai-responses：allowedModels 白名单（空=全开）+ supportedModels 仅做改名不限制
   // - openai：supportedModels 数组白名单（未配置/空=全支持）
   _isOpenAIModelSupported(account, accountType, requestedModel) {
+    // 无 requestedModel（如 WS 握手）：不能验证白名单，有限制的账户一律不选，
+    // 避免事后才发现模型不支持。仅「未配置/空名单=全支持」的账户可入选。
     if (!requestedModel) {
+      if (accountType === 'openai-responses') {
+        const allowed = Array.isArray(account.allowedModels) ? account.allowedModels : []
+        return allowed.length === 0
+      }
+      if (accountType === 'openai') {
+        return !account.supportedModels || account.supportedModels.length === 0
+      }
       return true
     }
 
@@ -155,25 +165,25 @@ class UnifiedOpenAIScheduler {
   }
 
   // [人工决策-2026-06-03 14:51:27] OpenAI OAuth token 失效统一处理(单一实现：共享池/dedicated/_isAccountAvailable 都调它,
-  //   避免两套实现漂移)。返回有效 token 的账户(过期可刷新者返回刷新后的最新账户);死号或刷新失败返回 null。
+  // 避免两套实现漂移)。返回有效 token 的账户(过期可刷新者返回刷新后的最新账户);死号或刷新失败返回 null。
   async _ensureOpenAITokenValid(account, accountId) {
     if (!openaiAccountService.isTokenExpired(account)) {
       return account
     }
     if (!account.refreshToken) {
-      logger.warn(`⚠️ OpenAI account ${accountId} token expired and no refresh token available`)
+      logger.warn(`OpenAI account ${accountId} token expired and no refresh token available`)
       return null
     }
     try {
       await openaiAccountService.refreshAccountToken(accountId)
       return await openaiAccountService.getAccount(accountId)
     } catch (refreshError) {
-      logger.error(`❌ Failed to refresh token for OpenAI account ${accountId}:`, refreshError.message)
+      logger.error(`Failed to refresh token for OpenAI account ${accountId}:`, refreshError.message)
       return null
     }
   }
 
-  // 🎯 统一调度OpenAI账号
+  // 统一调度OpenAI账号
   async selectAccountForApiKey(apiKeyData, sessionHash = null, requestedModel = null) {
     try {
       // 如果API Key绑定了专属账户或分组，优先使用
@@ -181,7 +191,7 @@ class UnifiedOpenAIScheduler {
         // 检查是否是分组
         if (apiKeyData.openaiAccountId.startsWith('group:')) {
           const groupId = apiKeyData.openaiAccountId.replace('group:', '')
-          logger.info(`🎯 API key ${apiKeyData.name} is bound to group ${groupId}, selecting from group`)
+          logger.info(`API key ${apiKeyData.name} is bound to group ${groupId}, selecting from group`)
           return await this.selectAccountFromGroup(groupId, sessionHash, requestedModel, apiKeyData)
         }
 
@@ -208,14 +218,14 @@ class UnifiedOpenAIScheduler {
 
         if (isActiveBoundAccount) {
           // [人工决策-2026-06-02 23:30:05] 专属绑定开关 ON：暴力打，跳过 temp/限流/schedulable 自动暂停；
-          //   订阅过期/模型支持为硬约束仍校验
+          // 订阅过期/模型支持为硬约束仍校验
           // 检查是否临时不可用
           const isTempUnavailable = autoOff
             ? false
             : await upstreamErrorHelper.isTempUnavailable(boundAccount.id, accountType)
           if (isTempUnavailable) {
             logger.warn(
-              `⏱️ Bound ${accountType} account ${boundAccount.name} temporarily unavailable, falling back to pool`,
+              `Bound ${accountType} account ${boundAccount.name} temporarily unavailable, falling back to pool`,
             )
             // 不 throw，让代码继续走到共享池选择
           } else {
@@ -223,7 +233,7 @@ class UnifiedOpenAIScheduler {
               // schedulable 硬门：手动停用始终生效（开关不豁免）
               if (!isSchedulable(boundAccount.schedulable)) {
                 const errorMsg = `Dedicated account ${boundAccount.name} is not schedulable`
-                logger.warn(`⚠️ ${errorMsg}`)
+                logger.warn(`${errorMsg}`)
                 const error = new Error(errorMsg)
                 error.statusCode = 403
                 throw error
@@ -232,7 +242,7 @@ class UnifiedOpenAIScheduler {
               const freshBound = await this._ensureOpenAITokenValid(boundAccount, boundAccount.id)
               if (!freshBound) {
                 const errorMsg = `Dedicated account ${boundAccount.name} token expired or refresh failed`
-                logger.warn(`⚠️ ${errorMsg}`)
+                logger.warn(`${errorMsg}`)
                 const error = new Error(errorMsg)
                 error.statusCode = 401
                 throw error
@@ -248,7 +258,7 @@ class UnifiedOpenAIScheduler {
                   const errorMsg = isRateLimited
                     ? `Dedicated account ${boundAccount.name} is currently rate limited`
                     : `Dedicated account ${boundAccount.name} is not schedulable`
-                  logger.warn(`⚠️ ${errorMsg}`)
+                  logger.warn(`${errorMsg}`)
                   const error = new Error(errorMsg)
                   error.statusCode = isRateLimited ? 429 : 403
                   throw error
@@ -261,7 +271,7 @@ class UnifiedOpenAIScheduler {
                   const isRateLimitCleared = await openaiResponsesAccountService.checkAndClearRateLimit(boundAccount.id)
                   if (!isRateLimitCleared) {
                     const errorMsg = `Dedicated account ${boundAccount.name} is currently rate limited`
-                    logger.warn(`⚠️ ${errorMsg}`)
+                    logger.warn(`${errorMsg}`)
                     const error = new Error(errorMsg)
                     error.statusCode = 429 // Too Many Requests - 限流
                     throw error
@@ -270,7 +280,7 @@ class UnifiedOpenAIScheduler {
                   boundAccount = await openaiResponsesAccountService.getAccount(boundAccount.id)
                   if (!boundAccount) {
                     const errorMsg = `Dedicated account ${apiKeyData.openaiAccountId} not found after rate limit reset`
-                    logger.warn(`⚠️ ${errorMsg}`)
+                    logger.warn(`${errorMsg}`)
                     const error = new Error(errorMsg)
                     error.statusCode = 404
                     throw error
@@ -281,7 +291,7 @@ class UnifiedOpenAIScheduler {
               // schedulable 硬门：手动停用始终生效（开关不豁免）
               if (!isSchedulable(boundAccount.schedulable)) {
                 const errorMsg = `Dedicated account ${boundAccount.name} is not schedulable`
-                logger.warn(`⚠️ ${errorMsg}`)
+                logger.warn(`${errorMsg}`)
                 const error = new Error(errorMsg)
                 error.statusCode = 403 // Forbidden - 调度被禁止
                 throw error
@@ -294,7 +304,7 @@ class UnifiedOpenAIScheduler {
                 const errorMsg = isQuota
                   ? `Dedicated account ${boundAccount.name} daily quota exceeded`
                   : `Dedicated account ${boundAccount.name} subscription has expired`
-                logger.warn(`⚠️ ${errorMsg}`)
+                logger.warn(`${errorMsg}`)
                 const error = new Error(errorMsg)
                 error.statusCode = isQuota ? 402 : 403
                 throw error
@@ -304,14 +314,14 @@ class UnifiedOpenAIScheduler {
             // 专属账户模型硬门：openai 与 openai-responses 统一走 _isOpenAIModelSupported
             if (requestedModel && !this._isOpenAIModelSupported(boundAccount, accountType, requestedModel)) {
               const errorMsg = `Dedicated account ${boundAccount.name} does not support model ${requestedModel}`
-              logger.warn(`⚠️ ${errorMsg}`)
+              logger.warn(`${errorMsg}`)
               const error = new Error(errorMsg)
               error.statusCode = 400
               throw error
             }
 
             logger.info(
-              `🎯 Using bound dedicated ${accountType} account: ${boundAccount.name} (${boundAccount.id}) for API key ${apiKeyData.name}`,
+              `Using bound dedicated ${accountType} account: ${boundAccount.name} (${boundAccount.id}) for API key ${apiKeyData.name}`,
             )
             // 更新账户的最后使用时间
             await this.updateAccountLastUsed(boundAccount.id, accountType)
@@ -334,7 +344,7 @@ class UnifiedOpenAIScheduler {
           } else {
             errorMsg = `Dedicated account ${boundAccount.name} is not available (inactive or forbidden)`
           }
-          logger.warn(`⚠️ ${errorMsg}`)
+          logger.warn(`${errorMsg}`)
           const error = new Error(errorMsg)
           error.statusCode = boundAccount ? 403 : 404 // Forbidden 或 Not Found
           throw error
@@ -352,16 +362,16 @@ class UnifiedOpenAIScheduler {
             requestedModel,
           )
           if (isAvailable) {
-            // 🚀 智能会话续期（续期 unified 映射键，按配置）
+            // 智能会话续期（续期 unified 映射键，按配置）
             await this._extendSessionMappingTTL(sessionHash)
             logger.info(
-              `🎯 Using sticky session account: ${mappedAccount.accountId} (${mappedAccount.accountType}) for session ${sessionHash}`,
+              `Using sticky session account: ${mappedAccount.accountId} (${mappedAccount.accountType}) for session ${sessionHash}`,
             )
             // 更新账户的最后使用时间
             await this.updateAccountLastUsed(mappedAccount.accountId, mappedAccount.accountType)
             return mappedAccount
           } else {
-            logger.warn(`⚠️ Mapped account ${mappedAccount.accountId} is no longer available, selecting new account`)
+            logger.warn(`Mapped account ${mappedAccount.accountId} is no longer available, selecting new account`)
             await this._deleteSessionMapping(sessionHash)
           }
         }
@@ -393,12 +403,12 @@ class UnifiedOpenAIScheduler {
       if (sessionHash) {
         await this._setSessionMapping(sessionHash, selectedAccount.accountId, selectedAccount.accountType)
         logger.info(
-          `🎯 Created new sticky session mapping: ${selectedAccount.name} (${selectedAccount.accountId}, ${selectedAccount.accountType}) for session ${sessionHash}`,
+          `Created new sticky session mapping: ${selectedAccount.name} (${selectedAccount.accountId}, ${selectedAccount.accountType}) for session ${sessionHash}`,
         )
       }
 
       logger.info(
-        `🎯 Selected account: ${selectedAccount.name} (${selectedAccount.accountId}, ${selectedAccount.accountType}, priority: ${selectedAccount.priority || 50}) for API key ${apiKeyData.name}`,
+        `Selected account: ${selectedAccount.name} (${selectedAccount.accountId}, ${selectedAccount.accountType}, priority: ${selectedAccount.priority || 50}) for API key ${apiKeyData.name}`,
       )
 
       // 更新账户的最后使用时间
@@ -409,21 +419,25 @@ class UnifiedOpenAIScheduler {
         accountType: selectedAccount.accountType,
       }
     } catch (error) {
-      logger.error('❌ Failed to select account for API key:', error)
+      logger.error('Failed to select account for API key:', error)
       throw error
     }
   }
 
-  // 📋 获取所有可用账户（仅共享池）
+  // 获取所有可用账户（仅共享池）
   async _getAllAvailableAccounts(apiKeyData, requestedModel = null) {
     const availableAccounts = []
 
     // 注意：专属账户的处理已经在 selectAccountForApiKey 中完成
     // 这里只处理共享池账户
+    const exclusiveMemberIds = await groupPolicy.collectExclusiveMemberIds(accountGroupService, 'openai')
 
     // 获取所有OpenAI账户（共享池）
     const openaiAccounts = await openaiAccountService.getAllAccounts()
     for (let account of openaiAccounts) {
+      if (exclusiveMemberIds.has(account.id || account.accountId)) {
+        continue
+      }
       const autoOff = isAutoProtectionDisabled(account)
       if (
         account.isActive &&
@@ -440,7 +454,7 @@ class UnifiedOpenAIScheduler {
         account = freshAccount
 
         // [人工决策-2026-06-02 23:30:05] 开关 ON：跳过上游错误类自动暂停（限流/temp）；
-        //   schedulable(手动停用) 已在上方硬校验；token 刷新与模型校验保留（oauth 仍需有效 token）
+        // schedulable(手动停用) 已在上方硬校验；token 刷新与模型校验保留（oauth 仍需有效 token）
         if (!autoOff) {
           const readiness = await this._ensureAccountReadyForScheduling(account, accountId, {
             sanitized: true,
@@ -448,16 +462,16 @@ class UnifiedOpenAIScheduler {
 
           if (!readiness.canUse) {
             if (readiness.reason === 'rate_limited') {
-              logger.debug(`⏭️ 跳过 OpenAI 账号 ${account.name} - 仍处于限流状态`)
+              logger.debug(`跳过 OpenAI 账号 ${account.name} - 仍处于限流状态`)
             } else {
-              logger.debug(`⏭️ 跳过 OpenAI 账号 ${account.name} - 已被管理员禁用调度`)
+              logger.debug(`跳过 OpenAI 账号 ${account.name} - 已被管理员禁用调度`)
             }
             continue
           }
 
           const isTempUnavailable = await upstreamErrorHelper.isTempUnavailable(accountId, 'openai')
           if (isTempUnavailable) {
-            logger.debug(`⏭️ Skipping openai account ${account.name} - temporarily unavailable`)
+            logger.debug(`Skipping openai account ${account.name} - temporarily unavailable`)
             continue
           }
         }
@@ -471,7 +485,7 @@ class UnifiedOpenAIScheduler {
         if (requestedModel && account.supportedModels && account.supportedModels.length > 0) {
           const modelSupported = account.supportedModels.includes(requestedModel)
           if (!modelSupported) {
-            logger.debug(`⏭️ Skipping OpenAI account ${account.name} - doesn't support model ${requestedModel}`)
+            logger.debug(`Skipping OpenAI account ${account.name} - doesn't support model ${requestedModel}`)
             continue
           }
         }
@@ -489,8 +503,11 @@ class UnifiedOpenAIScheduler {
     // 获取所有 OpenAI-Responses 账户（共享池）
     const openaiResponsesAccounts = await openaiResponsesAccountService.getAllAccounts()
     for (const account of openaiResponsesAccounts) {
+      if (exclusiveMemberIds.has(account.id || account.accountId)) {
+        continue
+      }
       // [人工决策-2026-06-02 23:30:05] apikey 开关 ON：暴力打，跳过上游错误类自动暂停（status error/限流/temp）；
-      //   手动停用(isActive/schedulable)、订阅过期、预算(方案甲)为硬约束仍校验；默认支持所有模型
+      // 手动停用(isActive/schedulable)、订阅过期、预算(方案甲)为硬约束仍校验；默认支持所有模型
       if (
         isAutoProtectionDisabled(account) &&
         (account.isActive === true || account.isActive === 'true') &&
@@ -500,11 +517,11 @@ class UnifiedOpenAIScheduler {
         // 订阅/预算硬门（单一判定，开关不豁免）
         const budgetBlock = this._openaiResponsesBudgetBlocked(account)
         if (budgetBlock) {
-          logger.debug(`⏭️ Skipping OpenAI-Responses account ${account.name} - ${budgetBlock}`)
+          logger.debug(`Skipping OpenAI-Responses account ${account.name} - ${budgetBlock}`)
           continue
         }
         if (!this._isOpenAIModelSupported(account, 'openai-responses', requestedModel)) {
-          logger.debug(`⏭️ Skipping OpenAI-Responses account ${account.name} - model not allowed: ${requestedModel}`)
+          logger.debug(`Skipping OpenAI-Responses account ${account.name} - model not allowed: ${requestedModel}`)
           continue
         }
         const maxConcurrentAuto = Number(account.maxConcurrentTasks) || 0
@@ -512,7 +529,7 @@ class UnifiedOpenAIScheduler {
           const currentConcurrency = await redis.getOpenaiResponsesAccountConcurrency(account.id)
           if (currentConcurrency >= maxConcurrentAuto) {
             logger.debug(
-              `⏭️ Skipping OpenAI-Responses account ${account.name} - concurrency full ${currentConcurrency}/${maxConcurrentAuto}`,
+              `Skipping OpenAI-Responses account ${account.name} - concurrency full ${currentConcurrency}/${maxConcurrentAuto}`,
             )
             continue
           }
@@ -536,7 +553,7 @@ class UnifiedOpenAIScheduler {
         const schedulable = isSchedulable(account.schedulable)
 
         if (!schedulable && !hasRateLimitFlag) {
-          logger.debug(`⏭️ Skipping OpenAI-Responses account ${account.name} - not schedulable`)
+          logger.debug(`Skipping OpenAI-Responses account ${account.name} - not schedulable`)
           continue
         }
 
@@ -554,37 +571,37 @@ class UnifiedOpenAIScheduler {
             })
             isRateLimitCleared = true
             logger.info(
-              `✅ OpenAI-Responses账号 ${account.name} 清除历史遗留限流状态（status=rateLimited 但无 rateLimitStatus）`,
+              `OpenAI-Responses账号 ${account.name} 清除历史遗留限流状态（status=rateLimited 但无 rateLimitStatus）`,
             )
           }
 
           if (!isRateLimitCleared) {
-            logger.debug(`⏭️ Skipping OpenAI-Responses account ${account.name} - rate limited`)
+            logger.debug(`Skipping OpenAI-Responses account ${account.name} - rate limited`)
             continue
           }
 
           if (!schedulable) {
             account.schedulable = 'true'
             account.status = 'active'
-            logger.info(`✅ OpenAI-Responses账号 ${account.name} 已解除限流，恢复调度权限`)
+            logger.info(`OpenAI-Responses账号 ${account.name} 已解除限流，恢复调度权限`)
           }
         }
 
         const isTempUnavailable = await upstreamErrorHelper.isTempUnavailable(account.id, 'openai-responses')
         if (isTempUnavailable) {
-          logger.debug(`⏭️ Skipping openai-responses account ${account.name} - temporarily unavailable`)
+          logger.debug(`Skipping openai-responses account ${account.name} - temporarily unavailable`)
           continue
         }
 
         // 订阅/预算硬门（单一判定，开关不豁免）
         const budgetBlock = this._openaiResponsesBudgetBlocked(account)
         if (budgetBlock) {
-          logger.debug(`⏭️ Skipping OpenAI-Responses account ${account.name} - ${budgetBlock}`)
+          logger.debug(`Skipping OpenAI-Responses account ${account.name} - ${budgetBlock}`)
           continue
         }
 
         if (!this._isOpenAIModelSupported(account, 'openai-responses', requestedModel)) {
-          logger.debug(`⏭️ Skipping OpenAI-Responses account ${account.name} - model not allowed: ${requestedModel}`)
+          logger.debug(`Skipping OpenAI-Responses account ${account.name} - model not allowed: ${requestedModel}`)
           continue
         }
         const maxConcurrent = Number(account.maxConcurrentTasks) || 0
@@ -592,7 +609,7 @@ class UnifiedOpenAIScheduler {
           const currentConcurrency = await redis.getOpenaiResponsesAccountConcurrency(account.id)
           if (currentConcurrency >= maxConcurrent) {
             logger.debug(
-              `⏭️ Skipping OpenAI-Responses account ${account.name} - concurrency full ${currentConcurrency}/${maxConcurrent}`,
+              `Skipping OpenAI-Responses account ${account.name} - concurrency full ${currentConcurrency}/${maxConcurrent}`,
             )
             continue
           }
@@ -611,7 +628,7 @@ class UnifiedOpenAIScheduler {
     return availableAccounts
   }
 
-  // 🔍 检查账户是否可用
+  // 检查账户是否可用
   async _isAccountAvailable(accountId, accountType, requestedModel = null) {
     try {
       if (accountType === 'openai') {
@@ -623,9 +640,9 @@ class UnifiedOpenAIScheduler {
           return false
         }
         // [人工决策-2026-06-02 23:30:05] 开 disableAutoProtection = 暴力打上游：忽略上游错误类自动暂停
-        //   (status error/unauthorized、限流、temp_unavailable)；手动停用(isActive/schedulable)始终生效。
+        // (status error/unauthorized、限流、temp_unavailable)；手动停用(isActive/schedulable)始终生效。
         if (!isSchedulable(account.schedulable)) {
-          logger.info(`🚫 OpenAI account ${accountId} is not schedulable`)
+          logger.info(`OpenAI account ${accountId} is not schedulable`)
           return false
         }
         // [人工决策-2026-06-03 14:51:27] token 失效：统一走 _ensureOpenAITokenValid(单一实现);死号/刷新失败=不可用
@@ -646,16 +663,16 @@ class UnifiedOpenAIScheduler {
 
         if (!readiness.canUse) {
           if (readiness.reason === 'rate_limited') {
-            logger.debug(`🚫 OpenAI account ${accountId} still rate limited when checking availability`)
+            logger.debug(`OpenAI account ${accountId} still rate limited when checking availability`)
           } else {
-            logger.info(`🚫 OpenAI account ${accountId} is not schedulable`)
+            logger.info(`OpenAI account ${accountId} is not schedulable`)
           }
           return false
         }
 
         const isTempUnavailable = await upstreamErrorHelper.isTempUnavailable(accountId, accountType)
         if (isTempUnavailable) {
-          logger.info(`⏱️ OpenAI account ${accountId} (${accountType}) is temporarily unavailable`)
+          logger.info(`OpenAI account ${accountId} (${accountType}) is temporarily unavailable`)
           return false
         }
 
@@ -666,15 +683,15 @@ class UnifiedOpenAIScheduler {
           return false
         }
         // [人工决策-2026-06-02 23:30:05] apikey 类开 disableAutoProtection = 暴力打：忽略上游错误类自动暂停
-        //   (status error/unauthorized、限流、temp_unavailable)；手动停用(isActive/schedulable)、订阅、预算(方案甲)始终生效。
+        // (status error/unauthorized、限流、temp_unavailable)；手动停用(isActive/schedulable)、订阅、预算(方案甲)始终生效。
         // 硬约束（始终校验，开关不豁免）
         if (!isSchedulable(account.schedulable)) {
-          logger.info(`🚫 OpenAI-Responses account ${accountId} is not schedulable`)
+          logger.info(`OpenAI-Responses account ${accountId} is not schedulable`)
           return false
         }
         const budgetBlock = this._openaiResponsesBudgetBlocked(account)
         if (budgetBlock) {
-          logger.info(`🚫 OpenAI-Responses account ${accountId} ${budgetBlock}`)
+          logger.info(`OpenAI-Responses account ${accountId} ${budgetBlock}`)
           return false
         }
         if (!this._isOpenAIModelSupported(account, accountType, requestedModel)) {
@@ -685,7 +702,7 @@ class UnifiedOpenAIScheduler {
         if (maxConcurrent > 0) {
           const current = await redis.getOpenaiResponsesAccountConcurrency(accountId)
           if (current >= maxConcurrent) {
-            logger.debug(`🚫 OpenAI-Responses account ${accountId} concurrency full: ${current}/${maxConcurrent}`)
+            logger.debug(`OpenAI-Responses account ${accountId} concurrency full: ${current}/${maxConcurrent}`)
             return false
           }
         }
@@ -704,7 +721,7 @@ class UnifiedOpenAIScheduler {
 
         const isTempUnavailable = await upstreamErrorHelper.isTempUnavailable(accountId, accountType)
         if (isTempUnavailable) {
-          logger.info(`⏱️ OpenAI account ${accountId} (${accountType}) is temporarily unavailable`)
+          logger.info(`OpenAI account ${accountId} (${accountType}) is temporarily unavailable`)
           return false
         }
 
@@ -712,12 +729,12 @@ class UnifiedOpenAIScheduler {
       }
       return false
     } catch (error) {
-      logger.warn(`⚠️ Failed to check account availability: ${accountId}`, error)
+      logger.warn(`Failed to check account availability: ${accountId}`, error)
       return false
     }
   }
 
-  // 🔗 获取会话映射
+  // 获取会话映射
   async _getSessionMapping(sessionHash) {
     const client = redis.getClientSafe()
     const mappingData = await client.get(RedisKeys.session.unifiedOpenaiMapping(sessionHash))
@@ -726,7 +743,7 @@ class UnifiedOpenAIScheduler {
       try {
         return JSON.parse(mappingData)
       } catch (error) {
-        logger.warn('⚠️ Failed to parse session mapping:', error)
+        logger.warn('Failed to parse session mapping:', error)
         return null
       }
     }
@@ -734,7 +751,7 @@ class UnifiedOpenAIScheduler {
     return null
   }
 
-  // 💾 设置会话映射
+  // 设置会话映射
   async _setSessionMapping(sessionHash, accountId, accountType) {
     const client = redis.getClientSafe()
     const mappingData = JSON.stringify({ accountId, accountType })
@@ -743,13 +760,13 @@ class UnifiedOpenAIScheduler {
     await client.setex(RedisKeys.session.unifiedOpenaiMapping(sessionHash), ttlSeconds, mappingData)
   }
 
-  // 🗑️ 删除会话映射
+  // 删除会话映射
   async _deleteSessionMapping(sessionHash) {
     const client = redis.getClientSafe()
     await client.del(RedisKeys.session.unifiedOpenaiMapping(sessionHash))
   }
 
-  // 🔁 续期统一调度会话映射TTL（针对 unified_openai_session_mapping:* 键），遵循会话配置
+  // 续期统一调度会话映射TTL（针对 unified_openai_session_mapping:* 键），遵循会话配置
   async _extendSessionMappingTTL(sessionHash) {
     try {
       const client = redis.getClientSafe()
@@ -775,21 +792,21 @@ class UnifiedOpenAIScheduler {
       if (remainingTTL < threshold) {
         await client.expire(key, fullTTL)
         logger.debug(
-          `🔄 Renewed unified OpenAI session TTL: ${sessionHash} (was ${Math.round(remainingTTL / 60)}m, renewed to ${ttlHours}h)`,
+          `Renewed unified OpenAI session TTL: ${sessionHash} (was ${Math.round(remainingTTL / 60)}m, renewed to ${ttlHours}h)`,
         )
       } else {
         logger.debug(
-          `✅ Unified OpenAI session TTL sufficient: ${sessionHash} (remaining ${Math.round(remainingTTL / 60)}m)`,
+          `Unified OpenAI session TTL sufficient: ${sessionHash} (remaining ${Math.round(remainingTTL / 60)}m)`,
         )
       }
       return true
     } catch (error) {
-      logger.error('❌ Failed to extend unified OpenAI session TTL:', error)
+      logger.error('Failed to extend unified OpenAI session TTL:', error)
       return false
     }
   }
 
-  // 🚫 标记账户为限流状态
+  // 标记账户为限流状态
   async markAccountRateLimited(accountId, accountType, sessionHash = null, resetsInSeconds = null) {
     try {
       if (accountType === 'openai') {
@@ -818,12 +835,12 @@ class UnifiedOpenAIScheduler {
 
       return { success: true }
     } catch (error) {
-      logger.error(`❌ Failed to mark account as rate limited: ${accountId} (${accountType})`, error)
+      logger.error(`Failed to mark account as rate limited: ${accountId} (${accountType})`, error)
       throw error
     }
   }
 
-  // 🚫 标记账户为未授权状态
+  // 标记账户为未授权状态
   async markAccountUnauthorized(accountId, accountType, sessionHash = null, reason = 'OpenAI账号认证失败（401错误）') {
     try {
       if (accountType === 'openai') {
@@ -831,7 +848,7 @@ class UnifiedOpenAIScheduler {
       } else if (accountType === 'openai-responses') {
         await openaiResponsesAccountService.markAccountUnauthorized(accountId, reason)
       } else {
-        logger.warn(`⚠️ Unsupported account type ${accountType} when marking unauthorized for account ${accountId}`)
+        logger.warn(`Unsupported account type ${accountType} when marking unauthorized for account ${accountId}`)
         return { success: false }
       }
 
@@ -841,12 +858,12 @@ class UnifiedOpenAIScheduler {
 
       return { success: true }
     } catch (error) {
-      logger.error(`❌ Failed to mark account as unauthorized: ${accountId} (${accountType})`, error)
+      logger.error(`Failed to mark account as unauthorized: ${accountId} (${accountType})`, error)
       throw error
     }
   }
 
-  // ✅ 移除账户的限流状态
+  // 移除账户的限流状态
   async removeAccountRateLimit(accountId, accountType) {
     try {
       if (accountType === 'openai') {
@@ -861,17 +878,17 @@ class UnifiedOpenAIScheduler {
           errorMessage: '',
           schedulable: 'true',
         })
-        logger.info(`✅ Rate limit cleared for OpenAI-Responses account ${accountId}`)
+        logger.info(`Rate limit cleared for OpenAI-Responses account ${accountId}`)
       }
 
       return { success: true }
     } catch (error) {
-      logger.error(`❌ Failed to remove rate limit for account: ${accountId} (${accountType})`, error)
+      logger.error(`Failed to remove rate limit for account: ${accountId} (${accountType})`, error)
       throw error
     }
   }
 
-  // 🔍 检查账户是否处于限流状态
+  // 检查账户是否处于限流状态
   async isAccountRateLimited(accountId) {
     try {
       const account = await openaiAccountService.getAccount(accountId)
@@ -888,7 +905,7 @@ class UnifiedOpenAIScheduler {
 
           // 如果已经过了重置时间，自动清除限流状态
           if (!isStillLimited) {
-            logger.info(`✅ Auto-clearing rate limit for account ${accountId} (reset time reached)`)
+            logger.info(`Auto-clearing rate limit for account ${accountId} (reset time reached)`)
             await openaiAccountService.setAccountRateLimited(accountId, false)
             return false
           }
@@ -906,13 +923,14 @@ class UnifiedOpenAIScheduler {
       }
       return false
     } catch (error) {
-      logger.error(`❌ Failed to check rate limit status: ${accountId}`, error)
+      logger.error(`Failed to check rate limit status: ${accountId}`, error)
       return false
     }
   }
 
-  // 👥 从分组中选择账户
-  async selectAccountFromGroup(groupId, sessionHash = null, requestedModel = null) {
+  // 从分组中选择账户
+  async selectAccountFromGroup(groupId, sessionHash = null, requestedModel = null, holdTarget = null) {
+    let releaseGroupCostHoldOnce = null
     try {
       // 获取分组信息
       const group = await accountGroupService.getGroup(groupId)
@@ -928,7 +946,27 @@ class UnifiedOpenAIScheduler {
         throw error
       }
 
-      logger.info(`👥 Selecting account from OpenAI group: ${group.name}`)
+      logger.info(`Selecting account from OpenAI group: ${group.name}`)
+
+      let groupCostHoldReleased = false
+      releaseGroupCostHoldOnce = async () => {
+        if (groupCostHoldReleased) {
+          return
+        }
+        groupCostHoldReleased = true
+        if (holdTarget && holdTarget.groupCostHoldGroupId === groupId) {
+          holdTarget.groupCostHoldGroupId = null
+        }
+        if (holdTarget && holdTarget.groupCostHoldMeta && holdTarget.groupCostHoldMeta.groupId === groupId) {
+          holdTarget.groupCostHoldMeta = null
+        }
+        try {
+          await groupPolicy.releaseGroupCostHolds(groupId)
+        } catch (error) {
+          console.error(error)
+        }
+      }
+      await groupPolicy.assertGroupRequestAllowed(group, { requestedModel, holdTarget })
 
       // 如果有会话哈希，检查是否有已映射的账户
       if (sessionHash) {
@@ -943,10 +981,10 @@ class UnifiedOpenAIScheduler {
               requestedModel,
             )
             if (isAvailable) {
-              // 🚀 智能会话续期（续期 unified 映射键，按配置）
+              // 智能会话续期（续期 unified 映射键，按配置）
               await this._extendSessionMappingTTL(sessionHash)
               logger.info(
-                `🎯 Using sticky session account from group: ${mappedAccount.accountId} (${mappedAccount.accountType})`,
+                `Using sticky session account from group: ${mappedAccount.accountId} (${mappedAccount.accountType})`,
               )
               // 更新账户的最后使用时间
               await this.updateAccountLastUsed(mappedAccount.accountId, mappedAccount.accountType)
@@ -980,7 +1018,7 @@ class UnifiedOpenAIScheduler {
         }
 
         // [人工决策-2026-06-03 14:51:27] 分组成员统一委托 _isAccountAvailable(硬门+开关绕过上游错误,含 token/预算硬门) + 模型,
-        //   与共享/复检同一判定,不再内联手抄
+        // 与共享/复检同一判定,不再内联手抄
         const usable = !!account && (await this._isAccountAvailable(account.id, accountType, requestedModel))
         if (usable) {
           availableAccounts.push({
@@ -1009,12 +1047,12 @@ class UnifiedOpenAIScheduler {
       if (sessionHash) {
         await this._setSessionMapping(sessionHash, selectedAccount.accountId, selectedAccount.accountType)
         logger.info(
-          `🎯 Created new sticky session mapping from group: ${selectedAccount.name} (${selectedAccount.accountId})`,
+          `Created new sticky session mapping from group: ${selectedAccount.name} (${selectedAccount.accountId})`,
         )
       }
 
       logger.info(
-        `🎯 Selected account from group: ${selectedAccount.name} (${selectedAccount.accountId}, ${selectedAccount.accountType}, priority: ${selectedAccount.priority || 50})`,
+        `Selected account from group: ${selectedAccount.name} (${selectedAccount.accountId}, ${selectedAccount.accountType}, priority: ${selectedAccount.priority || 50})`,
       )
 
       // 更新账户的最后使用时间
@@ -1025,18 +1063,25 @@ class UnifiedOpenAIScheduler {
         accountType: selectedAccount.accountType,
       }
     } catch (error) {
-      logger.error(`❌ Failed to select account from group ${groupId}:`, error)
+      try {
+        if (typeof releaseGroupCostHoldOnce === 'function') {
+          await releaseGroupCostHoldOnce()
+        }
+      } catch (releaseError) {
+        console.error(releaseError)
+      }
+      logger.error(`Failed to select account from group ${groupId}:`, error)
       throw error
     }
   }
 
-  // 🔍 检查账户是否在分组中
+  // 检查账户是否在分组中
   async _isAccountInGroup(accountId, groupId) {
     const members = await accountGroupService.getGroupMembers(groupId)
     return members.includes(accountId)
   }
 
-  // 📊 更新账户最后使用时间
+  // 更新账户最后使用时间
   async updateAccountLastUsed(accountId, accountType) {
     try {
       if (accountType === 'openai') {
@@ -1048,7 +1093,7 @@ class UnifiedOpenAIScheduler {
         await openaiResponsesAccountService.recordUsage(accountId, 0)
       }
     } catch (error) {
-      logger.warn(`⚠️ Failed to update last used time for account ${accountId}:`, error)
+      logger.warn(`Failed to update last used time for account ${accountId}:`, error)
     }
   }
 }

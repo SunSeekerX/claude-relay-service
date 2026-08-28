@@ -1,4 +1,5 @@
 import express from 'express'
+
 import { claudeConsoleAccountService } from './account_claude_console_service.js'
 import { claudeConsoleRelayService } from '../relay/relay_claude_console_relay_service.js'
 import { accountGroupService } from './account_group_service.js'
@@ -9,16 +10,19 @@ import { logger } from '../../common/logger.js'
 import { webhookNotifier } from '../webhook/webhook_notifier.js'
 import { formatAccountExpiry, mapExpiryField } from '../admin/admin_utils_routes.js'
 import { stripReadonlyAccountFields } from '../../common/common_helper.js'
-/**
- * Admin Routes - Claude Console 账户管理
- * API Key 方式的 Claude Console 账户
- */
+import { asyncRoute, SEND_RAW } from '../../common/route_handler.js'
+import { ok, badRequest, notFound } from '../../common/http_result.js'
+import { parseObjectBody } from '../../common/parse_body.js'
+// Admin Routes - Claude Console 账户管理
+// API Key 方式的 Claude Console 账户
 
 export const router = express.Router()
 
 // 获取所有Claude Console账户
-router.get('/claude-console-accounts', authenticateAdmin, async (req, res) => {
-  try {
+router.get(
+  '/claude-console-accounts',
+  authenticateAdmin,
+  asyncRoute('Failed to get Claude Console accounts', async (req) => {
     const { platform, groupId } = req.query
     let accounts = await claudeConsoleAccountService.getAllAccounts()
 
@@ -67,7 +71,7 @@ router.get('/claude-console-accounts', authenticateAdmin, async (req, res) => {
             },
           }
         } catch (statsError) {
-          logger.warn(`⚠️ Failed to get usage stats for Claude Console account ${account.id}:`, statsError.message)
+          logger.warn(`Failed to get usage stats for Claude Console account ${account.id}:`, statsError.message)
           try {
             const groupInfos = await accountGroupService.getAccountGroups(account.id)
             const formattedAccount = formatAccountExpiry(account)
@@ -83,7 +87,7 @@ router.get('/claude-console-accounts', authenticateAdmin, async (req, res) => {
               },
             }
           } catch (groupError) {
-            logger.warn(`⚠️ Failed to get group info for Claude Console account ${account.id}:`, groupError.message)
+            logger.warn(`Failed to get group info for Claude Console account ${account.id}:`, groupError.message)
             const formattedAccount = formatAccountExpiry(account)
             return {
               ...formattedAccount,
@@ -99,16 +103,15 @@ router.get('/claude-console-accounts', authenticateAdmin, async (req, res) => {
       }),
     )
 
-    return res.json({ success: true, data: accountsWithStats })
-  } catch (error) {
-    logger.error('❌ Failed to get Claude Console accounts:', error)
-    return res.status(500).json({ error: 'Failed to get Claude Console accounts', message: error.message })
-  }
-})
+    return accountsWithStats
+  }),
+)
 
 // 创建新的Claude Console账户
-router.post('/claude-console-accounts', authenticateAdmin, async (req, res) => {
-  try {
+router.post(
+  '/claude-console-accounts',
+  authenticateAdmin,
+  asyncRoute('Failed to create Claude Console account', async (req) => {
     const {
       name,
       description,
@@ -126,22 +129,22 @@ router.post('/claude-console-accounts', authenticateAdmin, async (req, res) => {
       maxConcurrentTasks,
       disableAutoProtection,
       interceptWarmup,
-    } = req.body
+    } = parseObjectBody(req.body, '创建Claude Console账户')
 
     if (!name || !apiUrl || !apiKey) {
-      return res.status(400).json({ error: 'Name, API URL and API Key are required' })
+      throw badRequest('Name, API URL and API Key are required')
     }
 
     // 验证priority的有效性（1-100）
     if (priority !== undefined && (priority < 1 || priority > 100)) {
-      return res.status(400).json({ error: 'Priority must be between 1 and 100' })
+      throw badRequest('Priority must be between 1 and 100')
     }
 
     // 验证maxConcurrentTasks的有效性（非负整数）
     if (maxConcurrentTasks !== undefined && maxConcurrentTasks !== null) {
       const concurrent = Number(maxConcurrentTasks)
       if (!Number.isInteger(concurrent) || concurrent < 0) {
-        return res.status(400).json({ error: 'maxConcurrentTasks must be a non-negative integer' })
+        throw badRequest('maxConcurrentTasks must be a non-negative integer')
       }
     }
 
@@ -150,12 +153,12 @@ router.post('/claude-console-accounts', authenticateAdmin, async (req, res) => {
 
     // 验证accountType的有效性
     if (accountType && !['shared', 'dedicated', 'group'].includes(accountType)) {
-      return res.status(400).json({ error: 'Invalid account type. Must be "shared", "dedicated" or "group"' })
+      throw badRequest('Invalid account type. Must be "shared", "dedicated" or "group"')
     }
 
     // 如果是分组类型，验证groupId
     if (accountType === 'group' && !groupId) {
-      return res.status(400).json({ error: 'Group ID is required for group type accounts' })
+      throw badRequest('Group ID is required for group type accounts')
     }
 
     const newAccount = await claudeConsoleAccountService.createAccount({
@@ -182,35 +185,33 @@ router.post('/claude-console-accounts', authenticateAdmin, async (req, res) => {
       await accountGroupService.addAccountToGroup(newAccount.id, groupId, 'claude')
     }
 
-    logger.success(`🎮 Admin created Claude Console account: ${name}`)
-    const formattedAccount = formatAccountExpiry(newAccount)
-    return res.json({ success: true, data: formattedAccount })
-  } catch (error) {
-    logger.error('❌ Failed to create Claude Console account:', error)
-    return res.status(500).json({ error: 'Failed to create Claude Console account', message: error.message })
-  }
-})
+    logger.success(`Admin created Claude Console account: ${name}`)
+    return formatAccountExpiry(newAccount)
+  }),
+)
 
 // 更新Claude Console账户
-router.put('/claude-console-accounts/:accountId', authenticateAdmin, async (req, res) => {
-  try {
+router.put(
+  '/claude-console-accounts/:accountId',
+  authenticateAdmin,
+  asyncRoute('Failed to update Claude Console account', async (req) => {
     const { accountId } = req.params
-    const updates = req.body
+    const updates = parseObjectBody(req.body, '更新Claude Console账户')
 
-    // ✅ 【新增】映射字段名：前端的 expiresAt -> 后端的 subscriptionExpiresAt
+    // 【新增】映射字段名：前端的 expiresAt -> 后端的 subscriptionExpiresAt
     // review#3：剥离外部传入的状态类字段，禁止伪造自动停用证据
     const mappedUpdates = stripReadonlyAccountFields(mapExpiryField(updates, 'Claude Console', accountId))
 
     // 验证priority的有效性（1-100）
     if (mappedUpdates.priority !== undefined && (mappedUpdates.priority < 1 || mappedUpdates.priority > 100)) {
-      return res.status(400).json({ error: 'Priority must be between 1 and 100' })
+      throw badRequest('Priority must be between 1 and 100')
     }
 
     // 验证maxConcurrentTasks的有效性（非负整数）
     if (mappedUpdates.maxConcurrentTasks !== undefined && mappedUpdates.maxConcurrentTasks !== null) {
       const concurrent = Number(mappedUpdates.maxConcurrentTasks)
       if (!Number.isInteger(concurrent) || concurrent < 0) {
-        return res.status(400).json({ error: 'maxConcurrentTasks must be a non-negative integer' })
+        throw badRequest('maxConcurrentTasks must be a non-negative integer')
       }
       // 转换为数字类型
       mappedUpdates.maxConcurrentTasks = concurrent
@@ -218,18 +219,18 @@ router.put('/claude-console-accounts/:accountId', authenticateAdmin, async (req,
 
     // 验证accountType的有效性
     if (mappedUpdates.accountType && !['shared', 'dedicated', 'group'].includes(mappedUpdates.accountType)) {
-      return res.status(400).json({ error: 'Invalid account type. Must be "shared", "dedicated" or "group"' })
+      throw badRequest('Invalid account type. Must be "shared", "dedicated" or "group"')
     }
 
     // 如果更新为分组类型，验证groupId
     if (mappedUpdates.accountType === 'group' && !mappedUpdates.groupId) {
-      return res.status(400).json({ error: 'Group ID is required for group type accounts' })
+      throw badRequest('Group ID is required for group type accounts')
     }
 
     // 获取账户当前信息以处理分组变更
     const currentAccount = await claudeConsoleAccountService.getAccount(accountId)
     if (!currentAccount) {
-      return res.status(404).json({ error: 'Account not found' })
+      throw notFound('Account not found')
     }
 
     // 规范化上游错误自动防护开关
@@ -267,17 +268,16 @@ router.put('/claude-console-accounts/:accountId', authenticateAdmin, async (req,
 
     await claudeConsoleAccountService.updateAccount(accountId, mappedUpdates)
 
-    logger.success(`📝 Admin updated Claude Console account: ${accountId}`)
-    return res.json({ success: true, message: 'Claude Console account updated successfully' })
-  } catch (error) {
-    logger.error('❌ Failed to update Claude Console account:', error)
-    return res.status(500).json({ error: 'Failed to update Claude Console account', message: error.message })
-  }
-})
+    logger.success(`Admin updated Claude Console account: ${accountId}`)
+    return ok(undefined, 'Claude Console account updated successfully')
+  }),
+)
 
 // 删除Claude Console账户
-router.delete('/claude-console-accounts/:accountId', authenticateAdmin, async (req, res) => {
-  try {
+router.delete(
+  '/claude-console-accounts/:accountId',
+  authenticateAdmin,
+  asyncRoute('Failed to delete Claude Console account', async (req) => {
     const { accountId } = req.params
 
     // 自动解绑所有绑定的 API Keys
@@ -299,49 +299,41 @@ router.delete('/claude-console-accounts/:accountId', authenticateAdmin, async (r
       message += `，${unboundCount} 个 API Key 已切换为共享池模式`
     }
 
-    logger.success(`🗑️ Admin deleted Claude Console account: ${accountId}, unbound ${unboundCount} keys`)
-    return res.json({
-      success: true,
-      message,
-      unboundKeys: unboundCount,
-    })
-  } catch (error) {
-    logger.error('❌ Failed to delete Claude Console account:', error)
-    return res.status(500).json({ error: 'Failed to delete Claude Console account', message: error.message })
-  }
-})
+    logger.success(`Admin deleted Claude Console account: ${accountId}, unbound ${unboundCount} keys`)
+    return ok({ unboundKeys: unboundCount }, message)
+  }),
+)
 
 // 切换Claude Console账户状态
-router.put('/claude-console-accounts/:accountId/toggle', authenticateAdmin, async (req, res) => {
-  try {
+router.put(
+  '/claude-console-accounts/:accountId/toggle',
+  authenticateAdmin,
+  asyncRoute('Failed to toggle account status', async (req) => {
     const { accountId } = req.params
 
     const account = await claudeConsoleAccountService.getAccount(accountId)
     if (!account) {
-      return res.status(404).json({ error: 'Account not found' })
+      throw notFound('Account not found')
     }
 
     const newStatus = !account.isActive
     await claudeConsoleAccountService.updateAccount(accountId, { isActive: newStatus })
 
-    logger.success(
-      `🔄 Admin toggled Claude Console account status: ${accountId} -> ${newStatus ? 'active' : 'inactive'}`,
-    )
-    return res.json({ success: true, isActive: newStatus })
-  } catch (error) {
-    logger.error('❌ Failed to toggle Claude Console account status:', error)
-    return res.status(500).json({ error: 'Failed to toggle account status', message: error.message })
-  }
-})
+    logger.success(`Admin toggled Claude Console account status: ${accountId} -> ${newStatus ? 'active' : 'inactive'}`)
+    return { isActive: newStatus }
+  }),
+)
 
 // 切换Claude Console账户调度状态
-router.put('/claude-console-accounts/:accountId/toggle-schedulable', authenticateAdmin, async (req, res) => {
-  try {
+router.put(
+  '/claude-console-accounts/:accountId/toggle-schedulable',
+  authenticateAdmin,
+  asyncRoute('Failed to toggle schedulable status', async (req) => {
     const { accountId } = req.params
 
     const account = await claudeConsoleAccountService.getAccount(accountId)
     if (!account) {
-      return res.status(404).json({ error: 'Account not found' })
+      throw notFound('Account not found')
     }
 
     const newSchedulable = !account.schedulable
@@ -361,89 +353,83 @@ router.put('/claude-console-accounts/:accountId/toggle-schedulable', authenticat
     }
 
     logger.success(
-      `🔄 Admin toggled Claude Console account schedulable status: ${accountId} -> ${
+      ` Admin toggled Claude Console account schedulable status: ${accountId} -> ${
         newSchedulable ? 'schedulable' : 'not schedulable'
       }`,
     )
-    return res.json({ success: true, schedulable: newSchedulable })
-  } catch (error) {
-    logger.error('❌ Failed to toggle Claude Console account schedulable status:', error)
-    return res.status(500).json({ error: 'Failed to toggle schedulable status', message: error.message })
-  }
-})
+    return { schedulable: newSchedulable }
+  }),
+)
 
 // 获取Claude Console账户的使用统计
-router.get('/claude-console-accounts/:accountId/usage', authenticateAdmin, async (req, res) => {
-  try {
+router.get(
+  '/claude-console-accounts/:accountId/usage',
+  authenticateAdmin,
+  asyncRoute('Failed to get usage stats', async (req) => {
     const { accountId } = req.params
     const usageStats = await claudeConsoleAccountService.getAccountUsageStats(accountId)
 
     if (!usageStats) {
-      return res.status(404).json({ error: 'Account not found' })
+      throw notFound('Account not found')
     }
 
-    return res.json(usageStats)
-  } catch (error) {
-    logger.error('❌ Failed to get Claude Console account usage stats:', error)
-    return res.status(500).json({ error: 'Failed to get usage stats', message: error.message })
-  }
-})
+    return usageStats
+  }),
+)
 
 // 手动重置Claude Console账户的每日使用量
-router.post('/claude-console-accounts/:accountId/reset-usage', authenticateAdmin, async (req, res) => {
-  try {
+router.post(
+  '/claude-console-accounts/:accountId/reset-usage',
+  authenticateAdmin,
+  asyncRoute('Failed to reset daily usage', async (req) => {
     const { accountId } = req.params
     await claudeConsoleAccountService.resetDailyUsage(accountId)
 
     logger.success(`Admin manually reset daily usage for Claude Console account: ${accountId}`)
-    return res.json({ success: true, message: 'Daily usage reset successfully' })
-  } catch (error) {
-    logger.error('❌ Failed to reset Claude Console account daily usage:', error)
-    return res.status(500).json({ error: 'Failed to reset daily usage', message: error.message })
-  }
-})
+    return ok(undefined, 'Daily usage reset successfully')
+  }),
+)
 
 // 重置Claude Console账户状态（清除所有异常状态）
-router.post('/claude-console-accounts/:accountId/reset-status', authenticateAdmin, async (req, res) => {
-  try {
+router.post(
+  '/claude-console-accounts/:accountId/reset-status',
+  authenticateAdmin,
+  asyncRoute('Failed to reset status', async (req) => {
     const { accountId } = req.params
     const result = await claudeConsoleAccountService.resetAccountStatus(accountId)
     logger.success(`Admin reset status for Claude Console account: ${accountId}`)
-    return res.json({ success: true, data: result })
-  } catch (error) {
-    logger.error('❌ Failed to reset Claude Console account status:', error)
-    return res.status(500).json({ error: 'Failed to reset status', message: error.message })
-  }
-})
+    return result
+  }),
+)
 
 // 手动重置所有Claude Console账户的每日使用量
-router.post('/claude-console-accounts/reset-all-usage', authenticateAdmin, async (req, res) => {
-  try {
+router.post(
+  '/claude-console-accounts/reset-all-usage',
+  authenticateAdmin,
+  asyncRoute('Failed to reset all daily usage', async () => {
     await claudeConsoleAccountService.resetAllDailyUsage()
 
     logger.success('Admin manually reset daily usage for all Claude Console accounts')
-    return res.json({ success: true, message: 'All daily usage reset successfully' })
-  } catch (error) {
-    logger.error('❌ Failed to reset all Claude Console accounts daily usage:', error)
-    return res.status(500).json({ error: 'Failed to reset all daily usage', message: error.message })
-  }
-})
+    return ok(undefined, 'All daily usage reset successfully')
+  }),
+)
 
 // 测试Claude Console账户连通性（流式响应）- 复用 claudeConsoleRelayService
-router.post('/claude-console-accounts/:accountId/test', authenticateAdmin, async (req, res) => {
-  const { accountId } = req.params
-  // Console 账户模型映射可任意，必须由调用方显式指定（前端测试弹窗会带上后台配置的默认模型）
-  const model = typeof req.body?.model === 'string' ? req.body.model.trim() : ''
+router.post(
+  '/claude-console-accounts/:accountId/test',
+  authenticateAdmin,
+  asyncRoute('Failed to test Claude Console account', async (req, res) => {
+    const { accountId } = req.params
+    // Console 账户模型映射可任意，必须由调用方显式指定（前端测试弹窗会带上后台配置的默认模型）
+    const body = parseObjectBody(req.body, '测试Claude Console账户')
+    const model = typeof body.model === 'string' ? body.model.trim() : ''
 
-  if (!model) {
-    return res.status(400).json({ error: 'model is required' })
-  }
+    if (!model) {
+      throw badRequest('model is required')
+    }
 
-  try {
     // 直接调用服务层的测试方法
     await claudeConsoleRelayService.testAccountConnection(accountId, res, model)
-  } catch (error) {
-    logger.error(`❌ Failed to test Claude Console account:`, error)
-    // 错误已在服务层处理，这里仅做日志记录
-  }
-})
+    return SEND_RAW
+  }),
+)

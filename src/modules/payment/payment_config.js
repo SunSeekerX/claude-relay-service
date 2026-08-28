@@ -71,7 +71,7 @@ class PaymentConfigService {
     try {
       return await this.getConfigStrict()
     } catch (error) {
-      logger.error('❌ [payment] Failed to get payment config:', error)
+      logger.error('[payment] Failed to get payment config:', error)
       // 配置读失败时返回默认（关闭态），不缓存，让下次重试
       return { ...DEFAULT_CONFIG }
     }

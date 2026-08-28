@@ -42,7 +42,7 @@
               </div>
             </div>
             <p class="mt-2 text-sm text-yellow-700 dark:text-yellow-400">
-              💡 使用与 Claude Code 相同的 API 密钥即可。
+              使用与 Claude Code 相同的 API 密钥即可。
             </p>
           </div>
 
@@ -74,7 +74,7 @@
               </div>
             </div>
             <p class="mt-2 text-sm text-blue-700 dark:text-blue-300">
-              💡 设置后需要重新打开 PowerShell 窗口才能生效。
+              设置后需要重新打开 PowerShell 窗口才能生效。
             </p>
           </div>
         </template>
@@ -100,7 +100,7 @@
               </div>
             </div>
             <p class="mt-2 text-sm text-yellow-700 dark:text-yellow-400">
-              💡 使用与 Claude Code 相同的 API 密钥即可。
+              使用与 Claude Code 相同的 API 密钥即可。
             </p>
           </div>
 

@@ -49,8 +49,8 @@ export const attach = function attach(redisClient) {
    * @param {number} lockTtlMs - 锁 TTL（毫秒）
    * @param {number} delayMs - 请求间隔（毫秒）
    * @returns {Promise<{acquired: boolean, waitMs: number}>}
-   *   - acquired: 是否成功获取锁
-   *   - waitMs: 需要等待的毫秒数（-1表示被占用需等待，>=0表示需要延迟的毫秒数）
+   * - acquired: 是否成功获取锁
+   * - waitMs: 需要等待的毫秒数（-1表示被占用需等待，>=0表示需要延迟的毫秒数）
    */
   redisClient.acquireUserMessageLock = async function (accountId, requestId, lockTtlMs, delayMs) {
     const lockKey = RedisKeys.userMsgQueue.lock(accountId)
@@ -122,7 +122,7 @@ export const attach = function attach(redisClient) {
       -- 记录完成时间
       local now = redis.call('TIME')
       local nowMs = tonumber(now[1]) * 1000 + math.floor(tonumber(now[2]) / 1000)
-      redis.call('SET', lastTimeKey, nowMs, 'EX', 60)  -- 60秒后过期
+      redis.call('SET', lastTimeKey, nowMs, 'EX', 60) -- 60秒后过期
 
       -- 删除锁
       redis.call('DEL', lockKey)
@@ -223,7 +223,7 @@ export const attach = function attach(redisClient) {
 
         // 防止无限循环
         if (iterations >= MAX_ITERATIONS) {
-          logger.warn(`📬 User message queue: SCAN reached max iterations (${MAX_ITERATIONS}), stopping early`, {
+          logger.warn(`User message queue: SCAN reached max iterations (${MAX_ITERATIONS}), stopping early`, {
             foundLocks: accountIds.length,
           })
           break
@@ -231,7 +231,7 @@ export const attach = function attach(redisClient) {
       } while (cursor !== '0')
 
       if (accountIds.length > 0) {
-        logger.debug(`📬 User message queue: scanned ${accountIds.length} lock(s) in ${iterations} iteration(s)`)
+        logger.debug(`User message queue: scanned ${accountIds.length} lock(s) in ${iterations} iteration(s)`)
       }
 
       return accountIds

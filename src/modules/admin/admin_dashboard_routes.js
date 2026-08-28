@@ -15,13 +15,17 @@ import { logger } from '../../common/logger.js'
 import { CostCalculator } from '../pricing/pricing_cost_calculator.js'
 import * as upstreamErrorHelper from '../relay/relay_upstream_error_helper.js'
 import { config } from '../../../config/config.js'
+import { asyncRoute } from '../../common/route_handler.js'
+import { ok, badRequest } from '../../common/http_result.js'
 export const router = express.Router()
 
-// 📊 系统统计
+// 系统统计
 
 // 获取系统概览
-router.get('/dashboard', authenticateAdmin, async (req, res) => {
-  try {
+router.get(
+  '/dashboard',
+  authenticateAdmin,
+  asyncRoute('Failed to get dashboard data', async () => {
     // 先检查是否有全局预聚合数据
     const globalStats = await redis.getGlobalStats()
 
@@ -169,9 +173,9 @@ router.get('/dashboard', authenticateAdmin, async (req, res) => {
       totalCacheCreateTokensUsed = 0,
       totalCacheReadTokensUsed = 0,
       totalAllTokensUsed = 0,
-      activeApiKeys = 0,
-      totalApiKeys = 0
+      activeApiKeys = 0
 
+    let totalApiKeys
     if (globalStats) {
       // 使用预聚合数据（快速路径）
       totalRequestsUsed = globalStats.requests
@@ -213,7 +217,7 @@ router.get('/dashboard', authenticateAdmin, async (req, res) => {
     const openaiResponsesStats = countAccountStats(openaiResponsesAccounts, { isStringType: true })
     const azureOpenaiStats = countAccountStats(azureOpenaiAccounts, { isStringType: true })
 
-    const dashboard = {
+    return {
       overview: {
         totalApiKeys,
         activeApiKeys,
@@ -402,28 +406,21 @@ router.get('/dashboard', authenticateAdmin, async (req, res) => {
       // 显式 0（UTC）为合法偏移，用 ?? 而非 || 避免被当成 falsy 替换成 8
       systemTimezone: config.system.timezoneOffset ?? 8,
     }
-
-    return res.json({ success: true, data: dashboard })
-  } catch (error) {
-    logger.error('❌ Failed to get dashboard data:', error)
-    return res.status(500).json({ error: 'Failed to get dashboard data', message: error.message })
-  }
-})
+  }),
+)
 
 // 获取所有临时不可用账户状态
-router.get('/temp-unavailable', authenticateAdmin, async (req, res) => {
-  try {
-    const statuses = await upstreamErrorHelper.getAllTempUnavailable()
-    return res.json({ success: true, data: statuses })
-  } catch (error) {
-    logger.error('❌ Failed to get temp unavailable statuses:', error)
-    return res.status(500).json({ error: 'Failed to get temp unavailable statuses' })
-  }
-})
+router.get(
+  '/temp-unavailable',
+  authenticateAdmin,
+  asyncRoute('Failed to get temp unavailable statuses', async () => upstreamErrorHelper.getAllTempUnavailable()),
+)
 
 // 获取使用统计
-router.get('/usage-stats', authenticateAdmin, async (req, res) => {
-  try {
+router.get(
+  '/usage-stats',
+  authenticateAdmin,
+  asyncRoute('Failed to get usage stats', async (req) => {
     const { period = 'daily' } = req.query // daily, monthly
 
     // 获取基础API Key统计
@@ -435,23 +432,22 @@ router.get('/usage-stats', authenticateAdmin, async (req, res) => {
       usage: key.usage,
     }))
 
-    return res.json({ success: true, data: { period, stats } })
-  } catch (error) {
-    logger.error('❌ Failed to get usage stats:', error)
-    return res.status(500).json({ error: 'Failed to get usage stats', message: error.message })
-  }
-})
+    return { period, stats }
+  }),
+)
 
 // 获取按模型的使用统计和费用
-router.get('/model-stats', authenticateAdmin, async (req, res) => {
-  try {
+router.get(
+  '/model-stats',
+  authenticateAdmin,
+  asyncRoute('Failed to get model stats', async (req) => {
     const { period = 'daily', startDate, endDate } = req.query // daily, monthly, 支持自定义时间范围
     const today = redis.getDateStringInTimezone()
     const tzDate = redis.getDateInTimezone()
     const currentMonth = `${tzDate.getUTCFullYear()}-${String(tzDate.getUTCMonth() + 1).padStart(2, '0')}`
 
     logger.info(
-      `📊 Getting global model stats, period: ${period}, startDate: ${startDate}, endDate: ${endDate}, today: ${today}, currentMonth: ${currentMonth}`,
+      `Getting global model stats, period: ${period}, startDate: ${startDate}, endDate: ${endDate}, today: ${today}, currentMonth: ${currentMonth}`,
     )
 
     // 收集所有需要扫描的日期
@@ -463,12 +459,12 @@ router.get('/model-stats', authenticateAdmin, async (req, res) => {
       const end = new Date(endDate)
 
       if (start > end) {
-        return res.status(400).json({ error: 'Start date must be before or equal to end date' })
+        throw badRequest('Start date must be before or equal to end date')
       }
 
       const daysDiff = Math.ceil((end - start) / (1000 * 60 * 60 * 24)) + 1
       if (daysDiff > 365) {
-        return res.status(400).json({ error: 'Date range cannot exceed 365 days' })
+        throw badRequest('Date range cannot exceed 365 days')
       }
 
       const currentDate = new Date(start)
@@ -478,7 +474,7 @@ router.get('/model-stats', authenticateAdmin, async (req, res) => {
         currentDate.setDate(currentDate.getDate() + 1)
       }
 
-      logger.info(`📊 Generated ${datePatterns.length} search patterns for date range`)
+      logger.info(`Generated ${datePatterns.length} search patterns for date range`)
     } else {
       // 使用默认的period
       const pattern = period === 'daily' ? `usage:model:daily:*:${today}` : `usage:model:monthly:*:${currentMonth}`
@@ -492,7 +488,7 @@ router.get('/model-stats', authenticateAdmin, async (req, res) => {
       allResults.push(...results)
     }
 
-    logger.info(`📊 Found ${allResults.length} matching keys in total`)
+    logger.info(`Found ${allResults.length} matching keys in total`)
 
     // 模型名标准化函数（与redis.js保持一致）
     const normalizeModelName = (model) => {
@@ -520,7 +516,7 @@ router.get('/model-stats', authenticateAdmin, async (req, res) => {
         key.match(/usage:model:daily:(.+):\d{4}-\d{2}-\d{2}$/) || key.match(/usage:model:monthly:(.+):\d{4}-\d{2}$/)
 
       if (!match) {
-        logger.warn(`📊 Pattern mismatch for key: ${key}`)
+        logger.warn(`Pattern mismatch for key: ${key}`)
         continue
       }
 
@@ -629,20 +625,19 @@ router.get('/model-stats', authenticateAdmin, async (req, res) => {
     // 按总费用排序
     modelStats.sort((a, b) => b.costs.total - a.costs.total)
 
-    logger.info(`📊 Returning ${modelStats.length} global model stats for period ${period}:`, modelStats)
+    logger.info(`Returning ${modelStats.length} global model stats for period ${period}:`, modelStats)
 
-    return res.json({ success: true, data: modelStats })
-  } catch (error) {
-    logger.error('❌ Failed to get model stats:', error)
-    return res.status(500).json({ error: 'Failed to get model stats', message: error.message })
-  }
-})
+    return modelStats
+  }),
+)
 
-// 🔧 系统管理
+// 系统管理
 
 // 清理过期数据
-router.post('/cleanup', authenticateAdmin, async (req, res) => {
-  try {
+router.post(
+  '/cleanup',
+  authenticateAdmin,
+  asyncRoute('Cleanup failed', async () => {
     const [expiredKeys, errorAccounts] = await Promise.all([
       apiKeyService.cleanupExpiredKeys(),
       claudeAccountService.cleanupErrorAccounts(),
@@ -650,18 +645,14 @@ router.post('/cleanup', authenticateAdmin, async (req, res) => {
 
     await redis.cleanup()
 
-    logger.success(`🧹 Admin triggered cleanup: ${expiredKeys} expired keys, ${errorAccounts} error accounts`)
+    logger.success(`Admin triggered cleanup: ${expiredKeys} expired keys, ${errorAccounts} error accounts`)
 
-    return res.json({
-      success: true,
-      message: 'Cleanup completed',
-      data: {
+    return ok(
+      {
         expiredKeysRemoved: expiredKeys,
         errorAccountsReset: errorAccounts,
       },
-    })
-  } catch (error) {
-    logger.error('❌ Cleanup failed:', error)
-    return res.status(500).json({ error: 'Cleanup failed', message: error.message })
-  }
-})
+      'Cleanup completed',
+    )
+  }),
+)

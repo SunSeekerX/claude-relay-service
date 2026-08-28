@@ -16,7 +16,7 @@ class PaymentAudit {
       await redis.client.ltrim(AUDIT_KEY(orderId), -AUDIT_MAX, -1)
       // 不 expire：支付证据永不过期（运维靠 data:export:payment 备份）
     } catch (error) {
-      logger.error(`❌ [payment] audit record failed order=${orderId} action=${action}:`, error)
+      logger.error(`[payment] audit record failed order=${orderId} action=${action}:`, error)
     }
   }
 

@@ -11,7 +11,7 @@
 // | auth rate-limit    | src/middleware/auth.js:~1124  | tokenLimit 优先 rateLimitCost | 所有 Key 用 rateLimitCost         |
 //
 // 在册不搬:auth.js 的 token/cost 优先级判断与 res.status(429) HTTP 响应高度耦合,
-//   抽取需拆分决策与响应、改动认证中间件,风险高收益低,故保留原地、仅在此登记。
+// 抽取需拆分决策与响应、改动认证中间件,风险高收益低,故保留原地、仅在此登记。
 
 export * from './compat_permissions.js'
 export * from './compat_token_stats.js'

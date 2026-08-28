@@ -3,11 +3,11 @@ import { RedisKeys, LIMITS } from '../../infra/redis_key.js'
 // 预付费余额账本（出站端口的 Redis 实现）。
 //
 // 【方案A：余额是派生值，用量账本是真相源】
-//   余额 = 净充值额度(credit − refunded) − prepaid 期间已用量(usage:cost:total − baseline)
-//   - credit  累计：充值履约入账（幂等 refId=订单id）
-//   - refunded 累计：退款回收（幂等 refId=订单id:refund）
-//   - baseline：首次转 prepaid 时刻的 usage:cost:total（只算此后的消费）
-//   - consumed：usage:cost:total（recordUsage 落账，倍率后口径，与 totalCostLimit 一致）
+// 余额 = 净充值额度(credit − refunded) − prepaid 期间已用量(usage:cost:total − baseline)
+// - credit  累计：充值履约入账（幂等 refId=订单id）
+// - refunded 累计：退款回收（幂等 refId=订单id:refund）
+// - baseline：首次转 prepaid 时刻的 usage:cost:total（只算此后的消费）
+// - consumed：usage:cost:total（recordUsage 落账，倍率后口径，与 totalCostLimit 一致）
 //
 // 为何派生：消费【不再实时扣减余额】，余额按上式从用量真相源算。价值在于【单一账本】：
 // 不再有"余额账本与用量账本漂移"。usage 落账失败时该笔确实未计（与 postpaid totalCost 限额

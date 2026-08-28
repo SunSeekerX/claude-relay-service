@@ -1,5 +1,7 @@
 import express from 'express'
 import crypto from 'node:crypto'
+import axios from 'axios'
+
 import { droidAccountService } from './account_droid_service.js'
 import { testModelConfigService } from '../relay/relay_test_model_config_service.js'
 import { accountGroupService } from './account_group_service.js'
@@ -13,44 +15,52 @@ import { webhookNotifier } from '../webhook/webhook_notifier.js'
 import { formatAccountExpiry, mapExpiryField } from '../admin/admin_utils_routes.js'
 import { stripReadonlyAccountFields } from '../../common/common_helper.js'
 import { extractErrorMessage } from '../../common/test_payload_helper.js'
-import axios from 'axios'
 import { ProxyHelper } from '../proxy/proxy_helper.js'
 import {
   startDeviceAuthorization,
   pollDeviceAuthorization,
   WorkOSDeviceAuthError,
 } from '../../common/workos_oauth_helper.js'
+import { asyncRoute } from '../../common/route_handler.js'
+import { ok, badRequest, notFound, unauthorized, conflict, fail, HttpError } from '../../common/http_result.js'
+import { parseObjectBody } from '../../common/parse_body.js'
+
 export const router = express.Router()
 
 // === Droid 账户管理 API ===
 
 // 生成 Droid 设备码授权信息
-router.post('/droid-accounts/generate-auth-url', authenticateAdmin, async (req, res) => {
-  try {
-    const { proxy, proxyGroupId, proxyId } = req.body || {}
-    // 账户绑代理池时设备码授权也走池代理（未绑池回退静态 proxy）
-    const effectiveProxy = proxyResolver.resolveAuthProxy({ proxyGroupId, proxyId, platform: 'droid' }, 'droid', proxy)
-    const deviceAuth = await startDeviceAuthorization(effectiveProxy)
+router.post(
+  '/droid-accounts/generate-auth-url',
+  authenticateAdmin,
+  asyncRoute('Failed to start Droid device authorization', async (req) => {
+    try {
+      const { proxy, proxyGroupId, proxyId } = parseObjectBody(req.body, '生成Droid授权URL')
+      // 账户绑代理池时设备码授权也走池代理（未绑池回退静态 proxy）
+      const effectiveProxy = proxyResolver.resolveAuthProxy(
+        { proxyGroupId, proxyId, platform: 'droid' },
+        'droid',
+        proxy,
+      )
+      const deviceAuth = await startDeviceAuthorization(effectiveProxy)
 
-    const sessionId = crypto.randomUUID()
-    const expiresAt = new Date(Date.now() + deviceAuth.expiresIn * 1000).toISOString()
+      const sessionId = crypto.randomUUID()
+      const expiresAt = new Date(Date.now() + deviceAuth.expiresIn * 1000).toISOString()
 
-    await redis.setOAuthSession(sessionId, {
-      deviceCode: deviceAuth.deviceCode,
-      userCode: deviceAuth.userCode,
-      verificationUri: deviceAuth.verificationUri,
-      verificationUriComplete: deviceAuth.verificationUriComplete,
-      interval: deviceAuth.interval,
-      proxy: effectiveProxy,
-      proxyBound: !!(proxyGroupId || proxyId), // 代理来源是否池绑定，供 exchange 一致性校验
-      createdAt: new Date().toISOString(),
-      expiresAt,
-    })
+      await redis.setOAuthSession(sessionId, {
+        deviceCode: deviceAuth.deviceCode,
+        userCode: deviceAuth.userCode,
+        verificationUri: deviceAuth.verificationUri,
+        verificationUriComplete: deviceAuth.verificationUriComplete,
+        interval: deviceAuth.interval,
+        proxy: effectiveProxy,
+        proxyBound: !!(proxyGroupId || proxyId), // 代理来源是否池绑定，供 exchange 一致性校验
+        createdAt: new Date().toISOString(),
+        expiresAt,
+      })
 
-    logger.success('🤖 生成 Droid 设备码授权信息成功', { sessionId })
-    return res.json({
-      success: true,
-      data: {
+      logger.success('生成 Droid 设备码授权信息成功', { sessionId })
+      return {
         sessionId,
         userCode: deviceAuth.userCode,
         verificationUri: deviceAuth.verificationUri,
@@ -62,100 +72,96 @@ router.post('/droid-accounts/generate-auth-url', authenticateAdmin, async (req, 
           '2. 在授权页面登录 Factory / Droid 账户并点击允许。',
           '3. 回到此处点击"完成授权"完成凭证获取。',
         ],
-      },
-    })
-  } catch (error) {
-    const message = error instanceof WorkOSDeviceAuthError ? error.message : error.message || '未知错误'
-    logger.error('❌ 生成 Droid 设备码授权失败:', message)
-    return res.status(500).json({ error: 'Failed to start Droid device authorization', message })
-  }
-})
+      }
+    } catch (error) {
+      const message = error instanceof WorkOSDeviceAuthError ? error.message : error.message || '未知错误'
+      throw new HttpError(500, message)
+    }
+  }),
+)
 
 // 交换 Droid 授权码
-router.post('/droid-accounts/exchange-code', authenticateAdmin, async (req, res) => {
-  const { sessionId } = req.body || {}
-  try {
-    if (!sessionId) {
-      return res.status(400).json({ error: 'Session ID is required' })
-    }
-
-    const oauthSession = await redis.getOAuthSession(sessionId)
-    if (!oauthSession) {
-      return res.status(400).json({ error: 'Invalid or expired OAuth session' })
-    }
-
-    if (oauthSession.expiresAt && new Date() > new Date(oauthSession.expiresAt)) {
-      await redis.deleteOAuthSession(sessionId)
-      return res.status(400).json({ error: 'OAuth session has expired, please generate a new authorization URL' })
-    }
-
-    if (!oauthSession.deviceCode) {
-      await redis.deleteOAuthSession(sessionId)
-      return res.status(400).json({ error: 'OAuth session missing device code, please retry' })
-    }
-
-    // 一致性校验：会话来源为池绑定但无已解析代理，拒绝（不允许授权直连暴露真实出口）
-    if (oauthSession.proxyBound && !oauthSession.proxy) {
-      await redis.deleteOAuthSession(sessionId)
-      return res.status(409).json({
-        error: '账户绑定的代理池当前无可用代理，已阻止授权请求直连（避免暴露真实出口）',
-      })
-    }
-
-    const proxyConfig = oauthSession.proxy || null
-    const tokens = await pollDeviceAuthorization(oauthSession.deviceCode, proxyConfig)
-
-    await redis.deleteOAuthSession(sessionId)
-
-    logger.success('🤖 成功获取 Droid 访问令牌', { sessionId })
-    return res.json({ success: true, data: { tokens } })
-  } catch (error) {
-    if (error instanceof WorkOSDeviceAuthError) {
-      if (error.code === 'authorization_pending' || error.code === 'slow_down') {
-        const oauthSession = await redis.getOAuthSession(sessionId)
-        const expiresAt = oauthSession?.expiresAt ? new Date(oauthSession.expiresAt) : null
-        const remainingSeconds =
-          expiresAt instanceof Date && !Number.isNaN(expiresAt.getTime())
-            ? Math.max(0, Math.floor((expiresAt.getTime() - Date.now()) / 1000))
-            : null
-
-        return res.json({
-          success: false,
-          pending: true,
-          error: error.code,
-          message: error.message,
-          retryAfter: error.retryAfter || Number(oauthSession?.interval) || 5,
-          expiresIn: remainingSeconds,
-        })
+router.post(
+  '/droid-accounts/exchange-code',
+  authenticateAdmin,
+  asyncRoute('Failed to exchange Droid authorization code', async (req) => {
+    const { sessionId } = parseObjectBody(req.body, 'Droid授权码交换')
+    try {
+      if (!sessionId) {
+        throw badRequest('Session ID is required')
       }
 
-      if (error.code === 'expired_token') {
+      const oauthSession = await redis.getOAuthSession(sessionId)
+      if (!oauthSession) {
+        throw badRequest('Invalid or expired OAuth session')
+      }
+
+      if (oauthSession.expiresAt && new Date() > new Date(oauthSession.expiresAt)) {
         await redis.deleteOAuthSession(sessionId)
-        return res.status(400).json({
-          error: 'Device code expired',
-          message: '授权已过期，请重新生成设备码并再次授权',
-        })
+        throw badRequest('OAuth session has expired, please generate a new authorization URL')
       }
 
-      logger.error('❌ Droid 授权失败:', error.message)
-      return res.status(500).json({
-        error: 'Failed to exchange Droid authorization code',
-        message: error.message,
-        errorCode: error.code,
-      })
-    }
+      if (!oauthSession.deviceCode) {
+        await redis.deleteOAuthSession(sessionId)
+        throw badRequest('OAuth session missing device code, please retry')
+      }
 
-    logger.error('❌ 交换 Droid 授权码失败:', error)
-    return res.status(500).json({
-      error: 'Failed to exchange Droid authorization code',
-      message: error.message,
-    })
-  }
-})
+      // 一致性校验：会话来源为池绑定但无已解析代理，拒绝（不允许授权直连暴露真实出口）
+      if (oauthSession.proxyBound && !oauthSession.proxy) {
+        await redis.deleteOAuthSession(sessionId)
+        throw conflict('账户绑定的代理池当前无可用代理，已阻止授权请求直连（避免暴露真实出口）')
+      }
+
+      const proxyConfig = oauthSession.proxy || null
+      const tokens = await pollDeviceAuthorization(oauthSession.deviceCode, proxyConfig)
+
+      await redis.deleteOAuthSession(sessionId)
+
+      logger.success('成功获取 Droid 访问令牌', { sessionId })
+      return { tokens }
+    } catch (error) {
+      if (error.statusCode) {
+        throw error
+      }
+      if (error instanceof WorkOSDeviceAuthError) {
+        if (error.code === 'authorization_pending' || error.code === 'slow_down') {
+          const oauthSession = await redis.getOAuthSession(sessionId)
+          const expiresAt = oauthSession?.expiresAt ? new Date(oauthSession.expiresAt) : null
+          const remainingSeconds =
+            expiresAt instanceof Date && !Number.isNaN(expiresAt.getTime())
+              ? Math.max(0, Math.floor((expiresAt.getTime() - Date.now()) / 1000))
+              : null
+
+          return ok(
+            {
+              pending: true,
+              error: error.code,
+              retryAfter: error.retryAfter || Number(oauthSession?.interval) || 5,
+              expiresIn: remainingSeconds,
+            },
+            error.message,
+          )
+        }
+
+        if (error.code === 'expired_token') {
+          await redis.deleteOAuthSession(sessionId)
+          throw badRequest('授权已过期，请重新生成设备码并再次授权')
+        }
+
+        logger.error('Droid 授权失败:', error.message)
+        throw new HttpError(500, error.message, { reason: error.code })
+      }
+
+      throw error
+    }
+  }),
+)
 
 // 获取所有 Droid 账户
-router.get('/droid-accounts', authenticateAdmin, async (req, res) => {
-  try {
+router.get(
+  '/droid-accounts',
+  authenticateAdmin,
+  asyncRoute('Failed to get Droid accounts', async () => {
     const accounts = await droidAccountService.getAllAccounts()
     const accountIds = accounts.map((a) => a.id)
 
@@ -261,7 +267,7 @@ router.get('/droid-accounts', authenticateAdmin, async (req, res) => {
     }
 
     // 处理账户数据
-    const accountsWithStats = accounts.map((account) => {
+    return accounts.map((account) => {
       const groupInfos = allGroupInfosMap.get(account.id) || []
       const usageStats = allUsageStatsMap.get(account.id) || {
         daily: { tokens: 0, requests: 0 },
@@ -291,23 +297,21 @@ router.get('/droid-accounts', authenticateAdmin, async (req, res) => {
         },
       }
     })
-
-    return res.json({ success: true, data: accountsWithStats })
-  } catch (error) {
-    logger.error('Failed to get Droid accounts:', error)
-    return res.status(500).json({ error: 'Failed to get Droid accounts', message: error.message })
-  }
-})
+  }),
+)
 
 // 创建 Droid 账户
-router.post('/droid-accounts', authenticateAdmin, async (req, res) => {
-  try {
-    const { accountType: rawAccountType = 'shared', groupId, groupIds } = req.body
+router.post(
+  '/droid-accounts',
+  authenticateAdmin,
+  asyncRoute('Failed to create Droid account', async (req) => {
+    const body = parseObjectBody(req.body, '创建Droid账户')
+    const { accountType: rawAccountType = 'shared', groupId, groupIds } = body
 
     const normalizedAccountType = rawAccountType || 'shared'
 
     if (!['shared', 'dedicated', 'group'].includes(normalizedAccountType)) {
-      return res.status(400).json({ error: '账户类型必须是 shared、dedicated 或 group' })
+      throw badRequest('账户类型必须是 shared、dedicated 或 group')
     }
 
     const normalizedGroupIds = Array.isArray(groupIds)
@@ -319,11 +323,11 @@ router.post('/droid-accounts', authenticateAdmin, async (req, res) => {
       normalizedGroupIds.length === 0 &&
       (!groupId || typeof groupId !== 'string' || !groupId.trim())
     ) {
-      return res.status(400).json({ error: '分组调度账户必须至少选择一个分组' })
+      throw badRequest('分组调度账户必须至少选择一个分组')
     }
 
     const accountPayload = {
-      ...req.body,
+      ...body,
       accountType: normalizedAccountType,
     }
 
@@ -341,29 +345,24 @@ router.post('/droid-accounts', authenticateAdmin, async (req, res) => {
         }
       } catch (groupError) {
         logger.error(`Failed to attach Droid account ${account.id} to groups:`, groupError)
-        return res.status(500).json({
-          error: 'Failed to bind Droid account to groups',
-          message: groupError.message,
-        })
+        throw new HttpError(500, groupError.message || 'Failed to bind Droid account to groups')
       }
     }
 
     logger.success(`Created Droid account: ${account.name} (${account.id})`)
-    const formattedAccount = formatAccountExpiry(account)
-    return res.json({ success: true, data: formattedAccount })
-  } catch (error) {
-    logger.error('Failed to create Droid account:', error)
-    return res.status(500).json({ error: 'Failed to create Droid account', message: error.message })
-  }
-})
+    return formatAccountExpiry(account)
+  }),
+)
 
 // 更新 Droid 账户
-router.put('/droid-accounts/:id', authenticateAdmin, async (req, res) => {
-  try {
+router.put(
+  '/droid-accounts/:id',
+  authenticateAdmin,
+  asyncRoute('Failed to update Droid account', async (req) => {
     const { id } = req.params
-    const updates = { ...req.body }
+    const updates = { ...parseObjectBody(req.body, '更新Droid账户') }
 
-    // ✅ 【新增】映射字段名：前端的 expiresAt -> 后端的 subscriptionExpiresAt
+    // 【新增】映射字段名：前端的 expiresAt -> 后端的 subscriptionExpiresAt
     // review#3：剥离外部传入的状态类字段，禁止伪造自动停用证据
     const mappedUpdates = stripReadonlyAccountFields(mapExpiryField(updates, 'Droid', id))
 
@@ -382,7 +381,7 @@ router.put('/droid-accounts/:id', authenticateAdmin, async (req, res) => {
     const { accountType: rawAccountType, groupId, groupIds } = mappedUpdates
 
     if (rawAccountType && !['shared', 'dedicated', 'group'].includes(rawAccountType)) {
-      return res.status(400).json({ error: '账户类型必须是 shared、dedicated 或 group' })
+      throw badRequest('账户类型必须是 shared、dedicated 或 group')
     }
 
     if (
@@ -390,16 +389,16 @@ router.put('/droid-accounts/:id', authenticateAdmin, async (req, res) => {
       (!groupId || typeof groupId !== 'string' || !groupId.trim()) &&
       (!Array.isArray(groupIds) || groupIds.length === 0)
     ) {
-      return res.status(400).json({ error: '分组调度账户必须至少选择一个分组' })
+      throw badRequest('分组调度账户必须至少选择一个分组')
     }
 
     const currentAccount = await droidAccountService.getAccount(id)
     if (!currentAccount) {
-      return res.status(404).json({ error: 'Droid account not found' })
+      throw notFound('Droid account not found')
     }
 
     const normalizedGroupIds = Array.isArray(groupIds)
-      ? groupIds.filter((gid) => typeof gid === 'string' && gid.trim())
+      ? groupIds.filter((groupIdValue) => typeof groupIdValue === 'string' && groupIdValue.trim())
       : []
     const hasGroupIdsField = Object.prototype.hasOwnProperty.call(mappedUpdates, 'groupIds')
     const hasGroupIdField = Object.prototype.hasOwnProperty.call(mappedUpdates, 'groupId')
@@ -430,10 +429,7 @@ router.put('/droid-accounts/:id', authenticateAdmin, async (req, res) => {
       }
     } catch (groupError) {
       logger.error(`Failed to update Droid account ${id} groups:`, groupError)
-      return res.status(500).json({
-        error: 'Failed to update Droid account groups',
-        message: groupError.message,
-      })
+      throw new HttpError(500, groupError.message || 'Failed to update Droid account groups')
     }
 
     if (targetAccountType === 'group') {
@@ -444,21 +440,20 @@ router.put('/droid-accounts/:id', authenticateAdmin, async (req, res) => {
       }
     }
 
-    return res.json({ success: true, data: account })
-  } catch (error) {
-    logger.error(`Failed to update Droid account ${req.params.id}:`, error)
-    return res.status(500).json({ error: 'Failed to update Droid account', message: error.message })
-  }
-})
+    return account
+  }),
+)
 
 // 切换 Droid 账户调度状态
-router.put('/droid-accounts/:id/toggle-schedulable', authenticateAdmin, async (req, res) => {
-  try {
+router.put(
+  '/droid-accounts/:id/toggle-schedulable',
+  authenticateAdmin,
+  asyncRoute('Failed to toggle schedulable status', async (req) => {
     const { id } = req.params
 
     const account = await droidAccountService.getAccount(id)
     if (!account) {
-      return res.status(404).json({ error: 'Droid account not found' })
+      throw notFound('Droid account not found')
     }
 
     const currentSchedulable = account.schedulable === true || account.schedulable === 'true'
@@ -484,30 +479,26 @@ router.put('/droid-accounts/:id/toggle-schedulable', authenticateAdmin, async (r
     }
 
     logger.success(
-      `🔄 Admin toggled Droid account schedulable status: ${id} -> ${
+      ` Admin toggled Droid account schedulable status: ${id} -> ${
         actualSchedulable ? 'schedulable' : 'not schedulable'
       }`,
     )
 
-    return res.json({ success: true, schedulable: actualSchedulable })
-  } catch (error) {
-    logger.error('❌ Failed to toggle Droid account schedulable status:', error)
-    return res.status(500).json({ error: 'Failed to toggle schedulable status', message: error.message })
-  }
-})
+    return { schedulable: actualSchedulable }
+  }),
+)
 
 // 获取单个 Droid 账户详细信息
-router.get('/droid-accounts/:id', authenticateAdmin, async (req, res) => {
-  try {
+router.get(
+  '/droid-accounts/:id',
+  authenticateAdmin,
+  asyncRoute('Failed to get Droid account', async (req) => {
     const { id } = req.params
 
     // 获取账户基本信息
     const account = await droidAccountService.getAccount(id)
     if (!account) {
-      return res.status(404).json({
-        error: 'Not Found',
-        message: 'Droid account not found',
-      })
+      throw notFound('Droid account not found')
     }
 
     // 获取使用统计信息
@@ -524,7 +515,7 @@ router.get('/droid-accounts/:id', authenticateAdmin, async (req, res) => {
     }
 
     // 获取分组信息
-    let groupInfos = []
+    let groupInfos
     try {
       groupInfos = await accountGroupService.getAccountGroups(account.id)
     } catch (error) {
@@ -553,7 +544,7 @@ router.get('/droid-accounts/:id', authenticateAdmin, async (req, res) => {
     }, 0)
 
     // 获取解密的 API Keys（用于管理界面）
-    let decryptedApiKeys = []
+    let decryptedApiKeys
     try {
       decryptedApiKeys = await droidAccountService.getDecryptedApiKeyEntries(id)
     } catch (error) {
@@ -562,7 +553,7 @@ router.get('/droid-accounts/:id', authenticateAdmin, async (req, res) => {
     }
 
     // 返回完整的账户信息，包含实际的 API Keys
-    const accountDetails = {
+    return {
       ...account,
       // 映射字段：使用 subscriptionExpiresAt 作为前端显示的 expiresAt
       expiresAt: account.subscriptionExpiresAt || null,
@@ -585,138 +576,122 @@ router.get('/droid-accounts/:id', authenticateAdmin, async (req, res) => {
         averages: usageStats.averages,
       },
     }
-
-    return res.json({
-      success: true,
-      data: accountDetails,
-    })
-  } catch (error) {
-    logger.error(`Failed to get Droid account ${req.params.id}:`, error)
-    return res.status(500).json({
-      error: 'Failed to get Droid account',
-      message: error.message,
-    })
-  }
-})
+  }),
+)
 
 // 删除 Droid 账户
-router.delete('/droid-accounts/:id', authenticateAdmin, async (req, res) => {
-  try {
+router.delete(
+  '/droid-accounts/:id',
+  authenticateAdmin,
+  asyncRoute('Failed to delete Droid account', async (req) => {
     const { id } = req.params
     await droidAccountService.deleteAccount(id)
-    return res.json({ success: true, message: 'Droid account deleted successfully' })
-  } catch (error) {
-    logger.error(`Failed to delete Droid account ${req.params.id}:`, error)
-    return res.status(500).json({ error: 'Failed to delete Droid account', message: error.message })
-  }
-})
+    return ok(undefined, 'Droid account deleted successfully')
+  }),
+)
 
 // 刷新 Droid 账户 token
-router.post('/droid-accounts/:id/refresh-token', authenticateAdmin, async (req, res) => {
-  try {
+router.post(
+  '/droid-accounts/:id/refresh-token',
+  authenticateAdmin,
+  asyncRoute('Failed to refresh token', async (req) => {
     const { id } = req.params
-    const result = await droidAccountService.refreshAccessToken(id)
-    return res.json({ success: true, data: result })
-  } catch (error) {
-    logger.error(`Failed to refresh Droid account token ${req.params.id}:`, error)
-    return res.status(500).json({ error: 'Failed to refresh token', message: error.message })
-  }
-})
+    return droidAccountService.refreshAccessToken(id)
+  }),
+)
 
 // 测试 Droid 账户连通性
-router.post('/droid-accounts/:accountId/test', authenticateAdmin, async (req, res) => {
-  const { accountId } = req.params
-  const startTime = Date.now()
+router.post(
+  '/droid-accounts/:accountId/test',
+  authenticateAdmin,
+  asyncRoute('Droid account test failed', async (req) => {
+    const { accountId } = req.params
+    const startTime = Date.now()
 
-  try {
-    // 请求显式指定优先，否则用后台配置的默认测试模型（单一事实源）
-    const model = await testModelConfigService.resolveAccountModel('droid', req.body.model)
-    // 获取账户信息
-    const account = await droidAccountService.getAccount(accountId)
-    if (!account) {
-      return res.status(404).json({ error: 'Account not found' })
-    }
-
-    // 确保 token 有效
-    const tokenResult = await droidAccountService.ensureValidToken(accountId)
-    if (!tokenResult.success) {
-      return res.status(401).json({
-        error: 'Token refresh failed',
-        message: tokenResult.error,
-      })
-    }
-
-    const { accessToken } = tokenResult
-
-    // 构造测试请求
-
-    const apiUrl = 'https://api.factory.ai/v1/messages'
-    const payload = {
-      model,
-      max_tokens: 100,
-      messages: [{ role: 'user', content: 'Say "Hello" in one word.' }],
-    }
-
-    const requestConfig = {
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${accessToken}`,
-      },
-      timeout: 30000,
-    }
-
-    // 配置代理
-    if (account.proxy) {
-      const agent = ProxyHelper.createProxyAgent(account.proxy)
-      if (agent) {
-        requestConfig.httpsAgent = agent
-        requestConfig.httpAgent = agent
+    try {
+      // 请求显式指定优先，否则用后台配置的默认测试模型（单一事实源）
+      const body = parseObjectBody(req.body, '测试Droid账户')
+      const model = await testModelConfigService.resolveAccountModel('droid', body.model)
+      // 获取账户信息
+      const account = await droidAccountService.getAccount(accountId)
+      if (!account) {
+        throw notFound('Account not found')
       }
-    }
 
-    const response = await axios.post(apiUrl, payload, requestConfig)
-    const latency = Date.now() - startTime
+      // 确保 token 有效
+      const tokenResult = await droidAccountService.ensureValidToken(accountId)
+      if (!tokenResult.success) {
+        throw unauthorized(tokenResult.error || 'Token refresh failed')
+      }
 
-    // 提取响应文本
-    let responseText = ''
-    if (response.data?.content?.[0]?.text) {
-      responseText = response.data.content[0].text
-    }
+      const { accessToken } = tokenResult
 
-    logger.success(`✅ Droid account test passed: ${account.name} (${accountId}), latency: ${latency}ms`)
+      // 构造测试请求
 
-    return res.json({
-      success: true,
-      data: {
+      const apiUrl = 'https://api.factory.ai/v1/messages'
+      const payload = {
+        model,
+        max_tokens: 100,
+        messages: [{ role: 'user', content: 'Say "Hello" in one word.' }],
+      }
+
+      const requestConfig = {
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${accessToken}`,
+        },
+        timeout: 30000,
+      }
+
+      // 配置代理
+      if (account.proxy) {
+        const agent = ProxyHelper.createProxyAgent(account.proxy)
+        if (agent) {
+          requestConfig.httpsAgent = agent
+          requestConfig.httpAgent = agent
+        }
+      }
+
+      const response = await axios.post(apiUrl, payload, requestConfig)
+      const latency = Date.now() - startTime
+
+      // 提取响应文本
+      let responseText = ''
+      if (response.data?.content?.[0]?.text) {
+        responseText = response.data.content[0].text
+      }
+
+      logger.success(`Droid account test passed: ${account.name} (${accountId}), latency: ${latency}ms`)
+
+      return {
         accountId,
         accountName: account.name,
         model,
         latency,
         responseText: responseText.substring(0, 200),
-      },
-    })
-  } catch (error) {
-    const latency = Date.now() - startTime
-    logger.error(`❌ Droid account test failed: ${accountId}`, error.message)
+      }
+    } catch (error) {
+      if (error.statusCode) {
+        throw error
+      }
+      const latency = Date.now() - startTime
+      logger.error(`Droid account test failed: ${accountId}`, error.message)
 
-    return res.status(500).json({
-      success: false,
-      error: 'Test failed',
-      message: extractErrorMessage(error.response?.data, error.message),
-      latency,
-    })
-  }
-})
+      return fail(500, extractErrorMessage(error.response?.data, error.message), {
+        data: { latency },
+      })
+    }
+  }),
+)
 
 // 重置 Droid 账户状态
-router.post('/:accountId/reset-status', authenticateAdmin, async (req, res) => {
-  try {
+router.post(
+  '/:accountId/reset-status',
+  authenticateAdmin,
+  asyncRoute('Failed to reset status', async (req) => {
     const { accountId } = req.params
     const result = await droidAccountService.resetAccountStatus(accountId)
     logger.success(`Admin reset status for Droid account: ${accountId}`)
-    return res.json({ success: true, data: result })
-  } catch (error) {
-    logger.error('❌ Failed to reset Droid account status:', error)
-    return res.status(500).json({ error: 'Failed to reset status', message: error.message })
-  }
-})
+    return result
+  }),
+)

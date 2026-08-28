@@ -1,17 +1,13 @@
 import { logger } from './logger.js'
 // 客户端断开判定的单一实现。
 //
-// 为什么不能用 req.on('close')：Node >= 16 起 IncomingMessage 的 'close' 表示「请求体读完、流已关闭」，
-// 不是「客户端断开」。实测裸 http.Server 与纯 Express 下正常请求都会在 +0ms 收到 req 'close'
-// （此时 req.complete === true），故拿它当断开信号会把每个正常请求都误判成断开：
-// 上游请求被提前 abort（返回 ERR_CANCELED/502）或上游流被提前 destroy。
+// 禁止用 req.on('close')：Node >= 16 起 IncomingMessage 'close' = 请求体读完，不是客户端断开。
+// 正常请求也会 +0ms 触发 req 'close'（req.complete === true），误当断开会 abort 上游或 destroy 流。
 //
-// 正确判据是 res 'close' 且响应尚未写完（!res.writableEnded）：
-//   正常结束 → 先 res.end() 使 writableEnded=true，再触发 close → 不算断开
-//   真断开   → 连接先断，close 触发时 writableEnded 仍为 false → 算断开
-// 判据只看 res，不再看 req，故注册时机不再敏感（上游请求发出前后注册均可）。
-//
-// 返回 detach()，用于响应正常收尾时摘掉监听器（幂等，可重复调用）。
+// 判据：res 'close' 且 !res.writableEnded。
+// 正常结束 → 先 res.end()（writableEnded=true）再 close → 不算断开
+// 真断开 → close 时 writableEnded 仍 false → 算断开
+// 只看 res，注册时机不敏感。返回 detach()，正常收尾时摘监听（幂等）。
 export const onClientDisconnect = (res, onDisconnect, label = 'request') => {
   let detached = false
 
@@ -24,7 +20,7 @@ export const onClientDisconnect = (res, onDisconnect, label = 'request') => {
     if (res.writableEnded) {
       return
     }
-    logger.info(`🔌 Client disconnected, aborting ${label}`)
+    logger.info(`Client disconnected, aborting ${label}`)
     onDisconnect()
   }
 

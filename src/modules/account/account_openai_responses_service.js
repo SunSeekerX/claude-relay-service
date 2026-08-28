@@ -12,17 +12,17 @@ class OpenAIResponsesAccountService {
     this.ENCRYPTION_ALGORITHM = 'aes-256-cbc'
     this.ENCRYPTION_SALT = 'openai-responses-salt'
 
-    // 🚀 性能优化：缓存派生的加密密钥，避免每次重复计算
+    // 性能优化：缓存派生的加密密钥，避免每次重复计算
     this._encryptionKeyCache = null
 
-    // 🔄 解密结果缓存，提高解密性能
+    // 解密结果缓存，提高解密性能
     this._decryptCache = new LRUCache(500)
 
-    // 🧹 定期清理缓存（每10分钟）
+    // 定期清理缓存（每10分钟）
     setInterval(
       () => {
         this._decryptCache.cleanup()
-        logger.info('🧹 OpenAI-Responses decrypt cache cleanup completed', this._decryptCache.getStats())
+        logger.info('OpenAI-Responses decrypt cache cleanup completed', this._decryptCache.getStats())
       },
       10 * 60 * 1000,
     )
@@ -84,7 +84,7 @@ class OpenAIResponsesAccountService {
       accountType,
       schedulable: schedulable.toString(),
 
-      // ✅ 新增：账户订阅到期时间（业务字段，手动管理）
+      // 新增：账户订阅到期时间（业务字段，手动管理）
       // 注意：OpenAI-Responses 使用 API Key 认证，没有 OAuth token，因此没有 expiresAt
       subscriptionExpiresAt: options.subscriptionExpiresAt || null,
 
@@ -176,7 +176,7 @@ class OpenAIResponsesAccountService {
       updates.baseApi = updates.baseApi.endsWith('/') ? updates.baseApi.slice(0, -1) : updates.baseApi
     }
 
-    // ✅ 直接保存 subscriptionExpiresAt（如果提供）
+    // 直接保存 subscriptionExpiresAt（如果提供）
     // OpenAI-Responses 使用 API Key，没有 token 刷新逻辑，不会覆盖此字段
     if (updates.subscriptionExpiresAt !== undefined) {
       // 直接保存，不做任何调整
@@ -231,7 +231,7 @@ class OpenAIResponsesAccountService {
       await upstreamErrorHelper.clearAutoProtectionCooldowns(accountId, 'openai-responses')
     }
 
-    logger.info(`📝 Updated OpenAI-Responses account: ${account.name}`)
+    logger.info(`Updated OpenAI-Responses account: ${account.name}`)
 
     return { success: true }
   }
@@ -250,7 +250,7 @@ class OpenAIResponsesAccountService {
     // 删除账户数据
     await client.del(key)
 
-    logger.info(`🗑️ Deleted OpenAI-Responses account: ${accountId}`)
+    logger.info(`Deleted OpenAI-Responses account: ${accountId}`)
 
     return { success: true }
   }
@@ -338,18 +338,8 @@ class OpenAIResponsesAccountService {
 
     // disableAutoProtection 检查
     if (account.disableAutoProtection === true || account.disableAutoProtection === 'true') {
-      logger.info(`🛡️ Account ${accountId} has auto-protection disabled, skipping markAccountRateLimited`)
-      upstreamErrorHelper
-        .recordErrorHistory(
-          accountId,
-          'openai-responses',
-          429,
-          'rate_limit',
-          upstreamErrorHelper.buildErrorContext({
-            reason: 'auto_protection_disabled_rate_limit',
-          }),
-        )
-        .catch(() => {})
+      logger.info(`Account ${accountId} has auto-protection disabled, skipping markAccountRateLimited`)
+      // 详细错误历史由 relay 层 markTempUnavailable 写入，此处只跳过自动暂停
       return
     }
 
@@ -368,11 +358,11 @@ class OpenAIResponsesAccountService {
     })
 
     logger.warn(
-      `⏳ Account ${account.name} marked as rate limited for ${rateLimitDuration} minutes (until ${resetAt.toISOString()})`,
+      ` Account ${account.name} marked as rate limited for ${rateLimitDuration} minutes (until ${resetAt.toISOString()})`,
     )
   }
 
-  // 🚫 标记账户为未授权状态（401错误）
+  // 标记账户为未授权状态（401错误）
   async markAccountUnauthorized(accountId, reason = 'OpenAI Responses账号认证失败（401错误）') {
     const account = await this.getAccount(accountId)
     if (!account) {
@@ -381,18 +371,8 @@ class OpenAIResponsesAccountService {
 
     // disableAutoProtection 检查
     if (account.disableAutoProtection === true || account.disableAutoProtection === 'true') {
-      logger.info(`🛡️ Account ${accountId} has auto-protection disabled, skipping markAccountUnauthorized`)
-      upstreamErrorHelper
-        .recordErrorHistory(
-          accountId,
-          'openai-responses',
-          401,
-          'auth_error',
-          upstreamErrorHelper.buildErrorContext({
-            reason: 'auto_protection_disabled_unauthorized',
-          }),
-        )
-        .catch(() => {})
+      logger.info(`Account ${accountId} has auto-protection disabled, skipping markAccountUnauthorized`)
+      // 详细错误历史由 relay 层 markTempUnavailable 写入，此处只跳过自动暂停
       return
     }
 
@@ -408,7 +388,7 @@ class OpenAIResponsesAccountService {
       unauthorizedCount: unauthorizedCount.toString(),
     })
 
-    logger.warn(`🚫 OpenAI-Responses account ${account.name || accountId} marked as unauthorized due to 401 error`)
+    logger.warn(`OpenAI-Responses account ${account.name || accountId} marked as unauthorized due to 401 error`)
 
     try {
       await webhookNotifier.sendAccountAnomalyNotification({
@@ -421,7 +401,7 @@ class OpenAIResponsesAccountService {
         timestamp: now,
       })
       logger.info(
-        `📢 Webhook notification sent for OpenAI-Responses account ${account.name || accountId} unauthorized state`,
+        ` Webhook notification sent for OpenAI-Responses account ${account.name || accountId} unauthorized state`,
       )
     } catch (webhookError) {
       logger.error('Failed to send unauthorized webhook notification:', webhookError)
@@ -460,7 +440,7 @@ class OpenAIResponsesAccountService {
         errorMessage: '',
       })
 
-      logger.info(`✅ Rate limit cleared for account ${account.name}`)
+      logger.info(`Rate limit cleared for account ${account.name}`)
       return true
     }
 
@@ -479,7 +459,7 @@ class OpenAIResponsesAccountService {
       schedulable: newSchedulableStatus,
     })
 
-    logger.info(`🔄 Toggled schedulable status for account ${account.name}: ${newSchedulableStatus}`)
+    logger.info(`Toggled schedulable status for account ${account.name}: ${newSchedulableStatus}`)
 
     return {
       success: true,
@@ -518,7 +498,7 @@ class OpenAIResponsesAccountService {
         updates.status = 'quotaExceeded'
         updates.quotaStoppedAt = new Date().toISOString()
         updates.errorMessage = `Daily quota exceeded: $${newUsage.toFixed(2)} / $${dailyQuota.toFixed(2)}`
-        logger.warn(`💸 Account ${account.name} exceeded daily quota`)
+        logger.warn(`Account ${account.name} exceeded daily quota`)
       }
 
       await this.updateAccount(accountId, updates)
@@ -545,7 +525,7 @@ class OpenAIResponsesAccountService {
     await this.updateAccount(accountId, updates)
   }
 
-  // 记录使用量（为了兼容性的别名）
+  // 记录使用量（兼容性别名）
   async recordUsage(accountId, tokens = 0) {
     return this.updateAccountUsage(accountId, tokens)
   }
@@ -585,7 +565,7 @@ class OpenAIResponsesAccountService {
     }
 
     await this.updateAccount(accountId, updates)
-    logger.info(`✅ Reset all error status for OpenAI-Responses account ${accountId}`)
+    logger.info(`Reset all error status for OpenAI-Responses account ${accountId}`)
 
     // 清除临时不可用状态
     await upstreamErrorHelper.clearTempUnavailable(accountId, 'openai-responses').catch(() => {})
@@ -601,7 +581,7 @@ class OpenAIResponsesAccountService {
         reason: 'Account status manually reset',
         timestamp: new Date().toISOString(),
       })
-      logger.info(`📢 Webhook notification sent for OpenAI-Responses account ${account.name} status reset`)
+      logger.info(`Webhook notification sent for OpenAI-Responses account ${account.name} status reset`)
     } catch (webhookError) {
       logger.error('Failed to send status reset webhook notification:', webhookError)
     }
@@ -609,7 +589,7 @@ class OpenAIResponsesAccountService {
     return { success: true, message: 'Account status reset successfully' }
   }
 
-  // ⏰ 检查账户订阅是否已过期
+  // 检查账户订阅是否已过期
   isSubscriptionExpired(account) {
     if (!account.subscriptionExpiresAt) {
       return false // 未设置过期时间，视为永不过期
@@ -620,7 +600,7 @@ class OpenAIResponsesAccountService {
 
     if (expiryDate <= now) {
       logger.debug(
-        `⏰ OpenAI-Responses Account ${account.name} (${account.id}) subscription expired at ${account.subscriptionExpiresAt}`,
+        ` OpenAI-Responses Account ${account.name} (${account.id}) subscription expired at ${account.subscriptionExpiresAt}`,
       )
       return true
     }

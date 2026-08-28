@@ -187,33 +187,111 @@ export const normalizeEndpointType = (endpointType) => {
   return ['openai', 'comm', 'anthropic'].includes(normalized) ? normalized : 'anthropic'
 }
 
-// 检查模型是否在映射表中
-export const isModelInMapping = (modelMapping, requestedModel) => {
-  if (!modelMapping || Object.keys(modelMapping).length === 0) {
-    return true
+// 模型映射匹配（对齐 llysc MatchModelMapping）：
+// 1) 精确 2) 大小写不敏感精确（非 * 结尾键）3) 前缀通配 prefix*（最长前缀优先）
+// 目标值含 * 时用请求模型去掉前缀后的后缀替换一次。空目标不当命中。
+export const matchModelMapping = (modelMapping, requestedModel) => {
+  if (!modelMapping || typeof modelMapping !== 'object' || Array.isArray(modelMapping)) {
+    return null
   }
-  if (Object.prototype.hasOwnProperty.call(modelMapping, requestedModel)) {
-    return true
+  if (typeof requestedModel !== 'string' || !requestedModel) {
+    return null
   }
-  const lower = requestedModel.toLowerCase()
-  return Object.keys(modelMapping).some((k) => k.toLowerCase() === lower)
-}
 
-// 获取映射后的模型名称
-export const getMappedModelName = (modelMapping, requestedModel) => {
-  if (!modelMapping || Object.keys(modelMapping).length === 0) {
-    return requestedModel
+  // 1. 精确匹配
+  const exact = modelMapping[requestedModel]
+  if (typeof exact === 'string' && exact !== '') {
+    return exact
   }
-  if (modelMapping[requestedModel]) {
-    return modelMapping[requestedModel]
-  }
+
   const lower = requestedModel.toLowerCase()
+
+  // 2. 大小写不敏感精确匹配（跳过通配键）
   for (const [key, value] of Object.entries(modelMapping)) {
+    if (typeof key !== 'string' || key.endsWith('*')) {
+      continue
+    }
+    if (typeof value !== 'string' || value === '') {
+      continue
+    }
     if (key.toLowerCase() === lower) {
       return value
     }
   }
-  return requestedModel
+
+  // 3. 前缀通配 prefix*，最长前缀优先
+  let bestPrefixLength = -1
+  let bestTarget = ''
+  let bestSuffix = ''
+  for (const [pattern, target] of Object.entries(modelMapping)) {
+    if (typeof pattern !== 'string' || !pattern.endsWith('*')) {
+      continue
+    }
+    if (typeof target !== 'string' || target === '') {
+      continue
+    }
+    const prefix = pattern.slice(0, -1)
+    const prefixLower = prefix.toLowerCase()
+    if (requestedModel.startsWith(prefix) || lower.startsWith(prefixLower)) {
+      if (prefix.length > bestPrefixLength) {
+        bestPrefixLength = prefix.length
+        bestTarget = target
+        // 后缀按原串切（与 llysc 一致：requestedModel[len(prefix):]）
+        bestSuffix = requestedModel.length >= prefix.length ? requestedModel.slice(prefix.length) : ''
+      }
+    }
+  }
+
+  if (bestPrefixLength < 0) {
+    return null
+  }
+  if (bestTarget.includes('*')) {
+    return bestTarget.replace('*', bestSuffix)
+  }
+  return bestTarget
+}
+
+// 检查模型是否在映射表中（空表 = 不限制，全部放行；含通配键）
+export const isModelInMapping = (modelMapping, requestedModel) => {
+  if (!modelMapping || Object.keys(modelMapping).length === 0) {
+    return true
+  }
+  if (typeof requestedModel !== 'string' || !requestedModel) {
+    return false
+  }
+  // 命中任意键（精确/大小写/通配）即视为在表中；目标空串的通配键不当命中
+  if (matchModelMapping(modelMapping, requestedModel) !== null) {
+    return true
+  }
+  // 自映射白名单：值等于键或仅作放行标记时，键本身匹配也算支持
+  if (Object.prototype.hasOwnProperty.call(modelMapping, requestedModel)) {
+    return true
+  }
+  const lower = requestedModel.toLowerCase()
+  for (const key of Object.keys(modelMapping)) {
+    if (typeof key !== 'string') {
+      continue
+    }
+    if (!key.endsWith('*') && key.toLowerCase() === lower) {
+      return true
+    }
+    if (key.endsWith('*')) {
+      const prefix = key.slice(0, -1)
+      if (requestedModel.startsWith(prefix) || lower.startsWith(prefix.toLowerCase())) {
+        return true
+      }
+    }
+  }
+  return false
+}
+
+// 获取映射后的模型名称（未命中返回原模型）
+export const getMappedModelName = (modelMapping, requestedModel) => {
+  if (!modelMapping || Object.keys(modelMapping).length === 0) {
+    return requestedModel
+  }
+  const mapped = matchModelMapping(modelMapping, requestedModel)
+  return mapped !== null ? mapped : requestedModel
 }
 
 // ===

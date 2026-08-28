@@ -26,7 +26,7 @@ const parseBooleanEnv = (value) => {
 
 /**
  * 是否允许执行"余额脚本"（安全开关）
- * ⚠️ 安全警告：vm模块非安全沙箱，默认禁用。如需启用请显式设置 BALANCE_SCRIPT_ENABLED=true
+ * 安全警告：vm模块非安全沙箱，默认禁用。如需启用请显式设置 BALANCE_SCRIPT_ENABLED=true
  * 仅在完全信任管理员且了解RCE风险时才启用此功能
  */
 export const isBalanceScriptEnabled = () => {

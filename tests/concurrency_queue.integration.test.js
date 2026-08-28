@@ -71,8 +71,7 @@ function createMockReqRes() {
 describe('ConcurrencyQueue Integration Tests', () => {
   describe('Part 1: waitForConcurrencySlot Logic (Mocked)', () => {
     // 导入 auth 模块中的 waitForConcurrencySlot
-    // 由于它是内部函数，我们需要通过测试其行为来验证
-    // 这里我们模拟整个流程
+    // 内部函数：通过整段流程行为验证
 
     let mockRedis
 
@@ -184,7 +183,7 @@ describe('ConcurrencyQueue Integration Tests', () => {
         expect(count2).toBe(2)
         expect(count2).toBeGreaterThan(concurrencyLimit)
 
-        // 释放第二个请求（因为超限）
+        // 释放第二个请求（超限）
         await redis.decrConcurrency(keyId, 'req-2')
 
         // 释放第一个请求
@@ -513,13 +512,13 @@ describe('ConcurrencyQueue Integration Tests', () => {
 
     beforeAll(async () => {
       if (skipRealRedis) {
-        console.log('⏭️  Skipping real Redis tests (set REDIS_TEST=1 to enable)')
+        console.log('Skipping real Redis tests (set REDIS_TEST=1 to enable)')
         return
       }
 
       const connected = await checkRedisConnection()
       if (!connected) {
-        console.log('⚠️  Redis not connected, skipping real Redis tests')
+        console.log('Redis not connected, skipping real Redis tests')
       }
     })
 
@@ -789,7 +788,7 @@ describe('ConcurrencyQueue Integration Tests', () => {
         expect(state.rejected).toBe(rejected.length)
 
         console.log(
-          `  ✓ Completed: ${completed.length}, Rejected: ${rejected.length}, Max concurrent: ${concurrencyLimit}`
+          `Completed: ${completed.length}, Rejected: ${rejected.length}, Max concurrent: ${concurrencyLimit}`
         )
       })
     })

@@ -15,7 +15,7 @@ class LdapService {
     }
   }
 
-  // 🔍 验证LDAP配置
+  // 验证LDAP配置
   validateConfiguration() {
     const errors = []
 
@@ -44,15 +44,15 @@ class LdapService {
     }
 
     if (errors.length > 0) {
-      logger.error('❌ LDAP configuration validation failed:', errors)
+      logger.error('LDAP configuration validation failed:', errors)
       // Don't throw error during initialization, just log warnings
-      logger.warn('⚠️ LDAP authentication may not work properly due to configuration errors')
+      logger.warn('LDAP authentication may not work properly due to configuration errors')
     } else {
-      logger.info('✅ LDAP configuration validation passed')
+      logger.info('LDAP configuration validation passed')
     }
   }
 
-  // 🔍 提取LDAP条目的DN
+  // 提取LDAP条目的DN
   extractDN(ldapEntry) {
     if (!ldapEntry) {
       return null
@@ -95,7 +95,7 @@ class LdapService {
     return null
   }
 
-  // 🌐 从DN中提取域名，用于Windows AD UPN格式认证
+  // 从DN中提取域名，用于Windows AD UPN格式认证
   extractDomainFromDN(dnString) {
     try {
       if (!dnString || typeof dnString !== 'string') {
@@ -116,18 +116,18 @@ class LdapService {
 
       if (domainParts.length > 0) {
         const domain = domainParts.join('.')
-        logger.debug(`🌐 从DN提取域名: ${domain}`)
+        logger.debug(`从DN提取域名: ${domain}`)
         return domain
       }
 
       return null
     } catch (error) {
-      logger.debug('⚠️ 域名提取失败:', error.message)
+      logger.debug('域名提取失败:', error.message)
       return null
     }
   }
 
-  // 🔗 创建LDAP客户端连接
+  // 创建LDAP客户端连接
   createClient() {
     try {
       const clientOptions = {
@@ -169,7 +169,7 @@ class LdapService {
 
         clientOptions.tlsOptions = tlsOptions
 
-        logger.debug('🔒 Creating LDAPS client with TLS options:', {
+        logger.debug('Creating LDAPS client with TLS options:', {
           url: this.config.server.url,
           rejectUnauthorized: tlsOptions.rejectUnauthorized,
           hasCA: !!tlsOptions.ca,
@@ -184,36 +184,36 @@ class LdapService {
       // 设置错误处理
       client.on('error', (err) => {
         if (err.code === 'CERT_HAS_EXPIRED' || err.code === 'UNABLE_TO_VERIFY_LEAF_SIGNATURE') {
-          logger.error('🔒 LDAP TLS certificate error:', {
+          logger.error('LDAP TLS certificate error:', {
             code: err.code,
             message: err.message,
             hint: 'Consider setting LDAP_TLS_REJECT_UNAUTHORIZED=false for self-signed certificates',
           })
         } else {
-          logger.error('🔌 LDAP client error:', err)
+          logger.error('LDAP client error:', err)
         }
       })
 
       client.on('connect', () => {
         if (this.config.server.url.toLowerCase().startsWith('ldaps://')) {
-          logger.info('🔒 LDAPS client connected successfully')
+          logger.info('LDAPS client connected successfully')
         } else {
-          logger.info('🔗 LDAP client connected successfully')
+          logger.info('LDAP client connected successfully')
         }
       })
 
       client.on('connectTimeout', () => {
-        logger.warn('⏱️ LDAP connection timeout')
+        logger.warn('LDAP connection timeout')
       })
 
       return client
     } catch (error) {
-      logger.error('❌ Failed to create LDAP client:', error)
+      logger.error('Failed to create LDAP client:', error)
       throw error
     }
   }
 
-  // 🔒 绑定LDAP连接（管理员认证）
+  // 绑定LDAP连接（管理员认证）
   async bindClient(client) {
     return new Promise((resolve, reject) => {
       // 验证绑定凭据
@@ -222,31 +222,31 @@ class LdapService {
 
       if (!bindDN || typeof bindDN !== 'string') {
         const error = new Error('LDAP bind DN is not configured or invalid')
-        logger.error('❌ LDAP configuration error:', error.message)
+        logger.error('LDAP configuration error:', error.message)
         reject(error)
         return
       }
 
       if (!bindCredentials || typeof bindCredentials !== 'string') {
         const error = new Error('LDAP bind credentials are not configured or invalid')
-        logger.error('❌ LDAP configuration error:', error.message)
+        logger.error('LDAP configuration error:', error.message)
         reject(error)
         return
       }
 
       client.bind(bindDN, bindCredentials, (err) => {
         if (err) {
-          logger.error('❌ LDAP bind failed:', err)
+          logger.error('LDAP bind failed:', err)
           reject(err)
         } else {
-          logger.debug('🔑 LDAP bind successful')
+          logger.debug('LDAP bind successful')
           resolve()
         }
       })
     })
   }
 
-  // 🔍 搜索用户
+  // 搜索用户
   async searchUser(client, username) {
     return new Promise((resolve, reject) => {
       // 防止LDAP注入：转义特殊字符
@@ -266,19 +266,19 @@ class LdapService {
         attributes: this.config.server.searchAttributes,
       }
 
-      logger.debug(`🔍 Searching for user: ${username} with filter: ${searchFilter}`)
+      logger.debug(`Searching for user: ${username} with filter: ${searchFilter}`)
 
       const entries = []
 
       client.search(this.config.server.searchBase, searchOptions, (err, res) => {
         if (err) {
-          logger.error('❌ LDAP search error:', err)
+          logger.error('LDAP search error:', err)
           reject(err)
           return
         }
 
         res.on('searchEntry', (entry) => {
-          logger.debug('🔍 LDAP search entry received:', {
+          logger.debug('LDAP search entry received:', {
             dn: entry.dn,
             objectName: entry.objectName,
             type: typeof entry.dn,
@@ -290,23 +290,23 @@ class LdapService {
         })
 
         res.on('searchReference', (referral) => {
-          logger.debug('🔗 LDAP search referral:', referral.uris)
+          logger.debug('LDAP search referral:', referral.uris)
         })
 
         res.on('error', (error) => {
-          logger.error('❌ LDAP search result error:', error)
+          logger.error('LDAP search result error:', error)
           reject(error)
         })
 
         res.on('end', (result) => {
-          logger.debug(`✅ LDAP search completed. Status: ${result.status}, Found ${entries.length} entries`)
+          logger.debug(`LDAP search completed. Status: ${result.status}, Found ${entries.length} entries`)
 
           if (entries.length === 0) {
             resolve(null)
           } else {
             // Log the structure of the first entry for debugging
             if (entries[0]) {
-              logger.debug('🔍 Full LDAP entry structure:', {
+              logger.debug('Full LDAP entry structure:', {
                 entryType: typeof entries[0],
                 entryConstructor: entries[0].constructor?.name,
                 entryKeys: Object.keys(entries[0]),
@@ -317,7 +317,7 @@ class LdapService {
             if (entries.length === 1) {
               resolve(entries[0])
             } else {
-              logger.warn(`⚠️ Multiple LDAP entries found for username: ${username}`)
+              logger.warn(`Multiple LDAP entries found for username: ${username}`)
               resolve(entries[0]) // 使用第一个结果
             }
           }
@@ -326,19 +326,19 @@ class LdapService {
     })
   }
 
-  // 🔐 验证用户密码
+  // 验证用户密码
   async authenticateUser(userDN, password) {
     return new Promise((resolve, reject) => {
       // 验证输入参数
       if (!userDN || typeof userDN !== 'string') {
         const error = new Error('User DN is not provided or invalid')
-        logger.error('❌ LDAP authentication error:', error.message)
+        logger.error('LDAP authentication error:', error.message)
         reject(error)
         return
       }
 
       if (!password || typeof password !== 'string') {
-        logger.debug(`🚫 Invalid or empty password for DN: ${userDN}`)
+        logger.debug(`Invalid or empty password for DN: ${userDN}`)
         resolve(false)
         return
       }
@@ -350,21 +350,21 @@ class LdapService {
 
         if (err) {
           if (err.name === 'InvalidCredentialsError') {
-            logger.debug(`🚫 Invalid credentials for DN: ${userDN}`)
+            logger.debug(`Invalid credentials for DN: ${userDN}`)
             resolve(false)
           } else {
-            logger.error('❌ LDAP authentication error:', err)
+            logger.error('LDAP authentication error:', err)
             reject(err)
           }
         } else {
-          logger.debug(`✅ Authentication successful for DN: ${userDN}`)
+          logger.debug(`Authentication successful for DN: ${userDN}`)
           resolve(true)
         }
       })
     })
   }
 
-  // 🔐 Windows AD兼容认证 - 在DN认证失败时尝试多种格式
+  // Windows AD兼容认证 - 在DN认证失败时尝试多种格式
   async tryWindowsADAuthentication(username, password) {
     if (!username || !password) {
       return false
@@ -396,27 +396,27 @@ class LdapService {
     // 纯用户名（最后尝试）
     adFormats.push(username)
 
-    logger.info(`🔄 尝试 ${adFormats.length} 种Windows AD认证格式...`)
+    logger.info(`尝试 ${adFormats.length} 种Windows AD认证格式...`)
 
     for (const format of adFormats) {
       try {
-        logger.info(`🔍 尝试格式: ${format}`)
+        logger.info(`尝试格式: ${format}`)
         const result = await this.tryDirectBind(format, password)
         if (result) {
-          logger.info(`✅ Windows AD认证成功: ${format}`)
+          logger.info(`Windows AD认证成功: ${format}`)
           return true
         }
-        logger.debug(`❌ 认证失败: ${format}`)
+        logger.debug(`认证失败: ${format}`)
       } catch (error) {
         logger.debug(`认证异常 ${format}:`, error.message)
       }
     }
 
-    logger.info(`🚫 所有Windows AD格式认证都失败了`)
+    logger.info(`所有Windows AD格式认证都失败了`)
     return false
   }
 
-  // 🔐 直接尝试绑定认证的辅助方法
+  // 直接尝试绑定认证的辅助方法
   async tryDirectBind(identifier, password) {
     return new Promise((resolve, reject) => {
       const authClient = this.createClient()
@@ -437,7 +437,7 @@ class LdapService {
     })
   }
 
-  // 📝 提取用户信息
+  // 提取用户信息
   extractUserInfo(ldapEntry, username) {
     try {
       const attributes = ldapEntry.attributes || []
@@ -466,7 +466,7 @@ class LdapService {
         }
       }
 
-      logger.debug('📋 Extracted user info:', {
+      logger.debug('Extracted user info:', {
         username: userInfo.username,
         displayName: userInfo.displayName,
         email: userInfo.email,
@@ -474,12 +474,12 @@ class LdapService {
 
       return userInfo
     } catch (error) {
-      logger.error('❌ Error extracting user info:', error)
+      logger.error('Error extracting user info:', error)
       return { username }
     }
   }
 
-  // 🔍 验证和清理用户名
+  // 验证和清理用户名
   validateAndSanitizeUsername(username) {
     if (!username || typeof username !== 'string' || username.trim() === '') {
       throw new Error('Username is required and must be a non-empty string')
@@ -506,7 +506,7 @@ class LdapService {
     return trimmedUsername
   }
 
-  // 🔐 主要的登录验证方法
+  // 主要的登录验证方法
   async authenticateUserCredentials(username, password) {
     if (!this.config.enabled) {
       throw new Error('LDAP authentication is not enabled')
@@ -545,12 +545,12 @@ class LdapService {
       // 2. 搜索用户 (使用已验证的用户名)
       const ldapEntry = await this.searchUser(client, sanitizedUsername)
       if (!ldapEntry) {
-        logger.info(`🚫 User not found in LDAP: ${sanitizedUsername}`)
+        logger.info(`User not found in LDAP: ${sanitizedUsername}`)
         return { success: false, message: 'Invalid username or password' }
       }
 
       // 3. 获取用户DN
-      logger.debug('🔍 LDAP entry details for DN extraction:', {
+      logger.debug('LDAP entry details for DN extraction:', {
         hasEntry: !!ldapEntry,
         entryType: typeof ldapEntry,
         entryKeys: Object.keys(ldapEntry || {}),
@@ -563,11 +563,11 @@ class LdapService {
       // Use the helper method to extract DN
       const userDN = this.extractDN(ldapEntry)
 
-      logger.debug(`👤 Extracted user DN: ${userDN} (type: ${typeof userDN})`)
+      logger.debug(`Extracted user DN: ${userDN} (type: ${typeof userDN})`)
 
       // 验证用户DN
       if (!userDN) {
-        logger.error(`❌ Invalid or missing DN for user: ${sanitizedUsername}`, {
+        logger.error(`Invalid or missing DN for user: ${sanitizedUsername}`, {
           ldapEntryDn: ldapEntry.dn,
           ldapEntryObjectName: ldapEntry.objectName,
           ldapEntryType: typeof ldapEntry,
@@ -583,7 +583,7 @@ class LdapService {
       try {
         isPasswordValid = await this.authenticateUser(userDN, password)
         if (isPasswordValid) {
-          logger.info(`✅ DN authentication successful for user: ${sanitizedUsername}`)
+          logger.info(`DN authentication successful for user: ${sanitizedUsername}`)
         }
       } catch (error) {
         logger.debug(`DN authentication failed for user: ${sanitizedUsername}, error: ${error.message}`)
@@ -591,15 +591,15 @@ class LdapService {
 
       // 如果DN认证失败，尝试Windows AD多格式认证
       if (!isPasswordValid) {
-        logger.debug(`🔄 Trying Windows AD authentication formats for user: ${sanitizedUsername}`)
+        logger.debug(`Trying Windows AD authentication formats for user: ${sanitizedUsername}`)
         isPasswordValid = await this.tryWindowsADAuthentication(sanitizedUsername, password)
         if (isPasswordValid) {
-          logger.info(`✅ Windows AD authentication successful for user: ${sanitizedUsername}`)
+          logger.info(`Windows AD authentication successful for user: ${sanitizedUsername}`)
         }
       }
 
       if (!isPasswordValid) {
-        logger.info(`🚫 All authentication methods failed for user: ${sanitizedUsername}`)
+        logger.info(`All authentication methods failed for user: ${sanitizedUsername}`)
         return { success: false, message: 'Invalid username or password' }
       }
 
@@ -611,7 +611,7 @@ class LdapService {
 
       // 7. 检查用户是否被禁用
       if (!user.isActive) {
-        logger.security(`🔒 Disabled user LDAP login attempt: ${sanitizedUsername} from LDAP authentication`)
+        logger.security(`Disabled user LDAP login attempt: ${sanitizedUsername} from LDAP authentication`)
         return {
           success: false,
           message: 'Your account has been disabled. Please contact administrator.',
@@ -624,7 +624,7 @@ class LdapService {
       // 9. 创建用户会话
       const sessionToken = await userService.createUserSession(user.id)
 
-      logger.info(`✅ LDAP authentication successful for user: ${sanitizedUsername}`)
+      logger.info(`LDAP authentication successful for user: ${sanitizedUsername}`)
 
       return {
         success: true,
@@ -634,14 +634,14 @@ class LdapService {
       }
     } catch (error) {
       // 记录详细错误供调试，但不向用户暴露
-      logger.error('❌ LDAP authentication error:', {
+      logger.error('LDAP authentication error:', {
         username: sanitizedUsername,
         error: error.message,
         stack: env.NODE_ENV === 'development' ? error.stack : undefined,
       })
 
       // 返回通用错误消息，避免信息泄露
-      // 不要尝试解析具体的错误信息，因为不同LDAP服务器返回的格式不同
+      // 不解析具体 LDAP 错误文案（各服务器格式不一）
       return {
         success: false,
         message: 'Authentication service unavailable',
@@ -658,7 +658,7 @@ class LdapService {
     }
   }
 
-  // 🔍 测试LDAP连接
+  // 测试LDAP连接
   async testConnection() {
     if (!this.config.enabled) {
       return { success: false, message: 'LDAP is not enabled' }
@@ -676,7 +676,7 @@ class LdapService {
         searchBase: this.config.server.searchBase,
       }
     } catch (error) {
-      logger.error('❌ LDAP connection test failed:', {
+      logger.error('LDAP connection test failed:', {
         error: error.message,
         server: this.config.server.url,
         stack: env.NODE_ENV === 'development' ? error.stack : undefined,
@@ -710,7 +710,7 @@ class LdapService {
     }
   }
 
-  // 📊 获取LDAP配置信息（不包含敏感信息）
+  // 获取LDAP配置信息（不包含敏感信息）
   getConfigInfo() {
     const configInfo = {
       enabled: this.config.enabled,

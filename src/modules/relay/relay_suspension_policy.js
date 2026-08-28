@@ -26,9 +26,9 @@ export const TOKEN_FAILURE_REASONS = new Set(['auth_error', 'token_refresh_faile
 export const isUpstreamReason = (reason) => UPSTREAM_REASONS.has(reason)
 
 // 开关开启时遇到某个上游错误该如何处理：
-//   'suspend'        正常暂停（开关关，或非上游错误）
-//   'short_cooldown' 短冷却自愈（能刷 token 的账户遇 token 失效，留刷新窗口）
-//   'passthrough'    暴力透传不暂停（不能刷 token 的账户全部 / 能刷 token 的非 token 失效类）
+// 'suspend'        正常暂停（开关关，或非上游错误）
+// 'short_cooldown' 短冷却自愈（能刷 token 的账户遇 token 失效，留刷新窗口）
+// 'passthrough'    暴力透传不暂停（不能刷 token 的账户全部 / 能刷 token 的非 token 失效类）
 // canRefreshToken 由调用方按账户能力注入（oauth=true，apikey=false），不在纯函数里硬编码类型
 export const resolveAutoProtectionAction = ({ reason, disableAutoProtection, canRefreshToken }) => {
   if (!disableAutoProtection) {
@@ -45,12 +45,12 @@ export const resolveAutoProtectionAction = ({ reason, disableAutoProtection, can
 }
 
 // 账户是否可被调度（判定点核心）。输入均为已解析好的布尔/时间戳，保持纯函数。
-//   isActive            管理员"停用账户"（手动，开关永不覆盖；undefined 视为 active）
-//   manualUnschedulable 管理员"停止调度"（手动，开关永不覆盖）
-//   budgetExceeded      每日/总预算超限（开关永不覆盖；仅 API-Key 类传 true）
-//   autoSuspendedUntil  自动暂停到期时间戳(ms)；null/非数字表示无自动暂停
-//   disableAutoProtection 开关
-//   now                 当前时间戳(ms)
+// isActive            管理员"停用账户"（手动，开关永不覆盖；undefined 视为 active）
+// manualUnschedulable 管理员"停止调度"（手动，开关永不覆盖）
+// budgetExceeded      每日/总预算超限（开关永不覆盖；仅 API-Key 类传 true）
+// autoSuspendedUntil  自动暂停到期时间戳(ms)；null/非数字表示无自动暂停
+// disableAutoProtection 开关
+// now                 当前时间戳(ms)
 export const isSchedulable = ({
   isActive,
   manualUnschedulable,

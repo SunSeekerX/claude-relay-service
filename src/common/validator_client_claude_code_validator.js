@@ -38,7 +38,7 @@ export class ClaudeCodeValidator {
    * 获取客户端图标
    */
   static getIcon() {
-    return CLIENT_DEFINITIONS.CLAUDE_CODE.icon || '🤖'
+    return CLIENT_DEFINITIONS.CLAUDE_CODE.icon || ''
   }
 
   /**

@@ -13,6 +13,9 @@ import { costRankService } from '../pricing/pricing_cost_rank_service.js'
 import { apiKeyIndexService } from './apikey_index_service.js'
 import { ClientValidator } from '../../common/validator_client_validator.js'
 import { weeklyClaudeCostInitService as weeklyInitService } from '../pricing/pricing_weekly_claude_cost_init_service.js'
+import { asyncRoute } from '../../common/route_handler.js'
+import { ok, badRequest, notFound, HttpError, conflict } from '../../common/http_result.js'
+import { parseObjectBody } from '../../common/parse_body.js'
 export const router = express.Router()
 
 // 有效的权限值列表
@@ -73,11 +76,13 @@ const validateServiceRates = function validateServiceRates(serviceRates) {
   return null
 }
 
-// 👥 用户管理 (用于API Key分配)
+// 用户管理 (用于API Key分配)
 
 // 获取所有用户列表（用于API Key分配）
-router.get('/users', authenticateAdmin, async (req, res) => {
-  try {
+router.get(
+  '/users',
+  authenticateAdmin,
+  asyncRoute('Failed to get users list', async (req) => {
     // Extract query parameters for filtering
     const { role, isActive } = req.query
     const options = { limit: 1000 }
@@ -120,24 +125,17 @@ router.get('/users', authenticateAdmin, async (req, res) => {
       ...activeUsers,
     ]
 
-    return res.json({
-      success: true,
-      data: usersWithAdmin,
-    })
-  } catch (error) {
-    logger.error('❌ Failed to get users list:', error)
-    return res.status(500).json({
-      error: 'Failed to get users list',
-      message: error.message,
-    })
-  }
-})
+    return usersWithAdmin
+  }),
+)
 
-// 🔑 API Keys 管理
+// API Keys 管理
 
 // 调试：获取API Key费用详情
-router.get('/api-keys/:keyId/cost-debug', authenticateAdmin, async (req, res) => {
-  try {
+router.get(
+  '/api-keys/:keyId/cost-debug',
+  authenticateAdmin,
+  asyncRoute('Failed to get cost debug info', async (req) => {
     const { keyId } = req.params
     const costStats = await redis.getCostStats(keyId)
     const dailyCost = await redis.getDailyCost(keyId)
@@ -152,34 +150,32 @@ router.get('/api-keys/:keyId/cost-debug', authenticateAdmin, async (req, res) =>
       keyValues[costKeys[i]] = costValues[i]
     }
 
-    return res.json({
+    return {
       keyId,
       today,
       dailyCost,
       costStats,
       redisKeys: keyValues,
       timezone: config.system.timezoneOffset || 8,
-    })
-  } catch (error) {
-    logger.error('❌ Failed to get cost debug info:', error)
-    return res.status(500).json({ error: 'Failed to get cost debug info', message: error.message })
-  }
-})
+    }
+  }),
+)
 
 // 获取所有被使用过的模型列表
-router.get('/api-keys/used-models', authenticateAdmin, async (req, res) => {
-  try {
+router.get(
+  '/api-keys/used-models',
+  authenticateAdmin,
+  asyncRoute('Failed to get used models', async (_req) => {
     const models = await redis.getAllUsedModels()
-    return res.json({ success: true, data: models })
-  } catch (error) {
-    logger.error('❌ Failed to get used models:', error)
-    return res.status(500).json({ error: 'Failed to get used models', message: error.message })
-  }
-})
+    return models
+  }),
+)
 
 // 获取所有API Keys
-router.get('/api-keys', authenticateAdmin, async (req, res) => {
-  try {
+router.get(
+  '/api-keys',
+  authenticateAdmin,
+  asyncRoute('Failed to get API keys', async (req) => {
     const {
       // 分页参数
       page = 1,
@@ -234,42 +230,26 @@ router.get('/api-keys', authenticateAdmin, async (req, res) => {
       if (effectiveCostTimeRange === 'custom') {
         // 验证日期参数
         if (!costStartDate || !costEndDate) {
-          return res.status(400).json({
-            success: false,
-            error: 'INVALID_DATE_RANGE',
-            message: '自定义时间范围需要提供 costStartDate 和 costEndDate 参数',
-          })
+          throw badRequest('自定义时间范围需要提供 costStartDate 和 costEndDate 参数', { reason: 'INVALID_DATE_RANGE' })
         }
 
         const start = new Date(costStartDate)
         const end = new Date(costEndDate)
         if (isNaN(start.getTime()) || isNaN(end.getTime())) {
-          return res.status(400).json({
-            success: false,
-            error: 'INVALID_DATE_FORMAT',
-            message: '日期格式无效',
-          })
+          throw badRequest('日期格式无效', { reason: 'INVALID_DATE_FORMAT' })
         }
 
         if (start > end) {
-          return res.status(400).json({
-            success: false,
-            error: 'INVALID_DATE_RANGE',
-            message: '开始日期不能晚于结束日期',
-          })
+          throw badRequest('开始日期不能晚于结束日期', { reason: 'INVALID_DATE_RANGE' })
         }
 
         // 限制最大范围为 365 天
         const daysDiff = Math.ceil((end - start) / (1000 * 60 * 60 * 24)) + 1
         if (daysDiff > 365) {
-          return res.status(400).json({
-            success: false,
-            error: 'DATE_RANGE_TOO_LARGE',
-            message: '日期范围不能超过365天',
-          })
+          throw badRequest('日期范围不能超过365天', { reason: 'DATE_RANGE_TOO_LARGE' })
         }
 
-        logger.info(`📊 Cost sort with custom range: ${costStartDate} to ${costEndDate}`)
+        logger.info(`Cost sort with custom range: ${costStartDate} to ${costEndDate}`)
 
         // 实时计算费用排序
         result = await getApiKeysSortedByCostCustom({
@@ -296,15 +276,14 @@ router.get('/api-keys', authenticateAdmin, async (req, res) => {
 
         // 检查索引是否就绪
         if (!costSortStatus || costSortStatus.status !== 'ready') {
-          return res.status(503).json({
-            success: false,
-            error: 'RANK_NOT_READY',
-            message: `费用排序索引 (${effectiveCostTimeRange}) 正在更新中，请稍后重试`,
-            costSortStatus: costSortStatus || { status: 'unknown' },
+          throw new HttpError(503, `费用排序索引 (${effectiveCostTimeRange}) 正在更新中，请稍后重试`, {
+            reason: 'RANK_NOT_READY',
+            data: { costSortStatus: costSortStatus || { status: 'unknown' } },
+            expose: true,
           })
         }
 
-        logger.info(`📊 Cost sort using precomputed index: ${effectiveCostTimeRange}`)
+        logger.info(`Cost sort using precomputed index: ${effectiveCostTimeRange}`)
 
         // 使用预计算索引排序
         result = await getApiKeysSortedByCostPrecomputed({
@@ -368,27 +347,21 @@ router.get('/api-keys', authenticateAdmin, async (req, res) => {
 
     // 返回分页数据
     const responseData = {
-      success: true,
-      data: {
-        items: result.items,
-        pagination: result.pagination,
-        availableTags: result.availableTags,
-      },
+      items: result.items,
+      pagination: result.pagination,
+      availableTags: result.availableTags,
       // 标记当前请求的时间范围（供前端参考）
       timeRange,
     }
 
     // 如果是费用排序，附加排序状态
     if (costSortStatus) {
-      responseData.data.costSortStatus = costSortStatus
+      responseData.costSortStatus = costSortStatus
     }
 
-    return res.json(responseData)
-  } catch (error) {
-    logger.error('❌ Failed to get API keys:', error)
-    return res.status(500).json({ error: 'Failed to get API keys', message: error.message })
-  }
-})
+    return responseData
+  }),
+)
 
 /**
  * 使用预计算索引进行费用排序的分页查询
@@ -583,107 +556,74 @@ const getApiKeysSortedByCostCustom = async function getApiKeysSortedByCostCustom
 }
 
 // 获取费用排序索引状态
-router.get('/api-keys/cost-sort-status', authenticateAdmin, async (req, res) => {
-  try {
+router.get(
+  '/api-keys/cost-sort-status',
+  authenticateAdmin,
+  asyncRoute('Failed to get cost sort status', async (_req) => {
     const status = await costRankService.getRankStatus()
-    return res.json({ success: true, data: status })
-  } catch (error) {
-    logger.error('❌ Failed to get cost sort status:', error)
-    return res.status(500).json({
-      success: false,
-      error: 'Failed to get cost sort status',
-      message: error.message,
-    })
-  }
-})
+    return status
+  }),
+)
 
 // 获取 API Key 索引状态
-router.get('/api-keys/index-status', authenticateAdmin, async (req, res) => {
-  try {
+router.get(
+  '/api-keys/index-status',
+  authenticateAdmin,
+  asyncRoute('Failed to get API Key index status', async (_req) => {
     const status = await apiKeyIndexService.getStatus()
-    return res.json({ success: true, data: status })
-  } catch (error) {
-    logger.error('❌ Failed to get API Key index status:', error)
-    return res.status(500).json({
-      success: false,
-      error: 'Failed to get index status',
-      message: error.message,
-    })
-  }
-})
+    return status
+  }),
+)
 
 // 手动重建 API Key 索引
-router.post('/api-keys/index-rebuild', authenticateAdmin, async (req, res) => {
-  try {
+router.post(
+  '/api-keys/index-rebuild',
+  authenticateAdmin,
+  asyncRoute('Failed to trigger API Key index rebuild', async (_req) => {
     const status = await apiKeyIndexService.getStatus()
 
     if (status.building) {
-      return res.status(409).json({
-        success: false,
-        error: 'INDEX_BUILDING',
-        message: '索引正在重建中，请稍后再试',
-        progress: status.progress,
-      })
+      throw conflict('索引正在重建中，请稍后再试', { reason: 'INDEX_BUILDING', data: { progress: status.progress } })
     }
 
     // 异步重建，不等待完成
     apiKeyIndexService.rebuildIndexes().catch((err) => {
-      logger.error('❌ Failed to rebuild API Key index:', err)
+      logger.error('Failed to rebuild API Key index:', err)
     })
 
-    return res.json({
-      success: true,
-      message: 'API Key 索引重建已开始',
-    })
-  } catch (error) {
-    logger.error('❌ Failed to trigger API Key index rebuild:', error)
-    return res.status(500).json({
-      success: false,
-      error: 'Failed to trigger rebuild',
-      message: error.message,
-    })
-  }
-})
+    return ok(undefined, 'API Key 索引重建已开始')
+  }),
+)
 
 // 强制刷新费用排序索引
-router.post('/api-keys/cost-sort-refresh', authenticateAdmin, async (req, res) => {
-  try {
-    const { timeRange } = req.body
+router.post(
+  '/api-keys/cost-sort-refresh',
+  authenticateAdmin,
+  asyncRoute('Failed to trigger cost sort refresh', async (req) => {
+    const { timeRange } = parseObjectBody(req.body, '费用排序刷新')
 
     // 验证时间范围
     if (timeRange) {
       const validTimeRanges = ['today', '7days', '30days', 'all']
       if (!validTimeRanges.includes(timeRange)) {
-        return res.status(400).json({
-          success: false,
-          error: 'INVALID_TIME_RANGE',
-          message: '无效的时间范围，可选值：today, 7days, 30days, all',
-        })
+        throw badRequest('无效的时间范围，可选值：today, 7days, 30days, all', { reason: 'INVALID_TIME_RANGE' })
       }
     }
 
     // 异步刷新，不等待完成
     costRankService.forceRefresh(timeRange || null).catch((err) => {
-      logger.error('❌ Failed to refresh cost rank:', err)
+      logger.error('Failed to refresh cost rank:', err)
     })
 
-    return res.json({
-      success: true,
-      message: timeRange ? `费用排序索引 (${timeRange}) 刷新已开始` : '所有费用排序索引刷新已开始',
-    })
-  } catch (error) {
-    logger.error('❌ Failed to trigger cost sort refresh:', error)
-    return res.status(500).json({
-      success: false,
-      error: 'Failed to trigger refresh',
-      message: error.message,
-    })
-  }
-})
+    return ok(undefined, timeRange ? `费用排序索引 (${timeRange}) 刷新已开始` : '所有费用排序索引刷新已开始')
+  }),
+)
 
 // 获取支持的客户端列表（使用新的验证器）
-router.get('/supported-clients', authenticateAdmin, async (req, res) => {
-  try {
+router.get(
+  '/supported-clients',
+  authenticateAdmin,
+  asyncRoute('Failed to get supported clients', async (_req) => {
     // 使用新的 ClientValidator 获取所有可用客户端
     const availableClients = ClientValidator.getAvailableClients()
 
@@ -695,90 +635,84 @@ router.get('/supported-clients', authenticateAdmin, async (req, res) => {
       icon: client.icon,
     }))
 
-    logger.info(`📱 Returning ${clients.length} supported clients`)
-    return res.json({ success: true, data: clients })
-  } catch (error) {
-    logger.error('❌ Failed to get supported clients:', error)
-    return res.status(500).json({ error: 'Failed to get supported clients', message: error.message })
-  }
-})
+    logger.info(`Returning ${clients.length} supported clients`)
+    return clients
+  }),
+)
 
 // 获取已存在的标签列表
-router.get('/api-keys/tags', authenticateAdmin, async (req, res) => {
-  try {
+router.get(
+  '/api-keys/tags',
+  authenticateAdmin,
+  asyncRoute('Failed to get API key tags', async (_req) => {
     const tags = await apiKeyService.getAllTags()
 
-    logger.info(`📋 Retrieved ${tags.length} unique tags from API keys`)
-    return res.json({ success: true, data: tags })
-  } catch (error) {
-    logger.error('❌ Failed to get API key tags:', error)
-    return res.status(500).json({ error: 'Failed to get API key tags', message: error.message })
-  }
-})
+    logger.info(`Retrieved ${tags.length} unique tags from API keys`)
+    return tags
+  }),
+)
 
 // 获取标签详情（含使用数量）
-router.get('/api-keys/tags/details', authenticateAdmin, async (req, res) => {
-  try {
+router.get(
+  '/api-keys/tags/details',
+  authenticateAdmin,
+  asyncRoute('Failed to get tag details', async (_req) => {
     const tagDetails = await apiKeyService.getTagsWithCount()
-    logger.info(`📋 Retrieved ${tagDetails.length} tags with usage counts`)
-    return res.json({ success: true, data: tagDetails })
-  } catch (error) {
-    logger.error('❌ Failed to get tag details:', error)
-    return res.status(500).json({ error: 'Failed to get tag details', message: error.message })
-  }
-})
+    logger.info(`Retrieved ${tagDetails.length} tags with usage counts`)
+    return tagDetails
+  }),
+)
 
 // 创建新标签
-router.post('/api-keys/tags', authenticateAdmin, async (req, res) => {
-  try {
-    const { name } = req.body
+router.post(
+  '/api-keys/tags',
+  authenticateAdmin,
+  asyncRoute('Failed to create tag', async (req) => {
+    const { name } = parseObjectBody(req.body, '创建标签')
     if (!name || !name.trim()) {
-      return res.status(400).json({ error: '标签名称不能为空' })
+      throw badRequest('标签名称不能为空')
     }
 
     const result = await apiKeyService.createTag(name.trim())
     if (!result.success) {
-      return res.status(400).json({ error: result.error })
+      throw badRequest(result.error)
     }
 
-    logger.info(`🏷️ Created new tag: ${name}`)
-    return res.json({ success: true, message: '标签创建成功' })
-  } catch (error) {
-    logger.error('❌ Failed to create tag:', error)
-    return res.status(500).json({ error: 'Failed to create tag', message: error.message })
-  }
-})
+    logger.info(`Created new tag: ${name}`)
+    return ok(undefined, '标签创建成功')
+  }),
+)
 
 // 删除标签（从所有 API Key 中移除）
-router.delete('/api-keys/tags/:tagName', authenticateAdmin, async (req, res) => {
-  try {
+router.delete(
+  '/api-keys/tags/:tagName',
+  authenticateAdmin,
+  asyncRoute('Failed to delete tag', async (req) => {
     const { tagName } = req.params
     if (!tagName) {
-      return res.status(400).json({ error: 'Tag name is required' })
+      throw badRequest('Tag name is required')
     }
 
     const decodedTagName = decodeURIComponent(tagName)
     const result = await apiKeyService.removeTagFromAllKeys(decodedTagName)
 
-    logger.info(`🏷️ Removed tag "${decodedTagName}" from ${result.affectedCount} API keys`)
-    return res.json({
-      success: true,
-      message: `Tag "${decodedTagName}" removed from ${result.affectedCount} API keys`,
-      affectedCount: result.affectedCount,
-    })
-  } catch (error) {
-    logger.error('❌ Failed to delete tag:', error)
-    return res.status(500).json({ error: 'Failed to delete tag', message: error.message })
-  }
-})
+    logger.info(`Removed tag "${decodedTagName}" from ${result.affectedCount} API keys`)
+    return ok(
+      { affectedCount: result.affectedCount },
+      `Tag "${decodedTagName}" removed from ${result.affectedCount} API keys`,
+    )
+  }),
+)
 
 // 重命名标签
-router.put('/api-keys/tags/:tagName', authenticateAdmin, async (req, res) => {
-  try {
+router.put(
+  '/api-keys/tags/:tagName',
+  authenticateAdmin,
+  asyncRoute('Failed to rename tag', async (req) => {
     const { tagName } = req.params
-    const { newName } = req.body
+    const { newName } = parseObjectBody(req.body, '重命名标签')
     if (!tagName || !newName || !newName.trim()) {
-      return res.status(400).json({ error: 'Tag name and new name are required' })
+      throw badRequest('Tag name and new name are required')
     }
 
     const decodedTagName = decodeURIComponent(tagName)
@@ -786,20 +720,13 @@ router.put('/api-keys/tags/:tagName', authenticateAdmin, async (req, res) => {
     const result = await apiKeyService.renameTag(decodedTagName, trimmedNewName)
 
     if (result.error) {
-      return res.status(400).json({ error: result.error })
+      throw badRequest(result.error)
     }
 
-    logger.info(`🏷️ Renamed tag "${decodedTagName}" to "${trimmedNewName}" in ${result.affectedCount} API keys`)
-    return res.json({
-      success: true,
-      message: `Tag renamed in ${result.affectedCount} API keys`,
-      affectedCount: result.affectedCount,
-    })
-  } catch (error) {
-    logger.error('❌ Failed to rename tag:', error)
-    return res.status(500).json({ error: 'Failed to rename tag', message: error.message })
-  }
-})
+    logger.info(`Renamed tag "${decodedTagName}" to "${trimmedNewName}" in ${result.affectedCount} API keys`)
+    return ok({ affectedCount: result.affectedCount }, `Tag renamed in ${result.affectedCount} API keys`)
+  }),
+)
 
 /**
  * 获取账户绑定的 API Key 数量统计
@@ -808,8 +735,10 @@ router.put('/api-keys/tags/:tagName', authenticateAdmin, async (req, res) => {
  * 返回每种账户类型的绑定数量统计，用于账户列表页面显示"绑定: X 个API Key"
  * 这是一个轻量级接口，只返回计数而不是完整的 API Key 数据
  */
-router.get('/accounts/binding-counts', authenticateAdmin, async (req, res) => {
-  try {
+router.get(
+  '/accounts/binding-counts',
+  authenticateAdmin,
+  asyncRoute('Failed to get account binding counts', async (_req) => {
     // 使用优化的分页方法获取所有非删除的 API Keys（只需要绑定字段）
     const result = await redis.getApiKeysPaginated({
       page: 1,
@@ -889,16 +818,10 @@ router.get('/accounts/binding-counts', authenticateAdmin, async (req, res) => {
       }
     }
 
-    logger.debug(`📊 Account binding counts calculated from ${apiKeys.length} API keys`)
-    return res.json({ success: true, data: bindingCounts })
-  } catch (error) {
-    logger.error('❌ Failed to get account binding counts:', error)
-    return res.status(500).json({
-      error: 'Failed to get account binding counts',
-      message: error.message,
-    })
-  }
-})
+    logger.debug(`Account binding counts calculated from ${apiKeys.length} API keys`)
+    return bindingCounts
+  }),
+)
 
 /**
  * 批量获取指定 Keys 的统计数据和费用
@@ -906,65 +829,49 @@ router.get('/accounts/binding-counts', authenticateAdmin, async (req, res) => {
  *
  * 用于 API Keys 列表页面异步加载统计数据
  */
-router.post('/api-keys/batch-stats', authenticateAdmin, async (req, res) => {
-  try {
+router.post(
+  '/api-keys/batch-stats',
+  authenticateAdmin,
+  asyncRoute('Failed to calculate batch stats', async (req) => {
     const {
       keyIds, // 必需：API Key ID 数组
       timeRange = 'all', // 时间范围：all, today, 7days, monthly, custom
       startDate, // custom 时必需
       endDate, // custom 时必需
-    } = req.body
+    } = parseObjectBody(req.body, '批量统计')
 
     // 参数验证
     if (!Array.isArray(keyIds) || keyIds.length === 0) {
-      return res.status(400).json({
-        success: false,
-        error: 'keyIds is required and must be a non-empty array',
-      })
+      throw badRequest('keyIds is required and must be a non-empty array')
     }
 
     // 限制单次最多处理 100 个 Key
     if (keyIds.length > 100) {
-      return res.status(400).json({
-        success: false,
-        error: 'Max 100 keys per request',
-      })
+      throw badRequest('Max 100 keys per request')
     }
 
     // 验证 custom 时间范围的参数
     if (timeRange === 'custom') {
       if (!startDate || !endDate) {
-        return res.status(400).json({
-          success: false,
-          error: 'startDate and endDate are required for custom time range',
-        })
+        throw badRequest('startDate and endDate are required for custom time range')
       }
       const start = new Date(startDate)
       const end = new Date(endDate)
       if (isNaN(start.getTime()) || isNaN(end.getTime())) {
-        return res.status(400).json({
-          success: false,
-          error: 'Invalid date format',
-        })
+        throw badRequest('Invalid date format')
       }
       if (start > end) {
-        return res.status(400).json({
-          success: false,
-          error: 'startDate must be before or equal to endDate',
-        })
+        throw badRequest('startDate must be before or equal to endDate')
       }
       // 限制最大范围为 365 天
       const daysDiff = Math.ceil((end - start) / (1000 * 60 * 60 * 24)) + 1
       if (daysDiff > 365) {
-        return res.status(400).json({
-          success: false,
-          error: 'Date range cannot exceed 365 days',
-        })
+        throw badRequest('Date range cannot exceed 365 days')
       }
     }
 
     logger.info(
-      `📊 Batch stats request: ${keyIds.length} keys, timeRange=${timeRange}`,
+      `Batch stats request: ${keyIds.length} keys, timeRange=${timeRange}`,
       timeRange === 'custom' ? `, ${startDate} to ${endDate}` : '',
     )
 
@@ -976,7 +883,7 @@ router.post('/api-keys/batch-stats', authenticateAdmin, async (req, res) => {
         try {
           stats[keyId] = await calculateKeyStats(keyId, timeRange, startDate, endDate)
         } catch (error) {
-          logger.error(`❌ Failed to calculate stats for key ${keyId}:`, error)
+          logger.error(`Failed to calculate stats for key ${keyId}:`, error)
           stats[keyId] = {
             requests: 0,
             tokens: 0,
@@ -1001,16 +908,9 @@ router.post('/api-keys/batch-stats', authenticateAdmin, async (req, res) => {
       }),
     )
 
-    return res.json({ success: true, data: stats })
-  } catch (error) {
-    logger.error('❌ Failed to calculate batch stats:', error)
-    return res.status(500).json({
-      success: false,
-      error: 'Failed to calculate stats',
-      message: error.message,
-    })
-  }
-})
+    return stats
+  }),
+)
 
 /**
  * 计算单个 Key 的统计数据
@@ -1135,7 +1035,7 @@ const calculateKeyStats = async function calculateKeyStats(keyId, timeRange, sta
       }
     }
   } catch (error) {
-    logger.warn(`⚠️ 获取实时限制数据失败 (key: ${keyId}):`, error.message)
+    logger.warn(`获取实时限制数据失败 (key: ${keyId}):`, error.message)
   }
 
   // 构建实时限制数据对象（各分支复用）
@@ -1324,27 +1224,23 @@ const calculateKeyStats = async function calculateKeyStats(keyId, timeRange, sta
  *
  * 用于 API Keys 列表页面异步加载最后使用账号数据
  */
-router.post('/api-keys/batch-last-usage', authenticateAdmin, async (req, res) => {
-  try {
-    const { keyIds } = req.body
+router.post(
+  '/api-keys/batch-last-usage',
+  authenticateAdmin,
+  asyncRoute('Failed to get batch last-usage', async (req) => {
+    const { keyIds } = parseObjectBody(req.body, '批量最后使用')
 
     // 参数验证
     if (!Array.isArray(keyIds) || keyIds.length === 0) {
-      return res.status(400).json({
-        success: false,
-        error: 'keyIds is required and must be a non-empty array',
-      })
+      throw badRequest('keyIds is required and must be a non-empty array')
     }
 
     // 限制单次最多处理 100 个 Key
     if (keyIds.length > 100) {
-      return res.status(400).json({
-        success: false,
-        error: 'Max 100 keys per request',
-      })
+      throw badRequest('Max 100 keys per request')
     }
 
-    logger.debug(`📊 Batch last-usage request: ${keyIds.length} keys`)
+    logger.debug(`Batch last-usage request: ${keyIds.length} keys`)
 
     const client = redis.getClientSafe()
     const lastUsageData = {}
@@ -1401,20 +1297,15 @@ router.post('/api-keys/batch-last-usage', authenticateAdmin, async (req, res) =>
       }),
     )
 
-    return res.json({ success: true, data: lastUsageData })
-  } catch (error) {
-    logger.error('❌ Failed to get batch last-usage:', error)
-    return res.status(500).json({
-      success: false,
-      error: 'Failed to get last-usage data',
-      message: error.message,
-    })
-  }
-})
+    return lastUsageData
+  }),
+)
 
 // 创建新的API Key
-router.post('/api-keys', authenticateAdmin, async (req, res) => {
-  try {
+router.post(
+  '/api-keys',
+  authenticateAdmin,
+  asyncRoute('Failed to create API key', async (req) => {
     const {
       name,
       description,
@@ -1450,23 +1341,23 @@ router.post('/api-keys', authenticateAdmin, async (req, res) => {
       enableOpenAIResponsesCodexAdaptation,
       enableOpenAIResponsesPayloadRules,
       openaiResponsesPayloadRules,
-    } = req.body
+    } = parseObjectBody(req.body, '创建 API Key')
 
     // 输入验证
     if (!name || typeof name !== 'string' || name.trim().length === 0) {
-      return res.status(400).json({ error: 'Name is required and must be a non-empty string' })
+      throw badRequest('Name is required and must be a non-empty string')
     }
 
     if (name.length > 100) {
-      return res.status(400).json({ error: 'Name must be less than 100 characters' })
+      throw badRequest('Name must be less than 100 characters')
     }
 
     if (description && (typeof description !== 'string' || description.length > 500)) {
-      return res.status(400).json({ error: 'Description must be a string with less than 500 characters' })
+      throw badRequest('Description must be a string with less than 500 characters')
     }
 
     if (tokenLimit && (!Number.isInteger(Number(tokenLimit)) || Number(tokenLimit) < 0)) {
-      return res.status(400).json({ error: 'Token limit must be a non-negative integer' })
+      throw badRequest('Token limit must be a non-negative integer')
     }
 
     if (
@@ -1475,7 +1366,7 @@ router.post('/api-keys', authenticateAdmin, async (req, res) => {
       concurrencyLimit !== '' &&
       (!Number.isInteger(Number(concurrencyLimit)) || Number(concurrencyLimit) < 0)
     ) {
-      return res.status(400).json({ error: 'Concurrency limit must be a non-negative integer' })
+      throw badRequest('Concurrency limit must be a non-negative integer')
     }
 
     if (
@@ -1484,7 +1375,7 @@ router.post('/api-keys', authenticateAdmin, async (req, res) => {
       rateLimitWindow !== '' &&
       (!Number.isInteger(Number(rateLimitWindow)) || Number(rateLimitWindow) < 1)
     ) {
-      return res.status(400).json({ error: 'Rate limit window must be a positive integer (minutes)' })
+      throw badRequest('Rate limit window must be a positive integer (minutes)')
     }
 
     if (
@@ -1493,34 +1384,34 @@ router.post('/api-keys', authenticateAdmin, async (req, res) => {
       rateLimitRequests !== '' &&
       (!Number.isInteger(Number(rateLimitRequests)) || Number(rateLimitRequests) < 1)
     ) {
-      return res.status(400).json({ error: 'Rate limit requests must be a positive integer' })
+      throw badRequest('Rate limit requests must be a positive integer')
     }
 
     // 验证模型限制字段
     if (enableModelRestriction !== undefined && typeof enableModelRestriction !== 'boolean') {
-      return res.status(400).json({ error: 'Enable model restriction must be a boolean' })
+      throw badRequest('Enable model restriction must be a boolean')
     }
 
     if (restrictedModels !== undefined && !Array.isArray(restrictedModels)) {
-      return res.status(400).json({ error: 'Restricted models must be an array' })
+      throw badRequest('Restricted models must be an array')
     }
 
     // 验证客户端限制字段
     if (enableClientRestriction !== undefined && typeof enableClientRestriction !== 'boolean') {
-      return res.status(400).json({ error: 'Enable client restriction must be a boolean' })
+      throw badRequest('Enable client restriction must be a boolean')
     }
 
     if (allowedClients !== undefined && !Array.isArray(allowedClients)) {
-      return res.status(400).json({ error: 'Allowed clients must be an array' })
+      throw badRequest('Allowed clients must be an array')
     }
 
     // 验证标签字段
     if (tags !== undefined && !Array.isArray(tags)) {
-      return res.status(400).json({ error: 'Tags must be an array' })
+      throw badRequest('Tags must be an array')
     }
 
     if (tags && tags.some((tag) => typeof tag !== 'string' || tag.trim().length === 0)) {
-      return res.status(400).json({ error: 'All tags must be non-empty strings' })
+      throw badRequest('All tags must be non-empty strings')
     }
 
     if (
@@ -1529,74 +1420,70 @@ router.post('/api-keys', authenticateAdmin, async (req, res) => {
       totalCostLimit !== '' &&
       (Number.isNaN(Number(totalCostLimit)) || Number(totalCostLimit) < 0)
     ) {
-      return res.status(400).json({ error: 'Total cost limit must be a non-negative number' })
+      throw badRequest('Total cost limit must be a non-negative number')
     }
 
     // 验证激活相关字段
     if (expirationMode && !['fixed', 'activation'].includes(expirationMode)) {
-      return res.status(400).json({ error: 'Expiration mode must be either "fixed" or "activation"' })
+      throw badRequest('Expiration mode must be either "fixed" or "activation"')
     }
 
     if (expirationMode === 'activation') {
       // 验证激活时间单位
       if (!activationUnit || !['hours', 'days'].includes(activationUnit)) {
-        return res.status(400).json({
-          error: 'Activation unit must be either "hours" or "days" when using activation mode',
-        })
+        throw badRequest('Activation unit must be either "hours" or "days" when using activation mode')
       }
 
       // 验证激活时间数值
       if (!activationDays || !Number.isInteger(Number(activationDays)) || Number(activationDays) < 1) {
         const unitText = activationUnit === 'hours' ? 'hours' : 'days'
-        return res.status(400).json({
-          error: `Activation ${unitText} must be a positive integer when using activation mode`,
-        })
+        throw badRequest(`Activation ${unitText} must be a positive integer when using activation mode`)
       }
       // 激活模式下不应该设置固定过期时间
       if (expiresAt) {
-        return res.status(400).json({ error: 'Cannot set fixed expiration date when using activation mode' })
+        throw badRequest('Cannot set fixed expiration date when using activation mode')
       }
     }
 
     // 验证服务权限字段（支持数组格式）
     const permissionsError = validatePermissions(permissions)
     if (permissionsError) {
-      return res.status(400).json({ error: permissionsError })
+      throw badRequest(permissionsError)
     }
 
     // 验证服务倍率
     const serviceRatesError = validateServiceRates(serviceRates)
     if (serviceRatesError) {
-      return res.status(400).json({ error: serviceRatesError })
+      throw badRequest(serviceRatesError)
     }
 
     if (
       enableOpenAIResponsesCodexAdaptation !== undefined &&
       typeof enableOpenAIResponsesCodexAdaptation !== 'boolean'
     ) {
-      return res.status(400).json({ error: 'enableOpenAIResponsesCodexAdaptation must be a boolean' })
+      throw badRequest('enableOpenAIResponsesCodexAdaptation must be a boolean')
     }
 
     if (enableOpenAIResponsesPayloadRules !== undefined && typeof enableOpenAIResponsesPayloadRules !== 'boolean') {
-      return res.status(400).json({ error: 'enableOpenAIResponsesPayloadRules must be a boolean' })
+      throw badRequest('enableOpenAIResponsesPayloadRules must be a boolean')
     }
 
     const payloadRulesValidation = requestBodyRuleService.validateAndNormalizeRules(openaiResponsesPayloadRules)
     if (!payloadRulesValidation.valid) {
-      return res.status(400).json({ error: payloadRulesValidation.error })
+      throw badRequest(payloadRulesValidation.error)
     }
 
     // 验证周费用重置配置
     if (weeklyResetDay !== undefined && weeklyResetDay !== null && weeklyResetDay !== '') {
       const day = Number(weeklyResetDay)
       if (!Number.isInteger(day) || day < 1 || day > 7) {
-        return res.status(400).json({ error: 'Weekly reset day must be an integer from 1 (Mon) to 7 (Sun)' })
+        throw badRequest('Weekly reset day must be an integer from 1 (Mon) to 7 (Sun)')
       }
     }
     if (weeklyResetHour !== undefined && weeklyResetHour !== null && weeklyResetHour !== '') {
       const hour = Number(weeklyResetHour)
       if (!Number.isInteger(hour) || hour < 0 || hour > 23) {
-        return res.status(400).json({ error: 'Weekly reset hour must be an integer from 0 to 23' })
+        throw badRequest('Weekly reset hour must be an integer from 0 to 23')
       }
     }
 
@@ -1643,17 +1530,16 @@ router.post('/api-keys', authenticateAdmin, async (req, res) => {
       openaiResponsesPayloadRules: payloadRulesValidation.rules,
     })
 
-    logger.success(`🔑 Admin created new API key: ${name}`)
-    return res.json({ success: true, data: newKey })
-  } catch (error) {
-    logger.error('❌ Failed to create API key:', error)
-    return res.status(500).json({ error: 'Failed to create API key', message: error.message })
-  }
-})
+    logger.success(`Admin created new API key: ${name}`)
+    return newKey
+  }),
+)
 
 // 批量创建API Keys
-router.post('/api-keys/batch', authenticateAdmin, async (req, res) => {
-  try {
+router.post(
+  '/api-keys/batch',
+  authenticateAdmin,
+  asyncRoute('Failed to batch create API keys', async (req) => {
     const {
       baseName,
       count,
@@ -1685,31 +1571,31 @@ router.post('/api-keys/batch', authenticateAdmin, async (req, res) => {
       expirationMode,
       icon,
       serviceRates,
-    } = req.body
+    } = parseObjectBody(req.body, '批量创建 API Key')
 
     // 输入验证
     if (!baseName || typeof baseName !== 'string' || baseName.trim().length === 0) {
-      return res.status(400).json({ error: 'Base name is required and must be a non-empty string' })
+      throw badRequest('Base name is required and must be a non-empty string')
     }
 
     if (!count || !Number.isInteger(count) || count < 2 || count > 500) {
-      return res.status(400).json({ error: 'Count must be an integer between 2 and 500' })
+      throw badRequest('Count must be an integer between 2 and 500')
     }
 
     if (baseName.length > 90) {
-      return res.status(400).json({ error: 'Base name must be less than 90 characters to allow for numbering' })
+      throw badRequest('Base name must be less than 90 characters to allow for numbering')
     }
 
     // 验证服务权限字段（支持数组格式）
     const batchPermissionsError = validatePermissions(permissions)
     if (batchPermissionsError) {
-      return res.status(400).json({ error: batchPermissionsError })
+      throw badRequest(batchPermissionsError)
     }
 
     // 验证服务倍率
     const batchServiceRatesError = validateServiceRates(serviceRates)
     if (batchServiceRatesError) {
-      return res.status(400).json({ error: batchServiceRatesError })
+      throw badRequest(batchServiceRatesError)
     }
 
     // 生成批量API Keys
@@ -1767,58 +1653,34 @@ router.post('/api-keys/batch', authenticateAdmin, async (req, res) => {
 
     // 如果有部分失败，返回部分成功的结果
     if (errors.length > 0 && createdKeys.length === 0) {
-      return res.status(400).json({
-        success: false,
-        error: 'Failed to create any API keys',
-        errors,
-      })
+      throw badRequest('Failed to create any API keys', { data: { errors } })
     }
 
     // 返回创建的keys（包含完整的apiKey）
-    return res.json({
-      success: true,
-      data: createdKeys,
-      errors: errors.length > 0 ? errors : undefined,
-      summary: {
-        requested: count,
-        created: createdKeys.length,
-        failed: errors.length,
-      },
-    })
-  } catch (error) {
-    logger.error('Failed to batch create API keys:', error)
-    return res.status(500).json({
-      success: false,
-      error: 'Failed to batch create API keys',
-      message: error.message,
-    })
-  }
-})
+    return ok(createdKeys)
+  }),
+)
 
 // 批量编辑API Keys
-router.put('/api-keys/batch', authenticateAdmin, async (req, res) => {
-  try {
-    const { keyIds, updates } = req.body
+router.put(
+  '/api-keys/batch',
+  authenticateAdmin,
+  asyncRoute('Failed to batch edit API keys', async (req) => {
+    const { keyIds, updates } = parseObjectBody(req.body, '批量编辑 API Key')
 
     if (!keyIds || !Array.isArray(keyIds) || keyIds.length === 0) {
-      return res.status(400).json({
-        error: 'Invalid input',
-        message: 'keyIds must be a non-empty array',
-      })
+      throw badRequest('keyIds must be a non-empty array')
     }
 
     if (!updates || typeof updates !== 'object') {
-      return res.status(400).json({
-        error: 'Invalid input',
-        message: 'updates must be an object',
-      })
+      throw badRequest('updates must be an object')
     }
 
     // 验证服务权限字段（支持数组格式）
     if (updates.permissions !== undefined) {
       const updatePermissionsError = validatePermissions(updates.permissions)
       if (updatePermissionsError) {
-        return res.status(400).json({ error: updatePermissionsError })
+        throw badRequest(updatePermissionsError)
       }
     }
 
@@ -1826,12 +1688,12 @@ router.put('/api-keys/batch', authenticateAdmin, async (req, res) => {
     if (updates.serviceRates !== undefined) {
       const updateServiceRatesError = validateServiceRates(updates.serviceRates)
       if (updateServiceRatesError) {
-        return res.status(400).json({ error: updateServiceRatesError })
+        throw badRequest(updateServiceRatesError)
       }
     }
 
-    logger.info(`🔄 Admin batch editing ${keyIds.length} API keys with updates: ${JSON.stringify(updates)}`)
-    logger.info(`🔍 Debug: keyIds received: ${JSON.stringify(keyIds)}`)
+    logger.info(`Admin batch editing ${keyIds.length} API keys with updates: ${JSON.stringify(updates)}`)
+    logger.info(`Debug: keyIds received: ${JSON.stringify(keyIds)}`)
 
     const results = {
       successCount: 0,
@@ -1979,7 +1841,7 @@ router.put('/api-keys/batch', authenticateAdmin, async (req, res) => {
             try {
               await weeklyInitService.backfillSingleKey(keyId)
             } catch (err) {
-              logger.error(`❌ 批量编辑回填单 Key 周费用失败 (${keyId})：`, err)
+              logger.error(`批量编辑回填单 Key 周费用失败 (${keyId})：`, err)
             }
           })
         }
@@ -1989,614 +1851,586 @@ router.put('/api-keys/batch', authenticateAdmin, async (req, res) => {
       } catch (error) {
         results.failedCount++
         results.errors.push(`Failed to update key ${keyId}: ${error.message}`)
-        logger.error(`❌ Batch edit failed for key ${keyId}:`, error)
+        logger.error(`Batch edit failed for key ${keyId}:`, error)
       }
     }
 
     // 记录批量编辑结果
     if (results.successCount > 0) {
-      logger.success(`🎉 Batch edit completed: ${results.successCount} successful, ${results.failedCount} failed`)
+      logger.success(`Batch edit completed: ${results.successCount} successful, ${results.failedCount} failed`)
     } else {
-      logger.warn(`⚠️ Batch edit completed with no successful updates: ${results.failedCount} failed`)
+      logger.warn(`Batch edit completed with no successful updates: ${results.failedCount} failed`)
     }
 
-    return res.json({
-      success: true,
-      message: `批量编辑完成`,
-      data: results,
-    })
-  } catch (error) {
-    logger.error('❌ Failed to batch edit API keys:', error)
-    return res.status(500).json({
-      error: 'Batch edit failed',
-      message: error.message,
-    })
-  }
-})
+    return ok(results, `批量编辑完成`)
+  }),
+)
 
 // 更新API Key
-router.put('/api-keys/:keyId', authenticateAdmin, async (req, res) => {
-  try {
-    const { keyId } = req.params
-    const {
-      name, // 添加名称字段
-      tokenLimit,
-      concurrencyLimit,
-      rateLimitWindow,
-      rateLimitRequests,
-      rateLimitCost,
-      isActive,
-      claudeAccountId,
-      claudeConsoleAccountId,
-      geminiAccountId,
-      openaiAccountId,
-      bedrockAccountId,
-      droidAccountId,
-      grokAccountId,
-      permissions,
-      enableModelRestriction,
-      restrictedModels,
-      enableClientRestriction,
-      allowedClients,
-      expiresAt,
-      dailyCostLimit,
-      totalCostLimit,
-      weeklyOpusCostLimit,
-      tags,
-      ownerId, // 新增：所有者ID字段
-      serviceRates, // API Key 级别服务倍率
-      weeklyResetDay, // 周费用重置日 (1-7)
-      weeklyResetHour, // 周费用重置时 (0-23)
-      enableOpenAIResponsesCodexAdaptation,
-      enableOpenAIResponsesPayloadRules,
-      openaiResponsesPayloadRules,
-    } = req.body
+router.put(
+  '/api-keys/:keyId',
+  authenticateAdmin,
+  asyncRoute('Failed to update API key', async (req) => {
+    try {
+      const { keyId } = req.params
+      const {
+        name, // 添加名称字段
+        tokenLimit,
+        concurrencyLimit,
+        rateLimitWindow,
+        rateLimitRequests,
+        rateLimitCost,
+        isActive,
+        claudeAccountId,
+        claudeConsoleAccountId,
+        geminiAccountId,
+        openaiAccountId,
+        bedrockAccountId,
+        droidAccountId,
+        grokAccountId,
+        permissions,
+        enableModelRestriction,
+        restrictedModels,
+        enableClientRestriction,
+        allowedClients,
+        expiresAt,
+        dailyCostLimit,
+        totalCostLimit,
+        weeklyOpusCostLimit,
+        tags,
+        ownerId, // 新增：所有者ID字段
+        serviceRates, // API Key 级别服务倍率
+        weeklyResetDay, // 周费用重置日 (1-7)
+        weeklyResetHour, // 周费用重置时 (0-23)
+        enableOpenAIResponsesCodexAdaptation,
+        enableOpenAIResponsesPayloadRules,
+        openaiResponsesPayloadRules,
+      } = parseObjectBody(req.body, '更新 API Key')
 
-    // 只允许更新指定字段
-    const updates = {}
+      // 只允许更新指定字段
+      const updates = {}
 
-    // 处理名称字段
-    if (name !== undefined && name !== null && name !== '') {
-      const trimmedName = name.toString().trim()
-      if (trimmedName.length === 0) {
-        return res.status(400).json({ error: 'API Key name cannot be empty' })
-      }
-      if (trimmedName.length > 100) {
-        return res.status(400).json({ error: 'API Key name must be less than 100 characters' })
-      }
-      updates.name = trimmedName
-    }
-
-    if (tokenLimit !== undefined && tokenLimit !== null && tokenLimit !== '') {
-      if (!Number.isInteger(Number(tokenLimit)) || Number(tokenLimit) < 0) {
-        return res.status(400).json({ error: 'Token limit must be a non-negative integer' })
-      }
-      updates.tokenLimit = Number(tokenLimit)
-    }
-
-    if (concurrencyLimit !== undefined && concurrencyLimit !== null && concurrencyLimit !== '') {
-      if (!Number.isInteger(Number(concurrencyLimit)) || Number(concurrencyLimit) < 0) {
-        return res.status(400).json({ error: 'Concurrency limit must be a non-negative integer' })
-      }
-      updates.concurrencyLimit = Number(concurrencyLimit)
-    }
-
-    if (rateLimitWindow !== undefined && rateLimitWindow !== null && rateLimitWindow !== '') {
-      if (!Number.isInteger(Number(rateLimitWindow)) || Number(rateLimitWindow) < 0) {
-        return res.status(400).json({ error: 'Rate limit window must be a non-negative integer (minutes)' })
-      }
-      updates.rateLimitWindow = Number(rateLimitWindow)
-    }
-
-    if (rateLimitRequests !== undefined && rateLimitRequests !== null && rateLimitRequests !== '') {
-      if (!Number.isInteger(Number(rateLimitRequests)) || Number(rateLimitRequests) < 0) {
-        return res.status(400).json({ error: 'Rate limit requests must be a non-negative integer' })
-      }
-      updates.rateLimitRequests = Number(rateLimitRequests)
-    }
-
-    if (rateLimitCost !== undefined && rateLimitCost !== null && rateLimitCost !== '') {
-      const cost = Number(rateLimitCost)
-      if (isNaN(cost) || cost < 0) {
-        return res.status(400).json({ error: 'Rate limit cost must be a non-negative number' })
-      }
-      updates.rateLimitCost = cost
-    }
-
-    if (claudeAccountId !== undefined) {
-      // 空字符串表示解绑，null或空字符串都设置为空字符串
-      updates.claudeAccountId = claudeAccountId || ''
-    }
-
-    if (claudeConsoleAccountId !== undefined) {
-      // 空字符串表示解绑，null或空字符串都设置为空字符串
-      updates.claudeConsoleAccountId = claudeConsoleAccountId || ''
-    }
-
-    if (geminiAccountId !== undefined) {
-      // 空字符串表示解绑，null或空字符串都设置为空字符串
-      updates.geminiAccountId = geminiAccountId || ''
-    }
-
-    if (openaiAccountId !== undefined) {
-      // 空字符串表示解绑，null或空字符串都设置为空字符串
-      updates.openaiAccountId = openaiAccountId || ''
-    }
-
-    if (bedrockAccountId !== undefined) {
-      // 空字符串表示解绑，null或空字符串都设置为空字符串
-      updates.bedrockAccountId = bedrockAccountId || ''
-    }
-
-    if (droidAccountId !== undefined) {
-      // 空字符串表示解绑，null或空字符串都设置为空字符串
-      updates.droidAccountId = droidAccountId || ''
-    }
-
-    if (grokAccountId !== undefined) {
-      updates.grokAccountId = grokAccountId || ''
-    }
-
-    if (permissions !== undefined) {
-      // 验证服务权限字段（支持数组格式）
-      const singlePermissionsError = validatePermissions(permissions)
-      if (singlePermissionsError) {
-        return res.status(400).json({ error: singlePermissionsError })
-      }
-      updates.permissions = permissions
-    }
-
-    // 处理模型限制字段
-    if (enableModelRestriction !== undefined) {
-      if (typeof enableModelRestriction !== 'boolean') {
-        return res.status(400).json({ error: 'Enable model restriction must be a boolean' })
-      }
-      updates.enableModelRestriction = enableModelRestriction
-    }
-
-    if (restrictedModels !== undefined) {
-      if (!Array.isArray(restrictedModels)) {
-        return res.status(400).json({ error: 'Restricted models must be an array' })
-      }
-      updates.restrictedModels = restrictedModels
-    }
-
-    // 处理客户端限制字段
-    if (enableClientRestriction !== undefined) {
-      if (typeof enableClientRestriction !== 'boolean') {
-        return res.status(400).json({ error: 'Enable client restriction must be a boolean' })
-      }
-      updates.enableClientRestriction = enableClientRestriction
-    }
-
-    if (allowedClients !== undefined) {
-      if (!Array.isArray(allowedClients)) {
-        return res.status(400).json({ error: 'Allowed clients must be an array' })
-      }
-      updates.allowedClients = allowedClients
-    }
-
-    // 处理过期时间字段
-    if (expiresAt !== undefined) {
-      if (expiresAt === null) {
-        // null 表示永不过期
-        updates.expiresAt = null
-        updates.isActive = true
-      } else {
-        // 验证日期格式
-        const expireDate = new Date(expiresAt)
-        if (isNaN(expireDate.getTime())) {
-          return res.status(400).json({ error: 'Invalid expiration date format' })
+      // 处理名称字段
+      if (name !== undefined && name !== null && name !== '') {
+        const trimmedName = name.toString().trim()
+        if (trimmedName.length === 0) {
+          throw badRequest('API Key name cannot be empty')
         }
-        updates.expiresAt = expiresAt
-        updates.isActive = expireDate > new Date() // 如果过期时间在当前时间之后，则设置为激活状态
+        if (trimmedName.length > 100) {
+          throw badRequest('API Key name must be less than 100 characters')
+        }
+        updates.name = trimmedName
       }
-    }
 
-    // 处理每日费用限制
-    if (dailyCostLimit !== undefined && dailyCostLimit !== null && dailyCostLimit !== '') {
-      const costLimit = Number(dailyCostLimit)
-      if (isNaN(costLimit) || costLimit < 0) {
-        return res.status(400).json({ error: 'Daily cost limit must be a non-negative number' })
+      if (tokenLimit !== undefined && tokenLimit !== null && tokenLimit !== '') {
+        if (!Number.isInteger(Number(tokenLimit)) || Number(tokenLimit) < 0) {
+          throw badRequest('Token limit must be a non-negative integer')
+        }
+        updates.tokenLimit = Number(tokenLimit)
       }
-      updates.dailyCostLimit = costLimit
-    }
 
-    if (totalCostLimit !== undefined && totalCostLimit !== null && totalCostLimit !== '') {
-      const costLimit = Number(totalCostLimit)
-      if (isNaN(costLimit) || costLimit < 0) {
-        return res.status(400).json({ error: 'Total cost limit must be a non-negative number' })
+      if (concurrencyLimit !== undefined && concurrencyLimit !== null && concurrencyLimit !== '') {
+        if (!Number.isInteger(Number(concurrencyLimit)) || Number(concurrencyLimit) < 0) {
+          throw badRequest('Concurrency limit must be a non-negative integer')
+        }
+        updates.concurrencyLimit = Number(concurrencyLimit)
       }
-      updates.totalCostLimit = costLimit
-    }
 
-    // 处理 Opus 周费用限制
-    if (weeklyOpusCostLimit !== undefined && weeklyOpusCostLimit !== null && weeklyOpusCostLimit !== '') {
-      const costLimit = Number(weeklyOpusCostLimit)
-      // 明确验证非负数（0 表示禁用，负数无意义）
-      if (isNaN(costLimit) || costLimit < 0) {
-        return res.status(400).json({ error: 'Weekly Opus cost limit must be a non-negative number' })
+      if (rateLimitWindow !== undefined && rateLimitWindow !== null && rateLimitWindow !== '') {
+        if (!Number.isInteger(Number(rateLimitWindow)) || Number(rateLimitWindow) < 0) {
+          throw badRequest('Rate limit window must be a non-negative integer (minutes)')
+        }
+        updates.rateLimitWindow = Number(rateLimitWindow)
       }
-      updates.weeklyOpusCostLimit = costLimit
-    }
 
-    // 处理标签
-    if (tags !== undefined) {
-      if (!Array.isArray(tags)) {
-        return res.status(400).json({ error: 'Tags must be an array' })
+      if (rateLimitRequests !== undefined && rateLimitRequests !== null && rateLimitRequests !== '') {
+        if (!Number.isInteger(Number(rateLimitRequests)) || Number(rateLimitRequests) < 0) {
+          throw badRequest('Rate limit requests must be a non-negative integer')
+        }
+        updates.rateLimitRequests = Number(rateLimitRequests)
       }
-      if (tags.some((tag) => typeof tag !== 'string' || tag.trim().length === 0)) {
-        return res.status(400).json({ error: 'All tags must be non-empty strings' })
-      }
-      updates.tags = tags
-    }
 
-    // 处理服务倍率
-    if (serviceRates !== undefined) {
-      const singleServiceRatesError = validateServiceRates(serviceRates)
-      if (singleServiceRatesError) {
-        return res.status(400).json({ error: singleServiceRatesError })
+      if (rateLimitCost !== undefined && rateLimitCost !== null && rateLimitCost !== '') {
+        const cost = Number(rateLimitCost)
+        if (isNaN(cost) || cost < 0) {
+          throw badRequest('Rate limit cost must be a non-negative number')
+        }
+        updates.rateLimitCost = cost
       }
-      updates.serviceRates = serviceRates
-    }
 
-    if (enableOpenAIResponsesCodexAdaptation !== undefined) {
-      if (typeof enableOpenAIResponsesCodexAdaptation !== 'boolean') {
-        return res.status(400).json({ error: 'enableOpenAIResponsesCodexAdaptation must be a boolean' })
+      if (claudeAccountId !== undefined) {
+        // 空字符串表示解绑，null或空字符串都设置为空字符串
+        updates.claudeAccountId = claudeAccountId || ''
       }
-      updates.enableOpenAIResponsesCodexAdaptation = enableOpenAIResponsesCodexAdaptation
-    }
 
-    if (enableOpenAIResponsesPayloadRules !== undefined) {
-      if (typeof enableOpenAIResponsesPayloadRules !== 'boolean') {
-        return res.status(400).json({ error: 'enableOpenAIResponsesPayloadRules must be a boolean' })
+      if (claudeConsoleAccountId !== undefined) {
+        // 空字符串表示解绑，null或空字符串都设置为空字符串
+        updates.claudeConsoleAccountId = claudeConsoleAccountId || ''
       }
-      updates.enableOpenAIResponsesPayloadRules = enableOpenAIResponsesPayloadRules
-    }
 
-    if (openaiResponsesPayloadRules !== undefined) {
-      const payloadRulesValidation = requestBodyRuleService.validateAndNormalizeRules(openaiResponsesPayloadRules)
-      if (!payloadRulesValidation.valid) {
-        return res.status(400).json({ error: payloadRulesValidation.error })
+      if (geminiAccountId !== undefined) {
+        // 空字符串表示解绑，null或空字符串都设置为空字符串
+        updates.geminiAccountId = geminiAccountId || ''
       }
-      updates.openaiResponsesPayloadRules = payloadRulesValidation.rules
-    }
 
-    // 处理周费用重置配置
-    let resetConfigChanged = false
-    if (weeklyResetDay !== undefined && weeklyResetDay !== null && weeklyResetDay !== '') {
-      const day = Number(weeklyResetDay)
-      if (!Number.isInteger(day) || day < 1 || day > 7) {
-        return res.status(400).json({ error: 'Weekly reset day must be an integer from 1 (Mon) to 7 (Sun)' })
+      if (openaiAccountId !== undefined) {
+        // 空字符串表示解绑，null或空字符串都设置为空字符串
+        updates.openaiAccountId = openaiAccountId || ''
       }
-      updates.weeklyResetDay = day
-      resetConfigChanged = true
-    }
-    if (weeklyResetHour !== undefined && weeklyResetHour !== null && weeklyResetHour !== '') {
-      const hour = Number(weeklyResetHour)
-      if (!Number.isInteger(hour) || hour < 0 || hour > 23) {
-        return res.status(400).json({ error: 'Weekly reset hour must be an integer from 0 to 23' })
-      }
-      updates.weeklyResetHour = hour
-      resetConfigChanged = true
-    }
 
-    // 处理活跃/禁用状态状态, 放在过期处理后，以确保后续增加禁用key功能
-    if (isActive !== undefined) {
-      if (typeof isActive !== 'boolean') {
-        return res.status(400).json({ error: 'isActive must be a boolean' })
+      if (bedrockAccountId !== undefined) {
+        // 空字符串表示解绑，null或空字符串都设置为空字符串
+        updates.bedrockAccountId = bedrockAccountId || ''
       }
-      updates.isActive = isActive
-    }
 
-    // 处理所有者变更
-    if (ownerId !== undefined) {
-      if (ownerId === 'admin') {
-        // 分配给Admin
-        updates.userId = ''
-        updates.userUsername = ''
-        updates.createdBy = 'admin'
-      } else if (ownerId) {
-        // 分配给用户
-        try {
-          const user = await userService.getUserById(ownerId, false)
-          if (!user) {
-            return res.status(400).json({ error: 'Invalid owner: User not found' })
+      if (droidAccountId !== undefined) {
+        // 空字符串表示解绑，null或空字符串都设置为空字符串
+        updates.droidAccountId = droidAccountId || ''
+      }
+
+      if (grokAccountId !== undefined) {
+        updates.grokAccountId = grokAccountId || ''
+      }
+
+      if (permissions !== undefined) {
+        // 验证服务权限字段（支持数组格式）
+        const singlePermissionsError = validatePermissions(permissions)
+        if (singlePermissionsError) {
+          throw badRequest(singlePermissionsError)
+        }
+        updates.permissions = permissions
+      }
+
+      // 处理模型限制字段
+      if (enableModelRestriction !== undefined) {
+        if (typeof enableModelRestriction !== 'boolean') {
+          throw badRequest('Enable model restriction must be a boolean')
+        }
+        updates.enableModelRestriction = enableModelRestriction
+      }
+
+      if (restrictedModels !== undefined) {
+        if (!Array.isArray(restrictedModels)) {
+          throw badRequest('Restricted models must be an array')
+        }
+        updates.restrictedModels = restrictedModels
+      }
+
+      // 处理客户端限制字段
+      if (enableClientRestriction !== undefined) {
+        if (typeof enableClientRestriction !== 'boolean') {
+          throw badRequest('Enable client restriction must be a boolean')
+        }
+        updates.enableClientRestriction = enableClientRestriction
+      }
+
+      if (allowedClients !== undefined) {
+        if (!Array.isArray(allowedClients)) {
+          throw badRequest('Allowed clients must be an array')
+        }
+        updates.allowedClients = allowedClients
+      }
+
+      // 处理过期时间字段
+      if (expiresAt !== undefined) {
+        if (expiresAt === null) {
+          // null 表示永不过期
+          updates.expiresAt = null
+          updates.isActive = true
+        } else {
+          // 验证日期格式
+          const expireDate = new Date(expiresAt)
+          if (isNaN(expireDate.getTime())) {
+            throw badRequest('Invalid expiration date format')
           }
-          if (!user.isActive) {
-            return res.status(400).json({ error: 'Cannot assign to inactive user' })
-          }
-
-          // 设置新的所有者信息
-          updates.userId = ownerId
-          updates.userUsername = user.username
-          updates.createdBy = user.username
-
-          // 管理员重新分配时，不检查用户的API Key数量限制
-          logger.info(`🔄 Admin reassigning API key ${keyId} to user ${user.username}`)
-        } catch (error) {
-          logger.error('Error fetching user for owner reassignment:', error)
-          return res.status(400).json({ error: 'Invalid owner ID' })
+          updates.expiresAt = expiresAt
+          updates.isActive = expireDate > new Date() // 如果过期时间在当前时间之后，则设置为激活状态
         }
-      } else {
-        // 清空所有者（分配给Admin）
-        updates.userId = ''
-        updates.userUsername = ''
-        updates.createdBy = 'admin'
       }
-    }
 
-    await apiKeyService.updateApiKey(keyId, updates, {
-      operator: req.admin?.username || 'admin',
-      operatorType: 'admin',
-      // 仅请求体显式带 isActive 时记禁用/激活流水；改过期时间顺带写 isActive 不记，避免污染
-      recordIsActiveHistory: isActive !== undefined,
-    })
-
-    // 重置配置变更后触发单 Key 回填
-    if (resetConfigChanged) {
-      setImmediate(async () => {
-        try {
-          await weeklyInitService.backfillSingleKey(keyId)
-        } catch (err) {
-          logger.error(`❌ 回填单 Key 周费用失败 (${keyId})：`, err)
+      // 处理每日费用限制
+      if (dailyCostLimit !== undefined && dailyCostLimit !== null && dailyCostLimit !== '') {
+        const costLimit = Number(dailyCostLimit)
+        if (isNaN(costLimit) || costLimit < 0) {
+          throw badRequest('Daily cost limit must be a non-negative number')
         }
+        updates.dailyCostLimit = costLimit
+      }
+
+      if (totalCostLimit !== undefined && totalCostLimit !== null && totalCostLimit !== '') {
+        const costLimit = Number(totalCostLimit)
+        if (isNaN(costLimit) || costLimit < 0) {
+          throw badRequest('Total cost limit must be a non-negative number')
+        }
+        updates.totalCostLimit = costLimit
+      }
+
+      // 处理 Opus 周费用限制
+      if (weeklyOpusCostLimit !== undefined && weeklyOpusCostLimit !== null && weeklyOpusCostLimit !== '') {
+        const costLimit = Number(weeklyOpusCostLimit)
+        // 明确验证非负数（0 表示禁用，负数无意义）
+        if (isNaN(costLimit) || costLimit < 0) {
+          throw badRequest('Weekly Opus cost limit must be a non-negative number')
+        }
+        updates.weeklyOpusCostLimit = costLimit
+      }
+
+      // 处理标签
+      if (tags !== undefined) {
+        if (!Array.isArray(tags)) {
+          throw badRequest('Tags must be an array')
+        }
+        if (tags.some((tag) => typeof tag !== 'string' || tag.trim().length === 0)) {
+          throw badRequest('All tags must be non-empty strings')
+        }
+        updates.tags = tags
+      }
+
+      // 处理服务倍率
+      if (serviceRates !== undefined) {
+        const singleServiceRatesError = validateServiceRates(serviceRates)
+        if (singleServiceRatesError) {
+          throw badRequest(singleServiceRatesError)
+        }
+        updates.serviceRates = serviceRates
+      }
+
+      if (enableOpenAIResponsesCodexAdaptation !== undefined) {
+        if (typeof enableOpenAIResponsesCodexAdaptation !== 'boolean') {
+          throw badRequest('enableOpenAIResponsesCodexAdaptation must be a boolean')
+        }
+        updates.enableOpenAIResponsesCodexAdaptation = enableOpenAIResponsesCodexAdaptation
+      }
+
+      if (enableOpenAIResponsesPayloadRules !== undefined) {
+        if (typeof enableOpenAIResponsesPayloadRules !== 'boolean') {
+          throw badRequest('enableOpenAIResponsesPayloadRules must be a boolean')
+        }
+        updates.enableOpenAIResponsesPayloadRules = enableOpenAIResponsesPayloadRules
+      }
+
+      if (openaiResponsesPayloadRules !== undefined) {
+        const payloadRulesValidation = requestBodyRuleService.validateAndNormalizeRules(openaiResponsesPayloadRules)
+        if (!payloadRulesValidation.valid) {
+          throw badRequest(payloadRulesValidation.error)
+        }
+        updates.openaiResponsesPayloadRules = payloadRulesValidation.rules
+      }
+
+      // 处理周费用重置配置
+      let resetConfigChanged = false
+      if (weeklyResetDay !== undefined && weeklyResetDay !== null && weeklyResetDay !== '') {
+        const day = Number(weeklyResetDay)
+        if (!Number.isInteger(day) || day < 1 || day > 7) {
+          throw badRequest('Weekly reset day must be an integer from 1 (Mon) to 7 (Sun)')
+        }
+        updates.weeklyResetDay = day
+        resetConfigChanged = true
+      }
+      if (weeklyResetHour !== undefined && weeklyResetHour !== null && weeklyResetHour !== '') {
+        const hour = Number(weeklyResetHour)
+        if (!Number.isInteger(hour) || hour < 0 || hour > 23) {
+          throw badRequest('Weekly reset hour must be an integer from 0 to 23')
+        }
+        updates.weeklyResetHour = hour
+        resetConfigChanged = true
+      }
+
+      // 处理活跃/禁用状态状态, 放在过期处理后，以确保后续增加禁用key功能
+      if (isActive !== undefined) {
+        if (typeof isActive !== 'boolean') {
+          throw badRequest('isActive must be a boolean')
+        }
+        updates.isActive = isActive
+      }
+
+      // 处理所有者变更
+      if (ownerId !== undefined) {
+        if (ownerId === 'admin') {
+          // 分配给Admin
+          updates.userId = ''
+          updates.userUsername = ''
+          updates.createdBy = 'admin'
+        } else if (ownerId) {
+          // 分配给用户
+          try {
+            const user = await userService.getUserById(ownerId, false)
+            if (!user) {
+              throw badRequest('Invalid owner: User not found')
+            }
+            if (!user.isActive) {
+              throw badRequest('Cannot assign to inactive user')
+            }
+
+            // 设置新的所有者信息
+            updates.userId = ownerId
+            updates.userUsername = user.username
+            updates.createdBy = user.username
+
+            // 管理员重新分配时，不检查用户的API Key数量限制
+            logger.info(`Admin reassigning API key ${keyId} to user ${user.username}`)
+          } catch (error) {
+            logger.error('Error fetching user for owner reassignment:', error)
+            throw badRequest('Invalid owner ID')
+          }
+        } else {
+          // 清空所有者（分配给Admin）
+          updates.userId = ''
+          updates.userUsername = ''
+          updates.createdBy = 'admin'
+        }
+      }
+
+      await apiKeyService.updateApiKey(keyId, updates, {
+        operator: req.admin?.username || 'admin',
+        operatorType: 'admin',
+        // 仅请求体显式带 isActive 时记禁用/激活流水；改过期时间顺带写 isActive 不记，避免污染
+        recordIsActiveHistory: isActive !== undefined,
       })
-    }
 
-    logger.success(`📝 Admin updated API key: ${keyId}`)
-    return res.json({ success: true, message: 'API key updated successfully' })
-  } catch (error) {
-    logger.error('❌ Failed to update API key:', error)
-    // 已删除的 Key 不能走普通更新（须先恢复）——业务拒绝，返回 409 而非通用 500
-    if (error.message === 'Cannot update a deleted API key; restore it first') {
-      return res.status(409).json({ error: '该 API Key 已删除，请先恢复后再编辑', message: error.message })
+      // 重置配置变更后触发单 Key 回填
+      if (resetConfigChanged) {
+        setImmediate(async () => {
+          try {
+            await weeklyInitService.backfillSingleKey(keyId)
+          } catch (err) {
+            logger.error(`回填单 Key 周费用失败 (${keyId})：`, err)
+          }
+        })
+      }
+
+      logger.success(`Admin updated API key: ${keyId}`)
+      return ok(undefined, 'API key updated successfully')
+    } catch (error) {
+      if (error.message === 'Cannot update a deleted API key; restore it first') {
+        throw conflict('该 API Key 已删除，请先恢复后再编辑')
+      }
+      throw error
     }
-    return res.status(500).json({ error: 'Failed to update API key', message: error.message })
-  }
-})
+  }),
+)
 
 // 修改API Key过期时间（包括手动激活功能）
-router.patch('/api-keys/:keyId/expiration', authenticateAdmin, async (req, res) => {
-  try {
-    const { keyId } = req.params
-    const { expiresAt, activateNow } = req.body
+router.patch(
+  '/api-keys/:keyId/expiration',
+  authenticateAdmin,
+  asyncRoute('Failed to update API key expiration', async (req) => {
+    try {
+      const { keyId } = req.params
+      const { expiresAt, activateNow } = parseObjectBody(req.body, '更新 API Key 过期')
 
-    // 获取当前API Key信息
-    const keyData = await redis.getApiKey(keyId)
-    if (!keyData || Object.keys(keyData).length === 0) {
-      return res.status(404).json({ error: 'API key not found' })
-    }
-
-    const updates = {}
-
-    // 如果是激活操作（用于未激活的key）
-    if (activateNow === true) {
-      if (keyData.expirationMode === 'activation' && keyData.isActivated !== 'true') {
-        const now = new Date()
-        const activationDays = parseInt(keyData.activationDays || 30)
-        const newExpiresAt = new Date(now.getTime() + activationDays * 24 * 60 * 60 * 1000)
-
-        updates.isActivated = 'true'
-        updates.activatedAt = now.toISOString()
-        updates.expiresAt = newExpiresAt.toISOString()
-        // 成功日志移到 updateApiKey 成功之后再记，避免已删除 key 被 409 拒绝后仍留下"已激活"的假审计记录
-      } else {
-        return res.status(400).json({
-          error: 'Cannot activate',
-          message: 'Key is either already activated or not in activation mode',
-        })
-      }
-    }
-
-    // 如果提供了新的过期时间（但不是激活操作）
-    if (expiresAt !== undefined && activateNow !== true) {
-      // 验证过期时间格式
-      if (expiresAt && isNaN(Date.parse(expiresAt))) {
-        return res.status(400).json({ error: 'Invalid expiration date format' })
+      // 获取当前API Key信息
+      const keyData = await redis.getApiKey(keyId)
+      if (!keyData || Object.keys(keyData).length === 0) {
+        throw notFound('API key not found')
       }
 
-      // 如果设置了过期时间，确保key是激活状态
-      if (expiresAt) {
-        const expireDate = new Date(expiresAt)
-        updates.expiresAt = expireDate.toISOString()
-        // 如果之前是未激活状态，现在激活它
-        if (keyData.isActivated !== 'true') {
+      const updates = {}
+
+      // 如果是激活操作（用于未激活的key）
+      if (activateNow === true) {
+        if (keyData.expirationMode === 'activation' && keyData.isActivated !== 'true') {
+          const now = new Date()
+          const activationDays = parseInt(keyData.activationDays || 30)
+          const newExpiresAt = new Date(now.getTime() + activationDays * 24 * 60 * 60 * 1000)
+
           updates.isActivated = 'true'
-          updates.activatedAt = new Date().toISOString()
+          updates.activatedAt = now.toISOString()
+          updates.expiresAt = newExpiresAt.toISOString()
+          // 成功日志移到 updateApiKey 成功之后再记，避免已删除 key 被 409 拒绝后仍留下"已激活"的假审计记录
+        } else {
+          throw badRequest('Key is either already activated or not in activation mode')
         }
-        // [人工决策-2026-08-11 11:12:34] 过期编辑与续期 PUT 对齐：未来过期则恢复 isActive，过去则保持禁用语义
-        updates.isActive = expireDate > new Date()
-      } else {
-        // 清除过期时间（永不过期）
-        updates.expiresAt = ''
-        // [人工决策-2026-08-11 11:12:34] 永不过期与续期 PUT null 路径对齐，恢复启用
+      }
+
+      // 如果提供了新的过期时间（但不是激活操作）
+      if (expiresAt !== undefined && activateNow !== true) {
+        // 验证过期时间格式
+        if (expiresAt && isNaN(Date.parse(expiresAt))) {
+          throw badRequest('Invalid expiration date format')
+        }
+
+        // 如果设置了过期时间，确保key是激活状态
+        if (expiresAt) {
+          const expireDate = new Date(expiresAt)
+          updates.expiresAt = expireDate.toISOString()
+          // 如果之前是未激活状态，现在激活它
+          if (keyData.isActivated !== 'true') {
+            updates.isActivated = 'true'
+            updates.activatedAt = new Date().toISOString()
+          }
+          // [人工决策-2026-08-11 11:12:34] 过期编辑与续期 PUT 对齐：未来过期则恢复 isActive，过去则保持禁用语义
+          updates.isActive = expireDate > new Date()
+        } else {
+          // 清除过期时间（永不过期）
+          updates.expiresAt = ''
+          // [人工决策-2026-08-11 11:12:34] 永不过期与续期 PUT null 路径对齐，恢复启用
+          updates.isActive = true
+        }
+      }
+
+      // activateNow 路径：首次激活后过期时间已在未来，同步恢复 isActive
+      if (activateNow === true && updates.expiresAt) {
         updates.isActive = true
       }
-    }
 
-    // activateNow 路径：首次激活后过期时间已在未来，同步恢复 isActive
-    if (activateNow === true && updates.expiresAt) {
-      updates.isActive = true
-    }
+      if (Object.keys(updates).length === 0) {
+        throw badRequest('No valid updates provided')
+      }
 
-    if (Object.keys(updates).length === 0) {
-      return res.status(400).json({ error: 'No valid updates provided' })
-    }
+      // 更新API Key
+      await apiKeyService.updateApiKey(keyId, updates, {
+        operator: req.admin?.username || 'admin',
+        operatorType: 'admin',
+        // 本路由只改过期/首次激活字段，不记禁用激活流水
+        recordIsActiveHistory: false,
+      })
 
-    // 更新API Key
-    await apiKeyService.updateApiKey(keyId, updates, {
-      operator: req.admin?.username || 'admin',
-      operatorType: 'admin',
-      // 本路由只改过期/首次激活字段，不记禁用激活流水
-      recordIsActiveHistory: false,
-    })
-
-    // 更新成功后再记审计日志（区分手动激活 / 仅改过期时间）——失败时不会留下假成功记录
-    if (activateNow === true) {
-      logger.success(
-        `🔓 API key manually activated by admin: ${keyId} (${keyData.name}), expires at ${updates.expiresAt}`,
-      )
-    } else {
-      logger.success(`📝 Updated API key expiration: ${keyId} (${keyData.name})`)
+      // 更新成功后再记审计日志（区分手动激活 / 仅改过期时间）——失败时不会留下假成功记录
+      if (activateNow === true) {
+        logger.success(
+          `API key manually activated by admin: ${keyId} (${keyData.name}), expires at ${updates.expiresAt}`,
+        )
+      } else {
+        logger.success(`Updated API key expiration: ${keyId} (${keyData.name})`)
+      }
+      return ok({ updates }, 'API key expiration updated successfully')
+    } catch (error) {
+      if (error.message === 'Cannot update a deleted API key; restore it first') {
+        throw conflict('该 API Key 已删除，请先恢复后再编辑')
+      }
+      throw error
     }
-    return res.json({
-      success: true,
-      message: 'API key expiration updated successfully',
-      updates,
-    })
-  } catch (error) {
-    logger.error('❌ Failed to update API key expiration:', error)
-    // 已删除的 Key 不能走普通更新（须先恢复）——业务拒绝，返回 409 而非通用 500
-    if (error.message === 'Cannot update a deleted API key; restore it first') {
-      return res.status(409).json({ error: '该 API Key 已删除，请先恢复后再编辑', message: error.message })
-    }
-    return res.status(500).json({
-      error: 'Failed to update API key expiration',
-      message: error.message,
-    })
-  }
-})
+  }),
+)
 
 // 快捷调整 API Key：增加总额度上限 / 延长有效期（合并操作）
-router.post('/api-keys/:keyId/quick-adjust', authenticateAdmin, async (req, res) => {
-  try {
-    const { keyId } = req.params
-    const { addCostLimit, extendAmount, extendUnit } = req.body
-    const operator = req.admin?.username || 'admin'
-    const historyOptions = {
-      recordHistory: true,
-      // 管理员快捷调整专属：恢复启用 + activation 立即激活；核销等旁路不传
-      restoreActiveOnExtend: true,
-      operator,
-      operatorType: 'admin',
-    }
-
-    const keyData = await redis.getApiKey(keyId)
-    if (!keyData || Object.keys(keyData).length === 0) {
-      return res.status(404).json({ error: 'API key not found' })
-    }
-
-    // 至少要有一项调整
-    const wantAddCost = addCostLimit !== undefined && addCostLimit !== null && addCostLimit !== ''
-    const wantExtend = extendAmount !== undefined && extendAmount !== null && extendAmount !== ''
-    if (!wantAddCost && !wantExtend) {
-      return res.status(400).json({ error: '请至少提供增加额度或延长有效期其中一项' })
-    }
-
-    const result = {}
-
-    // 增加总额度上限（后付费）；预付费 key 的余额走充值，不能改上限
-    if (wantAddCost) {
-      const amount = parseFloat(addCostLimit)
-      if (isNaN(amount) || amount <= 0) {
-        return res.status(400).json({ error: '增加额度必须是大于 0 的数字' })
+router.post(
+  '/api-keys/:keyId/quick-adjust',
+  authenticateAdmin,
+  asyncRoute('Failed to quick-adjust API key', async (req) => {
+    try {
+      const { keyId } = req.params
+      const { addCostLimit, extendAmount, extendUnit } = parseObjectBody(req.body, '快捷调整 API Key')
+      const operator = req.admin?.username || 'admin'
+      const historyOptions = {
+        recordHistory: true,
+        // 管理员快捷调整专属：恢复启用 + activation 立即激活；核销等旁路不传
+        restoreActiveOnExtend: true,
+        operator,
+        operatorType: 'admin',
       }
-      if (keyData.billingMode === 'prepaid') {
-        return res.status(400).json({
-          error: '该 API Key 为预付费模式，请通过充值调整余额，不能修改额度上限',
-        })
-      }
-      const r = await apiKeyService.addTotalCostLimit(keyId, amount, historyOptions)
-      result.newTotalCostLimit = r.newTotalCostLimit
-    }
 
-    // 延长有效期
-    if (wantExtend) {
-      const amount = parseFloat(extendAmount)
-      if (isNaN(amount) || amount <= 0) {
-        return res.status(400).json({ error: '延长时长必须是大于 0 的数字' })
+      const keyData = await redis.getApiKey(keyId)
+      if (!keyData || Object.keys(keyData).length === 0) {
+        throw notFound('API key not found')
       }
-      const unit = ['days', 'hours', 'months'].includes(extendUnit) ? extendUnit : 'days'
-      const r = await apiKeyService.extendExpiry(keyId, amount, unit, historyOptions)
-      result.newExpiresAt = r.newExpiresAt
-      result.isActive = r.isActive
-      result.isActivated = r.isActivated
-      result.activatedAt = r.activatedAt
-    }
 
-    logger.success(`⚡ Quick-adjusted API key: ${keyId} (${keyData.name}) by ${operator}`)
-    return res.json({ success: true, message: '快捷调整成功', ...result })
-  } catch (error) {
-    logger.error('❌ Failed to quick-adjust API key:', error)
-    if (error.message === 'Cannot update a deleted API key; restore it first') {
-      return res.status(409).json({ error: error.message })
+      // 至少要有一项调整
+      const wantAddCost = addCostLimit !== undefined && addCostLimit !== null && addCostLimit !== ''
+      const wantExtend = extendAmount !== undefined && extendAmount !== null && extendAmount !== ''
+      if (!wantAddCost && !wantExtend) {
+        throw badRequest('请至少提供增加额度或延长有效期其中一项')
+      }
+
+      const result = {}
+
+      // 增加总额度上限（后付费）；预付费 key 的余额走充值，不能改上限
+      if (wantAddCost) {
+        const amount = parseFloat(addCostLimit)
+        if (isNaN(amount) || amount <= 0) {
+          throw badRequest('增加额度必须是大于 0 的数字')
+        }
+        if (keyData.billingMode === 'prepaid') {
+          throw badRequest('该 API Key 为预付费模式，请通过充值调整余额，不能修改额度上限')
+        }
+        const r = await apiKeyService.addTotalCostLimit(keyId, amount, historyOptions)
+        result.newTotalCostLimit = r.newTotalCostLimit
+      }
+
+      // 延长有效期
+      if (wantExtend) {
+        const amount = parseFloat(extendAmount)
+        if (isNaN(amount) || amount <= 0) {
+          throw badRequest('延长时长必须是大于 0 的数字')
+        }
+        const unit = ['days', 'hours', 'months'].includes(extendUnit) ? extendUnit : 'days'
+        const r = await apiKeyService.extendExpiry(keyId, amount, unit, historyOptions)
+        result.newExpiresAt = r.newExpiresAt
+        result.isActive = r.isActive
+        result.isActivated = r.isActivated
+        result.activatedAt = r.activatedAt
+      }
+
+      logger.success(`Quick-adjusted API key: ${keyId} (${keyData.name}) by ${operator}`)
+      return ok({ ...result }, '快捷调整成功')
+    } catch (error) {
+      if (error.message === 'Cannot update a deleted API key; restore it first') {
+        throw conflict(error.message)
+      }
+      throw error
     }
-    return res.status(500).json({ error: 'Failed to quick-adjust API key', message: error.message })
-  }
-})
+  }),
+)
 
 // 分页查询 API Key 变更流水（快捷调整 / 禁用激活）
-router.get('/api-keys/:keyId/change-history', authenticateAdmin, async (req, res) => {
-  try {
+router.get(
+  '/api-keys/:keyId/change-history',
+  authenticateAdmin,
+  asyncRoute('Failed to get API key change history', async (req) => {
     const { keyId } = req.params
     const keyData = await redis.getApiKey(keyId)
     if (!keyData || Object.keys(keyData).length === 0) {
-      return res.status(404).json({ error: 'API key not found' })
+      throw notFound('API key not found')
     }
 
     const page = parseInt(req.query.page, 10) || 1
     const pageSize = parseInt(req.query.pageSize, 10) || 20
     const data = await apiKeyService.getChangeHistory(keyId, { page, pageSize })
 
-    return res.json({
-      success: true,
-      data: {
-        keyId,
-        keyName: keyData.name || '',
-        ...data,
-      },
-    })
-  } catch (error) {
-    logger.error('❌ Failed to get API key change history:', error)
-    return res.status(500).json({
-      error: 'Failed to get API key change history',
-      message: error.message,
-    })
-  }
-})
+    return {
+      keyId,
+      keyName: keyData.name || '',
+      ...data,
+    }
+  }),
+)
 
 // 批量删除API Keys（必须在 :keyId 路由之前定义）
-router.delete('/api-keys/batch', authenticateAdmin, async (req, res) => {
-  try {
-    const { keyIds } = req.body
+router.delete(
+  '/api-keys/batch',
+  authenticateAdmin,
+  asyncRoute('Failed to batch delete API keys', async (req) => {
+    const body = parseObjectBody(req.body, '批量删除 API Key')
+    const { keyIds } = body
 
     // 调试信息
-    logger.info(`🐛 Batch delete request body: ${JSON.stringify(req.body)}`)
-    logger.info(`🐛 keyIds type: ${typeof keyIds}, value: ${JSON.stringify(keyIds)}`)
+    logger.info(`Batch delete request body: ${JSON.stringify(body)}`)
+    logger.info(`keyIds type: ${typeof keyIds}, value: ${JSON.stringify(keyIds)}`)
 
     // 参数验证
     if (!keyIds || !Array.isArray(keyIds) || keyIds.length === 0) {
       logger.warn(
-        `🚨 Invalid keyIds: ${JSON.stringify({
+        `Invalid keyIds: ${JSON.stringify({
           keyIds,
           type: typeof keyIds,
           isArray: Array.isArray(keyIds),
         })}`,
       )
-      return res.status(400).json({
-        error: 'Invalid request',
-        message: 'keyIds 必须是一个非空数组',
-      })
+      throw badRequest('keyIds 必须是一个非空数组')
     }
 
     if (keyIds.length > 100) {
-      return res.status(400).json({
-        error: 'Too many keys',
-        message: '每次最多只能删除100个API Keys',
-      })
+      throw badRequest('每次最多只能删除100个API Keys')
     }
 
     // 验证keyIds格式
     const invalidKeys = keyIds.filter((id) => !id || typeof id !== 'string')
     if (invalidKeys.length > 0) {
-      return res.status(400).json({
-        error: 'Invalid key IDs',
-        message: '包含无效的API Key ID',
-      })
+      throw badRequest('包含无效的API Key ID')
     }
 
-    logger.info(`🗑️ Admin attempting batch delete of ${keyIds.length} API keys: ${JSON.stringify(keyIds)}`)
+    logger.info(`Admin attempting batch delete of ${keyIds.length} API keys: ${JSON.stringify(keyIds)}`)
 
     const results = {
       successCount: 0,
@@ -2627,49 +2461,40 @@ router.delete('/api-keys/batch', authenticateAdmin, async (req, res) => {
           error: error.message || '删除失败',
         })
 
-        logger.error(`❌ Batch delete failed for key ${keyId}:`, error)
+        logger.error(`Batch delete failed for key ${keyId}:`, error)
       }
     }
 
     // 记录批量删除结果
     if (results.successCount > 0) {
-      logger.success(`🎉 Batch delete completed: ${results.successCount} successful, ${results.failedCount} failed`)
+      logger.success(`Batch delete completed: ${results.successCount} successful, ${results.failedCount} failed`)
     } else {
-      logger.warn(`⚠️ Batch delete completed with no successful deletions: ${results.failedCount} failed`)
+      logger.warn(`Batch delete completed with no successful deletions: ${results.failedCount} failed`)
     }
 
-    return res.json({
-      success: true,
-      message: `批量删除完成`,
-      data: results,
-    })
-  } catch (error) {
-    logger.error('❌ Failed to batch delete API keys:', error)
-    return res.status(500).json({
-      error: 'Batch delete failed',
-      message: error.message,
-    })
-  }
-})
+    return ok(results, `批量删除完成`)
+  }),
+)
 
 // 删除单个API Key（必须在批量删除路由之后定义）
-router.delete('/api-keys/:keyId', authenticateAdmin, async (req, res) => {
-  try {
+router.delete(
+  '/api-keys/:keyId',
+  authenticateAdmin,
+  asyncRoute('Failed to delete API key', async (req) => {
     const { keyId } = req.params
 
     await apiKeyService.deleteApiKey(keyId, req.admin.username, 'admin')
 
-    logger.success(`🗑️ Admin deleted API key: ${keyId}`)
-    return res.json({ success: true, message: 'API key deleted successfully' })
-  } catch (error) {
-    logger.error('❌ Failed to delete API key:', error)
-    return res.status(500).json({ error: 'Failed to delete API key', message: error.message })
-  }
-})
+    logger.success(`Admin deleted API key: ${keyId}`)
+    return ok(undefined, 'API key deleted successfully')
+  }),
+)
 
-// 📋 获取已删除的API Keys（分页）
-router.get('/api-keys/deleted', authenticateAdmin, async (req, res) => {
-  try {
+// 获取已删除的API Keys（分页）
+router.get(
+  '/api-keys/deleted',
+  authenticateAdmin,
+  asyncRoute('Failed to get deleted API keys', async (req) => {
     const pageNum = Math.max(1, parseInt(req.query.page) || 1)
     const pageSizeNum = [10, 20, 50, 100].includes(parseInt(req.query.pageSize)) ? parseInt(req.query.pageSize) : 20
     const search = typeof req.query.search === 'string' ? req.query.search : ''
@@ -2688,148 +2513,117 @@ router.get('/api-keys/deleted', authenticateAdmin, async (req, res) => {
     }))
 
     logger.success(
-      `📋 Admin retrieved ${enrichedKeys.length}/${pagination.total} deleted API keys (page ${pagination.page})`,
+      `Admin retrieved ${enrichedKeys.length}/${pagination.total} deleted API keys (page ${pagination.page})`,
     )
-    return res.json({ success: true, apiKeys: enrichedKeys, pagination, total: pagination.total })
-  } catch (error) {
-    logger.error('❌ Failed to get deleted API keys:', error)
-    return res.status(500).json({ error: 'Failed to retrieve deleted API keys', message: error.message })
-  }
-})
+    return { apiKeys: enrichedKeys, pagination, total: pagination.total }
+  }),
+)
 
-// 🔄 恢复已删除的API Key
-router.post('/api-keys/:keyId/restore', authenticateAdmin, async (req, res) => {
-  try {
-    const { keyId } = req.params
-    const adminUsername = req.session?.admin?.username || 'unknown'
+// 恢复已删除的API Key
+router.post(
+  '/api-keys/:keyId/restore',
+  authenticateAdmin,
+  asyncRoute('Failed to restore API key', async (req) => {
+    try {
+      const { keyId } = req.params
+      const adminUsername = req.session?.admin?.username || 'unknown'
 
-    // 调用服务层的恢复方法
-    const result = await apiKeyService.restoreApiKey(keyId, adminUsername, 'admin')
+      // 调用服务层的恢复方法
+      const result = await apiKeyService.restoreApiKey(keyId, adminUsername, 'admin')
 
-    if (result.success) {
-      logger.success(`Admin ${adminUsername} restored API key: ${keyId}`)
-      return res.json({
-        success: true,
-        message: 'API Key 已成功恢复',
-        apiKey: result.apiKey,
-      })
-    } else {
-      return res.status(400).json({
-        success: false,
-        error: 'Failed to restore API key',
-      })
+      if (result.success) {
+        logger.success(`Admin ${adminUsername} restored API key: ${keyId}`)
+        return ok({ apiKey: result.apiKey }, 'API Key 已成功恢复')
+      } else {
+        throw badRequest('Failed to restore API key')
+      }
+    } catch (error) {
+      if (error.message === 'API key not found') {
+        throw notFound('API Key 不存在')
+      }
+      if (error.message === 'API key is not deleted') {
+        throw badRequest('该 API Key 未被删除，无需恢复')
+      }
+      throw error
     }
-  } catch (error) {
-    logger.error('❌ Failed to restore API key:', error)
+  }),
+)
 
-    // 根据错误类型返回适当的响应
-    if (error.message === 'API key not found') {
-      return res.status(404).json({
-        success: false,
-        error: 'API Key 不存在',
-      })
-    } else if (error.message === 'API key is not deleted') {
-      return res.status(400).json({
-        success: false,
-        error: '该 API Key 未被删除，无需恢复',
-      })
+// 彻底删除API Key（物理删除）
+router.delete(
+  '/api-keys/:keyId/permanent',
+  authenticateAdmin,
+  asyncRoute('Failed to permanently delete API key', async (req) => {
+    try {
+      const { keyId } = req.params
+      const adminUsername = req.session?.admin?.username || 'unknown'
+
+      // 调用服务层的彻底删除方法
+      const result = await apiKeyService.permanentDeleteApiKey(keyId)
+
+      if (result.success) {
+        logger.success(`Admin ${adminUsername} permanently deleted API key: ${keyId}`)
+        return ok(undefined, 'API Key 已彻底删除')
+      }
+      throw badRequest('彻底删除 API Key 失败')
+    } catch (error) {
+      if (error.message === 'API key not found') {
+        throw notFound('API Key 不存在')
+      }
+      if (error.message === '只能彻底删除已经删除的API Key') {
+        throw badRequest('只能彻底删除已经删除的API Key')
+      }
+      throw error
     }
+  }),
+)
 
-    return res.status(500).json({
-      success: false,
-      error: '恢复 API Key 失败',
-      message: error.message,
-    })
-  }
-})
-
-// 🗑️ 彻底删除API Key（物理删除）
-router.delete('/api-keys/:keyId/permanent', authenticateAdmin, async (req, res) => {
-  try {
-    const { keyId } = req.params
-    const adminUsername = req.session?.admin?.username || 'unknown'
-
-    // 调用服务层的彻底删除方法
-    const result = await apiKeyService.permanentDeleteApiKey(keyId)
-
-    if (result.success) {
-      logger.success(`🗑️ Admin ${adminUsername} permanently deleted API key: ${keyId}`)
-      return res.json({
-        success: true,
-        message: 'API Key 已彻底删除',
-      })
-    }
-  } catch (error) {
-    logger.error('❌ Failed to permanently delete API key:', error)
-
-    if (error.message === 'API key not found') {
-      return res.status(404).json({
-        success: false,
-        error: 'API Key 不存在',
-      })
-    } else if (error.message === '只能彻底删除已经删除的API Key') {
-      return res.status(400).json({
-        success: false,
-        error: '只能彻底删除已经删除的API Key',
-      })
-    }
-
-    return res.status(500).json({
-      success: false,
-      error: '彻底删除 API Key 失败',
-      message: error.message,
-    })
-  }
-})
-
-// 🧹 清空所有已删除的API Keys
-router.delete('/api-keys/deleted/clear-all', authenticateAdmin, async (req, res) => {
-  try {
+// 清空所有已删除的API Keys
+router.delete(
+  '/api-keys/deleted/clear-all',
+  authenticateAdmin,
+  asyncRoute('Failed to clear all deleted API keys', async (req) => {
     const adminUsername = req.session?.admin?.username || 'unknown'
 
     // 调用服务层的清空方法
     const result = await apiKeyService.clearAllDeletedApiKeys()
 
-    logger.success(`🧹 Admin ${adminUsername} cleared deleted API keys: ${result.successCount}/${result.total}`)
+    logger.success(`Admin ${adminUsername} cleared deleted API keys: ${result.successCount}/${result.total}`)
 
-    return res.json({
-      success: true,
-      message: `成功清空 ${result.successCount} 个已删除的 API Keys`,
-      details: {
-        total: result.total,
-        successCount: result.successCount,
-        failedCount: result.failedCount,
-        errors: result.errors,
+    return ok(
+      {
+        details: {
+          total: result.total,
+          successCount: result.successCount,
+          failedCount: result.failedCount,
+          errors: result.errors,
+        },
       },
-    })
-  } catch (error) {
-    logger.error('❌ Failed to clear all deleted API keys:', error)
-    return res.status(500).json({
-      success: false,
-      error: '清空已删除的 API Keys 失败',
-      message: error.message,
-    })
-  }
-})
+      `成功清空 ${result.successCount} 个已删除的 API Keys`,
+    )
+  }),
+)
 
-// 🧹 批量彻底删除选中的已删除 API Keys（物理删除，逐个调用 permanentDeleteApiKey）
-router.delete('/api-keys/deleted/batch', authenticateAdmin, async (req, res) => {
-  try {
-    const { keyIds } = req.body
+// 批量彻底删除选中的已删除 API Keys（物理删除，逐个调用 permanentDeleteApiKey）
+router.delete(
+  '/api-keys/deleted/batch',
+  authenticateAdmin,
+  asyncRoute('Failed to batch permanently delete API keys', async (req) => {
+    const { keyIds } = parseObjectBody(req.body, '批量彻底删除 API Key')
     const adminUsername = req.session?.admin?.username || 'unknown'
 
     if (!keyIds || !Array.isArray(keyIds) || keyIds.length === 0) {
-      return res.status(400).json({ error: 'Invalid request', message: 'keyIds 必须是一个非空数组' })
+      throw badRequest('keyIds 必须是一个非空数组')
     }
     // [人工决策-2026-06-02 23:50:32] 高位安全阈值(非界面限制)：每个 key 的彻底删除很重
     // (SCAN + 删 usage key + 34 天日索引 + 9×24 小时索引清理)，串行跑超大数组会把 Redis/事件循环
     // 拖进长时间重负载。界面每页最多勾 100 个，1000 对正常使用无感，仅挡误传/恶意的异常超大数组。
     if (keyIds.length > 1000) {
-      return res.status(400).json({ error: 'Too many keys', message: '单次批量彻底删除最多 1000 个 API Keys' })
+      throw badRequest('单次批量彻底删除最多 1000 个 API Keys')
     }
     const invalidKeys = keyIds.filter((id) => !id || typeof id !== 'string')
     if (invalidKeys.length > 0) {
-      return res.status(400).json({ error: 'Invalid key IDs', message: '包含无效的API Key ID' })
+      throw badRequest('包含无效的API Key ID')
     }
 
     const results = { successCount: 0, failedCount: 0, errors: [] }
@@ -2841,22 +2635,13 @@ router.delete('/api-keys/deleted/batch', authenticateAdmin, async (req, res) => 
       } catch (error) {
         results.failedCount++
         results.errors.push({ keyId, error: error.message || '彻底删除失败' })
-        logger.error(`❌ Batch permanent delete failed for key ${keyId}:`, error)
+        logger.error(`Batch permanent delete failed for key ${keyId}:`, error)
       }
     }
 
-    logger.success(
-      `🧹 Admin ${adminUsername} batch permanently deleted ${results.successCount}/${keyIds.length} API keys`,
-    )
+    logger.success(`Admin ${adminUsername} batch permanently deleted ${results.successCount}/${keyIds.length} API keys`)
 
     // success 诚实反映结果：一个都没删成功(全失败)时返回 false，避免调用方把"全部失败"误判为成功
-    return res.json({
-      success: results.successCount > 0,
-      message: '批量彻底删除完成',
-      data: results,
-    })
-  } catch (error) {
-    logger.error('❌ Failed to batch permanently delete API keys:', error)
-    return res.status(500).json({ error: 'Batch permanent delete failed', message: error.message })
-  }
-})
+    return ok(results, '批量彻底删除完成')
+  }),
+)

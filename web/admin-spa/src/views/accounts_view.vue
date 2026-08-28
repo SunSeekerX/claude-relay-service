@@ -135,7 +135,7 @@
             <!-- 刷新按钮 -->
             <div class="relative">
               <AppTooltip
-                content="刷新数据 (Ctrl/⌘+点击强制刷新所有缓存)"
+                content="刷新数据 (Ctrl+点击强制刷新所有缓存)"
                 placement="bottom"
               >
                 <button
@@ -544,12 +544,14 @@
                     <!-- 平台图标和名称 -->
                     <div
                       v-if="account.platform === 'gemini'"
-                      class="flex items-center gap-1.5 rounded-lg border border-yellow-200 bg-gradient-to-r from-yellow-100 to-amber-100 px-2.5 py-1"
+                      class="flex items-center gap-1.5 rounded-lg border border-yellow-200 bg-gradient-to-r from-yellow-100 to-amber-100 px-2.5 py-1 dark:border-yellow-700/60 dark:from-yellow-900/30 dark:to-amber-900/20"
                     >
-                      <i class="i-lucide-bot text-sm text-yellow-700" />
-                      <span class="text-sm font-semibold text-yellow-800">Gemini</span>
-                      <span class="mx-1 h-4 w-px bg-yellow-300" />
-                      <span class="text-sm font-medium text-yellow-700">
+                      <i class="i-lucide-bot text-sm text-yellow-700 dark:text-yellow-400" />
+                      <span class="text-sm font-semibold text-yellow-800 dark:text-yellow-300"
+                        >Gemini</span
+                      >
+                      <span class="mx-1 h-4 w-px bg-yellow-300 dark:bg-yellow-600" />
+                      <span class="text-sm font-medium text-yellow-700 dark:text-yellow-400">
                         {{ getGeminiAuthType() }}
                       </span>
                     </div>
@@ -725,7 +727,7 @@
                         (account.rateLimitStatus && account.rateLimitStatus.isRateLimited) ||
                         account.rateLimitStatus === 'limited'
                       "
-                      class="inline-flex items-center rounded-full bg-yellow-100 px-3 py-1 text-sm font-semibold text-yellow-800"
+                      class="inline-flex items-center rounded-full bg-yellow-100 px-3 py-1 text-sm font-semibold text-yellow-800 dark:bg-yellow-900/40 dark:text-yellow-300"
                     >
                       <i class="i-lucide-triangle-alert mr-1" />
                       限流中
@@ -1337,6 +1339,15 @@
                       <span class="ml-1">详情</span>
                     </button>
                     <button
+                      v-if="canViewUsage(account)"
+                      class="rounded bg-violet-100 px-2.5 py-1 text-sm font-medium text-violet-700 transition-colors hover:bg-violet-200 dark:bg-violet-900/40 dark:text-violet-300 dark:hover:bg-violet-800/50"
+                      title="查看请求时间线"
+                      @click="openAccountUsageTimeline(account)"
+                    >
+                      <i class="i-lucide-scroll-text" />
+                      <span class="ml-1">时间线</span>
+                    </button>
+                    <button
                       class="rounded bg-red-100 px-2.5 py-1 text-sm font-medium text-red-700 transition-colors hover:bg-red-200 dark:bg-red-900/40 dark:text-red-300 dark:hover:bg-red-800/50"
                       title="查看错误历史"
                       @click="openErrorHistory(account)"
@@ -1849,6 +1860,14 @@
               详情
             </button>
             <button
+              v-if="canViewUsage(account)"
+              class="flex items-center justify-center gap-1 rounded-lg bg-violet-50 px-3 py-2 text-sm text-violet-600 transition-colors hover:bg-violet-100 dark:bg-violet-900/40 dark:text-violet-300 dark:hover:bg-violet-800/50"
+              @click="openAccountUsageTimeline(account)"
+            >
+              <i class="i-lucide-scroll-text" />
+              时间线
+            </button>
+            <button
               class="flex items-center justify-center gap-1 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600 transition-colors hover:bg-red-100 dark:bg-red-900/40 dark:text-red-300 dark:hover:bg-red-800/50"
               @click="openErrorHistory(account)"
             >
@@ -2025,6 +2044,14 @@
       @confirm="handleConfirm"
     />
 
+    <AccountUsageRecordsDialog
+      :account-id="timelineAccount?.id || ''"
+      :account-name="timelineAccount?.name || timelineAccount?.email || ''"
+      :platform="timelineAccount?.platform || timelineAccount?.accountType || ''"
+      :show="showAccountUsageTimelineDialog"
+      @close="closeAccountUsageTimelineDialog"
+    />
+
     <AccountUsageDetailModal
       v-if="showAccountUsageModal"
       :account="selectedAccountForUsage || {}"
@@ -2035,6 +2062,7 @@
       :show="showAccountUsageModal"
       :summary="accountUsageSummary"
       @close="closeAccountUsageModal"
+      @open-timeline="openAccountUsageTimeline"
     />
 
     <!-- 错误历史弹窗 -->
@@ -2249,11 +2277,13 @@ import {
   calcViewportBottomReserve
 } from '@/libs/tools'
 import { formatLocalDate } from '@/libs/time'
+import { isOk, msgOf, dataOf } from '@/libs/http_envelope'
 
 import * as httpApis from '@/libs/http_apis'
 import AccountForm from '@/components/accounts/account_form.vue'
 import CcrAccountForm from '@/components/accounts/ccr_account_form.vue'
 import AccountUsageDetailModal from '@/components/accounts/account_usage_detail_modal.vue'
+import AccountUsageRecordsDialog from '@/components/accounts/account_usage_records_dialog.vue'
 import AccountErrorHistoryModal from '@/components/accounts/account_error_history_modal.vue'
 import AccountExpiryEditModal from '@/components/accounts/account_expiry_edit_modal.vue'
 import UnifiedTestModal from '@/components/common/unified_test_modal.vue'
@@ -2718,14 +2748,14 @@ const openAccountUsageModal = async (account) => {
   accountUsageGeneratedAt.value = ''
 
   const response = await httpApis.getAccountUsageHistoryApi(account.id, account.platform, 30)
-  if (response.success) {
+  if (isOk(response)) {
     const data = response.data || {}
     accountUsageHistory.value = data.history || []
     accountUsageSummary.value = data.summary || {}
     accountUsageOverview.value = data.overview || {}
     accountUsageGeneratedAt.value = data.generatedAt || ''
   } else {
-    showToast(response.error || '加载账号使用详情失败', 'error')
+    showToast(msgOf(response, '加载账号使用详情失败'), 'error')
   }
   accountUsageLoading.value = false
 }
@@ -2734,6 +2764,28 @@ const closeAccountUsageModal = () => {
   showAccountUsageModal.value = false
   accountUsageLoading.value = false
   selectedAccountForUsage.value = null
+}
+
+// 账户请求时间线 dialog
+const showAccountUsageTimelineDialog = ref(false)
+const timelineAccount = ref(null)
+
+const openAccountUsageTimeline = (account) => {
+  if (!canViewUsage(account)) {
+    showToast('该账户类型暂不支持查看时间线', 'warning')
+    return
+  }
+  if (!account?.id) {
+    showToast('账户 ID 无效', 'error')
+    return
+  }
+  timelineAccount.value = account
+  showAccountUsageTimelineDialog.value = true
+}
+
+const closeAccountUsageTimelineDialog = () => {
+  showAccountUsageTimelineDialog.value = false
+  timelineAccount.value = null
 }
 
 // 测试账户连通性相关函数
@@ -2821,7 +2873,7 @@ const handleBalanceScriptSaved = async () => {
       platform: account.platform,
       queryApi: false
     })
-    if (res?.success && res.data) {
+    if (isOk(res) && res.data) {
       handleBalanceRefreshed(account.id, res.data)
     }
   } catch (error) {
@@ -3167,7 +3219,7 @@ const refreshVisibleBalances = async () => {
           const response = await httpApis.refreshAccountBalanceApi(account.id, {
             platform: account.platform
           })
-          return { id: account.id, success: !!response?.success, data: response?.data || null }
+          return { id: account.id, success: isOk(response), data: response?.data || null }
         } catch (error) {
           return { id: account.id, success: false, error: error?.message || '刷新失败' }
         }
@@ -3258,7 +3310,7 @@ const loadBalanceCacheForAccounts = async () => {
     platforms.map(async (platform) => {
       try {
         const res = await httpApis.getBalanceByPlatformApi(platform, { queryApi: false })
-        return { platform, success: !!res?.success, data: res?.data || [] }
+        return { platform, success: isOk(res), data: res?.data || [] }
       } catch (error) {
         console.debug(`Failed to load balance cache for ${platform}:`, error)
         return { platform, success: false, data: [] }
@@ -3320,9 +3372,9 @@ const loadAccounts = async (forceReload = false) => {
           const res = await handler(params)
           return {
             platform,
-            success: !!res?.success,
+            success: isOk(res),
             data: res?.data,
-            message: res?.message || ''
+            message: msgOf(res, '')
           }
         } catch (error) {
           console.debug(`Failed to load ${platform} accounts:`, error)
@@ -3494,7 +3546,7 @@ const loadAccounts = async (forceReload = false) => {
     // 获取临时不可用状态并附加到账户数据
     try {
       const tempRes = await httpApis.getTempUnavailableApi()
-      if (tempRes?.success && tempRes.data) {
+      if (isOk(tempRes) && tempRes.data) {
         const tempStatuses = tempRes.data
         filteredAccounts = filteredAccounts.map((account) => {
           const tempStatus = resolveTempUnavailableStatusForAccount(tempStatuses, account)
@@ -3532,7 +3584,7 @@ const loadAccounts = async (forceReload = false) => {
 // 异步加载 Claude 账户的 Usage 数据
 const loadClaudeUsage = async () => {
   const response = await httpApis.getClaudeAccountsUsageApi()
-  if (response.success && response.data) {
+  if (isOk(response) && response.data) {
     const usageMap = response.data
     accounts.value = accounts.value.map((account) => {
       if (account.platform === 'claude' && usageMap[account.id]) {
@@ -3599,7 +3651,7 @@ const clearSearch = () => {
 const loadBindingCounts = async (forceReload = false) => {
   if (!forceReload && bindingCountsLoaded.value) return
   const response = await httpApis.getAccountsBindingCountsApi()
-  if (response.success) {
+  if (isOk(response)) {
     bindingCounts.value = response.data || {}
     bindingCountsLoaded.value = true
   }
@@ -3609,7 +3661,7 @@ const loadBindingCounts = async (forceReload = false) => {
 const loadApiKeys = async (forceReload = false) => {
   if (!forceReload && apiKeysLoaded.value) return
   const response = await httpApis.getApiKeysApi()
-  if (response.success) {
+  if (isOk(response)) {
     apiKeys.value = response.data?.items || response.data || []
     apiKeysLoaded.value = true
   }
@@ -3619,7 +3671,7 @@ const loadApiKeys = async (forceReload = false) => {
 const loadAccountGroups = async (forceReload = false) => {
   if (!forceReload && groupsLoaded.value) return
   const response = await httpApis.getAccountGroupsApi()
-  if (response.success) {
+  if (isOk(response)) {
     accountGroups.value = response.data || []
     groupsLoaded.value = true
   }
@@ -4044,10 +4096,10 @@ const resolveAccountDeleteEndpoint = (account) => {
 
 const performAccountDeletion = async (account) => {
   const endpoint = resolveAccountDeleteEndpoint(account)
-  if (!endpoint) return { success: false, message: '不支持的账户类型' }
+  if (!endpoint) return { code: 400, msg: '不支持的账户类型' }
   const data = await httpApis.deleteAccountByEndpointApi(endpoint)
-  if (data.success) return { success: true, data }
-  return { success: false, message: data.message || '删除失败' }
+  if (isOk(data)) return { code: 200, msg: 'Ok', data: dataOf(data) }
+  return { code: typeof data?.code === 'number' ? data.code : 500, msg: msgOf(data, '删除失败') }
 }
 
 // 删除账户
@@ -4057,7 +4109,7 @@ const deleteAccount = async (account) => {
 
   let confirmMessage = `确定要删除账户 "${account.name}" 吗？`
   if (boundKeysCount > 0) {
-    confirmMessage += `\n\n⚠️ 注意：此账号有 ${boundKeysCount} 个 API Key 绑定。`
+    confirmMessage += `\n\n注意：此账号有 ${boundKeysCount} 个 API Key 绑定。`
     confirmMessage += `\n删除后，这些 API Key 将自动切换为共享池模式。`
   }
   confirmMessage += '\n\n此操作不可恢复。'
@@ -4068,7 +4120,7 @@ const deleteAccount = async (account) => {
 
   const result = await performAccountDeletion(account)
 
-  if (result.success) {
+  if (isOk(result)) {
     const data = result.data
     let toastMessage = '账户已成功删除'
     if (data?.unboundKeys > 0) {
@@ -4086,7 +4138,7 @@ const deleteAccount = async (account) => {
     loadApiKeys(true) // 刷新完整 API Keys 列表（用于其他功能）
     loadBindingCounts(true) // 刷新绑定计数
   } else {
-    showToast(result.message || '删除失败', 'error')
+    showToast(msgOf(result, '删除失败'), 'error')
   }
 }
 
@@ -4115,7 +4167,7 @@ const batchDeleteAccounts = async () => {
     .filter((item) => item.boundKeys.length > 0)
 
   if (boundInfo.length > 0) {
-    confirmMessage += '\n\n⚠️ 以下账户存在绑定的 API Key，将自动解绑：'
+    confirmMessage += '\n\n以下账户存在绑定的 API Key，将自动解绑：'
     boundInfo.forEach(({ account, boundKeys }) => {
       const displayName = account.name || account.email || account.accountName || account.id
       confirmMessage += `\n- ${displayName}: ${boundKeys.length} 个`
@@ -4135,14 +4187,14 @@ const batchDeleteAccounts = async () => {
 
   for (const account of targets) {
     const result = await performAccountDeletion(account)
-    if (result.success) {
+    if (isOk(result)) {
       successCount += 1
       totalUnboundKeys += result.data?.unboundKeys || 0
     } else {
       failedCount += 1
       failedDetails.push({
         name: account.name || account.email || account.accountName || account.id,
-        message: result.message || '删除失败'
+        message: msgOf(result, '删除失败')
       })
     }
   }
@@ -4238,11 +4290,11 @@ const resetAccountStatus = async (account) => {
     }
 
     const data = await httpApis.testAccountByEndpointApi(endpoint)
-    if (data.success) {
+    if (isOk(data)) {
       showToast('账户状态已重置', 'success')
       loadAccounts(true)
     } else {
-      showToast(data.message || '状态重置失败', 'error')
+      showToast(msgOf(data, '状态重置失败'), 'error')
     }
     account.isResetting = false
   } catch (error) {
@@ -4268,11 +4320,12 @@ const toggleSchedulable = async (account) => {
   }
 
   const data = await httpApis.toggleAccountStatusApi(endpoint)
-  if (data.success) {
-    account.schedulable = data.schedulable
-    showToast(data.schedulable ? '已启用调度' : '已禁用调度', 'success')
+  if (isOk(data)) {
+    const payload = dataOf(data)
+    account.schedulable = payload?.schedulable
+    showToast(payload?.schedulable ? '已启用调度' : '已禁用调度', 'success')
   } else {
-    showToast(data.message || '操作失败', 'error')
+    showToast(msgOf(data, '操作失败'), 'error')
   }
   account.isTogglingSchedulable = false
 }
@@ -4281,7 +4334,7 @@ const toggleSchedulable = async (account) => {
 const handleCreateSuccess = () => {
   showCreateAccountModal.value = false
   showToast('账户创建成功', 'success')
-  // 清空缓存，因为可能涉及分组关系变化
+  // 清空缓存（分组关系可能已变）
   clearCache()
   loadAccounts()
 }
@@ -4290,7 +4343,7 @@ const handleCreateSuccess = () => {
 const handleEditSuccess = () => {
   showEditAccountModal.value = false
   showToast('账户更新成功', 'success')
-  // 清空分组成员缓存，因为账户类型和分组可能发生变化
+  // 清空分组成员缓存（账户类型/分组可能已变）
   groupMembersLoaded.value = false
   loadAccounts()
 }
@@ -4817,10 +4870,10 @@ const getAccountStatusDotClass = (account) => {
 
 // 获取会话窗口百分比
 // const getSessionWindowPercentage = (account) => {
-//   if (!account.sessionWindow) return 100
-//   const { remaining, total } = account.sessionWindow
-//   if (!total || total === 0) return 100
-//   return Math.round((remaining / total) * 100)
+// if (!account.sessionWindow) return 100
+// const { remaining, total } = account.sessionWindow
+// if (!total || total === 0) return 100
+// return Math.round((remaining / total) * 100)
 // }
 
 // 格式化相对时间
@@ -5119,7 +5172,7 @@ const calculateDailyCost = (account) => {
 
 // 切换调度状态
 // const toggleDispatch = async (account) => {
-//   await toggleSchedulable(account)
+// await toggleSchedulable(account)
 // }
 
 watch(searchKeyword, () => {
@@ -5144,17 +5197,17 @@ watch(
 
 // 监听排序选择变化 - 已重构为 handleDropdownSort，此处注释保留原逻辑参考
 // watch(accountSortBy, (newVal) => {
-//   const fieldMap = {
-//     name: 'name',
-//     dailyTokens: 'dailyTokens',
-//     dailyRequests: 'dailyRequests',
-//     totalTokens: 'totalTokens',
-//     lastUsed: 'lastUsed'
-//   }
+// const fieldMap = {
+// name: 'name',
+// dailyTokens: 'dailyTokens',
+// dailyRequests: 'dailyRequests',
+// totalTokens: 'totalTokens',
+// lastUsed: 'lastUsed'
+// }
 //
-//   if (fieldMap[newVal]) {
-//     sortAccounts(fieldMap[newVal])
-//   }
+// if (fieldMap[newVal]) {
+// sortAccounts(fieldMap[newVal])
+// }
 // })
 
 watch(currentPage, () => {
@@ -5251,12 +5304,12 @@ const handleSaveAccountExpiry = async ({ accountId, expiresAt }) => {
     const data = await httpApis.updateAccountByEndpointApi(endpoint, {
       expiresAt: expiresAt || null
     })
-    if (data.success) {
+    if (isOk(data)) {
       showToast('账户到期时间已更新', 'success')
       account.expiresAt = expiresAt || null
       closeAccountExpiryEdit()
     } else {
-      showToast(data.message || '更新失败', 'error')
+      showToast(msgOf(data, '更新失败'), 'error')
       if (expiryEditModalRef.value) expiryEditModalRef.value.resetSaving()
     }
   } catch (error) {

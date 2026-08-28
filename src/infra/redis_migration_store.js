@@ -7,16 +7,16 @@ import { RedisKeys, TTL } from './redis_key.js'
 // ===
 
 export const attach = function attach(redisClient) {
-  // 🔄 自动迁移 usage 索引（启动时调用）
+  // 自动迁移 usage 索引（启动时调用）
   redisClient.migrateUsageIndex = async function () {
     const migrationKey = RedisKeys.system.migrationUsageIndexV2 // v2: 添加 keymodel 迁移
     const migrated = await this.client.get(migrationKey)
     if (migrated) {
-      logger.debug('📊 Usage index migration already completed')
+      logger.debug('Usage index migration already completed')
       return
     }
 
-    logger.info('📊 Starting usage index migration...')
+    logger.info('Starting usage index migration...')
     const stats = { daily: 0, hourly: 0, modelDaily: 0, modelHourly: 0 }
 
     try {
@@ -165,23 +165,23 @@ export const attach = function attach(redisClient) {
       // 标记迁移完成
       await this.client.set(migrationKey, Date.now().toString())
       logger.info(
-        `📊 Usage index migration completed: daily=${stats.daily}, hourly=${stats.hourly}, modelDaily=${stats.modelDaily}, modelHourly=${stats.modelHourly}, keymodelDaily=${stats.keymodelDaily || 0}, keymodelHourly=${stats.keymodelHourly || 0}`,
+        `Usage index migration completed: daily=${stats.daily}, hourly=${stats.hourly}, modelDaily=${stats.modelDaily}, modelHourly=${stats.modelHourly}, keymodelDaily=${stats.keymodelDaily || 0}, keymodelHourly=${stats.keymodelHourly || 0}`,
       )
     } catch (error) {
-      logger.error('📊 Usage index migration failed:', error)
+      logger.error('Usage index migration failed:', error)
     }
   }
 
-  // 🔄 自动迁移 alltime 模型统计（启动时调用）
+  // 自动迁移 alltime 模型统计（启动时调用）
   redisClient.migrateAlltimeModelStats = async function () {
     const migrationKey = RedisKeys.system.migrationAlltimeModelStatsV1
     const migrated = await this.client.get(migrationKey)
     if (migrated) {
-      logger.debug('📊 Alltime model stats migration already completed')
+      logger.debug('Alltime model stats migration already completed')
       return
     }
 
-    logger.info('📊 Starting alltime model stats migration...')
+    logger.info('Starting alltime model stats migration...')
     const stats = { keys: 0, models: 0 }
 
     try {
@@ -255,10 +255,10 @@ export const attach = function attach(redisClient) {
       // 标记迁移完成
       await this.client.set(migrationKey, Date.now().toString())
       logger.info(
-        `📊 Alltime model stats migration completed: scanned ${stats.keys} monthly keys, created ${stats.models} alltime keys`,
+        `Alltime model stats migration completed: scanned ${stats.keys} monthly keys, created ${stats.models} alltime keys`,
       )
     } catch (error) {
-      logger.error('📊 Alltime model stats migration failed:', error)
+      logger.error('Alltime model stats migration failed:', error)
     }
   }
 }

@@ -530,6 +530,7 @@ import { reactive, ref, watch } from 'vue'
 
 import ModalTransition from '@/components/common/modal_transition.vue'
 import { createInternalModelApi, saveInternalModelApi } from '@/libs/http_apis.js'
+import { isOk, msgOf } from '@/libs/http_envelope'
 import { showToast } from '@/libs/tools.js'
 
 const props = defineProps({
@@ -901,12 +902,12 @@ const handleSave = async () => {
     ? await createInternalModelApi(payload)
     : await saveInternalModelApi(payload.name, payload)
   saving.value = false
-  if (result.success) {
+  if (isOk(result)) {
     showToast('已保存内部计费模型', 'success')
     emit('saved', result.data)
     emit('close')
   } else {
-    showToast(result.message || '保存失败', 'error')
+    showToast(msgOf(result, '保存失败'), 'error')
   }
 }
 </script>

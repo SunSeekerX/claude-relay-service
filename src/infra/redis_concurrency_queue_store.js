@@ -1,7 +1,7 @@
 import { logger } from '../common/logger.js'
 import { RedisKeys, TTL, LIMITS } from './redis_key.js'
 // ===
-// 🚦 API Key 并发请求排队方法（从 src/models/redis.js 按域抽出）
+// API Key 并发请求排队方法（从 src/models/redis.js 按域抽出）
 // 经 attach(redisClient) 挂到同一个 RedisClient 单例上，this 绑定与原文件一致。
 // ===
 
@@ -36,7 +36,7 @@ export const attach = function attach(redisClient) {
       return count
     `
       const count = await this.client.eval(script, 1, key, String(ttlSeconds))
-      logger.database(`🚦 Incremented queue count for key ${apiKeyId}: ${count} (TTL: ${ttlSeconds}s)`)
+      logger.database(`Incremented queue count for key ${apiKeyId}: ${count} (TTL: ${ttlSeconds}s)`)
       return parseInt(count)
     } catch (error) {
       logger.error(`Failed to increment concurrency queue for ${apiKeyId}:`, error)
@@ -64,9 +64,9 @@ export const attach = function attach(redisClient) {
       const count = await this.client.eval(script, 1, key)
       const result = parseInt(count)
       if (result === 0) {
-        logger.database(`🚦 Queue count for key ${apiKeyId} is 0, removed key`)
+        logger.database(`Queue count for key ${apiKeyId} is 0, removed key`)
       } else {
-        logger.database(`🚦 Decremented queue count for key ${apiKeyId}: ${result}`)
+        logger.database(`Decremented queue count for key ${apiKeyId}: ${result}`)
       }
       return result
     } catch (error) {
@@ -100,7 +100,7 @@ export const attach = function attach(redisClient) {
     const key = RedisKeys.concurrency.queue(apiKeyId)
     try {
       await this.client.del(key)
-      logger.database(`🚦 Cleared queue count for key ${apiKeyId}`)
+      logger.database(`Cleared queue count for key ${apiKeyId}`)
       return true
     } catch (error) {
       logger.error(`Failed to clear concurrency queue for ${apiKeyId}:`, error)
@@ -140,7 +140,7 @@ export const attach = function attach(redisClient) {
         }
 
         if (iterations >= MAX_ITERATIONS) {
-          logger.warn(`🚦 Concurrency queue: SCAN reached max iterations (${MAX_ITERATIONS}), stopping early`, {
+          logger.warn(`Concurrency queue: SCAN reached max iterations (${MAX_ITERATIONS}), stopping early`, {
             foundQueues: apiKeyIds.length,
           })
           break
@@ -192,7 +192,7 @@ export const attach = function attach(redisClient) {
       } while (cursor !== '0')
 
       if (cleared > 0) {
-        logger.info(`🚦 Cleared ${cleared} concurrency queue counter(s) on startup`)
+        logger.info(`Cleared ${cleared} concurrency queue counter(s) on startup`)
       }
       return cleared
     } catch (error) {

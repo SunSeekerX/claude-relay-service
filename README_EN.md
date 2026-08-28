@@ -12,7 +12,7 @@
 [![Redis](https://img.shields.io/badge/Redis-6+-red.svg)](https://redis.io/)
 [![Docker](https://img.shields.io/badge/Docker-Ready-blue.svg)](https://www.docker.com/)
 
-**🔐 Self-hosted Claude API relay service with multi-account management** 
+**Self-hosted Claude API relay service with multi-account management** 
 
 [中文文档](README.md) • [Preview](https://demo.pincc.ai/admin-next/login) • [Telegram Channel](https://t.me/claude_relay_service)
 
@@ -20,85 +20,85 @@
 
 ---
 
-## ⭐ If You Find It Useful, Please Give It a Star!
+## If You Find It Useful, Please Give It a Star!
 
-> Open source is not easy, your Star is my motivation to continue updating 🚀  
+> Open source is not easy, your Star is my motivation to continue updating  
 > Join [Telegram Channel](https://t.me/claude_relay_service) for the latest updates
 
 ---
 
-## ⚠️ Important Notice
+## Important Notice
 
 **Please read carefully before using this project:**
 
-🚨 **Terms of Service Risk**: Using this project may violate Anthropic's terms of service. Please carefully read Anthropic's user agreement before use. All risks from using this project are borne by the user.
+**Terms of Service Risk**: Using this project may violate Anthropic's terms of service. Please carefully read Anthropic's user agreement before use. All risks from using this project are borne by the user.
 
-📖 **Disclaimer**: This project is for technical learning and research purposes only. The author is not responsible for any account bans, service interruptions, or other losses caused by using this project.
+**Disclaimer**: This project is for technical learning and research purposes only. The author is not responsible for any account bans, service interruptions, or other losses caused by using this project.
 
-## 🤔 Is This Project Right for You?
+## Is This Project Right for You?
 
-- 🌍 **Regional Restrictions**: Can't directly access Claude Code service in your region?
-- 🔒 **Privacy Concerns**: Worried about third-party mirror services logging or leaking your conversation content?
-- 👥 **Cost Sharing**: Want to share Claude Code Max subscription costs with friends?
-- ⚡ **Stability Issues**: Third-party mirror sites often fail and are unstable, affecting efficiency?
+- **Regional Restrictions**: Can't directly access Claude Code service in your region?
+- **Privacy Concerns**: Worried about third-party mirror services logging or leaking your conversation content?
+- **Cost Sharing**: Want to share Claude Code Max subscription costs with friends?
+- **Stability Issues**: Third-party mirror sites often fail and are unstable, affecting efficiency?
 
 If you have any of these concerns, this project might be suitable for you.
 
 ### Suitable Scenarios
 
-✅ **Cost Sharing with Friends**: 3-5 friends sharing Claude Code Max subscription, enjoying Opus freely  
-✅ **Privacy Sensitive**: Don't want third-party mirrors to see your conversation content  
-✅ **Technical Tinkering**: Have basic technical skills, willing to build and maintain yourself  
-✅ **Stability Needs**: Need long-term stable Claude access, don't want to be restricted by mirror sites  
-✅ **Regional Restrictions**: Cannot directly access Claude official service  
+**Cost Sharing with Friends**: 3-5 friends sharing Claude Code Max subscription, enjoying Opus freely  
+**Privacy Sensitive**: Don't want third-party mirrors to see your conversation content  
+**Technical Tinkering**: Have basic technical skills, willing to build and maintain yourself  
+**Stability Needs**: Need long-term stable Claude access, don't want to be restricted by mirror sites  
+**Regional Restrictions**: Cannot directly access Claude official service  
 
 ### Unsuitable Scenarios
 
-❌ **Complete Beginner**: Don't understand technology at all, don't even know how to buy a server  
-❌ **Occasional Use**: Use it only a few times a month, not worth the hassle  
-❌ **Registration Issues**: Cannot register Claude account yourself  
-❌ **Payment Issues**: No payment method to subscribe to Claude Code  
+**Complete Beginner**: Don't understand technology at all, don't even know how to buy a server  
+**Occasional Use**: Use it only a few times a month, not worth the hassle  
+**Registration Issues**: Cannot register Claude account yourself  
+**Payment Issues**: No payment method to subscribe to Claude Code  
 
 **If you're just an ordinary user with low privacy requirements, just want to casually play around and quickly experience Claude, then choosing a mirror site you're familiar with would be more suitable.**
 
 ---
 
-## 💭 Why Build Your Own?
+## Why Build Your Own?
 
 ### Potential Issues with Existing Mirror Sites
 
-- 🕵️ **Privacy Risk**: Your conversation content is completely visible to others, forget about business secrets
-- 🐌 **Performance Instability**: Slow when many people use it, often crashes during peak hours
-- 💰 **Price Opacity**: Don't know the actual costs
+- **Privacy Risk**: Your conversation content is completely visible to others, forget about business secrets
+- **Performance Instability**: Slow when many people use it, often crashes during peak hours
+- **Price Opacity**: Don't know the actual costs
 
 ### Benefits of Self-hosting
 
-- 🔐 **Data Security**: All API requests only go through your own server, direct connection to Anthropic API
-- ⚡ **Controllable Performance**: Only a few of you using it, Max $200 package basically allows you to enjoy Opus freely
-- 💰 **Cost Transparency**: Clear view of how many tokens used, specific costs calculated at official prices
-- 📊 **Complete Monitoring**: Usage statistics, cost analysis, performance monitoring all available
+- **Data Security**: All API requests only go through your own server, direct connection to Anthropic API
+- **Controllable Performance**: Only a few of you using it, Max $200 package basically allows you to enjoy Opus freely
+- **Cost Transparency**: Clear view of how many tokens used, specific costs calculated at official prices
+- **Complete Monitoring**: Usage statistics, cost analysis, performance monitoring all available
 
 ---
 
-## 🚀 Core Features
+## Core Features
 
-> 📸 **[Click to view interface preview](docs/preview.md)** - See detailed screenshots of the Web management interface
+> **[Click to view interface preview](docs/preview.md)** - See detailed screenshots of the Web management interface
 
 ### Basic Features
-- ✅ **Multi-account Management**: Add multiple Claude accounts for automatic rotation
-- ✅ **Custom API Keys**: Assign independent keys to each person
-- ✅ **Usage Statistics**: Detailed records of how many tokens each person used
+- **Multi-account Management**: Add multiple Claude accounts for automatic rotation
+- **Custom API Keys**: Assign independent keys to each person
+- **Usage Statistics**: Detailed records of how many tokens each person used
 
 ### Advanced Features
-- 🔄 **Smart Switching**: Automatically switch to next account when one has issues
-- 🚀 **Performance Optimization**: Connection pooling, caching to reduce latency
-- 📊 **Monitoring Dashboard**: Web interface to view all data
-- 🛡️ **Security Control**: Access restrictions, rate limiting
-- 🌐 **Proxy Support**: Support for HTTP/SOCKS5 proxies
+- **Smart Switching**: Automatically switch to next account when one has issues
+- **Performance Optimization**: Connection pooling, caching to reduce latency
+- **Monitoring Dashboard**: Web interface to view all data
+- **Security Control**: Access restrictions, rate limiting
+- **Proxy Support**: Support for HTTP/SOCKS5 proxies
 
 ---
 
-## 📋 Deployment Requirements
+## Deployment Requirements
 
 ### Hardware Requirements (Minimum Configuration)
 - **CPU**: 1 core is sufficient
@@ -119,7 +119,7 @@ If you have any of these concerns, this project might be suitable for you.
 
 ---
 
-## 📦 Manual Deployment
+## Manual Deployment
 
 ### Step 1: Environment Setup
 
@@ -205,7 +205,7 @@ npm run service:status
 
 ---
 
-## 🎮 Getting Started
+## Getting Started
 
 ### 1. Open Management Interface
 
@@ -326,7 +326,7 @@ gemini
 
 ---
 
-## 🔧 Daily Maintenance
+## Daily Maintenance
 
 ### Service Management
 
@@ -402,7 +402,7 @@ redis-cli ping
 
 ---
 
-## 🛠️ Advanced Usage
+## Advanced Usage
 
 ### Reverse Proxy Deployment Guide
 
@@ -489,10 +489,10 @@ module.exports = {
 
 **Caddy Features**
 
-* 🔒 Automatic HTTPS with zero-configuration certificate management
-* 🛡️ Secure default configuration with modern TLS suites
-* ⚡ HTTP/2 and streaming support
-* 🔧 Concise configuration files, easy to maintain
+* Automatic HTTPS with zero-configuration certificate management
+* Secure default configuration with modern TLS suites
+* HTTP/2 and streaming support
+* Concise configuration files, easy to maintain
 
 ---
 
@@ -510,9 +510,9 @@ Configure the Details as follows:
 | Scheme                | http                     |
 | Forward Hostname / IP | 192.168.0.1 (docker host IP) |
 | Forward Port          | 3000                     |
-| Block Common Exploits | ☑️                       |
-| Websockets Support    | ❌ **Disable**            |
-| Cache Assets          | ❌ **Disable**            |
+| Block Common Exploits |                       |
+| Websockets Support    | **Disable**|
+| Cache Assets          | **Disable**|
 | Access List           | Publicly Accessible      |
 
 > Note:
@@ -526,10 +526,10 @@ No content needed, keep it empty.
 **3. SSL Settings**
 
 * **SSL Certificate**: Request a new SSL Certificate (Let's Encrypt) or existing certificate
-* ☑️ **Force SSL**
-* ☑️ **HTTP/2 Support**
-* ☑️ **HSTS Enabled**
-* ☑️ **HSTS Subdomains**
+* **Force SSL**
+* **HTTP/2 Support**
+* **HSTS Enabled**
+* **HSTS Subdomains**
 
 **4. Advanced Configuration**
 
@@ -582,10 +582,10 @@ proxy_request_buffering off;
 
 **NPM Features**
 
-* 🔒 Automatic certificate application and renewal
-* 🔧 Graphical interface for easy multi-service management
-* ⚡ Native HTTP/2 / HTTPS support
-* 🚀 Ideal for Docker container deployments
+* Automatic certificate application and renewal
+* Graphical interface for easy multi-service management
+* Native HTTP/2 / HTTPS support
+* Ideal for Docker container deployments
 
 ---
 
@@ -593,7 +593,7 @@ Both solutions are suitable for production deployment. If you use a Docker envir
 
 ---
 
-## 💡 Usage Recommendations
+## Usage Recommendations
 
 ### Account Management
 - **Regular Checks**: Check account status weekly, handle exceptions promptly
@@ -608,7 +608,7 @@ Both solutions are suitable for production deployment. If you use a Docker envir
 
 ---
 
-## 🆘 What to Do When You Encounter Problems?
+## What to Do When You Encounter Problems?
 
 ### Self-troubleshooting
 1. **Check Logs**: Log files in `logs/` directory
@@ -623,15 +623,15 @@ Both solutions are suitable for production deployment. If you use a Docker envir
 
 ---
 
-## 📄 License
+## License
 This project uses the [MIT License](LICENSE).
 
 ---
 
 <div align="center">
 
-**⭐ If you find it useful, please give it a Star, this is the greatest encouragement to the author!**
+**If you find it useful, please give it a Star, this is the greatest encouragement to the author!**
 
-**🤝 Feel free to submit Issues for problems, welcome PRs for improvement suggestions**
+**Feel free to submit Issues for problems, welcome PRs for improvement suggestions**
 
 </div>

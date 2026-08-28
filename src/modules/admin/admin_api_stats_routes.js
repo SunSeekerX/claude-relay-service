@@ -1,4 +1,5 @@
 import express from 'express'
+import axios from 'axios'
 import { redis } from '../../infra/redis.js'
 import { RedisKeys, TTL } from '../../infra/redis_key.js'
 import { logger } from '../../common/logger.js'
@@ -12,14 +13,21 @@ import { testModelConfigService } from '../relay/relay_test_model_config_service
 import { getSafeMessage } from '../../common/error_sanitizer.js'
 import { parseDateTimeQuery } from '../../common/date_time.js'
 import { config } from '../../../config/config.js'
-import { sendStreamTestRequest } from '../../common/test_payload_helper.js'
-import { createGeminiTestPayload } from '../../common/test_payload_helper.js'
-import axios from 'axios'
-import { createOpenAITestPayload } from '../../common/test_payload_helper.js'
+import {
+  sendStreamTestRequest,
+  createGeminiTestPayload,
+  createOpenAITestPayload,
+  createClaudeTestPayload,
+  extractErrorMessage,
+  sanitizeErrorMsg,
+} from '../../common/test_payload_helper.js'
 import { pricingService } from '../pricing/pricing_service.js'
 import { toPublicPricingMap } from '../pricing/pricing_model_pricing_convert.js'
+import { parseObjectBody } from '../../common/parse_body.js'
 import { quotaCardService } from '../payment/payment_quota_card_service.js'
-import { createClaudeTestPayload, extractErrorMessage, sanitizeErrorMsg } from '../../common/test_payload_helper.js'
+import { asyncRoute, SEND_RAW } from '../../common/route_handler.js'
+import { badRequest, notFound, unauthorized, forbidden, tooManyRequests } from '../../common/http_result.js'
+
 export const router = express.Router()
 
 const accountTypeNames = {
@@ -39,27 +47,23 @@ const accountTypeNames = {
   unknown: '未知渠道',
 }
 
-// 📋 获取可用模型列表（公开接口）
-router.get('/models', async (req, res) => {
-  const { service } = req.query
+// 获取可用模型列表（公开接口）
+router.get(
+  '/models',
+  asyncRoute('Failed to get models', async (req) => {
+    const { service } = req.query
 
-  if (service) {
-    // 返回指定服务的模型
-    const models = modelsConfig.getModelsByService(service)
-    return res.json({
-      success: true,
-      data: models,
-    })
-  }
+    if (service) {
+      // 返回指定服务的模型
+      return modelsConfig.getModelsByService(service)
+    }
 
-  // 测试默认模型配置（后台可配置，连通性测试弹窗读取）
-  // 仅取模型映射，剥离 updatedAt/updatedBy 等管理元数据，避免公开接口泄露管理员信息
-  const defaultModels = await testModelConfigService.getModelDefaults()
+    // 测试默认模型配置（后台可配置，连通性测试弹窗读取）
+    // 仅取模型映射，剥离 updatedAt/updatedBy 等管理元数据，避免公开接口泄露管理员信息
+    const defaultModels = await testModelConfigService.getModelDefaults()
 
-  // 返回所有模型（按服务分组 + 平台维度）
-  res.json({
-    success: true,
-    data: {
+    // 返回所有模型（按服务分组 + 平台维度）
+    return {
       claude: modelsConfig.CLAUDE_MODELS,
       gemini: modelsConfig.GEMINI_MODELS,
       openai: modelsConfig.OPENAI_MODELS,
@@ -68,33 +72,28 @@ router.get('/models', async (req, res) => {
       all: modelsConfig.getAllModels(),
       platforms: modelsConfig.PLATFORM_TEST_MODELS,
       defaultModels,
-    },
-  })
-})
+    }
+  }),
+)
 
-// 🏠 重定向页面请求到新版 admin-spa
+// 重定向页面请求到新版 admin-spa
 router.get('/', (req, res) => {
   res.redirect(301, '/admin-next/api-stats')
 })
 
-// 🔑 获取 API Key 对应的 ID
-router.post('/api/get-key-id', async (req, res) => {
-  try {
-    const { apiKey } = req.body
+// 获取 API Key 对应的 ID
+router.post(
+  '/api/get-key-id',
+  asyncRoute('Failed to retrieve API key ID', async (req) => {
+    const { apiKey } = parseObjectBody(req.body, 'API Key 查询')
 
     if (!apiKey) {
-      return res.status(400).json({
-        error: 'API Key is required',
-        message: 'Please provide your API Key',
-      })
+      throw badRequest('Please provide your API Key')
     }
 
     // 基本API Key格式验证
     if (typeof apiKey !== 'string' || apiKey.length < 10 || apiKey.length > 512) {
-      return res.status(400).json({
-        error: 'Invalid API key format',
-        message: 'API key format is invalid',
-      })
+      throw badRequest('API key format is invalid')
     }
 
     // 验证API Key（使用不触发激活的验证方法）
@@ -103,33 +102,22 @@ router.post('/api/get-key-id', async (req, res) => {
     if (!validation.valid) {
       const clientIP = req.ip || req.connection?.remoteAddress || 'unknown'
       logger.security(`Invalid API key in get-key-id: ${validation.error} from ${clientIP}`)
-      return res.status(401).json({
-        error: 'Invalid API key',
-        message: validation.error,
-      })
+      throw unauthorized(validation.error || 'Invalid API key')
     }
 
     const { keyData } = validation
 
-    return res.json({
-      success: true,
-      data: {
-        id: keyData.id,
-      },
-    })
-  } catch (error) {
-    logger.error('❌ Failed to get API key ID:', error)
-    return res.status(500).json({
-      error: 'Internal server error',
-      message: 'Failed to retrieve API key ID',
-    })
-  }
-})
+    return {
+      id: keyData.id,
+    }
+  }),
+)
 
-// 📊 用户API Key统计查询接口 - 安全的自查询接口
-router.post('/api/user-stats', async (req, res) => {
-  try {
-    const { apiKey, apiId } = req.body
+// 用户API Key统计查询接口 - 安全的自查询接口
+router.post(
+  '/api/user-stats',
+  asyncRoute('Failed to retrieve API key statistics', async (req) => {
+    const { apiKey, apiId } = parseObjectBody(req.body, '用户统计')
 
     let keyData
     let keyId
@@ -140,10 +128,7 @@ router.post('/api/user-stats', async (req, res) => {
         typeof apiId !== 'string' ||
         !apiId.match(/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i)
       ) {
-        return res.status(400).json({
-          error: 'Invalid API ID format',
-          message: 'API ID must be a valid UUID',
-        })
+        throw badRequest('API ID must be a valid UUID')
       }
 
       // 直接通过 ID 获取 API Key 数据
@@ -151,30 +136,19 @@ router.post('/api/user-stats', async (req, res) => {
 
       if (!keyData || Object.keys(keyData).length === 0) {
         logger.security(`API key not found for ID: ${apiId} from ${req.ip || 'unknown'}`)
-        return res.status(404).json({
-          error: 'API key not found',
-          message: 'The specified API key does not exist',
-        })
+        throw notFound('The specified API key does not exist')
       }
 
       // 检查是否激活
       if (keyData.isActive !== 'true') {
         const keyName = keyData.name || 'Unknown'
-        return res.status(403).json({
-          error: 'API key is disabled',
-          message: `API Key "${keyName}" 已被禁用`,
-          keyName,
-        })
+        throw forbidden(`API Key "${keyName}" 已被禁用`, { data: { keyName } })
       }
 
       // 检查是否过期
       if (keyData.expiresAt && new Date() > new Date(keyData.expiresAt)) {
         const keyName = keyData.name || 'Unknown'
-        return res.status(403).json({
-          error: 'API key has expired',
-          message: `API Key "${keyName}" 已过期`,
-          keyName,
-        })
+        throw forbidden(`API Key "${keyName}" 已过期`, { data: { keyName } })
       }
 
       keyId = apiId
@@ -188,7 +162,7 @@ router.post('/api/user-stats', async (req, res) => {
 
       // 处理数据格式，与 validateApiKey 返回的格式保持一致
       // 解析限制模型数据
-      let restrictedModels = []
+      let restrictedModels
       try {
         restrictedModels = keyData.restrictedModels ? JSON.parse(keyData.restrictedModels) : []
       } catch (e) {
@@ -196,7 +170,7 @@ router.post('/api/user-stats', async (req, res) => {
       }
 
       // 解析允许的客户端数据
-      let allowedClients = []
+      let allowedClients
       try {
         allowedClients = keyData.allowedClients ? JSON.parse(keyData.allowedClients) : []
       } catch (e) {
@@ -230,10 +204,7 @@ router.post('/api/user-stats', async (req, res) => {
       // 通过 apiKey 查询（保持向后兼容）
       if (typeof apiKey !== 'string' || apiKey.length < 10 || apiKey.length > 512) {
         logger.security(`Invalid API key format in user stats query from ${req.ip || 'unknown'}`)
-        return res.status(400).json({
-          error: 'Invalid API key format',
-          message: 'API key format is invalid',
-        })
+        throw badRequest('API key format is invalid')
       }
 
       // 验证API Key（使用不触发激活的验证方法）
@@ -241,11 +212,8 @@ router.post('/api/user-stats', async (req, res) => {
 
       if (!validation.valid) {
         const clientIP = req.ip || req.connection?.remoteAddress || 'unknown'
-        logger.security(`🔒 Invalid API key in user stats query: ${validation.error} from ${clientIP}`)
-        return res.status(401).json({
-          error: 'Invalid API key',
-          message: validation.error,
-        })
+        logger.security(`Invalid API key in user stats query: ${validation.error} from ${clientIP}`)
+        throw unauthorized(validation.error || 'Invalid API key')
       }
 
       const { keyData: validatedKeyData } = validation
@@ -253,19 +221,16 @@ router.post('/api/user-stats', async (req, res) => {
       keyId = keyData.id
     } else {
       logger.security(`Missing API key or ID in user stats query from ${req.ip || 'unknown'}`)
-      return res.status(400).json({
-        error: 'API Key or ID is required',
-        message: 'Please provide your API Key or API ID',
-      })
+      throw badRequest('Please provide your API Key or API ID')
     }
 
     // 记录合法查询
-    logger.api(`📊 User stats query from key: ${keyData.name} (${keyId}) from ${req.ip || 'unknown'}`)
+    logger.api(`User stats query from key: ${keyData.name} (${keyId}) from ${req.ip || 'unknown'}`)
 
     // 获取验证结果中的完整keyData（包含isActive状态和cost信息）
     const fullKeyData = keyData
 
-    // 🔧 FIX: 使用 allTimeCost 而不是扫描月度键
+    // 使用 allTimeCost 而不是扫描月度键
     // 计算总费用 - 优先使用持久化的总费用计数器
     let totalCost = 0
     let formattedCost = '$0.000000'
@@ -280,7 +245,7 @@ router.post('/api/user-stats', async (req, res) => {
       if (allTimeCost > 0) {
         totalCost = allTimeCost
         formattedCost = CostCalculator.formatCost(allTimeCost)
-        logger.debug(`📊 使用 allTimeCost 计算用户统计: ${allTimeCost}`)
+        logger.debug(`使用 allTimeCost 计算用户统计: ${allTimeCost}`)
       } else {
         // Fallback: 如果 allTimeCost 为空（旧键），尝试月度键
         const allModelResults = await redis.scanAndGetAllChunked(`usage:${keyId}:model:monthly:*:*`)
@@ -430,7 +395,7 @@ router.post('/api/user-stats', async (req, res) => {
             windowStartTime = null
             windowEndTime = null
             windowRemainingSeconds = 0
-            // 重置计数为0，因为窗口已过期
+            // 窗口已过期，重置计数为 0
             currentWindowRequests = 0
             currentWindowTokens = 0
             currentWindowCost = 0 // 新增：重置窗口费用
@@ -458,7 +423,7 @@ router.post('/api/user-stats', async (req, res) => {
               boundAccountDetails.claude = overview
             }
           } catch (error) {
-            logger.warn(`⚠️ Failed to load Claude account overview for key ${keyId}:`, error)
+            logger.warn(`Failed to load Claude account overview for key ${keyId}:`, error)
           }
         })(),
       )
@@ -474,7 +439,7 @@ router.post('/api/user-stats', async (req, res) => {
               boundAccountDetails.openai = overview
             }
           } catch (error) {
-            logger.warn(`⚠️ Failed to load OpenAI account overview for key ${keyId}:`, error)
+            logger.warn(`Failed to load OpenAI account overview for key ${keyId}:`, error)
           }
         })(),
       )
@@ -485,7 +450,7 @@ router.post('/api/user-stats', async (req, res) => {
     }
 
     // 构建响应数据（只返回该API Key自己的信息，确保不泄露其他信息）
-    const responseData = {
+    return {
       id: keyId,
       name: fullKeyData.name,
       description: fullKeyData.description || keyData.description || '',
@@ -578,30 +543,16 @@ router.post('/api/user-stats', async (req, res) => {
         }
       })(),
     }
+  }),
+)
 
-    return res.json({
-      success: true,
-      data: responseData,
-    })
-  } catch (error) {
-    logger.error('❌ Failed to process user stats query:', error)
-    return res.status(500).json({
-      error: 'Internal server error',
-      message: 'Failed to retrieve API key statistics',
-    })
-  }
-})
-
-router.get('/api/user-usage-records', async (req, res) => {
-  try {
+router.get(
+  '/api/user-usage-records',
+  asyncRoute('Failed to retrieve API key usage records', async (req) => {
     const { apiId, page = 1, pageSize = 50, startDate, endDate, model, sortOrder = 'desc' } = req.query
 
     if (typeof apiId !== 'string' || !apiId.match(/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i)) {
-      return res.status(400).json({
-        success: false,
-        error: 'Invalid API ID format',
-        message: 'API ID must be a valid UUID',
-      })
+      throw badRequest('API ID must be a valid UUID')
     }
 
     const pageNumber = Math.max(parseInt(page, 10) || 1, 1)
@@ -612,36 +563,24 @@ router.get('/api/user-usage-records', async (req, res) => {
     const endTime = parseDateTimeQuery(endDate)
 
     if ((startDate && Number.isNaN(startTime?.getTime())) || (endDate && Number.isNaN(endTime?.getTime()))) {
-      return res.status(400).json({ success: false, error: 'Invalid date range' })
+      throw badRequest('Invalid date range')
     }
 
     if (startTime && endTime && startTime > endTime) {
-      return res.status(400).json({ success: false, error: 'Start date must be before or equal to end date' })
+      throw badRequest('Start date must be before or equal to end date')
     }
 
     const keyData = await redis.getApiKey(apiId)
     if (!keyData || Object.keys(keyData).length === 0) {
-      return res.status(404).json({
-        success: false,
-        error: 'API key not found',
-        message: 'The specified API key does not exist',
-      })
+      throw notFound('The specified API key does not exist')
     }
 
     if (keyData.isActive !== 'true') {
-      return res.status(403).json({
-        success: false,
-        error: 'API key is disabled',
-        message: `API Key "${keyData.name || 'Unknown'}" 已被禁用`,
-      })
+      throw forbidden(`API Key "${keyData.name || 'Unknown'}" 已被禁用`)
     }
 
     if (keyData.expiresAt && new Date() > new Date(keyData.expiresAt)) {
-      return res.status(403).json({
-        success: false,
-        error: 'API key has expired',
-        message: `API Key "${keyData.name || 'Unknown'}" 已过期`,
-      })
+      throw forbidden(`API Key "${keyData.name || 'Unknown'}" 已过期`)
     }
 
     const rawRecords = await redis.getUsageRecords(apiId, 5000)
@@ -800,82 +739,65 @@ router.get('/api/user-usage-records', async (req, res) => {
       }
     })
 
-    return res.json({
-      success: true,
-      data: {
-        records,
-        pagination: {
-          currentPage: safePage,
-          pageSize: pageSizeNumber,
-          totalRecords,
-          totalPages,
-          hasNextPage: totalPages > 0 && safePage < totalPages,
-          hasPreviousPage: totalPages > 0 && safePage > 1,
-        },
-        filters: {
-          startDate: startDate || null,
-          endDate: endDate || null,
-          model: model || null,
-          accountId: null,
-          sortOrder: normalizedSortOrder,
-        },
-        apiKeyInfo: {
-          id: apiId,
-          name: keyData.name || keyData.label || apiId,
-        },
-        summary: {
-          ...summary,
-          totalCost: Number(summary.totalCost.toFixed(6)),
-          avgCost: summary.totalRequests > 0 ? Number((summary.totalCost / summary.totalRequests).toFixed(6)) : 0,
-        },
-        availableFilters: {
-          models: Array.from(modelSet),
-          accounts: [],
-          dateRange: {
-            earliest: earliestTimestamp ? earliestTimestamp.toISOString() : null,
-            latest: latestTimestamp ? latestTimestamp.toISOString() : null,
-          },
+    return {
+      records,
+      pagination: {
+        currentPage: safePage,
+        pageSize: pageSizeNumber,
+        totalRecords,
+        totalPages,
+        hasNextPage: totalPages > 0 && safePage < totalPages,
+        hasPreviousPage: totalPages > 0 && safePage > 1,
+      },
+      filters: {
+        startDate: startDate || null,
+        endDate: endDate || null,
+        model: model || null,
+        accountId: null,
+        sortOrder: normalizedSortOrder,
+      },
+      apiKeyInfo: {
+        id: apiId,
+        name: keyData.name || keyData.label || apiId,
+      },
+      summary: {
+        ...summary,
+        totalCost: Number(summary.totalCost.toFixed(6)),
+        avgCost: summary.totalRequests > 0 ? Number((summary.totalCost / summary.totalRequests).toFixed(6)) : 0,
+      },
+      availableFilters: {
+        models: Array.from(modelSet),
+        accounts: [],
+        dateRange: {
+          earliest: earliestTimestamp ? earliestTimestamp.toISOString() : null,
+          latest: latestTimestamp ? latestTimestamp.toISOString() : null,
         },
       },
-    })
-  } catch (error) {
-    logger.error('❌ Failed to get public API key usage records:', error)
-    return res.status(500).json({
-      error: 'Internal server error',
-      message: 'Failed to retrieve API key usage records',
-    })
-  }
-})
+    }
+  }),
+)
 
-// 📊 批量查询统计数据接口
-router.post('/api/batch-stats', async (req, res) => {
-  try {
-    const { apiIds } = req.body
+// 批量查询统计数据接口
+router.post(
+  '/api/batch-stats',
+  asyncRoute('Failed to retrieve batch statistics', async (req) => {
+    const { apiIds } = parseObjectBody(req.body, '批量统计')
 
     // 验证输入
     if (!apiIds || !Array.isArray(apiIds) || apiIds.length === 0) {
-      return res.status(400).json({
-        error: 'Invalid input',
-        message: 'API IDs array is required',
-      })
+      throw badRequest('API IDs array is required')
     }
 
     // 限制最多查询 30 个
     if (apiIds.length > 30) {
-      return res.status(400).json({
-        error: 'Too many keys',
-        message: 'Maximum 30 API keys can be queried at once',
-      })
+      throw badRequest('Maximum 30 API keys can be queried at once')
     }
 
     // 验证所有 ID 格式
     const uuidRegex = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i
     const invalidIds = apiIds.filter((id) => !uuidRegex.test(id))
     if (invalidIds.length > 0) {
-      return res.status(400).json({
-        error: 'Invalid API ID format',
-        message: `Invalid API IDs: ${invalidIds.join(', ')}`,
-      })
+      throw badRequest(`Invalid API IDs: ${invalidIds.join(', ')}`)
     }
 
     const individualStats = []
@@ -1030,43 +952,29 @@ router.post('/api/batch-stats', async (req, res) => {
     aggregated.dailyUsage.formattedCost = CostCalculator.formatCost(aggregated.dailyUsage.cost)
     aggregated.monthlyUsage.formattedCost = CostCalculator.formatCost(aggregated.monthlyUsage.cost)
 
-    logger.api(`📊 Batch stats query for ${apiIds.length} keys from ${req.ip || 'unknown'}`)
+    logger.api(`Batch stats query for ${apiIds.length} keys from ${req.ip || 'unknown'}`)
 
-    return res.json({
-      success: true,
-      data: {
-        aggregated,
-        individual: individualStats,
-      },
-    })
-  } catch (error) {
-    logger.error('❌ Failed to process batch stats query:', error)
-    return res.status(500).json({
-      error: 'Internal server error',
-      message: 'Failed to retrieve batch statistics',
-    })
-  }
-})
+    return {
+      aggregated,
+      individual: individualStats,
+    }
+  }),
+)
 
-// 📊 批量模型统计查询接口
-router.post('/api/batch-model-stats', async (req, res) => {
-  try {
-    const { apiIds, period = 'daily' } = req.body
+// 批量模型统计查询接口
+router.post(
+  '/api/batch-model-stats',
+  asyncRoute('Failed to retrieve batch model statistics', async (req) => {
+    const { apiIds, period = 'daily' } = parseObjectBody(req.body, '批量模型统计')
 
     // 验证输入
     if (!apiIds || !Array.isArray(apiIds) || apiIds.length === 0) {
-      return res.status(400).json({
-        error: 'Invalid input',
-        message: 'API IDs array is required',
-      })
+      throw badRequest('API IDs array is required')
     }
 
     // 限制最多查询 30 个
     if (apiIds.length > 30) {
-      return res.status(400).json({
-        error: 'Too many keys',
-        message: 'Maximum 30 API keys can be queried at once',
-      })
+      throw badRequest('Maximum 30 API keys can be queried at once')
     }
 
     const _client = redis.getClientSafe()
@@ -1171,127 +1079,100 @@ router.post('/api/batch-model-stats', async (req, res) => {
     // 按总 token 数降序排列
     modelStats.sort((a, b) => b.allTokens - a.allTokens)
 
-    logger.api(`📊 Batch model stats query for ${apiIds.length} keys, period: ${period}`)
+    logger.api(`Batch model stats query for ${apiIds.length} keys, period: ${period}`)
 
-    return res.json({
-      success: true,
-      data: modelStats,
-      period,
-    })
-  } catch (error) {
-    logger.error('❌ Failed to process batch model stats query:', error)
-    return res.status(500).json({
-      error: 'Internal server error',
-      message: 'Failed to retrieve batch model statistics',
-    })
-  }
-})
+    return modelStats
+  }),
+)
 
 // maxTokens 白名单
 const ALLOWED_MAX_TOKENS = [100, 500, 1000, 2000, 4096]
 const sanitizeMaxTokens = (value) => (ALLOWED_MAX_TOKENS.includes(Number(value)) ? Number(value) : 1000)
 
-// 🧪 API Key 端点测试接口 - 测试API Key是否能正常访问服务
-router.post('/api-key/test', async (req, res) => {
-  try {
-    const { apiKey, prompt = 'hi' } = req.body
-    const model = await testModelConfigService.resolveApikeyModel('claude', req.body.model)
-    const maxTokens = sanitizeMaxTokens(req.body.maxTokens)
+// API Key 端点测试接口 - 测试API Key是否能正常访问服务
+router.post(
+  '/api-key/test',
+  asyncRoute('API Key test failed', async (req, res) => {
+    const body = parseObjectBody(req.body, 'Claude 连通测试')
+    const { apiKey, prompt = 'hi' } = body
+    const model = await testModelConfigService.resolveApikeyModel('claude', body.model)
+    const maxTokens = sanitizeMaxTokens(body.maxTokens)
 
     if (!apiKey) {
-      return res.status(400).json({
-        error: 'API Key is required',
-        message: 'Please provide your API Key',
-      })
+      throw badRequest('Please provide your API Key')
     }
 
     if (typeof apiKey !== 'string' || apiKey.length < 10 || apiKey.length > 512) {
-      return res.status(400).json({
-        error: 'Invalid API key format',
-        message: 'API key format is invalid',
-      })
+      throw badRequest('API key format is invalid')
     }
 
     const validation = await apiKeyService.validateApiKeyForStats(apiKey)
     if (!validation.valid) {
-      return res.status(401).json({
-        error: 'Invalid API key',
-        message: validation.error,
-      })
+      throw unauthorized(validation.error || 'Invalid API key')
     }
 
-    logger.api(`🧪 API Key test started for: ${validation.keyData.name} (${validation.keyData.id})`)
+    logger.api(`API Key test started for: ${validation.keyData.name} (${validation.keyData.id})`)
 
     const port = config.server.port || 3000
     const apiUrl = `http://127.0.0.1:${port}/api/v1/messages?beta=true`
 
-    await sendStreamTestRequest({
-      apiUrl,
-      authorization: apiKey,
-      responseStream: res,
-      payload: createClaudeTestPayload(model, { stream: true, prompt, maxTokens }),
-      timeout: 60000,
-      extraHeaders: {
-        'x-api-key': apiKey,
-        'x-app': 'claude-code',
-        'anthropic-beta': 'claude-code-20250219,oauth-2025-04-20,interleaved-thinking-2025-05-14',
-      },
-      sanitize: false,
-    })
-  } catch (error) {
-    logger.error('❌ API Key test failed:', error)
-
-    const errorMsg = error.message || 'An unexpected error occurred'
-    if (!res.headersSent) {
-      return res.status(500).json({
-        error: 'Test failed',
-        message: errorMsg,
+    try {
+      await sendStreamTestRequest({
+        apiUrl,
+        authorization: apiKey,
+        responseStream: res,
+        payload: createClaudeTestPayload(model, { stream: true, prompt, maxTokens }),
+        timeout: 60000,
+        extraHeaders: {
+          'x-api-key': apiKey,
+          'x-app': 'claude-code',
+          'anthropic-beta': 'claude-code-20250219,oauth-2025-04-20,interleaved-thinking-2025-05-14',
+        },
+        sanitize: false,
       })
+    } catch (error) {
+      logger.error('API Key test failed:', error)
+      const errorMsg = error.message || 'An unexpected error occurred'
+      if (res.headersSent) {
+        res.write(`data: ${JSON.stringify({ type: 'error', error: errorMsg })}\n\n`)
+        res.end()
+        return SEND_RAW
+      }
+      throw error
     }
 
-    res.write(`data: ${JSON.stringify({ type: 'error', error: errorMsg })}\n\n`)
-    res.end()
-  }
-})
+    return SEND_RAW
+  }),
+)
 
-// 🧪 Gemini API Key 端点测试接口
-router.post('/api-key/test-gemini', async (req, res) => {
-  try {
-    const { apiKey, prompt = 'hi' } = req.body
-    const model = await testModelConfigService.resolveApikeyModel('gemini', req.body.model)
-    const maxTokens = sanitizeMaxTokens(req.body.maxTokens)
+// Gemini API Key 端点测试接口
+router.post(
+  '/api-key/test-gemini',
+  asyncRoute('Gemini API Key test failed', async (req, res) => {
+    const body = parseObjectBody(req.body, 'Gemini 连通测试')
+    const { apiKey, prompt = 'hi' } = body
+    const model = await testModelConfigService.resolveApikeyModel('gemini', body.model)
+    const maxTokens = sanitizeMaxTokens(body.maxTokens)
 
     if (!apiKey) {
-      return res.status(400).json({
-        error: 'API Key is required',
-        message: 'Please provide your API Key',
-      })
+      throw badRequest('Please provide your API Key')
     }
 
     if (typeof apiKey !== 'string' || apiKey.length < 10 || apiKey.length > 512) {
-      return res.status(400).json({
-        error: 'Invalid API key format',
-        message: 'API key format is invalid',
-      })
+      throw badRequest('API key format is invalid')
     }
 
     const validation = await apiKeyService.validateApiKeyForStats(apiKey)
     if (!validation.valid) {
-      return res.status(401).json({
-        error: 'Invalid API key',
-        message: validation.error,
-      })
+      throw unauthorized(validation.error || 'Invalid API key')
     }
 
     // 检查 Gemini 权限
     if (!apiKeyService.hasPermission(validation.keyData.permissions, 'gemini')) {
-      return res.status(403).json({
-        error: 'Permission denied',
-        message: 'This API key does not have Gemini permission',
-      })
+      throw forbidden('This API key does not have Gemini permission')
     }
 
-    logger.api(`🧪 Gemini API Key test started for: ${validation.keyData.name} (${validation.keyData.id})`)
+    logger.api(`Gemini API Key test started for: ${validation.keyData.name} (${validation.keyData.id})`)
 
     const port = config.server.port || 3000
     const apiUrl = `http://127.0.0.1:${port}/gemini/v1/models/${model}:streamGenerateContent?alt=sse`
@@ -1338,7 +1219,7 @@ router.post('/api-key/test-gemini', async (req, res) => {
           )
           res.end()
         })
-        return
+        return SEND_RAW
       }
 
       let buffer = ''
@@ -1384,59 +1265,39 @@ router.post('/api-key/test-gemini', async (req, res) => {
       )
       res.end()
     }
-  } catch (error) {
-    logger.error('❌ Gemini API Key test failed:', error)
 
-    if (!res.headersSent) {
-      return res.status(500).json({
-        error: 'Test failed',
-        message: getSafeMessage(error),
-      })
-    }
+    return SEND_RAW
+  }),
+)
 
-    res.write(`data: ${JSON.stringify({ type: 'error', error: getSafeMessage(error) })}\n\n`)
-    res.end()
-  }
-})
-
-// 🧪 OpenAI/Codex API Key 端点测试接口
-router.post('/api-key/test-openai', async (req, res) => {
-  try {
-    const { apiKey, prompt = 'hi' } = req.body
-    const model = await testModelConfigService.resolveApikeyModel('openai', req.body.model)
-    const maxTokens = sanitizeMaxTokens(req.body.maxTokens)
+// OpenAI/Codex API Key 端点测试接口
+router.post(
+  '/api-key/test-openai',
+  asyncRoute('OpenAI API Key test failed', async (req, res) => {
+    const body = parseObjectBody(req.body, 'OpenAI 连通测试')
+    const { apiKey, prompt = 'hi' } = body
+    const model = await testModelConfigService.resolveApikeyModel('openai', body.model)
+    const maxTokens = sanitizeMaxTokens(body.maxTokens)
 
     if (!apiKey) {
-      return res.status(400).json({
-        error: 'API Key is required',
-        message: 'Please provide your API Key',
-      })
+      throw badRequest('Please provide your API Key')
     }
 
     if (typeof apiKey !== 'string' || apiKey.length < 10 || apiKey.length > 512) {
-      return res.status(400).json({
-        error: 'Invalid API key format',
-        message: 'API key format is invalid',
-      })
+      throw badRequest('API key format is invalid')
     }
 
     const validation = await apiKeyService.validateApiKeyForStats(apiKey)
     if (!validation.valid) {
-      return res.status(401).json({
-        error: 'Invalid API key',
-        message: validation.error,
-      })
+      throw unauthorized(validation.error || 'Invalid API key')
     }
 
     // 检查 OpenAI 权限
     if (!apiKeyService.hasPermission(validation.keyData.permissions, 'openai')) {
-      return res.status(403).json({
-        error: 'Permission denied',
-        message: 'This API key does not have OpenAI permission',
-      })
+      throw forbidden('This API key does not have OpenAI permission')
     }
 
-    logger.api(`🧪 OpenAI API Key test started for: ${validation.keyData.name} (${validation.keyData.id})`)
+    logger.api(`OpenAI API Key test started for: ${validation.keyData.name} (${validation.keyData.id})`)
 
     const port = config.server.port || 3000
     const apiUrl = `http://127.0.0.1:${port}/openai/responses`
@@ -1484,7 +1345,7 @@ router.post('/api-key/test-openai', async (req, res) => {
           )
           res.end()
         })
-        return
+        return SEND_RAW
       }
 
       let buffer = ''
@@ -1531,25 +1392,16 @@ router.post('/api-key/test-openai', async (req, res) => {
       )
       res.end()
     }
-  } catch (error) {
-    logger.error('❌ OpenAI API Key test failed:', error)
 
-    if (!res.headersSent) {
-      return res.status(500).json({
-        error: 'Test failed',
-        message: getSafeMessage(error),
-      })
-    }
+    return SEND_RAW
+  }),
+)
 
-    res.write(`data: ${JSON.stringify({ type: 'error', error: getSafeMessage(error) })}\n\n`)
-    res.end()
-  }
-})
-
-// 📊 用户模型统计查询接口 - 安全的自查询接口
-router.post('/api/user-model-stats', async (req, res) => {
-  try {
-    const { apiKey, apiId, period = 'monthly' } = req.body
+// 用户模型统计查询接口 - 安全的自查询接口
+router.post(
+  '/api/user-model-stats',
+  asyncRoute('Failed to retrieve model statistics', async (req) => {
+    const { apiKey, apiId, period = 'monthly' } = parseObjectBody(req.body, '模型统计')
 
     let keyData
     let keyId
@@ -1560,10 +1412,7 @@ router.post('/api/user-model-stats', async (req, res) => {
         typeof apiId !== 'string' ||
         !apiId.match(/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i)
       ) {
-        return res.status(400).json({
-          error: 'Invalid API ID format',
-          message: 'API ID must be a valid UUID',
-        })
+        throw badRequest('API ID must be a valid UUID')
       }
 
       // 直接通过 ID 获取 API Key 数据
@@ -1571,20 +1420,13 @@ router.post('/api/user-model-stats', async (req, res) => {
 
       if (!keyData || Object.keys(keyData).length === 0) {
         logger.security(`API key not found for ID: ${apiId} from ${req.ip || 'unknown'}`)
-        return res.status(404).json({
-          error: 'API key not found',
-          message: 'The specified API key does not exist',
-        })
+        throw notFound('The specified API key does not exist')
       }
 
       // 检查是否激活
       if (keyData.isActive !== 'true') {
         const keyName = keyData.name || 'Unknown'
-        return res.status(403).json({
-          error: 'API key is disabled',
-          message: `API Key "${keyName}" 已被禁用`,
-          keyName,
-        })
+        throw forbidden(`API Key "${keyName}" 已被禁用`, { data: { keyName } })
       }
 
       keyId = apiId
@@ -1599,25 +1441,19 @@ router.post('/api/user-model-stats', async (req, res) => {
 
       if (!validation.valid) {
         const clientIP = req.ip || req.connection?.remoteAddress || 'unknown'
-        logger.security(`🔒 Invalid API key in user model stats query: ${validation.error} from ${clientIP}`)
-        return res.status(401).json({
-          error: 'Invalid API key',
-          message: validation.error,
-        })
+        logger.security(`Invalid API key in user model stats query: ${validation.error} from ${clientIP}`)
+        throw unauthorized(validation.error || 'Invalid API key')
       }
 
       const { keyData: validatedKeyData } = validation
       keyData = validatedKeyData
       keyId = keyData.id
     } else {
-      logger.security(`🔒 Missing API key or ID in user model stats query from ${req.ip || 'unknown'}`)
-      return res.status(400).json({
-        error: 'API Key or ID is required',
-        message: 'Please provide your API Key or API ID',
-      })
+      logger.security(`Missing API key or ID in user model stats query from ${req.ip || 'unknown'}`)
+      throw badRequest('Please provide your API Key or API ID')
     }
 
-    logger.api(`📊 User model stats query from key: ${keyData.name} (${keyId}) for period: ${period}`)
+    logger.api(`User model stats query from key: ${keyData.name} (${keyId}) for period: ${period}`)
 
     // 重用管理后台的模型统计逻辑，但只返回该API Key的数据
     const _client = redis.getClientSafe()
@@ -1724,78 +1560,50 @@ router.post('/api/user-model-stats', async (req, res) => {
     // 如果没有详细的模型数据，不显示历史数据以避免混淆
     // 只有在查询特定时间段时返回空数组，表示该时间段确实没有数据
     if (modelStats.length === 0) {
-      logger.info(`📊 No model stats found for key ${keyId} in period ${period}`)
+      logger.info(`No model stats found for key ${keyId} in period ${period}`)
     }
 
     // 按总token数降序排列
     modelStats.sort((a, b) => b.allTokens - a.allTokens)
 
-    return res.json({
-      success: true,
-      data: modelStats,
-      period,
-    })
-  } catch (error) {
-    logger.error('❌ Failed to process user model stats query:', error)
-    return res.status(500).json({
-      error: 'Internal server error',
-      message: 'Failed to retrieve model statistics',
-    })
-  }
-})
+    return modelStats
+  }),
+)
 
-// 📊 获取服务倍率配置（公开接口）
-router.get('/service-rates', async (req, res) => {
-  try {
-    const rates = await serviceRatesService.getRates()
-    res.json({
-      success: true,
-      data: rates,
-    })
-  } catch (error) {
-    logger.error('❌ Failed to get service rates:', error)
-    res.status(500).json({
-      error: 'Internal server error',
-      message: 'Failed to retrieve service rates',
-    })
-  }
-})
+// 获取服务倍率配置（公开接口）
+router.get(
+  '/service-rates',
+  asyncRoute('Failed to retrieve service rates', async () => serviceRatesService.getRates()),
+)
 
-// 💰 获取模型价格列表（公开只读，用户统计页展示用）
+// 获取模型价格列表（公开只读，用户统计页展示用）
 // 内部完整计费模型优先；无内部则回落外部种子
-router.get('/model-pricing', async (req, res) => {
-  try {
+router.get(
+  '/model-pricing',
+  asyncRoute('Failed to retrieve model pricing', async () => {
     if (!pricingService.pricingData || Object.keys(pricingService.pricingData).length === 0) {
       await pricingService.loadPricingData()
     }
     const status = pricingService.getStatus()
     // 公开面只投影展示字段，禁止把内部 metadata 任意键暴露给未认证访客
     const pricing = toPublicPricingMap(pricingService.getEffectivePricingData())
-    res.json({
-      success: true,
-      data: {
-        pricing: pricing || {},
-        status: {
-          lastUpdated: status.lastUpdated,
-          modelCount: status.modelCount,
-          seedModelCount: status.seedModelCount,
-          internalBillingModels: status.internalBillingModels,
-        },
+    return {
+      pricing: pricing || {},
+      status: {
+        lastUpdated: status.lastUpdated,
+        modelCount: status.modelCount,
+        seedModelCount: status.seedModelCount,
+        internalBillingModels: status.internalBillingModels,
       },
-    })
-  } catch (error) {
-    logger.error('❌ Failed to get public model pricing:', error)
-    res.status(500).json({
-      error: 'Internal server error',
-      message: 'Failed to retrieve model pricing',
-    })
-  }
-})
+    }
+  }),
+)
 
-// 🎫 公开的额度卡兑换接口（通过 apiId 验证身份）
-router.post('/api/redeem-card', async (req, res) => {
-  try {
-    const { apiId, code } = req.body
+// 公开的额度卡兑换接口（通过 apiId 验证身份）
+router.post(
+  '/api/redeem-card',
+  asyncRoute('Failed to redeem card', async (req) => {
+    const { apiId, code } = parseObjectBody(req.body, '兑换码')
     const clientIP = req.ip || req.connection?.remoteAddress || 'unknown'
     const hour = new Date().toISOString().slice(0, 13)
 
@@ -1803,11 +1611,8 @@ router.post('/api/redeem-card', async (req, res) => {
     const failKey = RedisKeys.redeemCard.fail(clientIP)
     const failCount = parseInt((await redis.client.get(failKey)) || '0')
     if (failCount >= 5) {
-      logger.security(`🔒 Card redemption locked for IP: ${clientIP}`)
-      return res.status(403).json({
-        success: false,
-        error: '失败次数过多，请1小时后再试',
-      })
+      logger.security(`Card redemption locked for IP: ${clientIP}`)
+      throw forbidden('失败次数过多，请1小时后再试')
     }
 
     // 防暴力破解：检查 IP 速率限制
@@ -1815,118 +1620,79 @@ router.post('/api/redeem-card', async (req, res) => {
     const ipCount = await redis.client.incr(ipKey)
     await redis.client.expire(ipKey, TTL.redeemCardWindow)
     if (ipCount > 10) {
-      logger.security(`🚨 Card redemption rate limit for IP: ${clientIP}`)
-      return res.status(429).json({
-        success: false,
-        error: '请求过于频繁，请稍后再试',
-      })
+      logger.security(`Card redemption rate limit for IP: ${clientIP}`)
+      throw tooManyRequests('请求过于频繁，请稍后再试')
     }
 
     if (!apiId || !code) {
-      return res.status(400).json({
-        success: false,
-        error: '请输入卡号',
-      })
+      throw badRequest('请输入卡号')
     }
 
     // 验证 apiId 格式
     if (typeof apiId !== 'string' || !apiId.match(/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i)) {
-      return res.status(400).json({
-        success: false,
-        error: 'API ID 格式无效',
-      })
+      throw badRequest('API ID 格式无效')
     }
 
     // 验证 API Key 存在且有效
     const keyData = await redis.getApiKey(apiId)
     if (!keyData || Object.keys(keyData).length === 0) {
-      return res.status(404).json({
-        success: false,
-        error: 'API Key 不存在',
-      })
+      throw notFound('API Key 不存在')
     }
 
     if (keyData.isActive !== 'true') {
-      return res.status(403).json({
-        success: false,
-        error: 'API Key 已禁用',
-      })
+      throw forbidden('API Key 已禁用')
     }
 
-    // 调用兑换服务
-    const result = await quotaCardService.redeemCard(code, apiId, null, keyData.name || 'API Stats')
+    try {
+      // 调用兑换服务
+      const result = await quotaCardService.redeemCard(code, apiId, null, keyData.name || 'API Stats')
 
-    // 成功时清除失败计数（静默处理，不影响成功响应）
-    redis.client.del(failKey).catch(() => {})
+      // 成功时清除失败计数（静默处理，不影响成功响应）
+      redis.client.del(failKey).catch((e) => console.error(e))
 
-    logger.api(`🎫 Card redeemed via API Stats: ${code} -> ${apiId}`)
+      logger.api(`Card redeemed via API Stats: ${code} -> ${apiId}`)
 
-    res.json({
-      success: true,
-      data: result,
-    })
-  } catch (error) {
-    // 失败时增加失败计数（静默处理，不影响错误响应）
-    const clientIP = req.ip || req.connection?.remoteAddress || 'unknown'
-    const failKey = RedisKeys.redeemCard.fail(clientIP)
-    redis.client
-      .incr(failKey)
-      .then(() => redis.client.expire(failKey, TTL.redeemCardWindow))
-      .catch(() => {})
+      return result
+    } catch (error) {
+      console.error(error)
+      // 失败时增加失败计数（静默处理，不影响错误响应）
+      redis.client
+        .incr(failKey)
+        .then(() => redis.client.expire(failKey, TTL.redeemCardWindow))
+        .catch((e) => console.error(e))
 
-    logger.error('❌ Failed to redeem card:', error)
-    res.status(400).json({
-      success: false,
-      error: error.message,
-    })
-  }
-})
+      logger.error('Failed to redeem card:', error)
+      throw badRequest(error.message)
+    }
+  }),
+)
 
-// 📋 公开的兑换记录查询接口（通过 apiId 验证身份）
-router.get('/api/redemption-history', async (req, res) => {
-  try {
+// 公开的兑换记录查询接口（通过 apiId 验证身份）
+router.get(
+  '/api/redemption-history',
+  asyncRoute('Failed to get redemption history', async (req) => {
     const { apiId, limit = 50, offset = 0 } = req.query
 
     if (!apiId) {
-      return res.status(400).json({
-        success: false,
-        error: '缺少 API ID',
-      })
+      throw badRequest('缺少 API ID')
     }
 
     // 验证 apiId 格式
     if (typeof apiId !== 'string' || !apiId.match(/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i)) {
-      return res.status(400).json({
-        success: false,
-        error: 'API ID 格式无效',
-      })
+      throw badRequest('API ID 格式无效')
     }
 
     // 验证 API Key 存在
     const keyData = await redis.getApiKey(apiId)
     if (!keyData || Object.keys(keyData).length === 0) {
-      return res.status(404).json({
-        success: false,
-        error: 'API Key 不存在',
-      })
+      throw notFound('API Key 不存在')
     }
 
     // 获取该 API Key 的兑换记录
-    const result = await quotaCardService.getRedemptions({
+    return quotaCardService.getRedemptions({
       apiKeyId: apiId,
       limit: parseInt(limit),
       offset: parseInt(offset),
     })
-
-    res.json({
-      success: true,
-      data: result,
-    })
-  } catch (error) {
-    logger.error('❌ Failed to get redemption history:', error)
-    res.status(500).json({
-      success: false,
-      error: error.message,
-    })
-  }
-})
+  }),
+)

@@ -6,7 +6,7 @@ import { RedisKeys } from './redis_key.js'
 // ===
 
 export const attach = function attach(redisClient) {
-  // 🏢 Claude 账户管理
+  // Claude 账户管理
   redisClient.setClaudeAccount = async function (accountId, accountData) {
     const key = RedisKeys.accounts.claude(accountId)
     await this.client.hset(key, accountData)
@@ -49,7 +49,7 @@ export const attach = function attach(redisClient) {
     return await this.client.del(key)
   }
 
-  // 🤖 Droid 账户相关操作
+  // Droid 账户相关操作
   redisClient.setDroidAccount = async function (accountId, accountData) {
     const key = RedisKeys.accounts.droid(accountId)
     await this.client.hset(key, accountData)

@@ -191,6 +191,7 @@ import { ref, watch } from 'vue'
 import ModalTransition from '@/components/common/modal_transition.vue'
 import CuteOptionCards from '@/components/common/cute_option_cards.vue'
 import { updateFrontUserRoleApi } from '@/libs/http_apis'
+import { isOk, msgOf } from '@/libs/http_envelope'
 import { showToast } from '@/libs/tools'
 
 const props = defineProps({
@@ -238,11 +239,11 @@ const handleSubmit = async () => {
       role: selectedRole.value
     })
 
-    if (response.success) {
+    if (isOk(response)) {
       showToast(`User role updated to ${selectedRole.value}`, 'success')
       emit('updated')
     } else {
-      error.value = response.message || 'Failed to update user role'
+      error.value = msgOf(response, 'Failed to update user role')
     }
   } catch (err) {
     console.error('Update user role error:', err)

@@ -7,8 +7,9 @@ const OP_CONTINUATION = 0x0
 const OP_TEXT = 0x1
 const OP_BINARY = 0x2
 const OP_CLOSE = 0x8
+const OP_PING = 0x9
 
-export const createWsFrameSniffer = ({ onTextMessage, onCloseFrame, label = 'ws' } = {}) => {
+export const createWsFrameSniffer = ({ onTextMessage, onCloseFrame, onPing, label = 'ws' } = {}) => {
   let buffer = Buffer.alloc(0)
   let fragmentedOpcode = null
   let fragmentedChunks = []
@@ -112,8 +113,19 @@ export const createWsFrameSniffer = ({ onTextMessage, onCloseFrame, label = 'ws'
         resetFragment()
         continue
       }
+      if (opcode === OP_PING) {
+        // 上游 Ping：回调由隧道侧回 masked Pong（本服务作客户端）
+        if (typeof onPing === 'function') {
+          try {
+            onPing(payload)
+          } catch (error) {
+            console.error(error)
+          }
+        }
+        continue
+      }
       if (opcode >= 0x8) {
-        // ping/pong 等控制帧忽略
+        // pong 等其它控制帧忽略
         continue
       }
 

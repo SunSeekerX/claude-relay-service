@@ -10,7 +10,7 @@ import { config as configLocal } from '../../config/config.js'
 // ===
 
 export const attach = function attach(redisClient) {
-  // 📈 系统统计（使用 scanKeys 替代 keys）
+  // 系统统计（使用 scanKeys 替代 keys）
   redisClient.getSystemStats = async function () {
     const keys = await Promise.all([
       this.scanKeys(RedisKeys.apiKey.allPattern),
@@ -28,7 +28,7 @@ export const attach = function attach(redisClient) {
     }
   }
 
-  // 🔍 通过索引获取 key 列表（替代 SCAN）
+  // 通过索引获取 key 列表（替代 SCAN）
   redisClient.getKeysByIndex = async function (indexKey, keyPattern) {
     const members = await this.client.smembers(indexKey)
     if (!members || members.length === 0) {
@@ -37,7 +37,7 @@ export const attach = function attach(redisClient) {
     return members.map((id) => keyPattern.replace('{id}', id))
   }
 
-  // 🔍 批量通过索引获取数据
+  // 批量通过索引获取数据
   redisClient.getDataByIndex = async function (indexKey, keyPattern) {
     const keys = await this.getKeysByIndex(indexKey, keyPattern)
     if (keys.length === 0) {
@@ -46,7 +46,7 @@ export const attach = function attach(redisClient) {
     return await this.batchHgetallChunked(keys)
   }
 
-  // 📊 获取今日系统统计
+  // 获取今日系统统计
   redisClient.getTodayStats = async function () {
     try {
       const today = getDateStringInTimezone()
@@ -143,7 +143,7 @@ export const attach = function attach(redisClient) {
     }
   }
 
-  // 📈 获取系统总的平均RPM和TPM
+  // 获取系统总的平均RPM和TPM
   redisClient.getSystemAverages = async function () {
     try {
       const allApiKeys = await this.scanKeys(RedisKeys.apiKey.allPattern)
@@ -205,7 +205,7 @@ export const attach = function attach(redisClient) {
     }
   }
 
-  // 📊 获取实时系统指标（基于滑动窗口）
+  // 获取实时系统指标（基于滑动窗口）
   redisClient.getRealtimeSystemMetrics = async function () {
     try {
       const windowMinutes = configLocal.system.metricsWindow // config.js 单一权威源，必已定义
@@ -214,7 +214,7 @@ export const attach = function attach(redisClient) {
       const currentMinute = Math.floor(now.getTime() / 60000)
 
       // 调试：打印当前时间和分钟时间戳
-      logger.debug(`🔍 Realtime metrics - Current time: ${now.toISOString()}, Minute timestamp: ${currentMinute}`)
+      logger.debug(`Realtime metrics - Current time: ${now.toISOString()}, Minute timestamp: ${currentMinute}`)
 
       // 使用Pipeline批量获取窗口内的所有分钟数据
       const pipeline = this.client.pipeline()
@@ -225,7 +225,7 @@ export const attach = function attach(redisClient) {
         pipeline.hgetall(minuteKey)
       }
 
-      logger.debug(`🔍 Realtime metrics - Checking keys: ${minuteKeys.join(', ')}`)
+      logger.debug(`Realtime metrics - Checking keys: ${minuteKeys.join(', ')}`)
 
       const results = await pipeline.exec()
 
@@ -248,7 +248,7 @@ export const attach = function attach(redisClient) {
           totalCacheCreateTokens += parseInt(data.cacheCreateTokens || 0)
           totalCacheReadTokens += parseInt(data.cacheReadTokens || 0)
 
-          logger.debug(`🔍 Realtime metrics - Key ${minuteKeys[index]} data:`, {
+          logger.debug(`Realtime metrics - Key ${minuteKeys[index]} data:`, {
             requests: data.requests,
             totalTokens: data.totalTokens,
           })
@@ -256,7 +256,7 @@ export const attach = function attach(redisClient) {
       })
 
       logger.debug(
-        `🔍 Realtime metrics - Valid data count: ${validDataCount}/${windowMinutes}, Total requests: ${totalRequests}, Total tokens: ${totalTokens}`,
+        `Realtime metrics - Valid data count: ${validDataCount}/${windowMinutes}, Total requests: ${totalRequests}, Total tokens: ${totalTokens}`,
       )
 
       // 计算平均值（每分钟）
@@ -275,7 +275,7 @@ export const attach = function attach(redisClient) {
         totalCacheReadTokens,
       }
 
-      logger.debug('🔍 Realtime metrics - Final result:', result)
+      logger.debug('Realtime metrics - Final result:', result)
 
       return result
     } catch (error) {

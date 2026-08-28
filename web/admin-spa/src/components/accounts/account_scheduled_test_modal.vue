@@ -6,11 +6,11 @@
     >
       <div class="absolute inset-0" @click="handleClose" />
       <div
-        class="modal-panel relative z-10 mx-3 flex w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-gray-200/70 bg-white/95 shadow-2xl ring-1 ring-black/5 transition-all dark:border-gray-700/60 dark:bg-gray-900/95 dark:ring-white/10 sm:mx-4"
+        class="modal-panel relative z-10 mx-3 flex h-[min(92dvh,720px)] w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-gray-200/70 bg-white/95 shadow-2xl ring-1 ring-black/5 transition-all dark:border-gray-700/60 dark:bg-gray-900/95 dark:ring-white/10 sm:mx-4"
       >
         <!-- 顶部栏 -->
         <div
-          class="flex items-center justify-between border-b border-gray-100 bg-white/80 px-5 py-4 backdrop-blur dark:border-gray-800 dark:bg-gray-900/80"
+          class="flex shrink-0 items-center justify-between border-b border-gray-100 bg-white/80 px-5 py-4 backdrop-blur dark:border-gray-800 dark:bg-gray-900/80"
         >
           <div class="flex items-center gap-3">
             <div
@@ -34,8 +34,8 @@
           </button>
         </div>
 
-        <!-- 内容区域 -->
-        <div class="px-5 py-4">
+        <!-- 内容区域：视口内滚动 -->
+        <div class="min-h-0 flex-1 overflow-y-auto px-5 py-4">
           <!-- 加载状态 -->
           <div v-if="loading" class="flex items-center justify-center py-8">
             <i class="i-lucide-loader-circle animate-spin mr-2 text-blue-500" />
@@ -171,7 +171,7 @@
 
         <!-- 底部操作栏 -->
         <div
-          class="flex items-center justify-end gap-3 border-t border-gray-100 bg-gray-50/80 px-5 py-3 dark:border-gray-800 dark:bg-gray-900/50"
+          class="flex shrink-0 items-center justify-end gap-3 border-t border-gray-100 bg-gray-50/80 px-5 py-3 dark:border-gray-800 dark:bg-gray-900/50"
         >
           <button
             class="rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm font-medium text-gray-700 shadow-sm transition hover:bg-gray-50 hover:shadow dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
@@ -203,6 +203,7 @@
 import { ref, watch, onMounted } from 'vue'
 import ModalTransition from '@/components/common/modal_transition.vue'
 import { showToast } from '@/libs/tools'
+import { isOk, msgOf } from '@/libs/http_envelope'
 import {
   getModelsApi,
   getClaudeAccountTestConfigApi,
@@ -251,7 +252,7 @@ const globalDefaultModel = ref('')
 
 const loadModels = async () => {
   const result = await getModelsApi()
-  if (result.success && result.data) {
+  if (isOk(result) && result.data) {
     const platform = props.account?.platform
     modelOptions.value = result.data.platforms?.[platform] || result.data.claude || []
     // 后台"测试模型"全局默认按当前账户平台取，与后端 accountTestSchedulerService 的 platform 解析一致；
@@ -286,8 +287,8 @@ async function loadConfig() {
   try {
     const id = props.account.id
     const configRes = await getClaudeAccountTestConfigApi(id)
-    if (!configRes.success) {
-      showToast('加载配置失败: ' + (configRes.message || ''), 'error')
+    if (!isOk(configRes)) {
+      showToast('加载配置失败: ' + msgOf(configRes, ''), 'error')
       return
     }
     if (configRes.data?.config) {
@@ -299,7 +300,7 @@ async function loadConfig() {
     }
 
     const historyRes = await getClaudeAccountTestHistoryApi(id)
-    if (historyRes.success && historyRes.data?.history) {
+    if (isOk(historyRes) && historyRes.data?.history) {
       testHistory.value = historyRes.data.history
     }
   } finally {
@@ -318,14 +319,14 @@ async function saveConfig() {
       cronExpression: config.value.cronExpression,
       model: config.value.model
     })
-    if (res.success) {
+    if (isOk(res)) {
       showToast('配置已保存', 'success')
       emit('saved')
       // 直接 emit('close')：handleClose 的 saving 守卫只用于拦截手动关闭，
       // 此处 saving 仍为 true（finally 才复位），走 handleClose 会被守卫挡住而关不掉
       emit('close')
     } else {
-      showToast(res.message || '保存失败', 'error')
+      showToast(msgOf(res, '保存失败'), 'error')
     }
   } finally {
     saving.value = false

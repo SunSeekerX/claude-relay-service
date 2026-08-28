@@ -11,8 +11,11 @@ import { calculateWaitTimeStats } from '../common/stats_helper.js'
 import { isClaudeFamilyModel } from '../modules/relay/relay_model_helper.js'
 import { RedisKeys, TTL } from './redis_key.js'
 import { balanceLedger } from '../modules/payment/payment_balance_ledger.js'
+import * as groupPolicy from '../modules/account/account_group_policy.js'
 import crypto from 'node:crypto'
 import { env } from '../../config/env.js'
+import { isManagementJsonPath } from '../common/http_surface.js'
+import { sendAuthFail, sendError, resolveStatusCode } from '../common/http_result.js'
 // RateLimiterRedis 全局限流已禁用，需要时再从 rate-limiter-flexible 引入
 
 // 工具函数
@@ -42,7 +45,7 @@ const shouldRejectDueToOverload = async function shouldRejectDueToOverload(
       return { reject: false, reason: 'health_check_disabled' }
     }
 
-    // 🔑 先检查当前队列长度
+    // 先检查当前队列长度
     const currentQueueCount = await redis.getConcurrencyQueueCount(apiKeyId).catch(() => 0)
 
     // 队列为空，说明系统已恢复，跳过健康检查
@@ -50,7 +53,7 @@ const shouldRejectDueToOverload = async function shouldRejectDueToOverload(
       return { reject: false, reason: 'queue_empty', currentQueueCount: 0 }
     }
 
-    // 🔑 关键改进：只有当队列接近满载时才进行健康检查
+    // 关键改进：只有当队列接近满载时才进行健康检查
     // 队列长度 <= maxQueueSize * 0.5 时，认为系统有足够余量，跳过健康检查
     // 这避免了在队列较短时过于保守地拒绝请求
     // 使用 ceil 确保小队列（如 maxQueueSize=3）时阈值为 2，即队列 <=1 时跳过
@@ -108,11 +111,11 @@ const shouldRejectDueToOverload = async function shouldRejectDueToOverload(
 // 性能权衡：初始间隔越短响应越快，但 Redis QPS 越高
 // 当前配置：100 个等待者时约 250-300 QPS（指数退避后）
 const QUEUE_POLLING_CONFIG = {
-  pollIntervalMs: 200, // 初始轮询间隔（毫秒）- 平衡响应速度和 Redis 压力
-  maxPollIntervalMs: 2000, // 最大轮询间隔（毫秒）- 长时间等待时降低 Redis 压力
-  backoffFactor: 1.5, // 指数退避系数
-  jitterRatio: 0.2, // 抖动比例（±20%）- 防止惊群效应
-  maxRedisFailCount: 5, // 连续 Redis 失败阈值（从 3 提高到 5，提高网络抖动容忍度）
+  pollIntervalMs: 200, //初始轮询间隔（毫秒）- 平衡响应速度和 Redis 压力
+  maxPollIntervalMs: 2000, //最大轮询间隔（毫秒）- 长时间等待时降低 Redis 压力
+  backoffFactor: 1.5, //指数退避系数
+  jitterRatio: 0.2, //抖动比例（±20%）- 防止惊群效应
+  maxRedisFailCount: 5, //连续 Redis 失败阈值（从 3 提高到 5，提高网络抖动容忍度）
 }
 
 const FALLBACK_CONCURRENCY_CONFIG = {
@@ -239,11 +242,11 @@ const isTokenCountRequest = function isTokenCountRequest(req) {
  * - 如果超限则 decrConcurrency 释放并继续等待
  * - 成功获取槽位后返回，调用方无需再次 incrConcurrency
  *
- * ⚠️ 重要清理责任说明：
+ * 重要清理责任说明：
  * - 排队计数：此函数的 finally 块负责调用 decrConcurrencyQueue 清理
  * - 并发槽位：当返回 acquired=true 时，槽位已被占用（通过 incrConcurrency）
- *   调用方必须在请求结束时调用 decrConcurrency 释放槽位
- *   （已在 authenticateApiKey 的 finally 块中处理）
+ * 调用方必须在请求结束时调用 decrConcurrency 释放槽位
+ * （已在 authenticateApiKey 的 finally 块中处理）
  *
  * @param {Object} req - Express 请求对象
  * @param {Object} res - Express 响应对象
@@ -273,14 +276,13 @@ const waitForConcurrencySlot = async function waitForConcurrencySlot(req, res, a
   let internalSlotAcquired = false
 
   // 监听客户端断开事件
-  // ⚠️ 重要：必须监听 socket 的事件，而不是 req 的事件！
-  // 原因：对于 POST 请求，当 body-parser 读取完请求体后，req（IncomingMessage 可读流）
-  // 的 'close' 事件会立即触发，但这不代表客户端断开连接！客户端仍在等待响应。
-  // socket 的 'close' 事件才是真正的连接关闭信号。
+  // 必须监听 socket 事件，不要监听 req 事件
+  // POST 经 body-parser 读完 body 后，req 的 'close' 会立刻触发，不代表客户端断开
+  // 客户端仍在等待响应；真正的连接关闭信号是 socket 的 'close'
   const { socket } = req
   const onSocketClose = () => {
     clientDisconnected = true
-    logger.debug(`🔌 [Queue] Socket closed during queue wait for API key ${apiKeyId}, requestId: ${requestId}`)
+    logger.debug(`[Queue] Socket closed during queue wait for API key ${apiKeyId}, requestId: ${requestId}`)
   }
 
   if (socket) {
@@ -316,7 +318,7 @@ const waitForConcurrencySlot = async function waitForConcurrencySlot(req, res, a
       // 尝试获取槽位（先占后检查）
       try {
         const count = await redis.incrConcurrency(apiKeyId, requestId, leaseSeconds)
-        redisFailCount = 0 // 重置失败计数
+        redisFailCount = 0 //重置失败计数
 
         if (count <= concurrencyLimit) {
           // 成功获取槽位！
@@ -331,13 +333,8 @@ const waitForConcurrencySlot = async function waitForConcurrencySlot(req, res, a
           // 标记槽位已获取（用于异常时 finally 块清理）
           internalSlotAcquired = true
 
-          // 记录统计（非阻塞，fire-and-forget 模式）
-          // ⚠️ 设计说明：
-          // - 故意不 await 这些 Promise，因为统计记录不应阻塞请求处理
-          // - 每个 Promise 都有独立的 .catch()，确保单个失败不影响其他
-          // - 外层 .catch() 是防御性措施，处理 Promise.all 本身的异常
-          // - 即使统计记录在函数返回后才完成/失败，也是安全的（仅日志记录）
-          // - 统计数据丢失可接受，不影响核心业务逻辑
+          // 统计记录 fire-and-forget：不 await；各 Promise 独立 .catch()；外层兜底 Promise.all
+          // 统计失败仅影响日志，丢失可接受
           Promise.all([
             redis
               .recordQueueWaitTime(apiKeyId, waitTimeMs)
@@ -384,13 +381,13 @@ const waitForConcurrencySlot = async function waitForConcurrencySlot(req, res, a
       // 1. 先应用指数退避
       let nextInterval = pollInterval * backoffFactor
       // 2. 添加抖动防止惊群效应（±jitterRatio 范围内的随机偏移）
-      //    抖动范围：[-jitterRatio, +jitterRatio]，例如 jitterRatio=0.2 时为 ±20%
-      //    这是预期行为：负抖动可使间隔略微缩短，正抖动可使间隔略微延长
-      //    目的是分散多个等待者的轮询时间点，避免同时请求 Redis
+      // 抖动范围：[-jitterRatio, +jitterRatio]，例如 jitterRatio=0.2 时为 ±20%
+      // 这是预期行为：负抖动可使间隔略微缩短，正抖动可使间隔略微延长
+      // 错开多个等待者的 Redis 轮询时间点
       const jitter = nextInterval * jitterRatio * (Math.random() * 2 - 1)
       nextInterval = nextInterval + jitter
       // 3. 确保在合理范围内：最小 1ms，最大 maxPollIntervalMs
-      //    Math.max(1, ...) 保证即使负抖动也不会产生 ≤0 的间隔
+      // Math.max(1, ...) 保证即使负抖动也不会产生 ≤0 的间隔
       pollInterval = Math.max(1, Math.min(nextInterval, maxPollIntervalMs))
     }
 
@@ -411,7 +408,7 @@ const waitForConcurrencySlot = async function waitForConcurrencySlot(req, res, a
     if (internalSlotAcquired) {
       try {
         await redis.decrConcurrency(apiKeyId, requestId)
-        logger.warn(`⚠️ Released orphaned concurrency slot in finally block for ${apiKeyId}, requestId: ${requestId}`)
+        logger.warn(`Released orphaned concurrency slot in finally block for ${apiKeyId}, requestId: ${requestId}`)
       } catch (slotCleanupError) {
         logger.error(`Failed to release orphaned concurrency slot for ${apiKeyId}:`, slotCleanupError)
       }
@@ -424,7 +421,7 @@ const waitForConcurrencySlot = async function waitForConcurrencySlot(req, res, a
   }
 }
 
-// 🔑 API Key验证中间件（优化版）
+// API Key验证中间件（优化版）
 export const authenticateApiKey = async (req, res, next) => {
   const startTime = Date.now()
   let authErrored = false
@@ -470,7 +467,7 @@ export const authenticateApiKey = async (req, res, next) => {
 
     const skipKeyRestrictions = isTokenCountRequest(req)
 
-    // 🔒 检查客户端限制（使用新的验证器）
+    // 检查客户端限制（使用新的验证器）
     if (
       !skipKeyRestrictions &&
       validation.keyData.enableClientRestriction &&
@@ -482,7 +479,7 @@ export const authenticateApiKey = async (req, res, next) => {
       if (!validationResult.allowed) {
         const clientIP = req.ip || req.connection?.remoteAddress || 'unknown'
         logger.security(
-          `🚫 Client restriction failed for key: ${validation.keyData.id} (${validation.keyData.name}) from ${clientIP}`,
+          `Client restriction failed for key: ${validation.keyData.id} (${validation.keyData.name}) from ${clientIP}`,
         )
         return res.status(403).json({
           error: 'Client not allowed',
@@ -494,11 +491,11 @@ export const authenticateApiKey = async (req, res, next) => {
 
       // 验证通过
       logger.api(
-        `✅ Client validated: ${validationResult.clientName} (${validationResult.matchedClient}) for key: ${validation.keyData.id} (${validation.keyData.name})`,
+        `Client validated: ${validationResult.clientName} (${validationResult.matchedClient}) for key: ${validation.keyData.id} (${validation.keyData.name})`,
       )
     }
 
-    // 🔒 检查全局 Claude Code 限制（与 API Key 级别是 OR 逻辑）
+    // 检查全局 Claude Code 限制（与 API Key 级别是 OR 逻辑）
     // 仅对 Claude 服务端点生效 (/api/v1/messages 和 /claude/v1/messages)
     if (!skipKeyRestrictions) {
       const normalizedPath = (req.originalUrl || req.path || '').toLowerCase()
@@ -524,7 +521,7 @@ export const authenticateApiKey = async (req, res, next) => {
             if (!isClaudeCode) {
               const clientIP = req.ip || req.connection?.remoteAddress || 'unknown'
               logger.api(
-                `❌ Claude Code client validation failed (global: ${globalClaudeCodeOnly}, key: ${keyClaudeCodeOnly}) from ${clientIP}`,
+                `Claude Code client validation failed (global: ${globalClaudeCodeOnly}, key: ${keyClaudeCodeOnly}) from ${clientIP}`,
               )
               return res.status(403).json({
                 error: {
@@ -534,10 +531,10 @@ export const authenticateApiKey = async (req, res, next) => {
               })
             }
 
-            logger.api(`✅ Claude Code client validated (global: ${globalClaudeCodeOnly}, key: ${keyClaudeCodeOnly})`)
+            logger.api(`Claude Code client validated (global: ${globalClaudeCodeOnly}, key: ${keyClaudeCodeOnly})`)
           }
         } catch (error) {
-          logger.error('❌ Error checking Claude Code restriction:', error)
+          logger.error('Error checking Claude Code restriction:', error)
           // 配置服务出错时不阻断请求
         }
       }
@@ -558,7 +555,7 @@ export const authenticateApiKey = async (req, res, next) => {
       }
       const requestId = crypto.randomUUID()
 
-      // ⚠️ 优化后的 Connection: close 设置策略
+      // 优化后的 Connection: close 设置策略
       // 问题背景：HTTP Keep-Alive 使多个请求共用同一个 TCP 连接
       // 当第一个请求正在处理，第二个请求进入排队时，它们共用同一个 socket
       // 如果客户端超时关闭连接，两个请求都会受影响
@@ -568,7 +565,7 @@ export const authenticateApiKey = async (req, res, next) => {
       // 注意：Connection: close 将在下方代码实际进入排队时设置（第 637 行左右）
 
       // ===
-      // 🔒 并发槽位状态管理说明
+      // 并发槽位状态管理说明
       // ===
       // 此函数中有两个关键状态变量：
       // - hasConcurrencySlot: 当前是否持有并发槽位
@@ -581,9 +578,9 @@ export const authenticateApiKey = async (req, res, next) => {
       // 4. 请求结束（res.close/req.close）→ 调用 decrementConcurrency 释放
       // 5. 认证错误 → finally 块调用 concurrencyCleanup 释放
       //
-      // 为什么需要两种清理函数？
-      // - 临时清理：在排队/认证过程中出错时使用，只释放槽位
-      // - 完整清理：请求正常开始后使用，还需清理 leaseRenewInterval
+      // 两种清理函数：
+      // - 临时清理：排队/认证出错，只释放槽位
+      // - 完整清理：请求已开始，还需清 leaseRenewInterval
       // ===
       const setTemporaryConcurrencyCleanup = () => {
         concurrencyCleanup = async () => {
@@ -606,7 +603,7 @@ export const authenticateApiKey = async (req, res, next) => {
       hasConcurrencySlot = true
       setTemporaryConcurrencyCleanup()
       logger.api(
-        `📈 Incremented concurrency for key: ${validation.keyData.id} (${validation.keyData.name}), current: ${currentConcurrency}, limit: ${concurrencyLimit}`,
+        `Incremented concurrency for key: ${validation.keyData.id} (${validation.keyData.name}), current: ${currentConcurrency}, limit: ${concurrencyLimit}`,
       )
 
       if (currentConcurrency > concurrencyLimit) {
@@ -625,7 +622,7 @@ export const authenticateApiKey = async (req, res, next) => {
         // 3. 排队功能未启用，直接返回 429（保持现有行为）
         if (!queueConfig.concurrentRequestQueueEnabled) {
           logger.security(
-            `🚦 Concurrency limit exceeded for key: ${validation.keyData.id} (${
+            `Concurrency limit exceeded for key: ${validation.keyData.id} (${
               validation.keyData.name
             }), current: ${currentConcurrency - 1}, limit: ${concurrencyLimit}`,
           )
@@ -657,7 +654,7 @@ export const authenticateApiKey = async (req, res, next) => {
           // 使用健康检查返回的当前排队数，避免重复调用 Redis
           const currentQueueCount = overloadCheck.currentQueueCount || 0
           logger.api(
-            `🚨 Queue overloaded for key: ${validation.keyData.id} (${validation.keyData.name}), ` +
+            `Queue overloaded for key: ${validation.keyData.id} (${validation.keyData.name}), ` +
               `P90=${overloadCheck.estimatedWaitMs}ms, timeout=${overloadCheck.timeoutMs}ms, ` +
               `threshold=${overloadCheck.threshold}, samples=${overloadCheck.sampleCount}, ` +
               `concurrency=${concurrencyLimit}, queue=${currentQueueCount}/${maxQueueSize}`,
@@ -697,7 +694,7 @@ export const authenticateApiKey = async (req, res, next) => {
             await redis.decrConcurrencyQueue(validation.keyData.id)
             queueIncremented = false
             logger.api(
-              `🚦 Concurrency queue full for key: ${validation.keyData.id} (${validation.keyData.name}), ` +
+              `Concurrency queue full for key: ${validation.keyData.id} (${validation.keyData.name}), ` +
                 `queue: ${newQueueCount - 1}, maxQueue: ${maxQueueSize}`,
             )
             // 队列已满，建议客户端在排队超时时间后重试
@@ -717,22 +714,22 @@ export const authenticateApiKey = async (req, res, next) => {
 
           // 6. 已成功进入排队，记录统计并开始等待槽位
           logger.api(
-            `⏳ Request entering queue for key: ${validation.keyData.id} (${validation.keyData.name}), ` +
+            `Request entering queue for key: ${validation.keyData.id} (${validation.keyData.name}), ` +
               `queue position: ${newQueueCount}`,
           )
           redis
             .incrConcurrencyQueueStats(validation.keyData.id, 'entered')
             .catch((e) => logger.warn('Failed to record entered stat:', e))
 
-          // ⚠️ 仅在请求实际进入排队时设置 Connection: close
+          // 仅在请求实际进入排队时设置 Connection: close
           // 详见 design.md Decision 2: Connection: close 设置时机
           // 未排队的请求保持 Keep-Alive，避免不必要的 TCP 握手开销
           if (!res.headersSent) {
             res.setHeader('Connection', 'close')
-            logger.api(`🔌 [Queue] Set Connection: close for queued request, key: ${validation.keyData.id}`)
+            logger.api(`[Queue] Set Connection: close for queued request, key: ${validation.keyData.id}`)
           }
 
-          // ⚠️ 记录排队开始时的 socket 标识，用于排队完成后验证
+          // 记录排队开始时的 socket 标识，用于排队完成后验证
           // 问题背景：HTTP Keep-Alive 连接复用时，长时间排队可能导致 socket 被其他请求使用
           // 验证方法：使用 UUID token + socket 对象引用双重验证
           // 详见 design.md Decision 1: Socket 身份验证机制
@@ -743,10 +740,8 @@ export const authenticateApiKey = async (req, res, next) => {
           const savedToken = req._crService.queueToken
           const savedSocket = req._crService.originalSocket
 
-          // ⚠️ 重要：在调用前将 queueIncremented 设为 false
-          // 因为 waitForConcurrencySlot 的 finally 块会负责清理排队计数
-          // 如果在调用后设置，当 waitForConcurrencySlot 抛出异常时
-          // 外层 catch 块会重复减少计数（finally 已经减过一次）
+          // 调用 waitForConcurrencySlot 前将 queueIncremented 设为 false
+          // 排队计数由 waitForConcurrencySlot 的 finally 清理；调用后再设会导致外层 catch 重复递减
           queueIncremented = false
 
           const slot = await waitForConcurrencySlot(req, res, validation.keyData.id, {
@@ -766,7 +761,7 @@ export const authenticateApiKey = async (req, res, next) => {
             if (slot.reason === 'client_disconnected') {
               // 客户端已断开，不返回响应（连接已关闭）
               logger.api(
-                `🔌 Client disconnected while queuing for key: ${validation.keyData.id} (${validation.keyData.name})`,
+                `Client disconnected while queuing for key: ${validation.keyData.id} (${validation.keyData.name})`,
               )
               return
             }
@@ -774,7 +769,7 @@ export const authenticateApiKey = async (req, res, next) => {
             if (slot.reason === 'redis_error') {
               // Redis 连续失败，返回 503
               logger.error(
-                `❌ Redis error during queue wait for key: ${validation.keyData.id} (${validation.keyData.name})`,
+                `Redis error during queue wait for key: ${validation.keyData.id} (${validation.keyData.name})`,
               )
               return res.status(503).json({
                 error: 'Service temporarily unavailable',
@@ -783,10 +778,10 @@ export const authenticateApiKey = async (req, res, next) => {
             }
             // 排队超时（使用 api 级别，与其他排队日志保持一致）
             logger.api(
-              `⏰ Queue timeout for key: ${validation.keyData.id} (${validation.keyData.name}), waited: ${slot.waitTimeMs}ms`,
+              `Queue timeout for key: ${validation.keyData.id} (${validation.keyData.name}), waited: ${slot.waitTimeMs}ms`,
             )
             // 已等待超时，建议客户端稍后重试
-            // ⚠️ Retry-After 策略优化：
+            // Retry-After 策略优化：
             // - 请求已经等了完整的 timeout 时间，说明系统负载较高
             // - 过早重试（如固定 5 秒）会加剧拥塞，导致更多超时
             // - 合理策略：使用 timeout 时间的一半作为重试间隔
@@ -808,13 +803,13 @@ export const authenticateApiKey = async (req, res, next) => {
 
           // 8. 排队成功，slot.acquired 表示已在 waitForConcurrencySlot 中获取到槽位
           logger.api(
-            `✅ Queue wait completed for key: ${validation.keyData.id} (${validation.keyData.name}), ` +
+            `Queue wait completed for key: ${validation.keyData.id} (${validation.keyData.name}), ` +
               `waited: ${slot.waitTimeMs}ms`,
           )
           hasConcurrencySlot = true
           setTemporaryConcurrencyCleanup()
 
-          // 9. ⚠️ 关键检查：排队等待结束后，验证客户端是否还在等待响应
+          // 9. 关键检查：排队等待结束后，验证客户端是否还在等待响应
           // 长时间排队后，客户端可能在应用层已放弃（如 Claude Code 的超时机制），
           // 但 TCP 连接仍然存活。此时继续处理请求是浪费资源。
           // 注意：如果发送了心跳，headersSent 会是 true，但这是正常的
@@ -823,7 +818,7 @@ export const authenticateApiKey = async (req, res, next) => {
           // headersSent 在心跳场景下是正常的，不应该作为放弃的依据
           if (res.destroyed || res.writableEnded || postQueueSocket?.destroyed) {
             logger.warn(
-              `⚠️ Client no longer waiting after queue for key: ${validation.keyData.id} (${validation.keyData.name}), ` +
+              `Client no longer waiting after queue for key: ${validation.keyData.id} (${validation.keyData.name}), ` +
                 `waited: ${slot.waitTimeMs}ms | destroyed: ${res.destroyed}, ` +
                 `writableEnded: ${res.writableEnded}, socketDestroyed: ${postQueueSocket?.destroyed}`,
             )
@@ -836,7 +831,7 @@ export const authenticateApiKey = async (req, res, next) => {
             return
           }
 
-          // 10. ⚠️ 关键检查：验证 socket 身份是否改变
+          // 10. 关键检查：验证 socket 身份是否改变
           // HTTP Keep-Alive 连接复用可能导致排队期间 socket 被其他请求使用
           // 验证方法：UUID token + socket 对象引用双重验证
           // 详见 design.md Decision 1: Socket 身份验证机制
@@ -846,7 +841,7 @@ export const authenticateApiKey = async (req, res, next) => {
 
           if (socketIdentityChanged) {
             logger.error(
-              `❌ [Queue] Socket identity changed during queue wait! ` +
+              `[Queue] Socket identity changed during queue wait! ` +
                 `key: ${validation.keyData.id} (${validation.keyData.name}), ` +
                 `waited: ${slot.waitTimeMs}ms | ` +
                 `tokenMatch: ${queueData?.queueToken === savedToken}, ` +
@@ -874,8 +869,8 @@ export const authenticateApiKey = async (req, res, next) => {
           }
 
           // 2. 防御性清理：如果 waitForConcurrencySlot 内部获取了槽位但在返回前异常
-          //    虽然这种情况极少发生（统计记录的异常会被内部捕获），但为了安全起见
-          //    尝试释放可能已获取的槽位。decrConcurrency 使用 ZREM，即使成员不存在也安全
+          // 虽然这种情况极少发生（统计记录的异常会被内部捕获），但为了安全起见
+          // 尝试释放可能已获取的槽位。decrConcurrency 使用 ZREM，即使成员不存在也安全
           if (hasConcurrencySlot) {
             hasConcurrencySlot = false
             await redis
@@ -894,7 +889,7 @@ export const authenticateApiKey = async (req, res, next) => {
       let leaseRenewInterval = null
 
       if (renewIntervalMs > 0) {
-        // 🔴 关键修复：添加最大刷新次数限制，防止租约永不过期
+        // 关键修复：添加最大刷新次数限制，防止租约永不过期
         // 默认最大生存时间为 10 分钟，可通过环境变量配置
         const maxLifetimeMinutes = parseInt(env.CONCURRENCY_MAX_LIFETIME_MINUTES) || 10
         const maxRefreshCount = Math.ceil((maxLifetimeMinutes * 60 * 1000) / renewIntervalMs)
@@ -906,7 +901,7 @@ export const authenticateApiKey = async (req, res, next) => {
           // 超过最大刷新次数，强制停止并清理
           if (refreshCount > maxRefreshCount) {
             logger.warn(
-              `⚠️ Lease refresh exceeded max count (${maxRefreshCount}) for key ${validation.keyData.id} (${validation.keyData.name}), forcing cleanup after ${maxLifetimeMinutes} minutes`,
+              `Lease refresh exceeded max count (${maxRefreshCount}) for key ${validation.keyData.id} (${validation.keyData.name}), forcing cleanup after ${maxLifetimeMinutes} minutes`,
             )
             // 清理定时器
             if (leaseRenewInterval) {
@@ -947,7 +942,7 @@ export const authenticateApiKey = async (req, res, next) => {
           try {
             const newCount = await redis.decrConcurrency(validation.keyData.id, requestId)
             logger.api(
-              `📉 Decremented concurrency for key: ${validation.keyData.id} (${validation.keyData.name}), new count: ${newCount}`,
+              `Decremented concurrency for key: ${validation.keyData.id} (${validation.keyData.name}), new count: ${newCount}`,
             )
           } catch (error) {
             logger.error(`Failed to decrement concurrency for key ${validation.keyData.id}:`, error)
@@ -963,34 +958,34 @@ export const authenticateApiKey = async (req, res, next) => {
       // 监听最可靠的事件（避免重复监听）
       // res.on('close') 是最可靠的，会在连接关闭时触发
       res.once('close', () => {
-        logger.api(`🔌 Response closed for key: ${validation.keyData.id} (${validation.keyData.name})`)
+        logger.api(`Response closed for key: ${validation.keyData.id} (${validation.keyData.name})`)
         decrementConcurrency()
       })
 
       // req.on('close') 作为备用，处理请求端断开
       req.once('close', () => {
-        logger.api(`🔌 Request closed for key: ${validation.keyData.id} (${validation.keyData.name})`)
+        logger.api(`Request closed for key: ${validation.keyData.id} (${validation.keyData.name})`)
         decrementConcurrency()
       })
 
       req.once('aborted', () => {
-        logger.warn(`⚠️ Request aborted for key: ${validation.keyData.id} (${validation.keyData.name})`)
+        logger.warn(`Request aborted for key: ${validation.keyData.id} (${validation.keyData.name})`)
         decrementConcurrency()
       })
 
       req.once('error', (error) => {
-        logger.error(`❌ Request error for key ${validation.keyData.id} (${validation.keyData.name}):`, error)
+        logger.error(`Request error for key ${validation.keyData.id} (${validation.keyData.name}):`, error)
         decrementConcurrency()
       })
 
       res.once('error', (error) => {
-        logger.error(`❌ Response error for key ${validation.keyData.id} (${validation.keyData.name}):`, error)
+        logger.error(`Response error for key ${validation.keyData.id} (${validation.keyData.name}):`, error)
         decrementConcurrency()
       })
 
       // res.on('finish') 处理正常完成的情况
       res.once('finish', () => {
-        logger.api(`✅ Response finished for key: ${validation.keyData.id} (${validation.keyData.name})`)
+        logger.api(`Response finished for key: ${validation.keyData.id} (${validation.keyData.name})`)
         decrementConcurrency()
       })
 
@@ -1006,7 +1001,7 @@ export const authenticateApiKey = async (req, res, next) => {
     // 检查时间窗口限流
     const rateLimitWindow = validation.keyData.rateLimitWindow || 0
     const rateLimitRequests = validation.keyData.rateLimitRequests || 0
-    const rateLimitCost = validation.keyData.rateLimitCost || 0 // 新增：费用限制
+    const rateLimitCost = validation.keyData.rateLimitCost || 0 //新增：费用限制
 
     // 兼容性检查：如果tokenLimit仍有值，使用tokenLimit；否则使用rateLimitCost
     const hasRateLimits =
@@ -1016,10 +1011,10 @@ export const authenticateApiKey = async (req, res, next) => {
       const windowStartKey = RedisKeys.rateLimit.windowStart(validation.keyData.id)
       const requestCountKey = RedisKeys.rateLimit.requests(validation.keyData.id)
       const tokenCountKey = RedisKeys.rateLimit.tokens(validation.keyData.id)
-      const costCountKey = RedisKeys.rateLimit.cost(validation.keyData.id) // 新增：费用计数器
+      const costCountKey = RedisKeys.rateLimit.cost(validation.keyData.id) //新增：费用计数器
 
       const now = Date.now()
-      const windowDuration = TTL.rateLimitWindowMs(rateLimitWindow) // 转换为毫秒
+      const windowDuration = TTL.rateLimitWindowMs(rateLimitWindow) //转换为毫秒
 
       // 获取窗口开始时间
       let windowStart = await redis.getClient().get(windowStartKey)
@@ -1029,7 +1024,7 @@ export const authenticateApiKey = async (req, res, next) => {
         await redis.getClient().set(windowStartKey, now, 'PX', windowDuration)
         await redis.getClient().set(requestCountKey, 0, 'PX', windowDuration)
         await redis.getClient().set(tokenCountKey, 0, 'PX', windowDuration)
-        await redis.getClient().set(costCountKey, 0, 'PX', windowDuration) // 新增：重置费用
+        await redis.getClient().set(costCountKey, 0, 'PX', windowDuration) //新增：重置费用
         windowStart = now
       } else {
         windowStart = parseInt(windowStart)
@@ -1040,7 +1035,7 @@ export const authenticateApiKey = async (req, res, next) => {
           await redis.getClient().set(windowStartKey, now, 'PX', windowDuration)
           await redis.getClient().set(requestCountKey, 0, 'PX', windowDuration)
           await redis.getClient().set(tokenCountKey, 0, 'PX', windowDuration)
-          await redis.getClient().set(costCountKey, 0, 'PX', windowDuration) // 新增：重置费用
+          await redis.getClient().set(costCountKey, 0, 'PX', windowDuration) //新增：重置费用
           windowStart = now
         }
       }
@@ -1048,7 +1043,7 @@ export const authenticateApiKey = async (req, res, next) => {
       // 获取当前计数
       const currentRequests = parseInt((await redis.getClient().get(requestCountKey)) || '0')
       const currentTokens = parseInt((await redis.getClient().get(tokenCountKey)) || '0')
-      const currentCost = parseFloat((await redis.getClient().get(costCountKey)) || '0') // 新增：当前费用
+      const currentCost = parseFloat((await redis.getClient().get(costCountKey)) || '0') //新增：当前费用
 
       // 检查请求次数限制
       if (rateLimitRequests > 0 && currentRequests >= rateLimitRequests) {
@@ -1056,7 +1051,7 @@ export const authenticateApiKey = async (req, res, next) => {
         const remainingMinutes = Math.ceil((resetTime - now) / 60000)
 
         logger.security(
-          `🚦 Rate limit exceeded (requests) for key: ${validation.keyData.id} (${validation.keyData.name}), requests: ${currentRequests}/${rateLimitRequests}`,
+          `Rate limit exceeded (requests) for key: ${validation.keyData.id} (${validation.keyData.name}), requests: ${currentRequests}/${rateLimitRequests}`,
         )
 
         return res.status(429).json({
@@ -1078,7 +1073,7 @@ export const authenticateApiKey = async (req, res, next) => {
           const remainingMinutes = Math.ceil((resetTime - now) / 60000)
 
           logger.security(
-            `🚦 Rate limit exceeded (tokens) for key: ${validation.keyData.id} (${validation.keyData.name}), tokens: ${currentTokens}/${tokenLimit}`,
+            `Rate limit exceeded (tokens) for key: ${validation.keyData.id} (${validation.keyData.name}), tokens: ${currentTokens}/${tokenLimit}`,
           )
 
           return res.status(429).json({
@@ -1097,7 +1092,7 @@ export const authenticateApiKey = async (req, res, next) => {
           const remainingMinutes = Math.ceil((resetTime - now) / 60000)
 
           logger.security(
-            `💰 Rate limit exceeded (cost) for key: ${validation.keyData.id} (${
+            `Rate limit exceeded (cost) for key: ${validation.keyData.id} (${
               validation.keyData.name
             }), cost: $${currentCost.toFixed(2)}/$${rateLimitCost}`,
           )
@@ -1122,23 +1117,23 @@ export const authenticateApiKey = async (req, res, next) => {
         windowDuration,
         requestCountKey,
         tokenCountKey,
-        costCountKey, // 新增：费用计数器
+        costCountKey, //新增：费用计数器
         currentRequests: currentRequests + 1,
         currentTokens,
-        currentCost, // 新增：当前费用
+        currentCost, //新增：当前费用
         rateLimitRequests,
         tokenLimit,
-        rateLimitCost, // 新增：费用限制
+        rateLimitCost, //新增：费用限制
       }
     }
 
-    // 💳 预付费 key：只看余额、余额耗尽即停，跳过所有后付费限额（daily/total/weeklyOpus）
+    // 预付费 key：只看余额、余额耗尽即停，跳过所有后付费限额（daily/total/weeklyOpus）
     // [人工决策-2026-06-02 21:32:07] prepaid key 计费只看余额、不看 totalCostLimit；被充值即转 prepaid。
     const isPrepaid = validation.keyData.billingMode === 'prepaid'
     if (isPrepaid) {
       const prepaidBalance = await balanceLedger.get(validation.keyData.id)
       if (prepaidBalance <= 0) {
-        logger.security(`💰 Prepaid balance exhausted for key: ${validation.keyData.id}`)
+        logger.security(`Prepaid balance exhausted for key: ${validation.keyData.id}`)
         return res.status(402).json({
           error: {
             type: 'insufficient_quota',
@@ -1157,7 +1152,7 @@ export const authenticateApiKey = async (req, res, next) => {
 
       if (dailyCost >= dailyCostLimit) {
         logger.security(
-          `💰 Daily cost limit exceeded for key: ${validation.keyData.id} (${
+          `Daily cost limit exceeded for key: ${validation.keyData.id} (${
             validation.keyData.name
           }), cost: $${dailyCost.toFixed(2)}/$${dailyCostLimit}`,
         )
@@ -1177,7 +1172,7 @@ export const authenticateApiKey = async (req, res, next) => {
 
       // 记录当前费用使用情况
       logger.api(
-        `💰 Cost usage for key: ${validation.keyData.id} (${
+        `Cost usage for key: ${validation.keyData.id} (${
           validation.keyData.name
         }), current: $${dailyCost.toFixed(2)}/$${dailyCostLimit}`,
       )
@@ -1190,7 +1185,7 @@ export const authenticateApiKey = async (req, res, next) => {
 
       if (totalCost >= totalCostLimit) {
         logger.security(
-          `💰 Total cost limit exceeded for key: ${validation.keyData.id} (${
+          `Total cost limit exceeded for key: ${validation.keyData.id} (${
             validation.keyData.name
           }), cost: $${totalCost.toFixed(2)}/$${totalCostLimit}`,
         )
@@ -1208,7 +1203,7 @@ export const authenticateApiKey = async (req, res, next) => {
       }
 
       logger.api(
-        `💰 Total cost usage for key: ${validation.keyData.id} (${
+        `Total cost usage for key: ${validation.keyData.id} (${
           validation.keyData.name
         }), current: $${totalCost.toFixed(2)}/$${totalCostLimit}`,
       )
@@ -1227,7 +1222,7 @@ export const authenticateApiKey = async (req, res, next) => {
 
         if (weeklyOpusCost >= weeklyOpusCostLimit) {
           logger.security(
-            `💰 Weekly Claude cost limit exceeded for key: ${validation.keyData.id} (${
+            `Weekly Claude cost limit exceeded for key: ${validation.keyData.id} (${
               validation.keyData.name
             }), cost: $${weeklyOpusCost.toFixed(2)}/$${weeklyOpusCostLimit}`,
           )
@@ -1252,7 +1247,7 @@ export const authenticateApiKey = async (req, res, next) => {
 
         // 记录当前 Claude 费用使用情况
         logger.api(
-          `💰 Claude weekly cost usage for key: ${validation.keyData.id} (${
+          `Claude weekly cost usage for key: ${validation.keyData.id} (${
             validation.keyData.name
           }), current: $${weeklyOpusCost.toFixed(2)}/$${weeklyOpusCostLimit}`,
         )
@@ -1265,16 +1260,17 @@ export const authenticateApiKey = async (req, res, next) => {
       name: validation.keyData.name,
       tokenLimit: validation.keyData.tokenLimit,
       claudeAccountId: validation.keyData.claudeAccountId,
-      claudeConsoleAccountId: validation.keyData.claudeConsoleAccountId, // 添加 Claude Console 账号ID
+      claudeConsoleAccountId: validation.keyData.claudeConsoleAccountId, //添加 Claude Console 账号ID
       geminiAccountId: validation.keyData.geminiAccountId,
-      openaiAccountId: validation.keyData.openaiAccountId, // 添加 OpenAI 账号ID
-      bedrockAccountId: validation.keyData.bedrockAccountId, // 添加 Bedrock 账号ID
+      openaiAccountId: validation.keyData.openaiAccountId, //添加 OpenAI 账号ID
+      bedrockAccountId: validation.keyData.bedrockAccountId, //添加 Bedrock 账号ID
       droidAccountId: validation.keyData.droidAccountId,
+      grokAccountId: validation.keyData.grokAccountId,
       permissions: validation.keyData.permissions,
       concurrencyLimit: validation.keyData.concurrencyLimit,
       rateLimitWindow: validation.keyData.rateLimitWindow,
       rateLimitRequests: validation.keyData.rateLimitRequests,
-      rateLimitCost: validation.keyData.rateLimitCost, // 新增：费用限制
+      rateLimitCost: validation.keyData.rateLimitCost, //新增：费用限制
       enableModelRestriction: validation.keyData.enableModelRestriction,
       restrictedModels: validation.keyData.restrictedModels,
       enableClientRestriction: validation.keyData.enableClientRestriction,
@@ -1286,20 +1282,42 @@ export const authenticateApiKey = async (req, res, next) => {
       enableOpenAIResponsesCodexAdaptation: validation.keyData.enableOpenAIResponsesCodexAdaptation,
       enableOpenAIResponsesPayloadRules: validation.keyData.enableOpenAIResponsesPayloadRules,
       openaiResponsesPayloadRules: validation.keyData.openaiResponsesPayloadRules,
+      // 运行时字段：分组 USD hold 占用中的 groupId，由调度器 assert 写入，close/计费释放
+      groupCostHoldGroupId: null,
+      groupCostHoldMeta: null,
     }
+
+    // 分组额度 hold 请求结束兜底：选号成功但未计费/中途失败时 DEL hold，防单在途卡死
+    const releaseGroupCostHoldOnClose = () => {
+      if (req._crsDrainForUsage === true) {
+        req._crsGroupHoldReleaseDeferred = true
+        return
+      }
+      const holdGroupId = req.apiKey?.groupCostHoldGroupId
+      if (!holdGroupId) {
+        return
+      }
+      req.apiKey.groupCostHoldGroupId = null
+      req.apiKey.groupCostHoldMeta = null
+      groupPolicy.releaseGroupCostHolds(holdGroupId).catch((error) => console.error(error))
+    }
+    req.releaseGroupCostHold = releaseGroupCostHoldOnClose
+    res.once('close', releaseGroupCostHoldOnClose)
+    req.once('close', releaseGroupCostHoldOnClose)
+    res.once('finish', releaseGroupCostHoldOnClose)
 
     const authDuration = Date.now() - startTime
     const userAgent = req.headers['user-agent'] || 'No User-Agent'
     logger.api(
-      `🔓 Authenticated request from key: ${validation.keyData.name} (${validation.keyData.id}) in ${authDuration}ms`,
+      `Authenticated request from key: ${validation.keyData.name} (${validation.keyData.id}) in ${authDuration}ms`,
     )
-    logger.api(`   User-Agent: "${userAgent}"`)
+    logger.api(`User-Agent: "${userAgent}"`)
 
     return next()
   } catch (error) {
     authErrored = true
     const authDuration = Date.now() - startTime
-    logger.error(`❌ Authentication middleware error (${authDuration}ms):`, {
+    logger.error(`Authentication middleware error (${authDuration}ms):`, {
       error: error.message,
       stack: error.stack,
       ip: req.ip,
@@ -1322,7 +1340,7 @@ export const authenticateApiKey = async (req, res, next) => {
   }
 }
 
-// 🛡️ 管理员验证中间件（优化版）
+// 管理员验证中间件（优化版）
 export const authenticateAdmin = async (req, res, next) => {
   const startTime = Date.now()
 
@@ -1335,19 +1353,13 @@ export const authenticateAdmin = async (req, res, next) => {
 
     if (!token) {
       logger.security(`Missing admin token attempt from ${req.ip || 'unknown'}`)
-      return res.status(401).json({
-        error: 'Missing admin token',
-        message: 'Please provide an admin token',
-      })
+      return sendAuthFail(res, 401, 'Please provide an admin token')
     }
 
     // 基本token格式验证
     if (typeof token !== 'string' || token.length < 32 || token.length > 512) {
       logger.security(`Invalid admin token format from ${req.ip || 'unknown'}`)
-      return res.status(401).json({
-        error: 'Invalid admin token format',
-        message: 'Admin token format is invalid',
-      })
+      return sendAuthFail(res, 401, 'Admin token format is invalid')
     }
 
     // 获取管理员会话（带超时处理）
@@ -1358,37 +1370,28 @@ export const authenticateAdmin = async (req, res, next) => {
 
     if (!adminSession || Object.keys(adminSession).length === 0) {
       logger.security(`Invalid admin token attempt from ${req.ip || 'unknown'}`)
-      return res.status(401).json({
-        error: 'Invalid admin token',
-        message: 'Invalid or expired admin session',
-      })
+      return sendAuthFail(res, 401, 'Invalid or expired admin session')
     }
 
-    // 🔒 安全修复：验证会话必须字段（防止伪造会话绕过认证）
+    // 安全修复：验证会话必须字段（防止伪造会话绕过认证）
     if (!adminSession.username || !adminSession.loginTime) {
       logger.security(
-        `🔒 Corrupted admin session from ${req.ip || 'unknown'} - missing required fields (username: ${!!adminSession.username}, loginTime: ${!!adminSession.loginTime})`,
+        `Corrupted admin session from ${req.ip || 'unknown'} - missing required fields (username: ${!!adminSession.username}, loginTime: ${!!adminSession.loginTime})`,
       )
-      await redis.deleteSession(token) // 清理无效/伪造的会话
-      return res.status(401).json({
-        error: 'Invalid session',
-        message: 'Session data corrupted or incomplete',
-      })
+      await redis.deleteSession(token) //清理无效/伪造的会话
+      return sendAuthFail(res, 401, 'Session data corrupted or incomplete')
     }
 
     // 检查会话活跃性（可选：检查最后活动时间）
     const now = new Date()
     const lastActivity = new Date(adminSession.lastActivity || adminSession.loginTime)
     const inactiveDuration = now - lastActivity
-    const maxInactivity = 24 * 60 * 60 * 1000 // 24小时
+    const maxInactivity = 24 * 60 * 60 * 1000 //24小时
 
     if (inactiveDuration > maxInactivity) {
-      logger.security(`🔒 Expired admin session for ${adminSession.username} from ${req.ip || 'unknown'}`)
-      await redis.deleteSession(token) // 清理过期会话
-      return res.status(401).json({
-        error: 'Session expired',
-        message: 'Admin session has expired due to inactivity',
-      })
+      logger.security(`Expired admin session for ${adminSession.username} from ${req.ip || 'unknown'}`)
+      await redis.deleteSession(token) //清理过期会话
+      return sendAuthFail(res, 401, 'Admin session has expired due to inactivity')
     }
 
     // 更新最后活动时间（异步，不阻塞请求）
@@ -1419,21 +1422,18 @@ export const authenticateAdmin = async (req, res, next) => {
     return next()
   } catch (error) {
     const authDuration = Date.now() - startTime
-    logger.error(`❌ Admin authentication error (${authDuration}ms):`, {
+    logger.error(`Admin authentication error (${authDuration}ms):`, {
       error: error.message,
       ip: req.ip,
       userAgent: req.get('User-Agent'),
       url: req.originalUrl,
     })
 
-    return res.status(500).json({
-      error: 'Authentication error',
-      message: 'Internal server error during admin authentication',
-    })
+    return sendAuthFail(res, 500, 'Internal server error during admin authentication')
   }
 }
 
-// 👤 用户验证中间件
+// 用户验证中间件
 export const authenticateUser = async (req, res, next) => {
   const startTime = Date.now()
 
@@ -1444,19 +1444,13 @@ export const authenticateUser = async (req, res, next) => {
 
     if (!sessionToken) {
       logger.security(`Missing user session token attempt from ${req.ip || 'unknown'}`)
-      return res.status(401).json({
-        error: 'Missing user session token',
-        message: 'Please login to access this resource',
-      })
+      return sendAuthFail(res, 401, 'Please login to access this resource')
     }
 
     // 基本token格式验证
     if (typeof sessionToken !== 'string' || sessionToken.length < 32 || sessionToken.length > 128) {
       logger.security(`Invalid user session token format from ${req.ip || 'unknown'}`)
-      return res.status(401).json({
-        error: 'Invalid session token format',
-        message: 'Session token format is invalid',
-      })
+      return sendAuthFail(res, 401, 'Session token format is invalid')
     }
 
     // 验证用户会话
@@ -1464,21 +1458,15 @@ export const authenticateUser = async (req, res, next) => {
 
     if (!sessionValidation) {
       logger.security(`Invalid user session token attempt from ${req.ip || 'unknown'}`)
-      return res.status(401).json({
-        error: 'Invalid session token',
-        message: 'Invalid or expired user session',
-      })
+      return sendAuthFail(res, 401, 'Invalid or expired user session')
     }
 
     const { session, user } = sessionValidation
 
     // 检查用户是否被禁用
     if (!user.isActive) {
-      logger.security(`🔒 Disabled user login attempt: ${user.username} from ${req.ip || 'unknown'}`)
-      return res.status(403).json({
-        error: 'Account disabled',
-        message: 'Your account has been disabled. Please contact administrator.',
-      })
+      logger.security(`Disabled user login attempt: ${user.username} from ${req.ip || 'unknown'}`)
+      return sendAuthFail(res, 403, 'Your account has been disabled. Please contact administrator.')
     }
 
     // 设置用户信息（只包含必要信息）
@@ -1495,26 +1483,23 @@ export const authenticateUser = async (req, res, next) => {
     }
 
     const authDuration = Date.now() - startTime
-    logger.info(`👤 User authenticated: ${user.username} (${user.id}) in ${authDuration}ms`)
+    logger.info(`User authenticated: ${user.username} (${user.id}) in ${authDuration}ms`)
 
     return next()
   } catch (error) {
     const authDuration = Date.now() - startTime
-    logger.error(`❌ User authentication error (${authDuration}ms):`, {
+    logger.error(`User authentication error (${authDuration}ms):`, {
       error: error.message,
       ip: req.ip,
       userAgent: req.get('User-Agent'),
       url: req.originalUrl,
     })
 
-    return res.status(500).json({
-      error: 'Authentication error',
-      message: 'Internal server error during user authentication',
-    })
+    return sendAuthFail(res, 500, 'Internal server error during user authentication')
   }
 }
 
-// 👤 用户或管理员验证中间件（支持两种身份）
+// 用户或管理员验证中间件（支持两种身份）
 export const authenticateUserOrAdmin = async (req, res, next) => {
   const startTime = Date.now()
 
@@ -1536,12 +1521,12 @@ export const authenticateUserOrAdmin = async (req, res, next) => {
       try {
         const adminSession = await redis.getSession(adminToken)
         if (adminSession && Object.keys(adminSession).length > 0) {
-          // 🔒 安全修复：验证会话必须字段（与 authenticateAdmin 保持一致）
+          // 安全修复：验证会话必须字段（与 authenticateAdmin 保持一致）
           if (!adminSession.username || !adminSession.loginTime) {
             logger.security(
-              `🔒 Corrupted admin session in authenticateUserOrAdmin from ${req.ip || 'unknown'} - missing required fields (username: ${!!adminSession.username}, loginTime: ${!!adminSession.loginTime})`,
+              `Corrupted admin session in authenticateUserOrAdmin from ${req.ip || 'unknown'} - missing required fields (username: ${!!adminSession.username}, loginTime: ${!!adminSession.loginTime})`,
             )
-            await redis.deleteSession(adminToken) // 清理无效/伪造的会话
+            await redis.deleteSession(adminToken) //清理无效/伪造的会话
             // 不返回 401，继续尝试用户认证
           } else {
             req.admin = {
@@ -1584,7 +1569,7 @@ export const authenticateUserOrAdmin = async (req, res, next) => {
             req.userType = 'user'
 
             const authDuration = Date.now() - startTime
-            logger.info(`👤 User authenticated: ${user.username} (${user.id}) in ${authDuration}ms`)
+            logger.info(`User authenticated: ${user.username} (${user.id}) in ${authDuration}ms`)
             return next()
           }
         }
@@ -1595,27 +1580,21 @@ export const authenticateUserOrAdmin = async (req, res, next) => {
 
     // 如果都失败了，返回未授权
     logger.security(`Authentication failed from ${req.ip || 'unknown'}`)
-    return res.status(401).json({
-      error: 'Authentication required',
-      message: 'Please login as user or admin to access this resource',
-    })
+    return sendAuthFail(res, 401, 'Please login as user or admin to access this resource')
   } catch (error) {
     const authDuration = Date.now() - startTime
-    logger.error(`❌ User/Admin authentication error (${authDuration}ms):`, {
+    logger.error(`User/Admin authentication error (${authDuration}ms):`, {
       error: error.message,
       ip: req.ip,
       userAgent: req.get('User-Agent'),
       url: req.originalUrl,
     })
 
-    return res.status(500).json({
-      error: 'Authentication error',
-      message: 'Internal server error during authentication',
-    })
+    return sendAuthFail(res, 500, 'Internal server error during authentication')
   }
 }
 
-// 🛡️ 权限检查中间件
+// 权限检查中间件
 export const requireRole = (allowedRoles) => (req, res, next) => {
   // 管理员始终有权限
   if (req.admin) {
@@ -1630,21 +1609,15 @@ export const requireRole = (allowedRoles) => (req, res, next) => {
     if (allowed.includes(userRole)) {
       return next()
     } else {
-      logger.security(`🚫 Access denied for user ${req.user.username} (role: ${userRole}) to ${req.originalUrl}`)
-      return res.status(403).json({
-        error: 'Insufficient permissions',
-        message: `This resource requires one of the following roles: ${allowed.join(', ')}`,
-      })
+      logger.security(`Access denied for user ${req.user.username} (role: ${userRole}) to ${req.originalUrl}`)
+      return sendAuthFail(res, 403, `This resource requires one of the following roles: ${allowed.join(', ')}`)
     }
   }
 
-  return res.status(401).json({
-    error: 'Authentication required',
-    message: 'Please login to access this resource',
-  })
+  return sendAuthFail(res, 401, 'Please login to access this resource')
 }
 
-// 🔒 管理员权限检查中间件
+// 管理员权限检查中间件
 export const requireAdmin = (req, res, next) => {
   if (req.admin) {
     return next()
@@ -1655,17 +1628,14 @@ export const requireAdmin = (req, res, next) => {
     return next()
   }
 
-  logger.security(`🚫 Admin access denied for ${req.user?.username || 'unknown'} from ${req.ip || 'unknown'}`)
-  return res.status(403).json({
-    error: 'Admin access required',
-    message: 'This resource requires administrator privileges',
-  })
+  logger.security(`Admin access denied for ${req.user?.username || 'unknown'} from ${req.ip || 'unknown'}`)
+  return sendAuthFail(res, 403, 'This resource requires administrator privileges')
 }
 
 // 注意：使用统计现在直接在/api/v1/messages路由中处理，
 // 以便从Claude API响应中提取真实的usage数据
 
-// 🚦 CORS中间件（优化版，支持Chrome插件）
+// CORS中间件（优化版，支持Chrome插件）
 export const corsMiddleware = (req, res, next) => {
   const { origin } = req.headers
 
@@ -1677,7 +1647,7 @@ export const corsMiddleware = (req, res, next) => {
     'https://127.0.0.1:3000',
   ]
 
-  // 🆕 检查是否为Chrome插件请求
+  // 检查是否为Chrome插件请求
   const isChromeExtension = origin && origin.startsWith('chrome-extension://')
 
   // 设置CORS头
@@ -1705,7 +1675,7 @@ export const corsMiddleware = (req, res, next) => {
 
   res.header('Access-Control-Expose-Headers', ['X-Request-ID', 'Content-Type'].join(', '))
 
-  res.header('Access-Control-Max-Age', '86400') // 24小时预检缓存
+  res.header('Access-Control-Max-Age', '86400') //24小时预检缓存
   res.header('Access-Control-Allow-Credentials', 'true')
 
   if (req.method === 'OPTIONS') {
@@ -1715,13 +1685,80 @@ export const corsMiddleware = (req, res, next) => {
   }
 }
 
-// 📝 请求日志中间件（优化版）
+// 请求日志中间件（优化版）
 export const requestLogger = (req, res, next) => {
   const start = Date.now()
   const requestId = Math.random().toString(36).substring(2, 15)
 
   req.requestId = requestId
   req.requestStartedAt = start
+  // 首包耗时（TTFT）：第一次向客户端写出「像模型内容」的 body 的时刻 - 请求开始
+  // 对齐 new-api FirstResponseTime / sub2api first_token_ms
+  // 跳过纯 SSE 控制帧（message_start / ping / 空 data），避免把协议开场误记为首字
+  req.firstTokenMs = null
+  req.firstTokenAt = null
+  if (!res._firstTokenTimerAttached) {
+    res._firstTokenTimerAttached = true
+    const originalWrite = res.write.bind(res)
+    const looksLikeContentChunk = (chunk) => {
+      if (chunk === null || chunk === undefined) {
+        return false
+      }
+      const text =
+        typeof chunk === 'string'
+          ? chunk
+          : Buffer.isBuffer(chunk)
+            ? chunk.toString('utf8')
+            : chunk && typeof chunk === 'object' && typeof chunk.length === 'number'
+              ? Buffer.from(chunk).toString('utf8')
+              : ''
+      if (!text || !text.trim()) {
+        return false
+      }
+      // 仅有 SSE 事件名/空 data 不算首字
+      const stripped = text
+        .replace(/\r\n/g, '\n')
+        .split('\n')
+        .filter((line) => line.length > 0)
+      if (stripped.length === 0) {
+        return false
+      }
+      const joined = stripped.join('\n')
+      // OpenAI Responses 流：生命周期/结构帧很多；只认「正文类 delta」为真首字
+      // 覆盖 response.created / in_progress / output_item.* / content_part.* / completed 等
+      if (/"type"\s*:\s*"response\./.test(joined)) {
+        return /"type"\s*:\s*"(response\.output_text\.delta|response\.reasoning_text\.delta|response\.reasoning_summary_text\.delta|response\.function_call_arguments\.delta|response\.audio\.delta|response\.output_audio\.delta)"/.test(
+          joined,
+        )
+      }
+      // Claude SSE：控制帧无 delta 不算首字
+      if (
+        /"type"\s*:\s*"(message_start|ping|error|message_stop|content_block_start|content_block_stop)"/.test(joined) &&
+        !/"type"\s*:\s*"(text_delta|thinking_delta|input_json_delta)"/.test(joined)
+      ) {
+        return false
+      }
+      if (
+        /event:\s*(message_start|ping|error|message_stop|content_block_start|content_block_stop)\b/i.test(joined) &&
+        !/content_block_delta|text_delta|thinking_delta|output_text\.delta/i.test(joined)
+      ) {
+        if (
+          !/"type"\s*:\s*"(text_delta|thinking_delta|input_json_delta)"/.test(joined) &&
+          !/"delta"\s*:\s*"/.test(joined)
+        ) {
+          return false
+        }
+      }
+      return true
+    }
+    res.write = (chunk, encoding, callback) => {
+      if (req.firstTokenAt === null && looksLikeContentChunk(chunk)) {
+        req.firstTokenAt = Date.now()
+        req.firstTokenMs = Math.max(0, req.firstTokenAt - start)
+      }
+      return originalWrite(chunk, encoding, callback)
+    }
+  }
   res.setHeader('X-Request-ID', requestId)
 
   const clientIP = req.ip || req.connection?.remoteAddress || req.socket?.remoteAddress || 'unknown'
@@ -1804,7 +1841,7 @@ export const requestLogger = (req, res, next) => {
   next()
 }
 
-// 🛡️ 安全中间件（增强版）
+// 安全中间件（增强版）
 export const securityMiddleware = (req, res, next) => {
   // 设置基础安全头
   res.setHeader('X-Content-Type-Options', 'nosniff')
@@ -1863,115 +1900,132 @@ export const securityMiddleware = (req, res, next) => {
   next()
 }
 
-// 🚨 错误处理中间件（增强版）
+// 错误处理中间件（增强版）
 export const errorHandler = (error, req, res, _next) => {
+  // 流已开始后禁止二次写头/体（SSE/下载后段异常只记日志）
+  if (res.headersSent) {
+    logger.error('Unhandled error after headers sent:', error)
+    return
+  }
+
   const requestId = req.requestId || 'unknown'
   const isDevelopment = env.NODE_ENV === 'development'
+  const management = isManagementJsonPath(req)
 
-  // 记录详细错误信息
-  logger.error(`💥 [${requestId}] Unhandled error:`, {
-    error: error.message,
-    stack: error.stack,
+  // 解析 HTTP status：statusCode 优先于 status（服务层惯例）
+  let statusCode = resolveStatusCode(error, 500)
+  if (error?.name === 'ValidationError' || error?.name === 'CastError') {
+    statusCode = 400
+  } else if (error?.name === 'MongoError' || error?.name === 'RedisError') {
+    statusCode = 503
+  } else if (error?.name === 'TimeoutError') {
+    statusCode = 408
+  } else if (error?.name === 'SyntaxError' || error?.type === 'entity.parse.failed') {
+    // body-parser / express.json 非法 JSON
+    statusCode = 400
+  } else if (error?.statusCode === 413 || error?.status === 413 || error?.name === 'PayloadTooLargeError') {
+    statusCode = 413
+  }
+
+  const logPayload = {
+    error: error?.message,
+    stack: error?.stack,
     url: req.originalUrl,
     method: req.method,
     ip: req.ip || 'unknown',
     userAgent: req.get('User-Agent') || 'unknown',
     apiKey: req.apiKey ? req.apiKey.id : 'none',
     admin: req.admin ? req.admin.username : 'none',
-  })
-
-  // 确定HTTP状态码
-  let statusCode = 500
-  let errorMessage = 'Internal Server Error'
-  let userMessage = 'Something went wrong'
-
-  if (error.status && error.status >= 400 && error.status < 600) {
-    statusCode = error.status
+    surface: management ? 'management' : 'other',
+  }
+  if (statusCode >= 500) {
+    logger.error(`[${requestId}] Unhandled error:`, logPayload)
+    console.error(error)
+  } else {
+    logger.warn(`[${requestId}] Request error ${statusCode}: ${error?.message || error}`)
   }
 
-  // 根据错误类型提供友好的错误消息
-  switch (error.name) {
-    case 'ValidationError':
-      statusCode = 400
-      errorMessage = 'Validation Error'
-      userMessage = 'Invalid input data'
-      break
-    case 'CastError':
-      statusCode = 400
-      errorMessage = 'Cast Error'
-      userMessage = 'Invalid data format'
-      break
-    case 'MongoError':
-    case 'RedisError':
-      statusCode = 503
-      errorMessage = 'Database Error'
-      userMessage = 'Database temporarily unavailable'
-      break
-    case 'TimeoutError':
-      statusCode = 408
-      errorMessage = 'Request Timeout'
-      userMessage = 'Request took too long to process'
-      break
-    default:
-      if (error.message && !isDevelopment) {
-        // 在生产环境中，只显示安全的错误消息
-        if (error.message.includes('ECONNREFUSED')) {
-          userMessage = 'Service temporarily unavailable'
-        } else if (error.message.includes('timeout')) {
-          userMessage = 'Request timeout'
-        }
-      }
-  }
-
-  // 设置响应头
   res.setHeader('X-Request-ID', requestId)
 
-  // 构建错误响应
+  // 管理 JSON 面：统一 { code, msg, requestId }
+  if (management) {
+    let msg
+    if (statusCode === 400 && (error?.name === 'SyntaxError' || error?.type === 'entity.parse.failed')) {
+      msg = '请求格式错误'
+    } else if (statusCode < 500) {
+      msg = error?.message || '请求失败'
+    } else if (isDevelopment && error?.message) {
+      msg = error.message
+    } else {
+      msg = '服务器内部错误'
+    }
+    return sendError(res, error, { msg, requestId, fallbackStatus: statusCode })
+  }
+
+  // 非管理面（中转/webhook/health 等）：保持旧形，禁止套 code/msg 管理信封
+  let errorMessage = 'Internal Server Error'
+  let userMessage = 'Something went wrong'
+  if (statusCode === 400) {
+    errorMessage = 'Bad Request'
+    userMessage =
+      error?.name === 'SyntaxError' || error?.type === 'entity.parse.failed'
+        ? 'Invalid JSON body'
+        : error?.message || 'Invalid request'
+  } else if (statusCode === 413) {
+    errorMessage = 'Payload Too Large'
+    userMessage = 'Request body size exceeds limit'
+  } else if (statusCode === 408) {
+    errorMessage = 'Request Timeout'
+    userMessage = 'Request took too long to process'
+  } else if (statusCode === 503) {
+    errorMessage = 'Service Unavailable'
+    userMessage = 'Service temporarily unavailable'
+  } else if (isDevelopment && error?.message) {
+    userMessage = error.message
+  }
+
   const errorResponse = {
     error: errorMessage,
-    message: isDevelopment ? error.message : userMessage,
+    message: isDevelopment && error?.message ? error.message : userMessage,
     requestId,
     timestamp: new Date().toISOString(),
   }
-
-  // 在开发环境中包含更多调试信息
   if (isDevelopment) {
-    errorResponse.stack = error.stack
+    errorResponse.stack = error?.stack
     errorResponse.url = req.originalUrl
     errorResponse.method = req.method
   }
-
-  res.status(statusCode).json(errorResponse)
+  return res.status(statusCode).json(errorResponse)
 }
 
-// 🌐 全局速率限制中间件（延迟初始化）
-// const rateLimiter = null // 暂时未使用
+// 全局速率限制中间件（延迟初始化）
+// const rateLimiter = null //暂时未使用
 
 // 暂时注释掉未使用的函数
 // const getRateLimiter = () => {
-//   if (!rateLimiter) {
-//     try {
-//       const client = redis.getClient()
-//       if (!client) {
-//         logger.warn('⚠️ Redis client not available for rate limiter')
-//         return null
-//       }
+// if (!rateLimiter) {
+// try {
+// const client = redis.getClient()
+// if (!client) {
+// logger.warn('Redis client not available for rate limiter')
+// return null
+// }
 //
-//       rateLimiter = new RateLimiterRedis({
-//         storeClient: client,
-//         keyPrefix: 'global_rate_limit',
-//         points: 1000, // 请求数量
-//         duration: 900, // 15分钟 (900秒)
-//         blockDuration: 900 // 阻塞时间15分钟
-//       })
+// rateLimiter = new RateLimiterRedis({
+// storeClient: client,
+// keyPrefix: 'global_rate_limit',
+// points: 1000, //请求数量
+// duration: 900, //15分钟 (900秒)
+// blockDuration: 900 //阻塞时间15分钟
+// })
 //
-//       logger.info('✅ Rate limiter initialized successfully')
-//     } catch (error) {
-//       logger.warn('⚠️ Rate limiter initialization failed, using fallback', { error: error.message })
-//       return null
-//     }
-//   }
-//   return rateLimiter
+// logger.info('Rate limiter initialized successfully')
+// } catch (error) {
+// logger.warn('Rate limiter initialization failed, using fallback', { error: error.message })
+// return null
+// }
+// }
+// return rateLimiter
 // }
 
 export const globalRateLimit = async (req, res, next) =>
@@ -2000,7 +2054,7 @@ export const globalRateLimit = async (req, res, next) =>
     const remainingPoints = rejRes.remainingPoints || 0
     const msBeforeNext = rejRes.msBeforeNext || 900000
 
-    logger.security(`🚦 Global rate limit exceeded for IP: ${clientIP}`)
+    logger.security(`Global rate limit exceeded for IP: ${clientIP}`)
 
     res.set({
       'Retry-After': Math.round(msBeforeNext / 1000) || 900,
@@ -2017,14 +2071,17 @@ export const globalRateLimit = async (req, res, next) =>
   }
   */
 
-// 📊 请求大小限制中间件
+// 请求大小限制中间件
 export const requestSizeLimit = (req, res, next) => {
   const MAX_SIZE_MB = parseInt(env.REQUEST_MAX_SIZE_MB || '100', 10)
   const maxSize = MAX_SIZE_MB * 1024 * 1024
   const contentLength = parseInt(req.headers['content-length'] || '0')
 
   if (contentLength > maxSize) {
-    logger.security(`🚨 Request too large: ${contentLength} bytes from ${req.ip}`)
+    logger.security(`Request too large: ${contentLength} bytes from ${req.ip}`)
+    if (isManagementJsonPath(req)) {
+      return sendAuthFail(res, 413, 'Request body size exceeds limit')
+    }
     return res.status(413).json({
       error: 'Payload Too Large',
       message: 'Request body size exceeds limit',

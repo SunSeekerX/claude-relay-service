@@ -400,6 +400,7 @@ import { ref, computed, onMounted } from 'vue'
 import ModalTransition from '@/components/common/modal_transition.vue'
 import { showToast } from '@/libs/tools'
 import { toLocalDateString } from '@/libs/time'
+import { isOk, msgOf } from '@/libs/http_envelope'
 import { getDroidAccountByIdApi, updateDroidAccountApi } from '@/libs/http_apis'
 import ConfirmModal from '@/components/common/confirm_modal.vue'
 
@@ -520,10 +521,10 @@ const errorKeysCount = computed(() => {
 // 加载 API Keys
 const loadApiKeys = async () => {
   loading.value = true
-  // request.js 为 resolve-only：失败也 resolve 成 { success:false }，不会抛异常，必须显式判 success
+  // request.js 为 resolve-only：失败也 resolve 成非 2xx code，不会抛异常，必须显式判 isOk
   const response = await getDroidAccountByIdApi(props.accountId)
-  if (!response.success) {
-    showToast(response.message || '加载 API Key 失败', 'error')
+  if (!isOk(response)) {
+    showToast(msgOf(response, '加载 API Key 失败'), 'error')
     loading.value = false
     currentPage.value = 1
     return
@@ -618,14 +619,14 @@ const deleteApiKey = async (apiKey) => {
     apiKeyUpdateMode: 'delete'
   }
 
-  // resolve-only：失败不抛异常，必须显式判 success，否则会把失败当成功
+  // resolve-only：失败不抛异常，必须显式判 isOk，否则会把失败当成功
   const response = await updateDroidAccountApi(props.accountId, updateData)
-  if (response.success) {
+  if (isOk(response)) {
     showToast('API Key 已删除', 'success')
     await loadApiKeys()
     emit('refresh')
   } else {
-    showToast(response.message || '删除 API Key 失败', 'error')
+    showToast(msgOf(response, '删除 API Key 失败'), 'error')
   }
   deleting.value = null
 }
@@ -657,14 +658,14 @@ const resetApiKeyStatus = async (apiKey) => {
     apiKeyUpdateMode: 'update'
   }
 
-  // resolve-only：失败不抛异常，必须显式判 success
+  // resolve-only：失败不抛异常，必须显式判 isOk
   const response = await updateDroidAccountApi(props.accountId, updateData)
-  if (response.success) {
+  if (isOk(response)) {
     showToast('API Key 状态已重置', 'success')
     await loadApiKeys()
     emit('refresh')
   } else {
-    showToast(response.message || '重置 API Key 状态失败', 'error')
+    showToast(msgOf(response, '重置 API Key 状态失败'), 'error')
   }
   resetting.value = null
 }
@@ -696,14 +697,14 @@ const deleteAllErrorKeys = async () => {
     apiKeyUpdateMode: 'delete'
   }
 
-  // resolve-only：失败不抛异常，必须显式判 success
+  // resolve-only：失败不抛异常，必须显式判 isOk
   const response = await updateDroidAccountApi(props.accountId, updateData)
-  if (response.success) {
+  if (isOk(response)) {
     showToast(`成功删除 ${errorKeys.length} 个异常 API Key`, 'success')
     await loadApiKeys()
     emit('refresh')
   } else {
-    showToast(response.message || '批量删除失败', 'error')
+    showToast(msgOf(response, '批量删除失败'), 'error')
   }
   batchDeleting.value = false
 }
@@ -741,14 +742,14 @@ const deleteAllKeys = async () => {
     apiKeyUpdateMode: 'delete'
   }
 
-  // resolve-only：失败不抛异常，必须显式判 success
+  // resolve-only：失败不抛异常，必须显式判 isOk
   const response = await updateDroidAccountApi(props.accountId, updateData)
-  if (response.success) {
+  if (isOk(response)) {
     showToast(`成功删除所有 ${keysToDelete.length} 个 API Key`, 'success')
     await loadApiKeys()
     emit('refresh')
   } else {
-    showToast(response.message || '批量删除失败', 'error')
+    showToast(msgOf(response, '批量删除失败'), 'error')
   }
   batchDeleting.value = false
 }

@@ -1,31 +1,49 @@
 import express from 'express'
 import { authenticateAdmin } from '../../infra/middleware_auth.js'
-import { logger } from '../../common/logger.js'
+import { asyncRoute } from '../../common/route_handler.js'
+import { badRequest, ok } from '../../common/http_result.js'
+import { parseDateTimeQuery } from '../../common/date_time.js'
 import * as upstreamErrorHelper from './relay_upstream_error_helper.js'
 export const router = express.Router()
 
-// 查询账户错误历史
-router.get('/accounts/:accountType/:accountId/error-history', authenticateAdmin, async (req, res) => {
-  try {
-    const { accountType, accountId } = req.params
-    const offset = parseInt(req.query.offset) || 0
-    const limit = parseInt(req.query.limit) || 50
-    const data = await upstreamErrorHelper.getErrorHistory(accountType, accountId, offset, limit)
-    return res.json({ success: true, data })
-  } catch (error) {
-    logger.error('Failed to get error history:', error)
-    return res.status(500).json({ error: 'Failed to get error history', message: error.message })
+const parseOptionalTime = (value, fieldName) => {
+  if (value === undefined || value === null || value === '') {
+    return null
   }
-})
+  const date = parseDateTimeQuery(value)
+  if (!date) {
+    throw badRequest(`${fieldName} must be a valid datetime`)
+  }
+  return date.toISOString()
+}
 
-// 清除账户错误历史
-router.delete('/accounts/:accountType/:accountId/error-history', authenticateAdmin, async (req, res) => {
-  try {
+router.get(
+  '/accounts/:accountType/:accountId/error-history',
+  authenticateAdmin,
+  asyncRoute('Failed to get error history', async (req) => {
+    const { accountType, accountId } = req.params
+    const offset = parseInt(req.query.offset, 10) || 0
+    const limit = parseInt(req.query.limit, 10) || 50
+    const startTime = parseOptionalTime(req.query.startTime, 'startTime')
+    const endTime = parseOptionalTime(req.query.endTime, 'endTime')
+    if (startTime && endTime && Date.parse(startTime) > Date.parse(endTime)) {
+      throw badRequest('startTime must be <= endTime')
+    }
+    return upstreamErrorHelper.getErrorHistory(accountType, accountId, {
+      offset,
+      limit,
+      startTime,
+      endTime,
+    })
+  }),
+)
+
+router.delete(
+  '/accounts/:accountType/:accountId/error-history',
+  authenticateAdmin,
+  asyncRoute('Failed to clear error history', async (req) => {
     const { accountType, accountId } = req.params
     await upstreamErrorHelper.clearErrorHistory(accountType, accountId)
-    return res.json({ success: true })
-  } catch (error) {
-    logger.error('Failed to clear error history:', error)
-    return res.status(500).json({ error: 'Failed to clear error history', message: error.message })
-  }
-})
+    return ok()
+  }),
+)

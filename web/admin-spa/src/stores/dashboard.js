@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 
 import { getDashboardApi, getUsageCostsApi, getUsageStatsApi } from '@/libs/http_apis'
+import { isOk } from '@/libs/http_envelope'
 import { showToast } from '@/libs/tools'
 
 export const useDashboardStore = defineStore('dashboard', () => {
@@ -255,7 +256,7 @@ export const useDashboardStore = defineStore('dashboard', () => {
         getUsageCostsApi(costsParams.all)
       ])
 
-      if (dashboardResponse.success) {
+      if (isOk(dashboardResponse)) {
         const overview = dashboardResponse.data.overview || {}
         const recentActivity = dashboardResponse.data.recentActivity || {}
         const systemAverages = dashboardResponse.data.systemAverages || {}
@@ -319,7 +320,7 @@ export const useDashboardStore = defineStore('dashboard', () => {
       }
 
       // 更新费用数据
-      if (todayCostsResponse.success && totalCostsResponse.success) {
+      if (isOk(todayCostsResponse) && isOk(totalCostsResponse)) {
         costsData.value = {
           todayCosts: todayCostsResponse.data.totalCosts || {
             totalCost: 0,
@@ -364,7 +365,7 @@ export const useDashboardStore = defineStore('dashboard', () => {
       }
 
       const response = await getUsageStatsApi(url)
-      if (response.success) {
+      if (isOk(response)) {
         trendData.value = response.data
       }
     } catch (error) {
@@ -411,7 +412,7 @@ export const useDashboardStore = defineStore('dashboard', () => {
       }
 
       const response = await getUsageStatsApi(url)
-      if (response.success) {
+      if (isOk(response)) {
         dashboardModelStats.value = response.data
       }
     } catch (error) {
@@ -459,11 +460,13 @@ export const useDashboardStore = defineStore('dashboard', () => {
       url += `&metric=${metric}`
 
       const response = await getUsageStatsApi(url)
-      if (response.success) {
+      if (isOk(response)) {
+        // 信封 data 承载原顶层 sibling：{ data, topApiKeys, totalApiKeys, granularity }
+        const payload = response.data && !Array.isArray(response.data) ? response.data : response
         apiKeysTrendData.value = {
-          data: response.data || [],
-          topApiKeys: response.topApiKeys || [],
-          totalApiKeys: response.totalApiKeys || 0
+          data: payload.data || (Array.isArray(response.data) ? response.data : []) || [],
+          topApiKeys: payload.topApiKeys || [],
+          totalApiKeys: payload.totalApiKeys || 0
         }
       }
     } catch (error) {
@@ -508,13 +511,15 @@ export const useDashboardStore = defineStore('dashboard', () => {
       url += `&group=${group}`
 
       const response = await getUsageStatsApi(url)
-      if (response.success) {
+      if (isOk(response)) {
+        // 信封 data 承载原顶层 sibling：{ data, topAccounts, totalAccounts, group, groupLabel, granularity }
+        const payload = response.data && !Array.isArray(response.data) ? response.data : response
         accountUsageTrendData.value = {
-          data: response.data || [],
-          topAccounts: response.topAccounts || [],
-          totalAccounts: response.totalAccounts || 0,
-          group: response.group || group,
-          groupLabel: response.groupLabel || ''
+          data: payload.data || (Array.isArray(response.data) ? response.data : []) || [],
+          topAccounts: payload.topAccounts || [],
+          totalAccounts: payload.totalAccounts || 0,
+          group: payload.group || group,
+          groupLabel: payload.groupLabel || ''
         }
       }
     } catch (error) {

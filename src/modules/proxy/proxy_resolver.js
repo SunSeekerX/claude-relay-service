@@ -65,7 +65,7 @@ class ProxyResolver {
           }
         }
         logger.warn(
-          `🌐 [ProxyResolver] group=${account.proxyGroupId} 无可用代理 ctx=${resolvedContextKey}，本次不使用代理（不回退静态）`,
+          `[ProxyResolver] group=${account.proxyGroupId} 无可用代理 ctx=${resolvedContextKey}，本次不使用代理（不回退静态）`,
         )
         return { agent: null, proxyId: null, contextKey: resolvedContextKey }
       }
@@ -78,7 +78,7 @@ class ProxyResolver {
           contextKey: resolvedContextKey,
         }
       }
-      logger.warn(`🌐 [ProxyResolver] pinned proxy=${account.proxyId} 不存在，本次不使用代理（不回退静态）`)
+      logger.warn(`[ProxyResolver] pinned proxy=${account.proxyId} 不存在，本次不使用代理（不回退静态）`)
       return { agent: null, proxyId: null, contextKey: resolvedContextKey }
     }
 
@@ -141,7 +141,7 @@ class ProxyResolver {
         true, // successIsTransport：success 即传输成败，绕开探测语义
       )
     } catch (err) {
-      logger.error('❌ [ProxyResolver] report failed:', err)
+      logger.error('[ProxyResolver] report failed:', err)
     }
   }
 }

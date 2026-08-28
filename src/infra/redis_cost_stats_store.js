@@ -33,19 +33,17 @@ return 1
 `
 
 export const attach = function attach(redisClient) {
-  // 💰 获取当日费用
+  // 获取当日费用
   redisClient.getDailyCost = async function (keyId) {
     const today = timezone.getDateStringInTimezone()
     const costKey = RedisKeys.usage.costDaily(keyId, today)
     const cost = await this.client.get(costKey)
     const result = parseFloat(cost || 0)
-    logger.debug(
-      `💰 Getting daily cost for ${keyId}, date: ${today}, key: ${costKey}, value: ${cost}, result: ${result}`,
-    )
+    logger.debug(`Getting daily cost for ${keyId}, date: ${today}, key: ${costKey}, value: ${cost}, result: ${result}`)
     return result
   }
 
-  // 💰 增加当日费用（支持倍率成本和真实成本分开记录）
+  // 增加当日费用（支持倍率成本和真实成本分开记录）
   // amount: 倍率后的成本（用于限额校验）
   // realAmount: 真实成本（用于对账），如果不传则等于 amount
   // [人工决策-2026-06-04 10:38:30] 计费关键写（usage:cost:total / costRealTotal——prepaid 派生余额
@@ -67,7 +65,7 @@ export const attach = function attach(redisClient) {
     const realDailyKey = RedisKeys.usage.costRealDaily(keyId, today)
     const actualRealAmount = realAmount !== null ? realAmount : amount
 
-    logger.debug(`💰 Incrementing cost for ${keyId}, rated: $${amount}, real: $${actualRealAmount}, date: ${today}`)
+    logger.debug(`Incrementing cost for ${keyId}, rated: $${amount}, real: $${actualRealAmount}, date: ${today}`)
 
     // ① 计费关键写：幂等 Lua + 最多 3 次重试。dedupId 本次调用内生成——跨调用每笔用量本就各自累加，
     // 幂等只需保护重试环内「脚本已执行但响应丢失」不重复累加
@@ -89,7 +87,7 @@ export const attach = function attach(redisClient) {
         break
       } catch (error) {
         lastError = error
-        logger.warn(`⚠️ Billing-critical cost write attempt ${attempt}/3 failed for ${keyId}:`, error)
+        logger.warn(`Billing-critical cost write attempt ${attempt}/3 failed for ${keyId}:`, error)
         if (attempt < 3) {
           await new Promise((resolve) => setTimeout(resolve, attempt * 200))
         }
@@ -115,11 +113,11 @@ export const attach = function attach(redisClient) {
         this.client.expire(realDailyKey, TTL.costDaily), // 33天（> 用量日 32 天）
       ])
     } catch (error) {
-      logger.error(`❌ Cost stats write failed for ${keyId} (billing already recorded):`, error)
+      logger.error(`Cost stats write failed for ${keyId} (billing already recorded):`, error)
     }
   }
 
-  // 💰 获取费用统计（包含倍率成本和真实成本）
+  // 获取费用统计（包含倍率成本和真实成本）
   redisClient.getCostStats = async function (keyId) {
     const today = timezone.getDateStringInTimezone()
     const tzDate = timezone.getDateInTimezone()
@@ -145,19 +143,19 @@ export const attach = function attach(redisClient) {
     }
   }
 
-  // 💰 获取本周 Opus 费用（支持自定义重置周期）
+  // 获取本周 Opus 费用（支持自定义重置周期）
   redisClient.getWeeklyOpusCost = async function (keyId, resetDay = 1, resetHour = 0) {
     const periodStr = timezone.getPeriodString(resetDay, resetHour)
     const costKey = RedisKeys.usage.opusWeekly(keyId, periodStr)
     const cost = await this.client.get(costKey)
     const result = parseFloat(cost || 0)
     logger.debug(
-      `💰 Getting weekly Opus cost for ${keyId}, period: ${periodStr}, key: ${costKey}, value: ${cost}, result: ${result}`,
+      `Getting weekly Opus cost for ${keyId}, period: ${periodStr}, key: ${costKey}, value: ${cost}, result: ${result}`,
     )
     return result
   }
 
-  // 💰 增加本周 Opus 费用（支持倍率成本和真实成本，支持自定义重置周期）
+  // 增加本周 Opus 费用（支持倍率成本和真实成本，支持自定义重置周期）
   // amount: 倍率后的成本（用于限额校验）
   // realAmount: 真实成本（用于对账），如果不传则等于 amount
   redisClient.incrementWeeklyOpusCost = async function (keyId, amount, realAmount = null, resetDay = 1, resetHour = 0) {
@@ -169,7 +167,7 @@ export const attach = function attach(redisClient) {
     const actualRealAmount = realAmount !== null ? realAmount : amount
 
     logger.debug(
-      `💰 Incrementing weekly Opus cost for ${keyId}, period: ${periodStr}, rated: $${amount}, real: $${actualRealAmount}`,
+      `Incrementing weekly Opus cost for ${keyId}, period: ${periodStr}, rated: $${amount}, real: $${actualRealAmount}`,
     )
 
     // 使用 pipeline 批量执行，提高性能
@@ -183,10 +181,10 @@ export const attach = function attach(redisClient) {
     pipeline.expire(realWeeklyKey, TTL.opusWeekly)
 
     const results = await pipeline.exec()
-    logger.debug(`💰 Opus cost incremented successfully, new weekly total: $${results[0][1]}`)
+    logger.debug(`Opus cost incremented successfully, new weekly total: $${results[0][1]}`)
   }
 
-  // 💰 覆盖设置本周 Opus 费用（用于启动回填/迁移，支持自定义周期标识）
+  // 覆盖设置本周 Opus 费用（用于启动回填/迁移，支持自定义周期标识）
   redisClient.setWeeklyOpusCost = async function (keyId, amount, periodString = null, resetDay = 1, resetHour = 0) {
     const currentPeriod = periodString || timezone.getPeriodString(resetDay, resetHour)
     const weeklyKey = RedisKeys.usage.opusWeekly(keyId, currentPeriod)
@@ -196,22 +194,14 @@ export const attach = function attach(redisClient) {
     await this.client.expire(weeklyKey, TTL.opusWeekly)
   }
 
-  // 💰 从「账户+模型」的统计 hash 求本条成本。三个读取入口
+  // 从「账户+模型」的统计 hash 求本条成本。三个读取入口
   // (getAccountDailyCost / batchGetAccountDailyCost / getAccountDailyCostFallback) 共用，
-  // 免得回落口径写三份、改一处漏两处。
+  // 回落口径只维护这一处。
   //
   // [人工决策-2026-08-24 11:33:43] 精确成本(cost) + 未被 cost 覆盖的 token 反推，两部分相加。
-  //
-  // 为什么不能「有 cost 就只读 cost」：升级发布当天，同一个 account:model:daily hash 里会混有
-  // 升级前的请求(只累加了 token、没有 cost)与升级后的请求(两者都有)。只读 cost 会漏掉升级前
-  // 那一段的全部成本；只按总 token 反推又会把已经精确计过的部分再按基础价算一遍。
-  // 所以写入侧同时累加 costedXxxTokens(已被 cost 覆盖的 token 量)，这里用
-  // 总 token − 已覆盖 token 得到「仅升级前」的残量，单独反推后与 cost 相加。
-  //
-  // 反推本身的固有缺陷(所以要尽量少用它)：单价随 service_tier(fast/flex/ultrafast) 与
-  // 长上下文档变化，聚合 token 已丢失「哪些 token 属于哪个档」「单次请求是否超阈值」，
-  // 于是 Fast/ultrafast 必然低估、Flex 必然高估。残量部分只能这样算(那些请求发生在升级前，
-  // 当时没记金额)，但它随当日/当月 key 过期自然消失，之后全部走精确值。
+  // 升级当日 hash 会混有「仅 token」与「token+cost」两段：只读 cost 漏升级前；只按总 token 反推会把已精确段再算一遍。
+  // 写入侧累加 costedXxxTokens；读取用 总 token − 已覆盖 token 得升级前残量，反推后与 cost 相加。
+  // 反推有损（聚合 token 丢失档位/阈值），残量随日/月 key 过期消失后全部走精确值。
   redisClient._resolveAccountModelCost = function (modelUsage, model) {
     if (!modelUsage) {
       return 0
@@ -266,7 +256,7 @@ export const attach = function attach(redisClient) {
     return storedCost + getCostCalculator().calculateCost(usage, model).costs.total
   }
 
-  // 💰 计算账户的每日费用（基于模型使用，使用索引集合替代 KEYS）
+  // 计算账户的每日费用（基于模型使用，使用索引集合替代 KEYS）
   redisClient.getAccountDailyCost = async function (accountId) {
     const today = timezone.getDateStringInTimezone()
 
@@ -301,16 +291,16 @@ export const attach = function attach(redisClient) {
         totalCost += modelCost
 
         if (modelCost > 0) {
-          logger.debug(`💰 Account ${accountId} daily cost for model ${model}: $${modelCost}`)
+          logger.debug(`Account ${accountId} daily cost for model ${model}: $${modelCost}`)
         }
       }
     }
 
-    logger.debug(`💰 Account ${accountId} total daily cost: $${totalCost}`)
+    logger.debug(`Account ${accountId} total daily cost: $${totalCost}`)
     return totalCost
   }
 
-  // 💰 批量计算多个账户的每日费用
+  // 批量计算多个账户的每日费用
   redisClient.batchGetAccountDailyCost = async function (accountIds) {
     if (!accountIds || accountIds.length === 0) {
       return new Map()
@@ -344,7 +334,7 @@ export const attach = function attach(redisClient) {
 
     // 如果索引为空，回退到 KEYS 命令（兼容旧数据）
     if (allEntries.length === 0) {
-      logger.debug('💰 Daily cost index empty, falling back to KEYS for batch cost calculation')
+      logger.debug('Daily cost index empty, falling back to KEYS for batch cost calculation')
       for (const accountId of accountIds) {
         try {
           const cost = await this.getAccountDailyCostFallback(accountId, today)
@@ -385,7 +375,7 @@ export const attach = function attach(redisClient) {
     return costMap
   }
 
-  // 💰 回退方法：计算单个账户的每日费用（使用 scanKeys 替代 keys）
+  // 回退方法：计算单个账户的每日费用（使用 scanKeys 替代 keys）
   redisClient.getAccountDailyCostFallback = async function (accountId, today) {
     const pattern = RedisKeys.accountUsage.modelDailyAnyPattern(accountId, today)
     const modelKeys = await this.scanKeys(pattern)

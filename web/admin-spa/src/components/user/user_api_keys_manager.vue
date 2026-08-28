@@ -260,6 +260,7 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { useUserStore } from '@/stores/user'
+import { isOk } from '@/libs/http_envelope'
 import { showToast, formatNumber, formatDate } from '@/libs/tools'
 import CreateApiKeyModal from './create_api_key_modal.vue'
 import ViewApiKeyModal from './view_api_key_modal.vue'
@@ -317,7 +318,7 @@ const handleDeleteConfirm = async () => {
   try {
     const result = await userStore.deleteApiKey(selectedApiKey.value.id)
 
-    if (result.success) {
+    if (isOk(result)) {
       showToast('API key deleted successfully', 'success')
       await loadApiKeys()
     }

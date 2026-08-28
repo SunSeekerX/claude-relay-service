@@ -74,6 +74,21 @@ const normalizeNumber = function normalizeNumber(value, digits = null) {
   return Number(num.toFixed(digits))
 }
 
+// 可选数值：缺省/非法返回 null（首字耗时等「有则展示」字段，禁止把 null 归一成 0）
+const normalizeOptionalNumber = function normalizeOptionalNumber(value, digits = null) {
+  if (value === null || value === undefined || value === '') {
+    return null
+  }
+  const num = Number(value)
+  if (!Number.isFinite(num)) {
+    return null
+  }
+  if (digits === null) {
+    return num
+  }
+  return Number(num.toFixed(digits))
+}
+
 const normalizeTokenValue = function normalizeTokenValue(value) {
   return Math.max(0, Math.trunc(normalizeNumber(value)))
 }
@@ -149,7 +164,10 @@ const createCostRecomputePatch = function createCostRecomputePatch(record = {}) 
   }
 
   try {
-    const costResult = CostCalculator.calculateCost(usage, record.model || 'unknown')
+    // 回放计费必须带上当时档位，否则 Fast 请求会被按基础价重算少显
+    const serviceTier =
+      typeof record.serviceTier === 'string' && record.serviceTier.trim() ? record.serviceTier.trim() : null
+    const costResult = CostCalculator.calculateCost(usage, record.model || 'unknown', serviceTier)
     const totalCost = normalizeNumber(costResult?.costs?.total ?? costResult?.totalCost ?? 0, 6)
     if (totalCost <= 0) {
       return null
@@ -167,9 +185,10 @@ const createCostRecomputePatch = function createCostRecomputePatch(record = {}) 
       costRecomputed: true,
       usedFallbackPricing: costResult?.debug?.usedFallbackPricing === true,
       pricingSource,
+      serviceTier: serviceTier || costResult?.debug?.serviceTier || null,
     }
   } catch (error) {
-    logger.debug(`⚠️ Failed to recompute request detail cost: ${error.message}`)
+    logger.debug(`Failed to recompute request detail cost: ${error.message}`)
     return null
   }
 }
@@ -190,7 +209,7 @@ const prepareRecordForDisplay = function prepareRecordForDisplay(record = {}) {
 // - zset score 存真实 timestampMs，真正时间范围过滤仍基于毫秒比较
 // - day index 只是把候选请求按“UTC 那一天”粗分桶，减少查询扫描面
 // - 该口径已写入历史 key（request_detail:index:day:YYYY-MM-DD），不能直接切到业务时区，
-//   否则查询会同时错过旧桶并混淆新旧数据；若将来要切时区，必须走双写/迁移
+// 否则查询会同时错过旧桶并混淆新旧数据；若将来要切时区，必须走双写/迁移
 const formatDayKey = function formatDayKey(date) {
   return date.toISOString().slice(0, 10)
 }
@@ -242,7 +261,7 @@ const safeJsonParse = function safeJsonParse(value, label = 'request detail reco
   try {
     return JSON.parse(value)
   } catch (error) {
-    logger.warn(`⚠️ Failed to parse ${label}: ${error.message}`)
+    logger.warn(`Failed to parse ${label}: ${error.message}`)
     return null
   }
 }
@@ -573,6 +592,8 @@ const createSummaryAccumulator = function createSummaryAccumulator() {
     cacheCreateTokens: 0,
     totalCost: 0,
     totalDurationMs: 0,
+    totalFirstTokenMs: 0,
+    firstTokenSamples: 0,
     cacheHitNumerator: 0,
     cacheHitDenominator: 0,
     openAIRelatedRequests: 0,
@@ -591,6 +612,11 @@ const updateSummaryAccumulator = function updateSummaryAccumulator(accumulator, 
   }
   accumulator.totalCost += normalizeNumber(record.cost)
   accumulator.totalDurationMs += normalizeNumber(record.durationMs)
+  const firstTokenMs = normalizeOptionalNumber(record.firstTokenMs)
+  if (firstTokenMs !== null) {
+    accumulator.totalFirstTokenMs += firstTokenMs
+    accumulator.firstTokenSamples += 1
+  }
   accumulator.cacheHitNumerator += cacheMetrics.numerator
   accumulator.cacheHitDenominator += cacheMetrics.denominator
   if (cacheMetrics.isOpenAIRelated) {
@@ -608,6 +634,11 @@ const finalizeSummary = function finalizeSummary(accumulator) {
     totalCost: Number(accumulator.totalCost.toFixed(6)),
     avgDurationMs:
       accumulator.totalRequests > 0 ? Math.round(accumulator.totalDurationMs / accumulator.totalRequests) : 0,
+    // 仅对有首字样本的流式请求求平均；无样本时 null（前端不展示 0ms 假数据）
+    avgFirstTokenMs:
+      accumulator.firstTokenSamples > 0
+        ? Math.round(accumulator.totalFirstTokenMs / accumulator.firstTokenSamples)
+        : null,
     cacheHitRate:
       accumulator.cacheHitDenominator > 0
         ? Number(((accumulator.cacheHitNumerator / accumulator.cacheHitDenominator) * 100).toFixed(2))
@@ -674,6 +705,7 @@ class RequestDetailService {
         cacheCreateTokens: 0,
         totalCost: 0,
         avgDurationMs: 0,
+        avgFirstTokenMs: null,
         cacheHitRate: 0,
         cacheHitNumerator: 0,
         cacheHitDenominator: 0,
@@ -687,6 +719,7 @@ class RequestDetailService {
     const requestBodySource = detail.requestBodySnapshot ?? detail.requestBody
     const timestamp = toIsoString(detail.timestamp) || new Date().toISOString()
     const durationMs = normalizeNumber(detail.durationMs)
+    const firstTokenMs = normalizeOptionalNumber(detail.firstTokenMs)
     const inputTokens = normalizeNumber(detail.inputTokens)
     const outputTokens = normalizeNumber(detail.outputTokens)
     const cacheReadTokens = normalizeNumber(detail.cacheReadTokens)
@@ -697,6 +730,10 @@ class RequestDetailService {
     const cost = normalizeNumber(detail.cost, 6)
     const realCost = normalizeNumber(detail.realCost, 6)
     const reasoningInfo = requestDetailHelper.extractRequestReasoningInfo(requestBodySource)
+    const serviceTier =
+      typeof detail.serviceTier === 'string' && detail.serviceTier.trim()
+        ? detail.serviceTier.trim().toLowerCase()
+        : null
     const normalized = {
       requestId,
       timestamp,
@@ -709,6 +746,8 @@ class RequestDetailService {
       accountId: detail.accountId || null,
       accountType: detail.accountType || 'unknown',
       model: detail.model || 'unknown',
+      // 实际生效的 OpenAI service_tier（fast/priority/flex/ultrafast/default）
+      serviceTier,
       inputTokens,
       outputTokens,
       cacheReadTokens,
@@ -722,9 +761,13 @@ class RequestDetailService {
       usedFallbackPricing: detail.usedFallbackPricing === true,
       costRecomputed: detail.costRecomputed === true,
       durationMs,
+      firstTokenMs,
       isLongContextRequest: detail.isLongContextRequest === true,
       reasoningDisplay: detail.reasoningDisplay || reasoningInfo.reasoningDisplay || null,
       reasoningSource: detail.reasoningSource || reasoningInfo.reasoningSource || null,
+      protocolBridge: detail.protocolBridge || null,
+      tokenCountEstimate: detail.tokenCountEstimate === true,
+      tokenCountEstimateMethod: detail.tokenCountEstimateMethod || null,
     }
 
     if (options.bodyPreviewEnabled && requestBodySource !== undefined) {
@@ -765,7 +808,7 @@ class RequestDetailService {
 
       return { captured: true, requestId }
     } catch (error) {
-      logger.warn(`⚠️ Failed to capture request detail: ${error.message}`)
+      logger.warn(`Failed to capture request detail: ${error.message}`)
       return { captured: false, reason: 'error', message: error.message }
     }
   }
@@ -794,7 +837,7 @@ class RequestDetailService {
           }
         }
       } catch (error) {
-        logger.warn(`⚠️ Failed to load request detail index ${dayKey}: ${error.message}`)
+        logger.warn(`Failed to load request detail index ${dayKey}: ${error.message}`)
       }
     }
 
@@ -907,7 +950,7 @@ class RequestDetailService {
       cache.set(keyId, keyName)
       return keyName
     } catch (error) {
-      logger.debug(`⚠️ Failed to resolve API key ${keyId}: ${error.message}`)
+      logger.debug(`Failed to resolve API key ${keyId}: ${error.message}`)
       cache.set(keyId, keyId)
       return keyId
     }
@@ -949,7 +992,7 @@ class RequestDetailService {
           return info
         }
       } catch (error) {
-        logger.debug(`⚠️ Failed to resolve account ${accountId} from ${type}: ${error.message}`)
+        logger.debug(`Failed to resolve account ${accountId} from ${type}: ${error.message}`)
       }
     }
 
@@ -1007,7 +1050,7 @@ class RequestDetailService {
         for (let index = 0; index < results.length; index += 1) {
           const [error, score] = results[index] || []
           if (error) {
-            logger.debug(`⚠️ Failed to resolve request detail timestamp from ${dayKeys[index]}: ${error.message}`)
+            logger.debug(`Failed to resolve request detail timestamp from ${dayKeys[index]}: ${error.message}`)
             continue
           }
 
@@ -1033,7 +1076,7 @@ class RequestDetailService {
           return timestampMs
         }
       } catch (error) {
-        logger.debug(`⚠️ Failed to resolve request detail timestamp from ${dayKey}: ${error.message}`)
+        logger.debug(`Failed to resolve request detail timestamp from ${dayKey}: ${error.message}`)
       }
     }
 
@@ -1304,7 +1347,7 @@ class RequestDetailService {
     try {
       rawSnapshot = await client.get(RedisKeys.requestDetail.querySnapshot(snapshotId))
     } catch (error) {
-      logger.warn(`⚠️ Failed to read request detail query snapshot: ${error.message}`)
+      logger.warn(`Failed to read request detail query snapshot: ${error.message}`)
       return null
     }
 
@@ -1317,7 +1360,7 @@ class RequestDetailService {
       try {
         await client.expire(RedisKeys.requestDetail.querySnapshot(snapshotId), TTL.requestDetailQuerySnapshot)
       } catch (error) {
-        logger.warn(`⚠️ Failed to renew request detail query snapshot TTL: ${error.message}`)
+        logger.warn(`Failed to renew request detail query snapshot TTL: ${error.message}`)
       }
     }
 
@@ -1373,7 +1416,7 @@ class RequestDetailService {
         TTL.requestDetailQuerySnapshot,
       )
     } catch (error) {
-      logger.warn(`⚠️ Failed to store request detail query snapshot: ${error.message}`)
+      logger.warn(`Failed to store request detail query snapshot: ${error.message}`)
       return null
     }
 

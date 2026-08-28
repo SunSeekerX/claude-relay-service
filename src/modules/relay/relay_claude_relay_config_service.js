@@ -104,7 +104,7 @@ class ClaudeRelayConfigService {
 
       const client = redis.getClient()
       if (!client) {
-        logger.warn('⚠️ Redis not connected, using default config')
+        logger.warn('Redis not connected, using default config')
         return { ...DEFAULT_CONFIG }
       }
 
@@ -119,7 +119,7 @@ class ClaudeRelayConfigService {
       configCacheTime = Date.now()
       return configCache
     } catch (error) {
-      logger.error('❌ Failed to get Claude relay config:', error)
+      logger.error('Failed to get Claude relay config:', error)
       return { ...DEFAULT_CONFIG }
     }
   }
@@ -148,7 +148,7 @@ class ClaudeRelayConfigService {
       configCache = updatedConfig
       configCacheTime = Date.now()
 
-      logger.info(`✅ Claude relay config updated by ${updatedBy}:`, {
+      logger.info(`Claude relay config updated by ${updatedBy}:`, {
         claudeCodeOnlyEnabled: updatedConfig.claudeCodeOnlyEnabled,
         globalSessionBindingEnabled: updatedConfig.globalSessionBindingEnabled,
         concurrentRequestQueueEnabled: updatedConfig.concurrentRequestQueueEnabled,
@@ -156,7 +156,7 @@ class ClaudeRelayConfigService {
 
       return updatedConfig
     } catch (error) {
-      logger.error('❌ Failed to update Claude relay config:', error)
+      logger.error('Failed to update Claude relay config:', error)
       throw error
     }
   }
@@ -221,7 +221,7 @@ class ClaudeRelayConfigService {
       }
       return null
     } catch (error) {
-      logger.error(`❌ Failed to get session binding for ${originalSessionId}:`, error)
+      logger.error(`Failed to get session binding for ${originalSessionId}:`, error)
       return null
     }
   }
@@ -256,11 +256,11 @@ class ClaudeRelayConfigService {
 
       await client.set(key, JSON.stringify(binding), 'EX', ttlSeconds)
 
-      logger.info(`🔗 Session binding created: ${originalSessionId} -> ${accountId} (${accountType})`)
+      logger.info(`Session binding created: ${originalSessionId} -> ${accountId} (${accountType})`)
 
       return binding
     } catch (error) {
-      logger.error(`❌ Failed to set session binding for ${originalSessionId}:`, error)
+      logger.error(`Failed to set session binding for ${originalSessionId}:`, error)
       throw error
     }
   }
@@ -292,7 +292,7 @@ class ClaudeRelayConfigService {
 
       await client.set(key, JSON.stringify(binding), 'EX', ttlSeconds)
     } catch (error) {
-      logger.warn(`⚠️ Failed to touch session binding for ${originalSessionId}:`, error)
+      logger.warn(`Failed to touch session binding for ${originalSessionId}:`, error)
     }
   }
 
@@ -368,7 +368,7 @@ class ClaudeRelayConfigService {
 
       return true
     } catch (error) {
-      logger.error(`❌ Failed to validate bound account ${binding.accountId}:`, error)
+      logger.error(`Failed to validate bound account ${binding.accountId}:`, error)
       return false
     }
   }
@@ -395,10 +395,10 @@ class ClaudeRelayConfigService {
 
     // 如果会话已存在绑定
     if (existingBinding) {
-      // ⚠️ 只有 claude-official 类型账户受全局会话绑定限制
+      // 只有 claude-official 类型账户受全局会话绑定限制
       // 其他类型（bedrock, ccr, claude-console等）忽略绑定，走正常调度
       if (existingBinding.accountType !== 'claude-official') {
-        logger.info(`🔗 Session binding ignored for non-official account type: ${existingBinding.accountType}`)
+        logger.info(`Session binding ignored for non-official account type: ${existingBinding.accountType}`)
         return { valid: true }
       }
 
@@ -420,7 +420,7 @@ class ClaudeRelayConfigService {
     }
 
     // 没有绑定，是新会话
-    // 注意：messages.length 检查在此处无法执行，因为我们不知道最终会调度到哪种账户类型
+    // 注意：messages.length 检查在此处无法执行，最终账户类型未定
     // 绑定会在调度后创建，仅针对 claude-official 账户
     return { valid: true, isNewSession: true }
   }
@@ -442,9 +442,9 @@ class ClaudeRelayConfigService {
 
       const key = RedisKeys.session.originalBinding(originalSessionId)
       await client.del(key)
-      logger.info(`🗑️ Session binding deleted: ${originalSessionId}`)
+      logger.info(`Session binding deleted: ${originalSessionId}`)
     } catch (error) {
-      logger.error(`❌ Failed to delete session binding for ${originalSessionId}:`, error)
+      logger.error(`Failed to delete session binding for ${originalSessionId}:`, error)
     }
   }
 
@@ -478,7 +478,7 @@ class ClaudeRelayConfigService {
         totalBindings: count,
       }
     } catch (error) {
-      logger.error('❌ Failed to get session binding stats:', error)
+      logger.error('Failed to get session binding stats:', error)
       return { totalBindings: 0 }
     }
   }

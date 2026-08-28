@@ -87,10 +87,10 @@ export const getVendorType = function getVendorType(modelStr) {
  * - Opus 4.4 and below (including 3.x, 4.0, 4.1) → returns false (Max account only)
  *
  * Supported naming formats:
- *   - New format: claude-opus-{major}[-{minor}][-date], e.g., claude-opus-4-5-20251101
- *   - New format: claude-opus-{major}.{minor}, e.g., claude-opus-4.5
- *   - Old format: claude-{version}-opus[-date], e.g., claude-3-opus-20240229
- *   - Special: opus-latest, claude-opus-latest → always returns true
+ * - New format: claude-opus-{major}[-{minor}][-date], e.g., claude-opus-4-5-20251101
+ * - New format: claude-opus-{major}.{minor}, e.g., claude-opus-4.5
+ * - Old format: claude-{version}-opus[-date], e.g., claude-3-opus-20240229
+ * - Special: opus-latest, claude-opus-latest → always returns true
  *
  * @param {string} modelName - Model name
  * @returns {boolean} - Whether the model is Opus 4.5 or newer

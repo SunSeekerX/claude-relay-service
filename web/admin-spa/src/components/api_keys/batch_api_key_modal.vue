@@ -1,8 +1,8 @@
 <template>
   <ModalTransition @after-leave="onClosed">
-    <div v-if="visible" class="modal fixed inset-0 z-50 flex items-center justify-center p-4">
+    <div v-if="visible" class="modal fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-3">
       <div
-        class="modal-content custom-scrollbar mx-auto max-h-[90vh] w-full max-w-2xl overflow-y-auto p-4"
+        class="modal-content custom-scrollbar mx-auto max-h-[92vh] w-full max-w-4xl overflow-y-auto p-2.5 sm:p-3"
       >
         <div class="mb-3 flex items-center justify-between">
           <div class="flex items-center gap-3">

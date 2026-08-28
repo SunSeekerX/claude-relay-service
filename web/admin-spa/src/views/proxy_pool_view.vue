@@ -699,6 +699,7 @@ import { ref, onMounted } from 'vue'
 
 import ModalTransition from '@/components/common/modal_transition.vue'
 import { useProxyPoolStore } from '@/stores/proxy_pool'
+import { isOk, msgOf } from '@/libs/http_envelope'
 import { showToast } from '@/libs/tools'
 
 const store = useProxyPoolStore()
@@ -804,12 +805,12 @@ const saveProxy = async () => {
   const { id, ...data } = proxyForm.value
   const res = id ? await store.updateProxy(id, data) : await store.createProxy(data)
   saving.value = false
-  if (res.success) {
+  if (isOk(res)) {
     showToast(id ? '代理已更新' : '代理已添加', 'success')
     proxyModal.value = false
     await refreshAll()
   } else {
-    showToast(res.message || '保存失败', 'error')
+    showToast(msgOf(res, '保存失败'), 'error')
   }
 }
 
@@ -818,36 +819,36 @@ const removeProxy = async (proxy) => {
     return
   }
   const res = await store.deleteProxy(proxy.id)
-  if (res.success) {
+  if (isOk(res)) {
     showToast('已删除', 'success')
     await refreshAll()
   } else {
-    showToast(res.message || '删除失败', 'error')
+    showToast(msgOf(res, '删除失败'), 'error')
   }
 }
 
 const runHealthCheck = async (proxy) => {
   showToast('健康检查中...', 'info')
   const res = await store.healthCheckProxy(proxy.id)
-  if (res.success) {
+  if (isOk(res)) {
     showToast(
       `健康检查完成：${res.data.healthy ? '健康' : '不健康'} (${res.data.latencyMs}ms)`,
       res.data.healthy ? 'success' : 'warning'
     )
     await refreshAll()
   } else {
-    showToast(res.message || '检查失败', 'error')
+    showToast(msgOf(res, '检查失败'), 'error')
   }
 }
 
 const runQualityCheck = async (proxy) => {
   showToast('质量检测中（约 10-30s）...', 'info')
   const res = await store.qualityCheckProxy(proxy.id)
-  if (res.success) {
+  if (isOk(res)) {
     showToast(`质量检测完成：${res.data.grade} (${res.data.score}分)`, 'success')
     await refreshAll()
   } else {
-    showToast(res.message || '检测失败', 'error')
+    showToast(msgOf(res, '检测失败'), 'error')
   }
 }
 
@@ -880,12 +881,12 @@ const saveGroup = async () => {
   const { id, ...data } = groupForm.value
   const res = id ? await store.updateGroup(id, data) : await store.createGroup(data)
   saving.value = false
-  if (res.success) {
+  if (isOk(res)) {
     showToast(id ? '分组已更新' : '分组已添加', 'success')
     groupModal.value = false
     await refreshAll()
   } else {
-    showToast(res.message || '保存失败', 'error')
+    showToast(msgOf(res, '保存失败'), 'error')
   }
 }
 
@@ -894,19 +895,19 @@ const removeGroup = async (group) => {
     return
   }
   const res = await store.deleteGroup(group.id)
-  if (res.success) {
+  if (isOk(res)) {
     showToast('已删除', 'success')
     await refreshAll()
   } else {
-    showToast(res.message || '删除失败', 'error')
+    showToast(msgOf(res, '删除失败'), 'error')
   }
 }
 
 // 时间字段在弹窗里用秒展示，存取时与后端的毫秒互转
 const openSettingsModal = async () => {
   const res = await store.fetchSettings()
-  if (!res.success) {
-    showToast(res.message || '加载设置失败', 'error')
+  if (!isOk(res)) {
+    showToast(msgOf(res, '加载设置失败'), 'error')
     return
   }
   const s = res.data
@@ -942,11 +943,11 @@ const saveSettings = async () => {
   settingsSaving.value = true
   const res = await store.updateSettings(payload)
   settingsSaving.value = false
-  if (res.success) {
+  if (isOk(res)) {
     showToast('设置已保存并生效', 'success')
     settingsModal.value = false
   } else {
-    showToast(res.message || '保存失败', 'error')
+    showToast(msgOf(res, '保存失败'), 'error')
   }
 }
 

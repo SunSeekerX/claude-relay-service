@@ -1,4 +1,6 @@
 import express from 'express'
+import axios from 'axios'
+
 import { geminiApiAccountService } from './account_gemini_api_service.js'
 import { testModelConfigService } from '../relay/relay_test_model_config_service.js'
 import { apiKeyService } from '../apikey/apikey_service.js'
@@ -6,19 +8,23 @@ import { accountGroupService } from './account_group_service.js'
 import { redis } from '../../infra/redis.js'
 import { RedisKeys } from '../../infra/redis_key.js'
 import { authenticateAdmin } from '../../infra/middleware_auth.js'
+import { asyncRoute, SEND_RAW } from '../../common/route_handler.js'
+import { ok, badRequest, notFound, unauthorized } from '../../common/http_result.js'
 import { logger } from '../../common/logger.js'
 import { webhookNotifier } from '../webhook/webhook_notifier.js'
 import { stripReadonlyAccountFields } from '../../common/common_helper.js'
 import { createGeminiTestPayload, extractErrorMessage } from '../../common/test_payload_helper.js'
+import { parseObjectBody } from '../../common/parse_body.js'
 import { buildGeminiApiUrl } from '../relay/relay_gemini_handlers_routes.js'
 import { ProxyHelper } from '../proxy/proxy_helper.js'
-import axios from 'axios'
 
 export const router = express.Router()
 
 // 获取所有 Gemini-API 账户
-router.get('/gemini-api-accounts', authenticateAdmin, async (req, res) => {
-  try {
+router.get(
+  '/gemini-api-accounts',
+  authenticateAdmin,
+  asyncRoute('Failed to get Gemini-API accounts', async (req) => {
     const { platform, groupId } = req.query
     let accounts = await geminiApiAccountService.getAllAccounts(true)
 
@@ -106,7 +112,7 @@ router.get('/gemini-api-accounts', authenticateAdmin, async (req, res) => {
     }
 
     // 处理账户数据
-    const accountsWithStats = accounts.map((account) => {
+    return accounts.map((account) => {
       const groupInfos = allGroupInfosMap.get(account.id) || []
       const usageStats = allUsageStatsMap.get(account.id) || {
         daily: { requests: 0, tokens: 0, allTokens: 0 },
@@ -137,36 +143,28 @@ router.get('/gemini-api-accounts', authenticateAdmin, async (req, res) => {
         boundApiKeys: boundCount,
       }
     })
-
-    res.json({ success: true, data: accountsWithStats })
-  } catch (error) {
-    logger.error('Failed to get Gemini-API accounts:', error)
-    res.status(500).json({ success: false, message: error.message })
-  }
-})
+  }),
+)
 
 // 创建 Gemini-API 账户
-router.post('/gemini-api-accounts', authenticateAdmin, async (req, res) => {
-  try {
-    const { accountType, groupId, groupIds } = req.body
+router.post(
+  '/gemini-api-accounts',
+  authenticateAdmin,
+  asyncRoute('Failed to create Gemini-API account', async (req) => {
+    const body = parseObjectBody(req.body, '创建Gemini-API账户')
+    const { accountType, groupId, groupIds } = body
 
     // 验证accountType的有效性
     if (accountType && !['shared', 'dedicated', 'group'].includes(accountType)) {
-      return res.status(400).json({
-        success: false,
-        error: 'Invalid account type. Must be "shared", "dedicated" or "group"',
-      })
+      throw badRequest('Invalid account type. Must be "shared", "dedicated" or "group"')
     }
 
     // 如果是分组类型，验证groupId或groupIds
     if (accountType === 'group' && !groupId && (!groupIds || groupIds.length === 0)) {
-      return res.status(400).json({
-        success: false,
-        error: 'Group ID or Group IDs are required for group type accounts',
-      })
+      throw badRequest('Group ID or Group IDs are required for group type accounts')
     }
 
-    const account = await geminiApiAccountService.createAccount(req.body)
+    const account = await geminiApiAccountService.createAccount(body)
 
     // 如果是分组类型，将账户添加到分组
     if (accountType === 'group') {
@@ -179,85 +177,62 @@ router.post('/gemini-api-accounts', authenticateAdmin, async (req, res) => {
       }
     }
 
-    logger.success(`🏢 Admin created new Gemini-API account: ${account.name} (${accountType || 'shared'})`)
+    logger.success(`Admin created new Gemini-API account: ${account.name} (${accountType || 'shared'})`)
 
-    res.json({ success: true, data: account })
-  } catch (error) {
-    logger.error('Failed to create Gemini-API account:', error)
-    res.status(500).json({
-      success: false,
-      error: error.message,
-    })
-  }
-})
+    return account
+  }),
+)
 
 // 获取单个 Gemini-API 账户
-router.get('/gemini-api-accounts/:id', authenticateAdmin, async (req, res) => {
-  try {
+router.get(
+  '/gemini-api-accounts/:id',
+  authenticateAdmin,
+  asyncRoute('Failed to get Gemini-API account', async (req) => {
     const { id } = req.params
     const account = await geminiApiAccountService.getAccount(id)
 
     if (!account) {
-      return res.status(404).json({
-        success: false,
-        message: 'Account not found',
-      })
+      throw notFound('Account not found')
     }
 
     // 隐藏敏感信息
     account.apiKey = '***'
 
-    res.json({ success: true, data: account })
-  } catch (error) {
-    logger.error('Failed to get Gemini-API account:', error)
-    res.status(500).json({
-      success: false,
-      error: error.message,
-    })
-  }
-})
+    return account
+  }),
+)
 
 // 更新 Gemini-API 账户
-router.put('/gemini-api-accounts/:id', authenticateAdmin, async (req, res) => {
-  try {
+router.put(
+  '/gemini-api-accounts/:id',
+  authenticateAdmin,
+  asyncRoute('Failed to update Gemini-API account', async (req) => {
     const { id } = req.params
     // review#3：剥离外部传入的状态类字段，禁止伪造自动停用证据
-    const updates = stripReadonlyAccountFields(req.body)
+    const updates = stripReadonlyAccountFields(parseObjectBody(req.body, '更新Gemini-API账户'))
 
     // 验证priority的有效性（1-100）
     if (updates.priority !== undefined) {
       const priority = parseInt(updates.priority)
       if (isNaN(priority) || priority < 1 || priority > 100) {
-        return res.status(400).json({
-          success: false,
-          message: 'Priority must be a number between 1 and 100',
-        })
+        throw badRequest('Priority must be a number between 1 and 100')
       }
     }
 
     // 验证accountType的有效性
     if (updates.accountType && !['shared', 'dedicated', 'group'].includes(updates.accountType)) {
-      return res.status(400).json({
-        success: false,
-        error: 'Invalid account type. Must be "shared", "dedicated" or "group"',
-      })
+      throw badRequest('Invalid account type. Must be "shared", "dedicated" or "group"')
     }
 
     // 如果更新为分组类型，验证groupId或groupIds
     if (updates.accountType === 'group' && !updates.groupId && (!updates.groupIds || updates.groupIds.length === 0)) {
-      return res.status(400).json({
-        success: false,
-        error: 'Group ID or Group IDs are required for group type accounts',
-      })
+      throw badRequest('Group ID or Group IDs are required for group type accounts')
     }
 
     // 获取账户当前信息以处理分组变更
     const currentAccount = await geminiApiAccountService.getAccount(id)
     if (!currentAccount) {
-      return res.status(404).json({
-        success: false,
-        error: 'Account not found',
-      })
+      throw notFound('Account not found')
     }
 
     // 处理分组的变更
@@ -285,32 +260,26 @@ router.put('/gemini-api-accounts/:id', authenticateAdmin, async (req, res) => {
     const result = await geminiApiAccountService.updateAccount(id, updates)
 
     if (!result.success) {
-      return res.status(400).json(result)
+      throw badRequest(result.error || result.message || 'Update failed')
     }
 
-    logger.success(`📝 Admin updated Gemini-API account: ${currentAccount.name}`)
+    logger.success(`Admin updated Gemini-API account: ${currentAccount.name}`)
 
-    res.json({ success: true, ...result })
-  } catch (error) {
-    logger.error('Failed to update Gemini-API account:', error)
-    res.status(500).json({
-      success: false,
-      error: error.message,
-    })
-  }
-})
+    const { success: _success, ...rest } = result
+    return rest
+  }),
+)
 
 // 删除 Gemini-API 账户
-router.delete('/gemini-api-accounts/:id', authenticateAdmin, async (req, res) => {
-  try {
+router.delete(
+  '/gemini-api-accounts/:id',
+  authenticateAdmin,
+  asyncRoute('Failed to delete Gemini-API account', async (req) => {
     const { id } = req.params
 
     const account = await geminiApiAccountService.getAccount(id)
     if (!account) {
-      return res.status(404).json({
-        success: false,
-        message: 'Account not found',
-      })
+      throw notFound('Account not found')
     }
 
     // 自动解绑所有绑定的 API Keys（支持 api: 前缀）
@@ -331,30 +300,22 @@ router.delete('/gemini-api-accounts/:id', authenticateAdmin, async (req, res) =>
 
     logger.success(`${message}`)
 
-    res.json({
-      success: true,
-      ...result,
-      message,
-      unboundKeys: unboundCount,
-    })
-  } catch (error) {
-    logger.error('Failed to delete Gemini-API account:', error)
-    res.status(500).json({
-      success: false,
-      error: error.message,
-    })
-  }
-})
+    const { success: _success, ...rest } = result || {}
+    return ok({ ...rest, unboundKeys: unboundCount }, message)
+  }),
+)
 
 // 切换 Gemini-API 账户调度状态
-router.put('/gemini-api-accounts/:id/toggle-schedulable', authenticateAdmin, async (req, res) => {
-  try {
+router.put(
+  '/gemini-api-accounts/:id/toggle-schedulable',
+  authenticateAdmin,
+  asyncRoute('Failed to toggle Gemini-API account schedulable status', async (req) => {
     const { id } = req.params
 
     const result = await geminiApiAccountService.toggleSchedulable(id)
 
     if (!result.success) {
-      return res.status(400).json(result)
+      throw badRequest(result.error || result.message || 'Toggle schedulable failed')
     }
 
     // 仅在停止调度时发送通知
@@ -368,27 +329,20 @@ router.put('/gemini-api-accounts/:id/toggle-schedulable', authenticateAdmin, asy
       })
     }
 
-    res.json(result)
-  } catch (error) {
-    logger.error('Failed to toggle Gemini-API account schedulable status:', error)
-    res.status(500).json({
-      success: false,
-      error: error.message,
-    })
-  }
-})
+    return { schedulable: result.schedulable }
+  }),
+)
 
 // 切换 Gemini-API 账户激活状态
-router.put('/gemini-api-accounts/:id/toggle', authenticateAdmin, async (req, res) => {
-  try {
+router.put(
+  '/gemini-api-accounts/:id/toggle',
+  authenticateAdmin,
+  asyncRoute('Failed to toggle Gemini-API account status', async (req) => {
     const { id } = req.params
 
     const account = await geminiApiAccountService.getAccount(id)
     if (!account) {
-      return res.status(404).json({
-        success: false,
-        message: 'Account not found',
-      })
+      throw notFound('Account not found')
     }
 
     const newActiveStatus = account.isActive === 'true' ? 'false' : 'true'
@@ -396,22 +350,17 @@ router.put('/gemini-api-accounts/:id/toggle', authenticateAdmin, async (req, res
       isActive: newActiveStatus,
     })
 
-    res.json({
-      success: true,
+    return {
       isActive: newActiveStatus === 'true',
-    })
-  } catch (error) {
-    logger.error('Failed to toggle Gemini-API account status:', error)
-    res.status(500).json({
-      success: false,
-      error: error.message,
-    })
-  }
-})
+    }
+  }),
+)
 
 // 重置 Gemini-API 账户限流状态
-router.post('/gemini-api-accounts/:id/reset-rate-limit', authenticateAdmin, async (req, res) => {
-  try {
+router.post(
+  '/gemini-api-accounts/:id/reset-rate-limit',
+  authenticateAdmin,
+  asyncRoute('Failed to reset Gemini-API account rate limit', async (req) => {
     const { id } = req.params
 
     await geminiApiAccountService.updateAccount(id, {
@@ -421,68 +370,61 @@ router.post('/gemini-api-accounts/:id/reset-rate-limit', authenticateAdmin, asyn
       errorMessage: '',
     })
 
-    logger.info(`🔄 Admin manually reset rate limit for Gemini-API account ${id}`)
+    logger.info(`Admin manually reset rate limit for Gemini-API account ${id}`)
 
-    res.json({
-      success: true,
-      message: 'Rate limit reset successfully',
-    })
-  } catch (error) {
-    logger.error('Failed to reset Gemini-API account rate limit:', error)
-    res.status(500).json({
-      success: false,
-      error: error.message,
-    })
-  }
-})
+    return ok(undefined, 'Rate limit reset successfully')
+  }),
+)
 
 // 重置 Gemini-API 账户状态（清除所有异常状态）
-router.post('/gemini-api-accounts/:id/reset-status', authenticateAdmin, async (req, res) => {
-  try {
+router.post(
+  '/gemini-api-accounts/:id/reset-status',
+  authenticateAdmin,
+  asyncRoute('Failed to reset Gemini-API account status', async (req) => {
     const { id } = req.params
 
     const result = await geminiApiAccountService.resetAccountStatus(id)
 
     logger.success(`Admin reset status for Gemini-API account: ${id}`)
-    return res.json({ success: true, data: result })
-  } catch (error) {
-    logger.error('❌ Failed to reset Gemini-API account status:', error)
-    return res.status(500).json({ error: 'Failed to reset status', message: error.message })
-  }
-})
+    return result
+  }),
+)
 
 // 测试 Gemini-API 账户连通性（SSE 流式）
 const ALLOWED_MAX_TOKENS = [100, 500, 1000, 2000, 4096]
 const sanitizeMaxTokens = (value) => (ALLOWED_MAX_TOKENS.includes(Number(value)) ? Number(value) : 500)
 
-router.post('/gemini-api-accounts/:accountId/test', authenticateAdmin, async (req, res) => {
-  const { accountId } = req.params
-  const { prompt = 'hi' } = req.body
-  const maxTokens = sanitizeMaxTokens(req.body.maxTokens)
+router.post(
+  '/gemini-api-accounts/:accountId/test',
+  authenticateAdmin,
+  asyncRoute('Gemini-API account test failed', async (req, res) => {
+    const { accountId } = req.params
+    const body = parseObjectBody(req.body, '测试Gemini-API账户')
+    const { prompt = 'hi' } = body
+    const maxTokens = sanitizeMaxTokens(body.maxTokens)
 
-  const abortController = new AbortController()
-  res.on('close', () => abortController.abort())
+    const abortController = new AbortController()
+    res.on('close', () => abortController.abort())
 
-  const safeWrite = (data) => {
-    if (!res.writableEnded && !res.destroyed) {
-      res.write(data)
+    const safeWrite = (data) => {
+      if (!res.writableEnded && !res.destroyed) {
+        res.write(data)
+      }
     }
-  }
-  const safeEnd = () => {
-    if (!res.writableEnded && !res.destroyed) {
-      res.end()
+    const safeEnd = () => {
+      if (!res.writableEnded && !res.destroyed) {
+        res.end()
+      }
     }
-  }
 
-  try {
     // 请求显式指定优先，否则用后台配置的默认测试模型（单一事实源）
-    const model = await testModelConfigService.resolveAccountModel('gemini-api', req.body.model)
+    const model = await testModelConfigService.resolveAccountModel('gemini-api', body.model)
     const account = await geminiApiAccountService.getAccount(accountId)
     if (!account) {
-      return res.status(404).json({ error: 'Account not found' })
+      throw notFound('Account not found')
     }
     if (!account.apiKey) {
-      return res.status(401).json({ error: 'API Key not found or decryption failed' })
+      throw unauthorized('API Key not found or decryption failed')
     }
 
     const baseUrl = account.baseUrl || 'https://generativelanguage.googleapis.com'
@@ -492,7 +434,7 @@ router.post('/gemini-api-accounts/:accountId/test', authenticateAdmin, async (re
 
     // 设置 SSE 响应头
     if (res.writableEnded || res.destroyed) {
-      return
+      return SEND_RAW
     }
     res.writeHead(200, {
       'Content-Type': 'text/event-stream',
@@ -546,7 +488,7 @@ router.post('/gemini-api-accounts/:accountId/test', authenticateAdmin, async (re
           )
           safeEnd()
         })
-        return
+        return SEND_RAW
       }
 
       let buffer = ''
@@ -587,17 +529,12 @@ router.post('/gemini-api-accounts/:accountId/test', authenticateAdmin, async (re
       })
     } catch (axiosError) {
       if (axiosError.name === 'CanceledError') {
-        return
+        return SEND_RAW
       }
       safeWrite(`data: ${JSON.stringify({ type: 'test_complete', success: false, error: axiosError.message })}\n\n`)
       safeEnd()
     }
-  } catch (error) {
-    logger.error('Gemini-API account test failed:', error)
-    if (!res.headersSent) {
-      return res.status(500).json({ error: 'Test failed', message: error.message })
-    }
-    safeWrite(`data: ${JSON.stringify({ type: 'error', error: error.message })}\n\n`)
-    safeEnd()
-  }
-})
+
+    return SEND_RAW
+  }),
+)

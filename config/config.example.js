@@ -7,7 +7,7 @@ const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
 
 export const config = {
-  // 🌐 服务器配置
+  // 服务器配置
   server: {
     port: parseInt(env.PORT) || 3000,
     host: env.HOST || '0.0.0.0',
@@ -15,7 +15,7 @@ export const config = {
     trustProxy: env.TRUST_PROXY === 'true'
   },
 
-  // 🔐 安全配置
+  // 安全配置
   security: {
     jwtSecret: env.JWT_SECRET || 'CHANGE-THIS-JWT-SECRET-IN-PRODUCTION',
     adminSessionTimeout: parseInt(env.ADMIN_SESSION_TIMEOUT) || 86400000, // 24小时
@@ -23,7 +23,7 @@ export const config = {
     encryptionKey: env.ENCRYPTION_KEY || 'CHANGE-THIS-32-CHARACTER-KEY-NOW'
   },
 
-  // 📊 Redis配置
+  // Redis配置
   redis: {
     host: env.REDIS_HOST || '127.0.0.1',
     port: parseInt(env.REDIS_PORT) || 6379,
@@ -37,7 +37,7 @@ export const config = {
     enableTLS: env.REDIS_ENABLE_TLS === 'true'
   },
 
-  // 🔗 会话管理配置
+  // 会话管理配置
   session: {
     // 粘性会话TTL配置（小时），默认1小时
     stickyTtlHours: parseFloat(env.STICKY_SESSION_TTL_HOURS) || 1,
@@ -45,7 +45,7 @@ export const config = {
     renewalThresholdMinutes: parseInt(env.STICKY_SESSION_RENEWAL_THRESHOLD_MINUTES) || 0
   },
 
-  // 🎯 Claude API配置
+  // Claude API配置
   claude: {
     apiUrl: env.CLAUDE_API_URL || 'https://api.anthropic.com/v1/messages',
     apiVersion: env.CLAUDE_API_VERSION || '2023-06-01',
@@ -65,7 +65,7 @@ export const config = {
     }
   },
 
-  // ☁️ Bedrock API配置
+  // Bedrock API配置
   bedrock: {
     enabled: env.CLAUDE_CODE_USE_BEDROCK === '1',
     defaultRegion: env.AWS_REGION || 'us-east-1',
@@ -78,7 +78,7 @@ export const config = {
     enablePromptCaching: env.DISABLE_PROMPT_CACHING !== '1'
   },
 
-  // 🌐 代理配置
+  // 代理配置
   proxy: {
     timeout: parseInt(env.DEFAULT_PROXY_TIMEOUT) || 600000, // 10分钟
     maxRetries: parseInt(env.MAX_PROXY_RETRIES) || 3,
@@ -107,18 +107,18 @@ export const config = {
       return Number.isFinite(parsed) && parsed >= 0 ? parsed : undefined
     })(),
     // IP协议族配置：true=IPv4, false=IPv6, 默认IPv4（兼容性更好）
-    useIPv4: env.PROXY_USE_IPV4 !== 'false' // 默认 true，只有明确设置为 'false' 才使用 IPv6
+    useIPv4: env.PROXY_USE_IPV4 !== 'false'// 默认 true，只有明确设置为 'false' 才使用 IPv6
   },
 
-  // ⏱️ 请求超时配置
+  // 请求超时配置
   requestTimeout: parseInt(env.REQUEST_TIMEOUT) || 600000, // 默认 10 分钟
 
-  // 📈 使用限制
+  // 使用限制
   limits: {
     defaultTokenLimit: parseInt(env.DEFAULT_TOKEN_LIMIT) || 1000000
   },
 
-  // 📝 日志配置
+  // 日志配置
   logging: {
     level: env.LOG_LEVEL || 'info',
     dirname: path.join(__dirname, '..', 'logs'),
@@ -126,7 +126,7 @@ export const config = {
     maxFiles: parseInt(env.LOG_MAX_FILES) || 5
   },
 
-  // 🔧 系统配置
+  // 系统配置
   system: {
     cleanupInterval: parseInt(env.CLEANUP_INTERVAL) || 3600000, // 1小时
     tokenUsageRetention: parseInt(env.TOKEN_USAGE_RETENTION) || 2592000000, // 30天
@@ -136,7 +136,7 @@ export const config = {
     metricsWindow: parseInt(env.METRICS_WINDOW) || 5 // 实时指标统计窗口（分钟）
   },
 
-  // 🎨 Web界面配置
+  // Web界面配置
   web: {
     title: env.WEB_TITLE || 'Claude Relay Service',
     description:
@@ -147,7 +147,7 @@ export const config = {
     sessionSecret: env.WEB_SESSION_SECRET || 'CHANGE-THIS-SESSION-SECRET'
   },
 
-  // 🔐 LDAP 认证配置
+  // LDAP 认证配置
   ldap: {
     enabled: env.LDAP_ENABLED === 'true',
     server: {
@@ -190,7 +190,7 @@ export const config = {
     }
   },
 
-  // 👥 用户管理配置
+  // 用户管理配置
   userManagement: {
     enabled: env.USER_MANAGEMENT_ENABLED === 'true',
     defaultUserRole: env.DEFAULT_USER_ROLE || 'user',
@@ -199,7 +199,7 @@ export const config = {
     allowUserDeleteApiKeys: env.ALLOW_USER_DELETE_API_KEYS === 'true' // 默认不允许用户删除自己的API Keys
   },
 
-  // 📢 Webhook通知配置
+  // Webhook通知配置
   webhook: {
     enabled: env.WEBHOOK_ENABLED !== 'false', // 默认启用
     urls: env.WEBHOOK_URLS
@@ -209,22 +209,22 @@ export const config = {
     retries: parseInt(env.WEBHOOK_RETRIES) || 3 // 重试3次
   },
 
-  // 🛠️ 开发配置
+  // 开发配置
   development: {
     debug: env.DEBUG === 'true',
     hotReload: env.HOT_RELOAD === 'true'
   },
 
-  // 💰 账户余额相关配置
+  // 账户余额相关配置
   accountBalance: {
     // 是否允许执行自定义余额脚本（安全开关）
-    // 说明：脚本能力可发起任意 HTTP 请求并在服务端执行 extractor 逻辑，建议仅在受控环境开启
+    // 余额脚本可发任意 HTTP 并执行 extractor，仅建议受控环境开启
     // 默认保持开启；如需禁用请显式设置：BALANCE_SCRIPT_ENABLED=false
     enableBalanceScript: env.BALANCE_SCRIPT_ENABLED !== 'false'
   },
 
-  // 📬 用户消息队列配置
-  // 优化说明：锁在请求发送成功后立即释放（而非请求完成后），因为 Claude API 限流基于请求发送时刻计算
+  // 用户消息队列配置
+  // 锁在请求发送成功后立即释放；Claude API 限流按发送时刻计
   userMessageQueue: {
     enabled: env.USER_MESSAGE_QUEUE_ENABLED === 'true', // 默认关闭
     delayMs: parseInt(env.USER_MESSAGE_QUEUE_DELAY_MS) || 200, // 请求间隔（毫秒）
@@ -232,16 +232,15 @@ export const config = {
     lockTtlMs: parseInt(env.USER_MESSAGE_QUEUE_LOCK_TTL_MS) || 5000 // 锁TTL（毫秒），5秒足以覆盖请求发送
   },
 
-  // 🎫 额度卡兑换上限配置（防盗刷）
+  // 额度卡兑换上限配置（防盗刷）
   quotaCardLimits: {
     enabled: env.QUOTA_CARD_LIMITS_ENABLED !== 'false', // 默认启用
     maxExpiryDays: parseInt(env.QUOTA_CARD_MAX_EXPIRY_DAYS) || 90, // 最大有效期距今天数
     maxTotalCostLimit: parseFloat(env.QUOTA_CARD_MAX_TOTAL_COST_LIMIT) || 1000 // 最大总额度（美元）
   },
 
-  // ⏱️ 上游错误自动暂停配置
-  // 说明：此处是全局默认值。Claude 官方 OAuth 账号可在后台做账号级 503/5xx 覆盖，
-  // 且可通过账号设置禁用 temp_unavailable（账号级策略优先于全局默认值）。
+  // 上游错误自动暂停配置
+  // 全局默认；Claude OAuth 账号可后台覆盖 503/5xx，或禁用 temp_unavailable（账号策略优先）
   upstreamError: {
     serviceUnavailableTtlSeconds: parseInt(env.UPSTREAM_ERROR_503_TTL_SECONDS) || 60, // 503错误暂停秒数
     serverErrorTtlSeconds: parseInt(env.UPSTREAM_ERROR_5XX_TTL_SECONDS) || 300, // 5xx错误暂停秒数

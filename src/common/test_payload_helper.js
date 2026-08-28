@@ -163,7 +163,7 @@ export const sendStreamTestRequest = async function sendStreamTestRequest(option
 
   try {
     const response = await axios(requestConfig)
-    logger.debug(`🌊 Test response status: ${response.status}`)
+    logger.debug(`Test response status: ${response.status}`)
 
     // 处理非200响应
     if (response.status !== 200) {
@@ -241,7 +241,7 @@ export const sendStreamTestRequest = async function sendStreamTestRequest(option
       })
     })
   } catch (error) {
-    logger.error('❌ Stream test request failed:', error.message)
+    logger.error('Stream test request failed:', error.message)
     endTest(false, error.message)
   }
 }

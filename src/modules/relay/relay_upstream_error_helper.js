@@ -1,4 +1,5 @@
 import { logger } from '../../common/logger.js'
+import { HttpError } from '../../common/http_result.js'
 import { normalizeTempUnavailablePolicyFromAccountData } from './relay_temp_unavailable_policy.js'
 import { RedisKeys, TTL } from '../../infra/redis_key.js'
 import { RATE_LIMITED_MODEL_FAMILIES } from './relay_model_helper.js'
@@ -145,7 +146,7 @@ const getAccountTempUnavailablePolicy = async (accountId, accountType) => {
     return policy
   } catch (error) {
     logger.warn(
-      `⚠️ [UpstreamError] Failed to load account temp-unavailable policy for ${accountType}:${accountId}: ${error.message}`,
+      ` [UpstreamError] Failed to load account temp-unavailable policy for ${accountType}:${accountId}: ${error.message}`,
     )
     return EMPTY_TEMP_UNAVAILABLE_POLICY
   }
@@ -217,7 +218,8 @@ export const classifyError = (statusCode) => {
   if (statusCode === 504) {
     return 'timeout'
   }
-  if (statusCode === 401 || statusCode === 403) {
+  // 402 Payment Required：与 401 同属账号鉴权/额度类，需可暂停且必须能写错误历史
+  if (statusCode === 401 || statusCode === 402 || statusCode === 403) {
     return 'auth_error'
   }
   if (statusCode === 429) {
@@ -499,7 +501,7 @@ export const buildErrorContext = (raw) => {
     }
     return Object.keys(context).length > 0 ? context : null
   } catch (error) {
-    logger.warn(`⚠️ [ErrorHistory] Failed to build error context: ${error.message}`)
+    logger.warn(`[ErrorHistory] Failed to build error context: ${error.message}`)
     return null
   }
 }
@@ -513,7 +515,7 @@ export const recordErrorHistory = async (accountId, accountType, statusCode, err
       return
     }
   } catch (switchErr) {
-    logger.warn(`⚠️ [ErrorHistory] Failed to read collection switch, defaulting to enabled: ${switchErr.message}`)
+    logger.warn(`[ErrorHistory] Failed to read collection switch, defaulting to enabled: ${switchErr.message}`)
   }
 
   try {
@@ -530,6 +532,11 @@ export const recordErrorHistory = async (accountId, accountType, statusCode, err
       context: context
         ? {
             ...context,
+            // message 也必须脱敏截断：调用方可能塞入未清洗的上游原文
+            message:
+              context.message !== undefined && context.message !== null
+                ? sanitizeAndStringifyBody(context.message, limits.responseBodyMax)
+                : undefined,
             errorBody:
               typeof context.errorBody === 'string'
                 ? context.errorBody.slice(0, limits.responseBodyMax)
@@ -546,35 +553,74 @@ export const recordErrorHistory = async (accountId, accountType, statusCode, err
     pipeline.expire(redisKey, limits.ttlSeconds)
     await pipeline.exec()
   } catch (err) {
-    logger.warn(`⚠️ [ErrorHistory] Failed to record error history for ${accountId}: ${err.message}`)
+    logger.warn(`[ErrorHistory] Failed to record error history for ${accountId}: ${err.message}`)
   }
 }
 
-// 查询错误历史（分页）
-export const getErrorHistory = async (accountType, accountId, offset = 0, limit = 50) => {
+// 查询错误历史（分页 + 可选时间窗）
+// 返回 { items, total, offset, limit }；无时间窗走 LLEN+LRANGE，有时间窗在有界列表内过滤后再切页
+export const getErrorHistory = async (accountType, accountId, offsetOrOpts = 0, limitArg = 50) => {
   try {
+    const opts =
+      offsetOrOpts && typeof offsetOrOpts === 'object' ? offsetOrOpts : { offset: offsetOrOpts, limit: limitArg }
+    const o = Math.max(0, Math.floor(Number(opts.offset) || 0))
+    const l = Math.min(500, Math.max(1, Math.floor(Number(opts.limit) || 50)))
+    const startMs = opts.startTime ? Date.parse(opts.startTime) : NaN
+    const endMs = opts.endTime ? Date.parse(opts.endTime) : NaN
+    const hasStart = Number.isFinite(startMs)
+    const hasEnd = Number.isFinite(endMs)
+
     const redis = getRedis()
     const client = redis.getClientSafe()
-    const o = Math.max(0, Math.floor(offset))
-    const l = Math.min(500, Math.max(1, Math.floor(limit)))
     const redisKey = RedisKeys.upstream.errorHistory(accountType, accountId)
-    const list = await client.lrange(redisKey, o, o + l - 1)
-    return list
-      .map((item) => {
-        try {
-          return JSON.parse(item)
-        } catch {
-          return null
-        }
-      })
-      .filter((item) => item?.time)
+
+    const parseEntries = (list) =>
+      list
+        .map((item) => {
+          try {
+            return JSON.parse(item)
+          } catch {
+            return null
+          }
+        })
+        .filter((item) => item?.time)
+
+    // 无时间窗：O(page) 读取
+    if (!hasStart && !hasEnd) {
+      const total = await client.llen(redisKey)
+      const list = await client.lrange(redisKey, o, o + l - 1)
+      return { items: parseEntries(list), total, offset: o, limit: l }
+    }
+
+    // 有时间窗：列表有 maxEntries 上界（默认 5000），全量读后过滤再切页
+    const raw = await client.lrange(redisKey, 0, -1)
+    const filtered = parseEntries(raw).filter((item) => {
+      const timeMs = Date.parse(item.time)
+      if (!Number.isFinite(timeMs)) {
+        return false
+      }
+      if (hasStart && timeMs < startMs) {
+        return false
+      }
+      if (hasEnd && timeMs > endMs) {
+        return false
+      }
+      return true
+    })
+    return {
+      items: filtered.slice(o, o + l),
+      total: filtered.length,
+      offset: o,
+      limit: l,
+    }
   } catch (error) {
-    logger.error(`❌ [ErrorHistory] Failed to get error history for ${accountId}:`, error)
-    return []
+    logger.error(`[ErrorHistory] Failed to get error history for ${accountId}:`, error)
+    // 禁止吞成空列表：前端会显示「暂无记录」掩盖真故障
+    throw new HttpError(500, 'Failed to get error history', { expose: false })
   }
 }
 
-// 清除错误历史
+// 清除错误历史（失败必须抛出，禁止路由仍 200 提示已清空）
 export const clearErrorHistory = async (accountType, accountId) => {
   try {
     const redis = getRedis()
@@ -582,7 +628,8 @@ export const clearErrorHistory = async (accountType, accountId) => {
     const redisKey = RedisKeys.upstream.errorHistory(accountType, accountId)
     await client.del(redisKey)
   } catch (error) {
-    logger.error(`❌ [ErrorHistory] Failed to clear error history for ${accountId}:`, error)
+    logger.error(`[ErrorHistory] Failed to clear error history for ${accountId}:`, error)
+    throw new HttpError(500, 'Failed to clear error history', { expose: false })
   }
 }
 
@@ -614,8 +661,17 @@ export const markTempUnavailable = async (
       const client = redis.getClientSafe()
       await client.del(key).catch(() => {})
       logger.info(
-        `⏭️ [UpstreamError] Skip temp-unavailable for account ${accountId} (${accountType}), reason: ${policyDecision.reason}`,
+        ` [UpstreamError] Skip temp-unavailable for account ${accountId} (${accountType}), reason: ${policyDecision.reason}`,
       )
+      // 跳过暂停不等于跳过留痕：错误历史仍要写，否则 disableAutoProtection 时只剩无请求上下文的薄记录
+      if (!skipHistory) {
+        const historyContext = context
+          ? { ...context, reason: context.reason || policyDecision.reason }
+          : buildErrorContext({ reason: policyDecision.reason })
+        recordErrorHistory(accountId, accountType, statusCode, errorType, historyContext).catch((error) =>
+          console.error(error),
+        )
+      }
       return { success: true, skipped: true, reason: policyDecision.reason }
     }
 
@@ -628,7 +684,7 @@ export const markTempUnavailable = async (
       ttlSeconds = Math.min(requestedTtl, ttlConfig.max_custom)
       if (ttlSeconds < requestedTtl) {
         logger.warn(
-          `⚠️ [UpstreamError] Upstream retry-after ${requestedTtl}s for account ${accountId} (${accountType}) exceeds temp-unavailable cap, clamping to ${ttlSeconds}s`,
+          ` [UpstreamError] Upstream retry-after ${requestedTtl}s for account ${accountId} (${accountType}) exceeds temp-unavailable cap, clamping to ${ttlSeconds}s`,
         )
       }
     } else {
@@ -656,7 +712,7 @@ export const markTempUnavailable = async (
     )
 
     logger.warn(
-      `⏱️ [UpstreamError] Account ${accountId} (${accountType}) marked temporarily unavailable for ${ttlSeconds}s (${statusCode} ${errorType}), recovers at ${expiresAtIso}`,
+      ` [UpstreamError] Account ${accountId} (${accountType}) marked temporarily unavailable for ${ttlSeconds}s (${statusCode} ${errorType}), recovers at ${expiresAtIso}`,
     )
 
     // 异步记录错误历史，不阻塞主流程
@@ -667,7 +723,7 @@ export const markTempUnavailable = async (
 
     return { success: true, ttlSeconds, errorType, expiresAt: expiresAtIso }
   } catch (error) {
-    logger.error(`❌ [UpstreamError] Failed to mark account ${accountId} temporarily unavailable:`, error)
+    logger.error(`[UpstreamError] Failed to mark account ${accountId} temporarily unavailable:`, error)
     return { success: false }
   }
 }
@@ -687,7 +743,7 @@ export const isTempUnavailable = async (accountId, accountType) => {
     if (ttl === -1) {
       // 理论上该 key 必须带 TTL；如果无 TTL，自动清理以避免“永久不可用”
       logger.warn(
-        `⚠️ [UpstreamError] Found temp_unavailable key without TTL for account ${accountId} (${accountType}), auto-clearing`,
+        ` [UpstreamError] Found temp_unavailable key without TTL for account ${accountId} (${accountType}), auto-clearing`,
       )
       await client.del(key)
       return false
@@ -695,7 +751,7 @@ export const isTempUnavailable = async (accountId, accountType) => {
 
     return ttl > 0
   } catch (error) {
-    logger.error(`❌ [UpstreamError] Failed to check temp unavailable status for ${accountId}:`, error)
+    logger.error(`[UpstreamError] Failed to check temp unavailable status for ${accountId}:`, error)
     return false
   }
 }
@@ -708,7 +764,7 @@ export const clearTempUnavailable = async (accountId, accountType) => {
     const key = RedisKeys.upstream.tempUnavailable(accountType, accountId)
     await client.del(key)
   } catch (error) {
-    logger.error(`❌ [UpstreamError] Failed to clear temp unavailable for ${accountId}:`, error)
+    logger.error(`[UpstreamError] Failed to clear temp unavailable for ${accountId}:`, error)
   }
 }
 
@@ -780,14 +836,14 @@ export const getAllTempUnavailable = async () => {
     await cleanupPipeline.exec().catch(() => {})
     return statuses
   } catch (error) {
-    logger.error('❌ [UpstreamError] Failed to get all temp unavailable statuses:', error)
+    logger.error('[UpstreamError] Failed to get all temp unavailable statuses:', error)
     return {}
   }
 }
 
 // 语义上仅由自动保护写入的特定 status 取值（用于恢复判定）。
-// 不含通用 'error'：'error' 含义过宽（token 刷新失败/余额检查/外部直写等），无法在
-// 代码层可靠区分来源，作为恢复依据有误恢复风险（见 reviewer #2/#4）。'error' 的处理改为
+// 不含通用 'error'：'error'含义过宽（token 刷新失败/余额检查/外部直写等），无法在
+// 代码层可靠区分来源，作为恢复依据有误恢复风险（见 reviewer #2/#4）。'error'的处理改为
 // 在各写入点用 disableAutoProtection 守卫（防止开关开启后再被自动写成 error）。
 const AUTO_STOP_STATUSES = new Set([
   'rate_limited',
@@ -844,10 +900,10 @@ export const hasModelFamilyRateLimit = (accountData = {}) =>
   )
 
 // 生成 disableAutoProtection 开启时的清理补丁。两类残留分别处理、互不牵连：
-//   1) 整账号自动停用（限流/配额/过载/5h/401/403/硬停标记）→ 清状态字段并恢复 schedulable/status；
-//      手动停用（无自动迹象的 schedulable=false / isActive=false / 裸 status='error'）不恢复。
-//   2) 模型家族周限残留（opus/sonnet/haiku/fable）→ 仅清对应家族字段，绝不改 schedulable/status，
-//      避免误解除管理员手动暂停（模型级限流本不停用整账号）。
+// 1) 整账号自动停用（限流/配额/过载/5h/401/403/硬停标记）→ 清状态字段并恢复 schedulable/status；
+// 手动停用（无自动迹象的 schedulable=false / isActive=false / 裸 status='error'）不恢复。
+// 2) 模型家族周限残留（opus/sonnet/haiku/fable）→ 仅清对应家族字段，绝不改 schedulable/status，
+// 避免误解除管理员手动暂停（模型级限流本不停用整账号）。
 // 两者都不存在时返回 null。
 export const buildAutoProtectionRecoveryPatch = (accountData = {}) => {
   const autoStopped = hasAutoStopEvidence(accountData)
@@ -903,7 +959,7 @@ export const clearAutoProtectionCooldowns = async (accountId, accountType) => {
       const client = redis.getClientSafe()
       await client.del(RedisKeys.account.overload(accountId))
     } catch (error) {
-      logger.warn(`⚠️ [UpstreamError] Failed to clear overload key for ${accountId}: ${error.message}`)
+      logger.warn(`[UpstreamError] Failed to clear overload key for ${accountId}: ${error.message}`)
     }
   }
 }

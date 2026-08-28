@@ -171,6 +171,7 @@ import {
   deleteApiKeyTagApi,
   renameApiKeyTagApi
 } from '@/libs/http_apis'
+import { isOk, msgOf } from '@/libs/http_envelope'
 import { showToast } from '@/libs/tools'
 import ConfirmModal from '@/components/common/confirm_modal.vue'
 
@@ -195,7 +196,7 @@ const loadTags = async () => {
   loading.value = true
   const res = await getApiKeyTagsDetailsApi()
   loading.value = false
-  if (res.success) {
+  if (isOk(res)) {
     tags.value = res.data
   }
 }
@@ -207,13 +208,13 @@ const createTag = async () => {
   const res = await createApiKeyTagApi(newTagInput.value.trim())
   creating.value = false
 
-  if (res.success) {
+  if (isOk(res)) {
     showToast('标签创建成功', 'success')
     newTagInput.value = ''
     loadTags()
     emit('updated')
   } else {
-    showToast(res.error || '创建失败', 'error')
+    showToast(msgOf(res, '创建失败'), 'error')
   }
 }
 
@@ -231,13 +232,13 @@ const executeDelete = async () => {
   const res = await deleteApiKeyTagApi(tagName)
   processing.value = false
 
-  if (res.success) {
+  if (isOk(res)) {
     showToast(`标签「${tagName}」已删除`, 'success')
     tags.value = tags.value.filter((t) => t.name !== tagName)
     confirmingTag.value = null
     emit('updated')
   } else {
-    showToast(res.error || '删除失败', 'error')
+    showToast(msgOf(res, '删除失败'), 'error')
   }
 }
 
@@ -255,14 +256,14 @@ const executeRename = async () => {
   const res = await renameApiKeyTagApi(oldName, newTagName.value.trim())
   processing.value = false
 
-  if (res.success) {
+  if (isOk(res)) {
     showToast('标签已重命名', 'success')
     showRenameModal.value = false
     renamingTag.value = null
     loadTags()
     emit('updated')
   } else {
-    showToast(res.error || '重命名失败', 'error')
+    showToast(msgOf(res, '重命名失败'), 'error')
   }
 }
 

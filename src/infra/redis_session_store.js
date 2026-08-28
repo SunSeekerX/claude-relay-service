@@ -8,7 +8,7 @@ import { config as appConfig } from '../../config/config.js'
 // ===
 
 export const attach = function attach(redisClient) {
-  // 🔐 会话管理（用于管理员登录等）
+  // 会话管理（用于管理员登录等）
   redisClient.setSession = async function (sessionId, sessionData, ttl = TTL.adminSession) {
     const key = RedisKeys.session.admin(sessionId)
     await this.client.hset(key, sessionData)
@@ -25,7 +25,7 @@ export const attach = function attach(redisClient) {
     return await this.client.del(key)
   }
 
-  // 🗝️ API Key哈希索引管理（兼容旧结构 apikey_hash:* 和新结构 apikey:hash_map）
+  // API Key哈希索引管理（兼容旧结构 apikey_hash:* 和新结构 apikey:hash_map）
   redisClient.setApiKeyHash = async function (hashedKey, keyData, ttl = 0) {
     await writeApiKeyHashDual(this.client, hashedKey, keyData, ttl)
   }
@@ -39,7 +39,7 @@ export const attach = function attach(redisClient) {
     await deleteApiKeyHashDual(this.client, hashedKey)
   }
 
-  // 🔗 OAuth会话管理
+  // OAuth会话管理
   redisClient.setOAuthSession = async function (sessionId, sessionData, ttl = TTL.oauthSession) {
     // 10分钟过期
     const key = RedisKeys.session.oauth(sessionId)
@@ -91,7 +91,7 @@ export const attach = function attach(redisClient) {
     return await this.client.del(key)
   }
 
-  // 🔗 会话sticky映射管理
+  // 会话sticky映射管理
   redisClient.setSessionAccountMapping = async function (sessionHash, accountId, ttl = null) {
     // 从配置读取TTL（小时），转换为秒，默认1小时
     const defaultTTL = ttl !== null ? ttl : TTL.stickySession()
@@ -104,11 +104,11 @@ export const attach = function attach(redisClient) {
     return await this.client.get(key)
   }
 
-  // 🚀 智能会话TTL续期：剩余时间少于阈值时自动续期
+  // 智能会话TTL续期：剩余时间少于阈值时自动续期
   redisClient.extendSessionAccountMappingTTL = async function (sessionHash) {
     const key = RedisKeys.session.sticky(sessionHash)
 
-    // 📊 从配置获取参数（config.js 单一权威源，必已定义，不做业务层默认回退）
+    // 从配置获取参数（config.js 单一权威源，必已定义，不做业务层默认回退）
     const ttlHours = appConfig.session.stickyTtlHours // 小时
     const thresholdMinutes = appConfig.session.renewalThresholdMinutes // 分钟（0 表示不续期）
 
@@ -134,11 +134,11 @@ export const attach = function attach(redisClient) {
         return true
       }
 
-      // 🎯 智能续期策略：仅在剩余时间少于阈值时才续期
+      // 智能续期策略：仅在剩余时间少于阈值时才续期
       if (remainingTTL < renewalThreshold) {
         await this.client.expire(key, fullTTL)
         logger.debug(
-          `🔄 Renewed sticky session TTL: ${sessionHash} (was ${Math.round(
+          `Renewed sticky session TTL: ${sessionHash} (was ${Math.round(
             remainingTTL / 60,
           )}min, renewed to ${ttlHours}h)`,
         )
@@ -146,10 +146,10 @@ export const attach = function attach(redisClient) {
       }
 
       // 剩余时间充足，无需续期
-      logger.debug(`✅ Sticky session TTL sufficient: ${sessionHash} (remaining ${Math.round(remainingTTL / 60)}min)`)
+      logger.debug(`Sticky session TTL sufficient: ${sessionHash} (remaining ${Math.round(remainingTTL / 60)}min)`)
       return true
     } catch (error) {
-      logger.error('❌ Failed to extend session TTL:', error)
+      logger.error('Failed to extend session TTL:', error)
       return false
     }
   }

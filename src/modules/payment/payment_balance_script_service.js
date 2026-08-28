@@ -55,9 +55,9 @@ class BalanceScriptService {
   /**
    * 执行脚本：返回标准余额结构 + 原始响应
    * @param {object} options
-   *  - scriptBody: string
-   *  - variables: Record<string,string>
-   *  - timeoutSeconds: number
+   * - scriptBody: string
+   * - variables: Record<string,string>
+   * - timeoutSeconds: number
    */
   async execute(options = {}) {
     if (!isBalanceScriptEnabled()) {

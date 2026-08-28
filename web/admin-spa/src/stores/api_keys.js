@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { ref } from 'vue'
 
 import * as httpApis from '@/libs/http_apis'
+import { isOk, msgOf } from '@/libs/http_envelope'
 
 export const useApiKeysStore = defineStore('apiKeys', () => {
   const apiKeys = ref([])
@@ -14,16 +15,16 @@ export const useApiKeysStore = defineStore('apiKeys', () => {
   const fetchApiKeys = async () => {
     loading.value = true
     const res = await httpApis.getApiKeysApi()
-    if (res.success) apiKeys.value = res.data || []
-    else error.value = res.message
+    if (isOk(res)) apiKeys.value = res.data || []
+    else error.value = msgOf(res)
     loading.value = false
   }
 
   const createApiKey = async (data) => {
     loading.value = true
     const res = await httpApis.createApiKeyApi(data)
-    if (res.success) await fetchApiKeys()
-    else error.value = res.message
+    if (isOk(res)) await fetchApiKeys()
+    else error.value = msgOf(res)
     loading.value = false
     return res
   }
@@ -31,8 +32,8 @@ export const useApiKeysStore = defineStore('apiKeys', () => {
   const updateApiKey = async (id, data) => {
     loading.value = true
     const res = await httpApis.updateApiKeyApi(id, data)
-    if (res.success) await fetchApiKeys()
-    else error.value = res.message
+    if (isOk(res)) await fetchApiKeys()
+    else error.value = msgOf(res)
     loading.value = false
     return res
   }
@@ -40,8 +41,8 @@ export const useApiKeysStore = defineStore('apiKeys', () => {
   const toggleApiKey = async (id) => {
     loading.value = true
     const res = await httpApis.toggleApiKeyApi(id)
-    if (res.success) await fetchApiKeys()
-    else error.value = res.message
+    if (isOk(res)) await fetchApiKeys()
+    else error.value = msgOf(res)
     loading.value = false
     return res
   }
@@ -51,20 +52,20 @@ export const useApiKeysStore = defineStore('apiKeys', () => {
   const deleteApiKey = async (id) => {
     loading.value = true
     const res = await httpApis.deleteApiKeyApi(id)
-    if (res.success) await fetchApiKeys()
-    else error.value = res.message
+    if (isOk(res)) await fetchApiKeys()
+    else error.value = msgOf(res)
     loading.value = false
     return res
   }
 
   const fetchApiKeyStats = async (id, timeRange = 'all') => {
     const res = await httpApis.getApiKeyStatsApi(id, { timeRange })
-    return res.success ? res.stats : null
+    return isOk(res) ? res.stats : null
   }
 
   const fetchTags = async () => {
     const res = await httpApis.getApiKeyTagsApi()
-    return res.success ? res.data || [] : []
+    return isOk(res) ? res.data || [] : []
   }
 
   const sortApiKeys = (field) => {

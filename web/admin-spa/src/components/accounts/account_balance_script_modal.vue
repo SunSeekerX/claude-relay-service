@@ -2,16 +2,18 @@
   <ModalTransition>
     <div
       v-if="show"
-      class="balance-script-dialog fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-4 pt-[5vh]"
+      class="balance-script-dialog fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-3 sm:p-4"
       @click.self="emitClose"
     >
-      <div class="modal-content w-full max-w-[720px] rounded-2xl bg-white shadow-xl dark:bg-gray-900">
-        <div class="border-b border-gray-200 px-5 py-4 dark:border-gray-700">
+      <div
+        class="modal-content flex h-[min(92dvh,900px)] w-full max-w-[720px] flex-col overflow-hidden rounded-2xl bg-white shadow-xl dark:bg-gray-900"
+      >
+        <div class="shrink-0 border-b border-gray-200 px-5 py-4 dark:border-gray-700">
           <h3 class="text-lg font-bold text-gray-900 dark:text-gray-100">
             配置余额脚本 - {{ account?.name || '' }}
           </h3>
         </div>
-    <div class="space-y-4 px-5 py-4">
+    <div class="min-h-0 flex-1 space-y-4 overflow-y-auto px-5 py-4">
       <div class="grid gap-3 md:grid-cols-2">
         <div class="space-y-2">
           <label class="text-sm font-medium text-gray-700 dark:text-gray-200">API Key</label>
@@ -133,6 +135,7 @@ import {
   updateAccountBalanceScriptApi,
   testAccountBalanceScriptApi
 } from '@/libs/http_apis'
+import { isOk, msgOf } from '@/libs/http_envelope'
 import { showToast } from '@/libs/tools'
 
 const props = defineProps({
@@ -208,7 +211,7 @@ const resetForm = () => {
 const loadConfig = async () => {
   if (!props.account?.id || !props.account?.platform) return
   const res = await getAccountBalanceScriptApi(props.account.id, props.account.platform)
-  if (res?.success && res.data) {
+  if (isOk(res) && res.data) {
     Object.assign(form, res.data)
   }
 }
@@ -219,11 +222,11 @@ const saveConfig = async () => {
   const res = await updateAccountBalanceScriptApi(props.account.id, props.account.platform, {
     ...form
   })
-  if (res?.success) {
+  if (isOk(res)) {
     showToast('已保存', 'success')
     emit('saved')
   } else {
-    showToast(res?.message || '保存失败', 'error')
+    showToast(msgOf(res, '保存失败'), 'error')
   }
   saving.value = false
 }
@@ -235,11 +238,11 @@ const testScript = async () => {
   const res = await testAccountBalanceScriptApi(props.account.id, props.account.platform, {
     ...form
   })
-  if (res?.success) {
+  if (isOk(res)) {
     testResult.value = res.data
     showToast('测试完成', 'success')
   } else {
-    showToast(res?.error || '测试失败', 'error')
+    showToast(msgOf(res, '测试失败'), 'error')
   }
   testing.value = false
 }

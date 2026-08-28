@@ -13,7 +13,7 @@ class CacheMonitor {
     this.totalMisses = 0
     this.totalEvictions = 0
 
-    // 🔒 安全配置
+    // 安全配置
     this.securityConfig = {
       maxCacheAge: 15 * 60 * 1000, // 最大缓存年龄 15 分钟
       forceCleanupInterval: 30 * 60 * 1000, // 强制清理间隔 30 分钟
@@ -21,10 +21,10 @@ class CacheMonitor {
       sensitiveDataPatterns: [/password/i, /token/i, /secret/i, /key/i, /credential/i],
     }
 
-    // 🧹 定期执行安全清理
+    // 定期执行安全清理
     this.setupSecurityCleanup()
 
-    // 📊 定期报告统计信息
+    // 定期报告统计信息
     this.setupPeriodicReporting()
   }
 
@@ -35,7 +35,7 @@ class CacheMonitor {
    */
   registerCache(name, cache) {
     if (this.monitors.has(name)) {
-      logger.warn(`⚠️ Cache ${name} is already registered, updating reference`)
+      logger.warn(`Cache ${name} is already registered, updating reference`)
     }
 
     this.monitors.set(name, {
@@ -45,7 +45,7 @@ class CacheMonitor {
       totalCleanups: 0,
     })
 
-    logger.info(`📦 Registered cache for monitoring: ${name}`)
+    logger.info(`Registered cache for monitoring: ${name}`)
   }
 
   /**
@@ -85,11 +85,11 @@ class CacheMonitor {
   }
 
   /**
-   * 🔒 执行安全清理
+   * 执行安全清理
    * 清理过期数据和潜在的敏感信息
    */
   performSecurityCleanup() {
-    logger.info('🔒 Starting security cleanup for all caches')
+    logger.info('Starting security cleanup for all caches')
 
     for (const [name, monitor] of this.monitors) {
       try {
@@ -102,7 +102,7 @@ class CacheMonitor {
         // 检查缓存年龄，如果太老则完全清空
         const cacheAge = Date.now() - monitor.registeredAt
         if (cacheAge > this.securityConfig.maxCacheAge * 2) {
-          logger.warn(`⚠️ Cache ${name} is too old (${Math.floor(cacheAge / 60000)}min), performing full clear`)
+          logger.warn(`Cache ${name} is too old (${Math.floor(cacheAge / 60000)}min), performing full clear`)
           cache.clear()
         }
 
@@ -111,44 +111,44 @@ class CacheMonitor {
 
         const afterSize = cache.cache.size
         if (beforeSize !== afterSize) {
-          logger.info(`🧹 Cache ${name}: Cleaned ${beforeSize - afterSize} items`)
+          logger.info(`Cache ${name}: Cleaned ${beforeSize - afterSize} items`)
         }
       } catch (error) {
-        logger.error(`❌ Error cleaning cache ${name}:`, error)
+        logger.error(`Error cleaning cache ${name}:`, error)
       }
     }
   }
 
   /**
-   * 📊 生成详细报告
+   * 生成详细报告
    */
   generateReport() {
     const stats = this.getGlobalStats()
 
     logger.info('═══════════════════════════════════════════')
-    logger.info('📊 Cache System Performance Report')
+    logger.info('Cache System Performance Report')
     logger.info('═══════════════════════════════════════════')
-    logger.info(`⏱️  Uptime: ${this.formatUptime(stats.uptime)}`)
-    logger.info(`📦 Active Caches: ${stats.cacheCount}`)
-    logger.info(`📈 Total Cache Size: ${stats.totalSize} items`)
-    logger.info(`🎯 Global Hit Rate: ${stats.averageHitRate}`)
-    logger.info(`✅ Total Hits: ${stats.totalHits.toLocaleString()}`)
-    logger.info(`❌ Total Misses: ${stats.totalMisses.toLocaleString()}`)
-    logger.info(`🗑️  Total Evictions: ${stats.totalEvictions.toLocaleString()}`)
+    logger.info(`Uptime: ${this.formatUptime(stats.uptime)}`)
+    logger.info(`Active Caches: ${stats.cacheCount}`)
+    logger.info(`Total Cache Size: ${stats.totalSize} items`)
+    logger.info(`Global Hit Rate: ${stats.averageHitRate}`)
+    logger.info(`Total Hits: ${stats.totalHits.toLocaleString()}`)
+    logger.info(`Total Misses: ${stats.totalMisses.toLocaleString()}`)
+    logger.info(`Total Evictions: ${stats.totalEvictions.toLocaleString()}`)
     logger.info('───────────────────────────────────────────')
 
     // 详细的每个缓存统计
     for (const [name, cacheStats] of Object.entries(stats.caches)) {
-      logger.info(`\n📦 ${name}:`)
-      logger.info(`   Size: ${cacheStats.size}/${cacheStats.maxSize} | Hit Rate: ${cacheStats.hitRate}`)
-      logger.info(`   Hits: ${cacheStats.hits} | Misses: ${cacheStats.misses} | Evictions: ${cacheStats.evictions}`)
-      logger.info(`   Age: ${this.formatUptime(cacheStats.age)} | Cleanups: ${cacheStats.totalCleanups}`)
+      logger.info(`\n ${name}:`)
+      logger.info(`Size: ${cacheStats.size}/${cacheStats.maxSize} | Hit Rate: ${cacheStats.hitRate}`)
+      logger.info(`Hits: ${cacheStats.hits} | Misses: ${cacheStats.misses} | Evictions: ${cacheStats.evictions}`)
+      logger.info(`Age: ${this.formatUptime(cacheStats.age)} | Cleanups: ${cacheStats.totalCleanups}`)
     }
     logger.info('═══════════════════════════════════════════')
   }
 
   /**
-   * 🧹 设置定期安全清理
+   * 设置定期安全清理
    */
   setupSecurityCleanup() {
     // 每 10 分钟执行一次安全清理
@@ -161,16 +161,16 @@ class CacheMonitor {
 
     // 每 30 分钟强制完整清理
     setInterval(() => {
-      logger.warn('⚠️ Performing forced complete cleanup for security')
+      logger.warn('Performing forced complete cleanup for security')
       for (const [name, monitor] of this.monitors) {
         monitor.cache.clear()
-        logger.info(`🗑️ Force cleared cache: ${name}`)
+        logger.info(`Force cleared cache: ${name}`)
       }
     }, this.securityConfig.forceCleanupInterval)
   }
 
   /**
-   * 📊 设置定期报告
+   * 设置定期报告
    */
   setupPeriodicReporting() {
     // 每 5 分钟生成一次简单统计
@@ -178,7 +178,7 @@ class CacheMonitor {
       () => {
         const stats = this.getGlobalStats()
         logger.info(
-          `📊 Quick Stats - Caches: ${stats.cacheCount}, Size: ${stats.totalSize}, Hit Rate: ${stats.averageHitRate}`,
+          `Quick Stats - Caches: ${stats.cacheCount}, Size: ${stats.totalSize}, Hit Rate: ${stats.averageHitRate}`,
         )
       },
       5 * 60 * 1000,
@@ -211,7 +211,7 @@ class CacheMonitor {
   }
 
   /**
-   * 🔐 生成安全的缓存键
+   * 生成安全的缓存键
    * 使用 SHA-256 哈希避免暴露原始数据
    */
   static generateSecureCacheKey(data) {
@@ -219,7 +219,7 @@ class CacheMonitor {
   }
 
   /**
-   * 🛡️ 验证缓存数据安全性
+   * 验证缓存数据安全性
    * 检查是否包含敏感信息
    */
   validateCacheSecurity(data) {
@@ -227,7 +227,7 @@ class CacheMonitor {
 
     for (const pattern of this.securityConfig.sensitiveDataPatterns) {
       if (pattern.test(dataStr)) {
-        logger.warn('⚠️ Potential sensitive data detected in cache')
+        logger.warn('Potential sensitive data detected in cache')
         return false
       }
     }
@@ -236,7 +236,7 @@ class CacheMonitor {
   }
 
   /**
-   * 💾 获取内存使用估算
+   * 获取内存使用估算
    */
   estimateMemoryUsage() {
     let totalBytes = 0
@@ -258,11 +258,11 @@ class CacheMonitor {
   }
 
   /**
-   * 🚨 紧急清理
+   * 紧急清理
    * 在内存压力大时使用
    */
   emergencyCleanup() {
-    logger.error('🚨 EMERGENCY CLEANUP INITIATED')
+    logger.error('EMERGENCY CLEANUP INITIATED')
 
     for (const [name, monitor] of this.monitors) {
       const { cache } = monitor
@@ -275,7 +275,7 @@ class CacheMonitor {
         cache.cache.delete(firstKey)
       }
 
-      logger.warn(`🚨 Emergency cleaned ${name}: ${beforeSize} -> ${cache.cache.size} items`)
+      logger.warn(`Emergency cleaned ${name}: ${beforeSize} -> ${cache.cache.size} items`)
     }
   }
 }

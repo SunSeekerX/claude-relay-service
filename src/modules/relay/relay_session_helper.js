@@ -19,7 +19,7 @@ class SessionHelper {
     if (requestBody.metadata && requestBody.metadata.user_id) {
       const sessionId = metadataUserIdHelper.extractSessionId(requestBody.metadata.user_id)
       if (sessionId) {
-        logger.debug(`📋 Session ID extracted from metadata.user_id: ${sessionId}`)
+        logger.debug(`Session ID extracted from metadata.user_id: ${sessionId}`)
         return sessionId
       }
     }
@@ -78,7 +78,7 @@ class SessionHelper {
     // 3. 如果有cacheable内容，直接使用
     if (cacheableContent) {
       const hash = crypto.createHash('sha256').update(cacheableContent).digest('hex').substring(0, 32)
-      logger.debug(`📋 Session hash generated from cacheable content: ${hash}`)
+      logger.debug(`Session hash generated from cacheable content: ${hash}`)
       return hash
     }
 
@@ -93,7 +93,7 @@ class SessionHelper {
 
       if (systemText) {
         const hash = crypto.createHash('sha256').update(systemText).digest('hex').substring(0, 32)
-        logger.debug(`📋 Session hash generated from system content: ${hash}`)
+        logger.debug(`Session hash generated from system content: ${hash}`)
         return hash
       }
     }
@@ -107,7 +107,7 @@ class SessionHelper {
         firstMessageText = firstMessage.content
       } else if (Array.isArray(firstMessage.content)) {
         if (!firstMessage.content) {
-          logger.error('📋 Session hash generated from first message failed: ', firstMessage)
+          logger.error('Session hash generated from first message failed: ', firstMessage)
         }
 
         firstMessageText = firstMessage.content
@@ -118,13 +118,13 @@ class SessionHelper {
 
       if (firstMessageText) {
         const hash = crypto.createHash('sha256').update(firstMessageText).digest('hex').substring(0, 32)
-        logger.debug(`📋 Session hash generated from first message: ${hash}`)
+        logger.debug(`Session hash generated from first message: ${hash}`)
         return hash
       }
     }
 
     // 无法生成会话哈希
-    logger.debug('📋 Unable to generate session hash - no suitable content found')
+    logger.debug('Unable to generate session hash - no suitable content found')
     return null
   }
 

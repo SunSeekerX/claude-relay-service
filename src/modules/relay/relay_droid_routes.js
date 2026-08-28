@@ -17,7 +17,7 @@ const hasDroidPermission = function hasDroidPermission(apiKeyData) {
  * 支持的 Factory.ai 端点:
  * - /droid/claude - Anthropic (Claude) Messages API
  * - /droid/openai - OpenAI Responses API
- * - /droid/comm   - OpenAI Chat Completions API
+ * - /droid/comm - OpenAI Chat Completions API
  */
 
 // Claude (Anthropic) 端点 - /v1/messages
@@ -26,7 +26,7 @@ router.post('/claude/v1/messages', authenticateApiKey, async (req, res) => {
     const sessionHash = sessionHelper.generateSessionHash(req.body)
 
     if (!hasDroidPermission(req.apiKey)) {
-      logger.security(`🚫 API Key ${req.apiKey?.id || 'unknown'} 缺少 Droid 权限，拒绝访问 ${req.originalUrl}`)
+      logger.security(`API Key ${req.apiKey?.id || 'unknown'} 缺少 Droid 权限，拒绝访问 ${req.originalUrl}`)
       return res.status(403).json({
         error: 'permission_denied',
         message: '此 API Key 未启用 Droid 权限',
@@ -67,7 +67,7 @@ router.post('/comm/v1/chat/completions', authenticateApiKey, async (req, res) =>
     const sessionHash = sessionId ? crypto.createHash('sha256').update(String(sessionId)).digest('hex') : null
 
     if (!hasDroidPermission(req.apiKey)) {
-      logger.security(`🚫 API Key ${req.apiKey?.id || 'unknown'} 缺少 Droid 权限，拒绝访问 ${req.originalUrl}`)
+      logger.security(`API Key ${req.apiKey?.id || 'unknown'} 缺少 Droid 权限，拒绝访问 ${req.originalUrl}`)
       return res.status(403).json({
         error: 'permission_denied',
         message: '此 API Key 未启用 Droid 权限',
@@ -106,7 +106,7 @@ router.post(['/openai/v1/responses', '/openai/responses'], authenticateApiKey, a
     const sessionHash = sessionId ? crypto.createHash('sha256').update(String(sessionId)).digest('hex') : null
 
     if (!hasDroidPermission(req.apiKey)) {
-      logger.security(`🚫 API Key ${req.apiKey?.id || 'unknown'} 缺少 Droid 权限，拒绝访问 ${req.originalUrl}`)
+      logger.security(`API Key ${req.apiKey?.id || 'unknown'} 缺少 Droid 权限，拒绝访问 ${req.originalUrl}`)
       return res.status(403).json({
         error: 'permission_denied',
         message: '此 API Key 未启用 Droid 权限',

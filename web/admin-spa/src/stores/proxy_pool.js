@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { ref } from 'vue'
 
 import * as httpApis from '@/libs/http_apis'
+import { isOk } from '@/libs/http_envelope'
 
 export const useProxyPoolStore = defineStore('proxyPool', () => {
   // ========== 概览 ==========
@@ -9,7 +10,7 @@ export const useProxyPoolStore = defineStore('proxyPool', () => {
 
   const fetchOverview = async () => {
     const res = await httpApis.getProxyPoolOverviewApi()
-    if (res.success) {
+    if (isOk(res)) {
       overview.value = res.data
     }
     return res
@@ -22,7 +23,7 @@ export const useProxyPoolStore = defineStore('proxyPool', () => {
   const fetchProxies = async () => {
     loadingProxies.value = true
     const res = await httpApis.getProxiesApi()
-    if (res.success) {
+    if (isOk(res)) {
       proxies.value = res.data || []
     }
     loadingProxies.value = false
@@ -42,7 +43,7 @@ export const useProxyPoolStore = defineStore('proxyPool', () => {
   const fetchGroups = async () => {
     loadingGroups.value = true
     const res = await httpApis.getProxyGroupsApi()
-    if (res.success) {
+    if (isOk(res)) {
       groups.value = res.data || []
     }
     loadingGroups.value = false
@@ -58,7 +59,7 @@ export const useProxyPoolStore = defineStore('proxyPool', () => {
 
   const fetchSettings = async () => {
     const res = await httpApis.getProxyPoolSettingsApi()
-    if (res.success) {
+    if (isOk(res)) {
       settings.value = res.data
     }
     return res

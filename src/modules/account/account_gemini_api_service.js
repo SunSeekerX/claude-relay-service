@@ -12,17 +12,17 @@ class GeminiApiAccountService {
     this.ENCRYPTION_ALGORITHM = 'aes-256-cbc'
     this.ENCRYPTION_SALT = 'gemini-api-salt'
 
-    // 🚀 性能优化：缓存派生的加密密钥，避免每次重复计算
+    // 性能优化：缓存派生的加密密钥，避免每次重复计算
     this._encryptionKeyCache = null
 
-    // 🔄 解密结果缓存，提高解密性能
+    // 解密结果缓存，提高解密性能
     this._decryptCache = new LRUCache(500)
 
-    // 🧹 定期清理缓存（每10分钟）
+    // 定期清理缓存（每10分钟）
     setInterval(
       () => {
         this._decryptCache.cleanup()
-        logger.info('🧹 Gemini-API decrypt cache cleanup completed', this._decryptCache.getStats())
+        logger.info('Gemini-API decrypt cache cleanup completed', this._decryptCache.getStats())
       },
       10 * 60 * 1000,
     )
@@ -177,7 +177,7 @@ class GeminiApiAccountService {
       await upstreamErrorHelper.clearAutoProtectionCooldowns(accountId, 'gemini-api')
     }
 
-    logger.info(`📝 Updated Gemini-API account: ${account.name}`)
+    logger.info(`Updated Gemini-API account: ${account.name}`)
 
     return { success: true }
   }
@@ -196,7 +196,7 @@ class GeminiApiAccountService {
     // 删除账户数据
     await client.del(key)
 
-    logger.info(`🗑️ Deleted Gemini-API account: ${accountId}`)
+    logger.info(`Deleted Gemini-API account: ${accountId}`)
 
     return { success: true }
   }
@@ -327,18 +327,8 @@ class GeminiApiAccountService {
     if (isLimited) {
       // disableAutoProtection 检查（仅在设置限流时）
       if (account.disableAutoProtection === true || account.disableAutoProtection === 'true') {
-        logger.info(`🛡️ Account ${accountId} has auto-protection disabled, skipping setAccountRateLimited`)
-        upstreamErrorHelper
-          .recordErrorHistory(
-            accountId,
-            'gemini-api',
-            429,
-            'rate_limit',
-            upstreamErrorHelper.buildErrorContext({
-              reason: 'auto_protection_disabled_rate_limit',
-            }),
-          )
-          .catch(() => {})
+        logger.info(`Account ${accountId} has auto-protection disabled, skipping setAccountRateLimited`)
+        // 详细错误历史由 relay 层 markTempUnavailable 写入，此处只跳过自动暂停
         return
       }
 
@@ -357,7 +347,7 @@ class GeminiApiAccountService {
       })
 
       logger.warn(
-        `⏳ Gemini-API account ${account.name} marked as rate limited for ${rateLimitDuration} minutes (until ${resetAt.toISOString()})`,
+        ` Gemini-API account ${account.name} marked as rate limited for ${rateLimitDuration} minutes (until ${resetAt.toISOString()})`,
       )
     } else {
       // 清除限流状态
@@ -370,11 +360,11 @@ class GeminiApiAccountService {
         errorMessage: '',
       })
 
-      logger.info(`✅ Rate limit cleared for Gemini-API account ${account.name}`)
+      logger.info(`Rate limit cleared for Gemini-API account ${account.name}`)
     }
   }
 
-  // 🚫 标记账户为未授权状态（401错误）
+  // 标记账户为未授权状态（401错误）
   async markAccountUnauthorized(accountId, reason = 'Gemini API账号认证失败（401错误）') {
     const account = await this.getAccount(accountId)
     if (!account) {
@@ -383,18 +373,8 @@ class GeminiApiAccountService {
 
     // disableAutoProtection 检查
     if (account.disableAutoProtection === true || account.disableAutoProtection === 'true') {
-      logger.info(`🛡️ Account ${accountId} has auto-protection disabled, skipping markAccountUnauthorized`)
-      upstreamErrorHelper
-        .recordErrorHistory(
-          accountId,
-          'gemini-api',
-          401,
-          'auth_error',
-          upstreamErrorHelper.buildErrorContext({
-            reason: 'auto_protection_disabled_unauthorized',
-          }),
-        )
-        .catch(() => {})
+      logger.info(`Account ${accountId} has auto-protection disabled, skipping markAccountUnauthorized`)
+      // 详细错误历史由 relay 层 markTempUnavailable 写入，此处只跳过自动暂停
       return
     }
 
@@ -410,7 +390,7 @@ class GeminiApiAccountService {
       unauthorizedCount: unauthorizedCount.toString(),
     })
 
-    logger.warn(`🚫 Gemini-API account ${account.name || accountId} marked as unauthorized due to 401 error`)
+    logger.warn(`Gemini-API account ${account.name || accountId} marked as unauthorized due to 401 error`)
 
     try {
       await webhookNotifier.sendAccountAnomalyNotification({
@@ -422,7 +402,7 @@ class GeminiApiAccountService {
         reason,
         timestamp: now,
       })
-      logger.info(`📢 Webhook notification sent for Gemini-API account ${account.name || accountId} unauthorized state`)
+      logger.info(`Webhook notification sent for Gemini-API account ${account.name || accountId} unauthorized state`)
     } catch (webhookError) {
       logger.error('Failed to send unauthorized webhook notification:', webhookError)
     }
@@ -470,7 +450,7 @@ class GeminiApiAccountService {
       schedulable: newSchedulableStatus,
     })
 
-    logger.info(`🔄 Toggled schedulable status for Gemini-API account ${account.name}: ${newSchedulableStatus}`)
+    logger.info(`Toggled schedulable status for Gemini-API account ${account.name}: ${newSchedulableStatus}`)
 
     return {
       success: true,
@@ -499,7 +479,7 @@ class GeminiApiAccountService {
     }
 
     await this.updateAccount(accountId, updates)
-    logger.info(`✅ Reset all error status for Gemini-API account ${accountId}`)
+    logger.info(`Reset all error status for Gemini-API account ${accountId}`)
 
     // 清除临时不可用状态
     await upstreamErrorHelper.clearTempUnavailable(accountId, 'gemini-api').catch(() => {})
@@ -515,7 +495,7 @@ class GeminiApiAccountService {
         reason: 'Account status manually reset',
         timestamp: new Date().toISOString(),
       })
-      logger.info(`📢 Webhook notification sent for Gemini-API account ${account.name} status reset`)
+      logger.info(`Webhook notification sent for Gemini-API account ${account.name} status reset`)
     } catch (webhookError) {
       logger.error('Failed to send status reset webhook notification:', webhookError)
     }

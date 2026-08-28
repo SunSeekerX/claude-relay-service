@@ -1,4 +1,6 @@
 import express from 'express'
+import axios from 'axios'
+
 import { ccrAccountService } from './account_ccr_service.js'
 import { testModelConfigService } from '../relay/relay_test_model_config_service.js'
 import { accountGroupService } from './account_group_service.js'
@@ -10,16 +12,20 @@ import { webhookNotifier } from '../webhook/webhook_notifier.js'
 import { formatAccountExpiry, mapExpiryField } from '../admin/admin_utils_routes.js'
 import { stripReadonlyAccountFields } from '../../common/common_helper.js'
 import { extractErrorMessage } from '../../common/test_payload_helper.js'
-import axios from 'axios'
 import { ProxyHelper } from '../proxy/proxy_helper.js'
+import { asyncRoute } from '../../common/route_handler.js'
+import { ok, badRequest, notFound, unauthorized, fail } from '../../common/http_result.js'
+import { parseObjectBody } from '../../common/parse_body.js'
 
 export const router = express.Router()
 
-// 🔧 CCR 账户管理
+// CCR 账户管理
 
 // 获取所有CCR账户
-router.get('/', authenticateAdmin, async (req, res) => {
-  try {
+router.get(
+  '/',
+  authenticateAdmin,
+  asyncRoute('Failed to get CCR accounts', async (req) => {
     const { platform, groupId } = req.query
     let accounts = await ccrAccountService.getAllAccounts()
 
@@ -68,7 +74,7 @@ router.get('/', authenticateAdmin, async (req, res) => {
             },
           }
         } catch (statsError) {
-          logger.warn(`⚠️ Failed to get usage stats for CCR account ${account.id}:`, statsError.message)
+          logger.warn(`Failed to get usage stats for CCR account ${account.id}:`, statsError.message)
           try {
             const groupInfos = await accountGroupService.getAccountGroups(account.id)
             const formattedAccount = formatAccountExpiry(account)
@@ -84,7 +90,7 @@ router.get('/', authenticateAdmin, async (req, res) => {
               },
             }
           } catch (groupError) {
-            logger.warn(`⚠️ Failed to get group info for CCR account ${account.id}:`, groupError.message)
+            logger.warn(`Failed to get group info for CCR account ${account.id}:`, groupError.message)
             return {
               ...account,
               groupInfos: [],
@@ -99,16 +105,15 @@ router.get('/', authenticateAdmin, async (req, res) => {
       }),
     )
 
-    return res.json({ success: true, data: accountsWithStats })
-  } catch (error) {
-    logger.error('❌ Failed to get CCR accounts:', error)
-    return res.status(500).json({ error: 'Failed to get CCR accounts', message: error.message })
-  }
-})
+    return accountsWithStats
+  }),
+)
 
 // 创建新的CCR账户
-router.post('/', authenticateAdmin, async (req, res) => {
-  try {
+router.post(
+  '/',
+  authenticateAdmin,
+  asyncRoute('Failed to create CCR account', async (req) => {
     const {
       name,
       description,
@@ -123,25 +128,25 @@ router.post('/', authenticateAdmin, async (req, res) => {
       groupId,
       dailyQuota,
       quotaResetTime,
-    } = req.body
+    } = parseObjectBody(req.body, '创建CCR账户')
 
     if (!name || !apiUrl || !apiKey) {
-      return res.status(400).json({ error: 'Name, API URL and API Key are required' })
+      throw badRequest('Name, API URL and API Key are required')
     }
 
     // 验证priority的有效性（1-100）
     if (priority !== undefined && (priority < 1 || priority > 100)) {
-      return res.status(400).json({ error: 'Priority must be between 1 and 100' })
+      throw badRequest('Priority must be between 1 and 100')
     }
 
     // 验证accountType的有效性
     if (accountType && !['shared', 'dedicated', 'group'].includes(accountType)) {
-      return res.status(400).json({ error: 'Invalid account type. Must be "shared", "dedicated" or "group"' })
+      throw badRequest('Invalid account type. Must be "shared", "dedicated" or "group"')
     }
 
     // 如果是分组类型，验证groupId
     if (accountType === 'group' && !groupId) {
-      return res.status(400).json({ error: 'Group ID is required for group type accounts' })
+      throw badRequest('Group ID is required for group type accounts')
     }
 
     const newAccount = await ccrAccountService.createAccount({
@@ -164,44 +169,42 @@ router.post('/', authenticateAdmin, async (req, res) => {
       await accountGroupService.addAccountToGroup(newAccount.id, groupId)
     }
 
-    logger.success(`🔧 Admin created CCR account: ${name}`)
-    const formattedAccount = formatAccountExpiry(newAccount)
-    return res.json({ success: true, data: formattedAccount })
-  } catch (error) {
-    logger.error('❌ Failed to create CCR account:', error)
-    return res.status(500).json({ error: 'Failed to create CCR account', message: error.message })
-  }
-})
+    logger.success(`Admin created CCR account: ${name}`)
+    return formatAccountExpiry(newAccount)
+  }),
+)
 
 // 更新CCR账户
-router.put('/:accountId', authenticateAdmin, async (req, res) => {
-  try {
+router.put(
+  '/:accountId',
+  authenticateAdmin,
+  asyncRoute('Failed to update CCR account', async (req) => {
     const { accountId } = req.params
-    const updates = req.body
+    const updates = parseObjectBody(req.body, '更新CCR账户')
 
-    // ✅ 【新增】映射字段名：前端的 expiresAt -> 后端的 subscriptionExpiresAt
+    // 【新增】映射字段名：前端的 expiresAt -> 后端的 subscriptionExpiresAt
     // review#3：剥离外部传入的状态类字段，禁止伪造自动停用证据
     const mappedUpdates = stripReadonlyAccountFields(mapExpiryField(updates, 'CCR', accountId))
 
     // 验证priority的有效性（1-100）
     if (mappedUpdates.priority !== undefined && (mappedUpdates.priority < 1 || mappedUpdates.priority > 100)) {
-      return res.status(400).json({ error: 'Priority must be between 1 and 100' })
+      throw badRequest('Priority must be between 1 and 100')
     }
 
     // 验证accountType的有效性
     if (mappedUpdates.accountType && !['shared', 'dedicated', 'group'].includes(mappedUpdates.accountType)) {
-      return res.status(400).json({ error: 'Invalid account type. Must be "shared", "dedicated" or "group"' })
+      throw badRequest('Invalid account type. Must be "shared", "dedicated" or "group"')
     }
 
     // 如果更新为分组类型，验证groupId
     if (mappedUpdates.accountType === 'group' && !mappedUpdates.groupId) {
-      return res.status(400).json({ error: 'Group ID is required for group type accounts' })
+      throw badRequest('Group ID is required for group type accounts')
     }
 
     // 获取账户当前信息以处理分组变更
     const currentAccount = await ccrAccountService.getAccount(accountId)
     if (!currentAccount) {
-      return res.status(404).json({ error: 'Account not found' })
+      throw notFound('Account not found')
     }
 
     // 处理分组的变更
@@ -233,17 +236,16 @@ router.put('/:accountId', authenticateAdmin, async (req, res) => {
 
     await ccrAccountService.updateAccount(accountId, mappedUpdates)
 
-    logger.success(`📝 Admin updated CCR account: ${accountId}`)
-    return res.json({ success: true, message: 'CCR account updated successfully' })
-  } catch (error) {
-    logger.error('❌ Failed to update CCR account:', error)
-    return res.status(500).json({ error: 'Failed to update CCR account', message: error.message })
-  }
-})
+    logger.success(`Admin updated CCR account: ${accountId}`)
+    return ok(undefined, 'CCR account updated successfully')
+  }),
+)
 
 // 删除CCR账户
-router.delete('/:accountId', authenticateAdmin, async (req, res) => {
-  try {
+router.delete(
+  '/:accountId',
+  authenticateAdmin,
+  asyncRoute('Failed to delete CCR account', async (req) => {
     const { accountId } = req.params
 
     // 尝试自动解绑（CCR账户实际上不会绑定API Key，但保持代码一致性）
@@ -266,47 +268,41 @@ router.delete('/:accountId', authenticateAdmin, async (req, res) => {
       message += `，${unboundCount} 个 API Key 已切换为共享池模式`
     }
 
-    logger.success(`🗑️ Admin deleted CCR account: ${accountId}`)
-    return res.json({
-      success: true,
-      message,
-      unboundKeys: unboundCount,
-    })
-  } catch (error) {
-    logger.error('❌ Failed to delete CCR account:', error)
-    return res.status(500).json({ error: 'Failed to delete CCR account', message: error.message })
-  }
-})
+    logger.success(`Admin deleted CCR account: ${accountId}`)
+    return ok({ unboundKeys: unboundCount }, message)
+  }),
+)
 
 // 切换CCR账户状态
-router.put('/:accountId/toggle', authenticateAdmin, async (req, res) => {
-  try {
+router.put(
+  '/:accountId/toggle',
+  authenticateAdmin,
+  asyncRoute('Failed to toggle account status', async (req) => {
     const { accountId } = req.params
 
     const account = await ccrAccountService.getAccount(accountId)
     if (!account) {
-      return res.status(404).json({ error: 'Account not found' })
+      throw notFound('Account not found')
     }
 
     const newStatus = !account.isActive
     await ccrAccountService.updateAccount(accountId, { isActive: newStatus })
 
-    logger.success(`🔄 Admin toggled CCR account status: ${accountId} -> ${newStatus ? 'active' : 'inactive'}`)
-    return res.json({ success: true, isActive: newStatus })
-  } catch (error) {
-    logger.error('❌ Failed to toggle CCR account status:', error)
-    return res.status(500).json({ error: 'Failed to toggle account status', message: error.message })
-  }
-})
+    logger.success(`Admin toggled CCR account status: ${accountId} -> ${newStatus ? 'active' : 'inactive'}`)
+    return { isActive: newStatus }
+  }),
+)
 
 // 切换CCR账户调度状态
-router.put('/:accountId/toggle-schedulable', authenticateAdmin, async (req, res) => {
-  try {
+router.put(
+  '/:accountId/toggle-schedulable',
+  authenticateAdmin,
+  asyncRoute('Failed to toggle schedulable status', async (req) => {
     const { accountId } = req.params
 
     const account = await ccrAccountService.getAccount(accountId)
     if (!account) {
-      return res.status(404).json({ error: 'Account not found' })
+      throw notFound('Account not found')
     }
 
     const newSchedulable = !account.schedulable
@@ -326,152 +322,147 @@ router.put('/:accountId/toggle-schedulable', authenticateAdmin, async (req, res)
     }
 
     logger.success(
-      `🔄 Admin toggled CCR account schedulable status: ${accountId} -> ${
+      ` Admin toggled CCR account schedulable status: ${accountId} -> ${
         newSchedulable ? 'schedulable' : 'not schedulable'
       }`,
     )
-    return res.json({ success: true, schedulable: newSchedulable })
-  } catch (error) {
-    logger.error('❌ Failed to toggle CCR account schedulable status:', error)
-    return res.status(500).json({ error: 'Failed to toggle schedulable status', message: error.message })
-  }
-})
+    return { schedulable: newSchedulable }
+  }),
+)
 
 // 获取CCR账户的使用统计
-router.get('/:accountId/usage', authenticateAdmin, async (req, res) => {
-  try {
+router.get(
+  '/:accountId/usage',
+  authenticateAdmin,
+  asyncRoute('Failed to get usage stats', async (req) => {
     const { accountId } = req.params
     const usageStats = await ccrAccountService.getAccountUsageStats(accountId)
 
     if (!usageStats) {
-      return res.status(404).json({ error: 'Account not found' })
+      throw notFound('Account not found')
     }
 
-    return res.json(usageStats)
-  } catch (error) {
-    logger.error('❌ Failed to get CCR account usage stats:', error)
-    return res.status(500).json({ error: 'Failed to get usage stats', message: error.message })
-  }
-})
+    return usageStats
+  }),
+)
 
 // 手动重置CCR账户的每日使用量
-router.post('/:accountId/reset-usage', authenticateAdmin, async (req, res) => {
-  try {
+router.post(
+  '/:accountId/reset-usage',
+  authenticateAdmin,
+  asyncRoute('Failed to reset daily usage', async (req) => {
     const { accountId } = req.params
     await ccrAccountService.resetDailyUsage(accountId)
 
     logger.success(`Admin manually reset daily usage for CCR account: ${accountId}`)
-    return res.json({ success: true, message: 'Daily usage reset successfully' })
-  } catch (error) {
-    logger.error('❌ Failed to reset CCR account daily usage:', error)
-    return res.status(500).json({ error: 'Failed to reset daily usage', message: error.message })
-  }
-})
+    return ok(undefined, 'Daily usage reset successfully')
+  }),
+)
 
 // 重置CCR账户状态（清除所有异常状态）
-router.post('/:accountId/reset-status', authenticateAdmin, async (req, res) => {
-  try {
+router.post(
+  '/:accountId/reset-status',
+  authenticateAdmin,
+  asyncRoute('Failed to reset status', async (req) => {
     const { accountId } = req.params
     const result = await ccrAccountService.resetAccountStatus(accountId)
     logger.success(`Admin reset status for CCR account: ${accountId}`)
-    return res.json({ success: true, data: result })
-  } catch (error) {
-    logger.error('❌ Failed to reset CCR account status:', error)
-    return res.status(500).json({ error: 'Failed to reset status', message: error.message })
-  }
-})
+    return result
+  }),
+)
 
 // 手动重置所有CCR账户的每日使用量
-router.post('/reset-all-usage', authenticateAdmin, async (req, res) => {
-  try {
+router.post(
+  '/reset-all-usage',
+  authenticateAdmin,
+  asyncRoute('Failed to reset all daily usage', async () => {
     await ccrAccountService.resetAllDailyUsage()
 
     logger.success('Admin manually reset daily usage for all CCR accounts')
-    return res.json({ success: true, message: 'All daily usage reset successfully' })
-  } catch (error) {
-    logger.error('❌ Failed to reset all CCR accounts daily usage:', error)
-    return res.status(500).json({ error: 'Failed to reset all daily usage', message: error.message })
-  }
-})
+    return ok(undefined, 'All daily usage reset successfully')
+  }),
+)
 
 // 测试 CCR 账户连通性
-router.post('/:accountId/test', authenticateAdmin, async (req, res) => {
-  const { accountId } = req.params
-  const startTime = Date.now()
+router.post(
+  '/:accountId/test',
+  authenticateAdmin,
+  asyncRoute('CCR account test failed', async (req) => {
+    const { accountId } = req.params
+    const startTime = Date.now()
 
-  try {
-    // 请求显式指定优先，否则用后台配置的默认测试模型（单一事实源）
-    const model = await testModelConfigService.resolveAccountModel('ccr', req.body.model)
-    // 获取账户信息
-    const account = await ccrAccountService.getAccount(accountId)
-    if (!account) {
-      return res.status(404).json({ error: 'Account not found' })
-    }
-
-    // 获取解密后的凭据
-    const credentials = await ccrAccountService.getDecryptedCredentials(accountId)
-    if (!credentials) {
-      return res.status(401).json({ error: 'Credentials not found or decryption failed' })
-    }
-
-    // 构造测试请求
-
-    const baseUrl = account.baseUrl || 'https://api.anthropic.com'
-    const apiUrl = `${baseUrl}/v1/messages`
-    const payload = {
-      model,
-      max_tokens: 100,
-      messages: [{ role: 'user', content: 'Say "Hello" in one word.' }],
-    }
-
-    const requestConfig = {
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': credentials.apiKey,
-        'anthropic-version': '2023-06-01',
-      },
-      timeout: 30000,
-    }
-
-    // 配置代理
-    if (account.proxy) {
-      const agent = ProxyHelper.createProxyAgent(account.proxy)
-      if (agent) {
-        requestConfig.httpsAgent = agent
-        requestConfig.httpAgent = agent
+    try {
+      // 请求显式指定优先，否则用后台配置的默认测试模型（单一事实源）
+      const body = parseObjectBody(req.body, '测试CCR账户')
+      const model = await testModelConfigService.resolveAccountModel('ccr', body.model)
+      // 获取账户信息
+      const account = await ccrAccountService.getAccount(accountId)
+      if (!account) {
+        throw notFound('Account not found')
       }
-    }
 
-    const response = await axios.post(apiUrl, payload, requestConfig)
-    const latency = Date.now() - startTime
+      // 获取解密后的凭据
+      const credentials = await ccrAccountService.getDecryptedCredentials(accountId)
+      if (!credentials) {
+        throw unauthorized('Credentials not found or decryption failed')
+      }
 
-    // 提取响应文本
-    let responseText = ''
-    if (response.data?.content?.[0]?.text) {
-      responseText = response.data.content[0].text
-    }
+      // 构造测试请求
 
-    logger.success(`✅ CCR account test passed: ${account.name} (${accountId}), latency: ${latency}ms`)
+      const baseUrl = account.baseUrl || 'https://api.anthropic.com'
+      const apiUrl = `${baseUrl}/v1/messages`
+      const payload = {
+        model,
+        max_tokens: 100,
+        messages: [{ role: 'user', content: 'Say "Hello" in one word.' }],
+      }
 
-    return res.json({
-      success: true,
-      data: {
+      const requestConfig = {
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': credentials.apiKey,
+          'anthropic-version': '2023-06-01',
+        },
+        timeout: 30000,
+      }
+
+      // 配置代理
+      if (account.proxy) {
+        const agent = ProxyHelper.createProxyAgent(account.proxy)
+        if (agent) {
+          requestConfig.httpsAgent = agent
+          requestConfig.httpAgent = agent
+        }
+      }
+
+      const response = await axios.post(apiUrl, payload, requestConfig)
+      const latency = Date.now() - startTime
+
+      // 提取响应文本
+      let responseText = ''
+      if (response.data?.content?.[0]?.text) {
+        responseText = response.data.content[0].text
+      }
+
+      logger.success(`CCR account test passed: ${account.name} (${accountId}), latency: ${latency}ms`)
+
+      return {
         accountId,
         accountName: account.name,
         model,
         latency,
         responseText: responseText.substring(0, 200),
-      },
-    })
-  } catch (error) {
-    const latency = Date.now() - startTime
-    logger.error(`❌ CCR account test failed: ${accountId}`, error.message)
+      }
+    } catch (error) {
+      if (error.statusCode) {
+        throw error
+      }
+      const latency = Date.now() - startTime
+      logger.error(`CCR account test failed: ${accountId}`, error.message)
 
-    return res.status(500).json({
-      success: false,
-      error: 'Test failed',
-      message: extractErrorMessage(error.response?.data, error.message),
-      latency,
-    })
-  }
-})
+      return fail(500, extractErrorMessage(error.response?.data, error.message), {
+        data: { latency },
+      })
+    }
+  }),
+)

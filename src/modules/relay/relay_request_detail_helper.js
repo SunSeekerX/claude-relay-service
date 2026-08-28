@@ -547,6 +547,7 @@ export const createRequestDetailMeta = function createRequestDetailMeta(req, ove
   const effectiveStart = requestStartedAt ?? reqStartedAt
   const requestBody = overrides.requestBody !== undefined ? overrides.requestBody : req?.body
 
+  const firstTokenMsOverride = toFiniteNumber(overrides.firstTokenMs)
   const meta = {
     requestId: overrides.requestId || req?.requestId || null,
     endpoint: overrides.endpoint || getRequestEndpoint(req),
@@ -558,9 +559,36 @@ export const createRequestDetailMeta = function createRequestDetailMeta(req, ove
     requestStartedAt: effectiveStart ? new Date(effectiveStart).toISOString() : null,
     requestBody,
   }
+  const groupCostHoldGroupId = overrides.groupCostHoldGroupId || req?.apiKey?.groupCostHoldGroupId
+  if (groupCostHoldGroupId) {
+    meta.groupCostHoldGroupId = String(groupCostHoldGroupId)
+  }
+  // firstTokenMs 用 getter：流式可能在 create 之后才写出首包，finalize/spread 时再读 req 实时值
+  // [人工决策] 对齐 new-api：TTFT 取「首次内容写出」而非 create 时刻快照
+  Object.defineProperty(meta, 'firstTokenMs', {
+    enumerable: true,
+    configurable: true,
+    get() {
+      if (firstTokenMsOverride !== null) {
+        return firstTokenMsOverride
+      }
+      return toFiniteNumber(req?.firstTokenMs)
+    },
+  })
   // 计费附加量（按图张数/音频秒等），仅透传给 recordUsage → calculateCost，不进请求体快照语义
   if (overrides.billingUsage && typeof overrides.billingUsage === 'object') {
     meta.billingUsage = overrides.billingUsage
+  }
+  // 跨协议桥 / token 估算标记（管理端请求详情展示）
+  const protocolBridge = overrides.protocolBridge || req?._crsProtocolBridge
+  if (protocolBridge) {
+    meta.protocolBridge = String(protocolBridge)
+  }
+  if (overrides.tokenCountEstimate === true) {
+    meta.tokenCountEstimate = true
+  }
+  if (overrides.tokenCountEstimateMethod) {
+    meta.tokenCountEstimateMethod = String(overrides.tokenCountEstimateMethod)
   }
   return meta
 }
@@ -573,10 +601,13 @@ export const finalizeRequestDetailMeta = function finalizeRequestDetailMeta(requ
   const requestStartedAtMs = toTimestampMs(requestMeta.requestStartedAt)
   const durationMs =
     requestStartedAtMs !== null ? Math.max(0, Date.now() - requestStartedAtMs) : toFiniteNumber(requestMeta.durationMs)
+  // finalize 时再读一遍 req 上可能刚打上的首包点（通过 overrides 传入）
+  const firstTokenMs = toFiniteNumber(requestMeta.firstTokenMs)
 
   return {
     ...requestMeta,
     durationMs,
+    firstTokenMs,
   }
 }
 
@@ -684,18 +715,27 @@ export const isThinkingAlreadyInOutput = function isThinkingAlreadyInOutput(usag
   }
 
   // OpenAI / Codex / Azure / Grok Responses&Chat：details.reasoning_tokens 是 output 子集
-  if (usage.output_tokens_details?.reasoning_tokens != null) {
+  if (
+    usage.output_tokens_details?.reasoning_tokens !== undefined &&
+    usage.output_tokens_details?.reasoning_tokens !== null
+  ) {
     return true
   }
-  if (usage.output_token_details?.reasoning_tokens != null) {
+  if (
+    usage.output_token_details?.reasoning_tokens !== undefined &&
+    usage.output_token_details?.reasoning_tokens !== null
+  ) {
     return true
   }
-  if (usage.completion_tokens_details?.reasoning_tokens != null) {
+  if (
+    usage.completion_tokens_details?.reasoning_tokens !== undefined &&
+    usage.completion_tokens_details?.reasoning_tokens !== null
+  ) {
     return true
   }
 
   // Gemini 原生：thoughts 与 candidates 分立
-  if (usage.thoughtsTokenCount != null) {
+  if (usage.thoughtsTokenCount !== undefined && usage.thoughtsTokenCount !== null) {
     return false
   }
 
@@ -732,7 +772,11 @@ export const buildTokenUsagePayload = function buildTokenUsagePayload({
   if (raw.output_token_details) {
     payload.output_token_details = raw.output_token_details
   }
-  if (raw.thoughtsTokenCount != null && payload.thoughtsTokenCount == null) {
+  if (
+    raw.thoughtsTokenCount !== undefined &&
+    raw.thoughtsTokenCount !== null &&
+    (payload.thoughtsTokenCount === undefined || payload.thoughtsTokenCount === null)
+  ) {
     payload.thoughtsTokenCount = raw.thoughtsTokenCount
   }
 

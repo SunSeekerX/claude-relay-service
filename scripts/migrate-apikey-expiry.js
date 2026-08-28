@@ -42,17 +42,17 @@ async function askConfirmation(question) {
 
 async function migrateApiKeys() {
   try {
-    logger.info('🔄 Starting API Key expiry migration...')
-    logger.info(`📅 Default expiry period: ${DEFAULT_DAYS} days`)
-    logger.info(`🔍 Mode: ${DRY_RUN ? 'DRY RUN (no changes will be made)' : 'LIVE RUN'}`)
+    logger.info('Starting API Key expiry migration...')
+    logger.info(`Default expiry period: ${DEFAULT_DAYS} days`)
+    logger.info(`Mode: ${DRY_RUN ? 'DRY RUN (no changes will be made)' : 'LIVE RUN'}`)
 
     // 连接 Redis
     await redis.connect()
-    logger.success('✅ Connected to Redis')
+    logger.success('Connected to Redis')
 
     // 获取所有 API Keys
     const apiKeys = await apiKeyService.getAllApiKeysFast()
-    logger.info(`📊 Found ${apiKeys.length} API Keys in total`)
+    logger.info(`Found ${apiKeys.length} API Keys in total`)
 
     // 统计信息
     const stats = {
@@ -71,22 +71,22 @@ async function migrateApiKeys() {
       if (!key.expiresAt || key.expiresAt === 'null' || key.expiresAt === '') {
         keysToMigrate.push(key)
         stats.needsMigration++
-        logger.info(`📌 API Key "${key.name}" (${key.id}) needs migration`)
+        logger.info(`API Key "${key.name}" (${key.id}) needs migration`)
       } else {
         stats.alreadyHasExpiry++
         const expiryDate = new Date(key.expiresAt)
-        logger.info(`✓ API Key "${key.name}" (${key.id}) already has expiry: ${expiryDate.toLocaleString()}`)
+        logger.info(`API Key "${key.name}" (${key.id}) already has expiry: ${expiryDate.toLocaleString()}`)
       }
     }
 
     if (keysToMigrate.length === 0) {
-      logger.success('✨ No API Keys need migration!')
+      logger.success('No API Keys need migration!')
       return
     }
 
     // 显示迁移摘要
     console.log(`\n${'='.repeat(60)}`)
-    console.log('📋 Migration Summary:')
+    console.log('Migration Summary:')
     console.log('='.repeat(60))
     console.log(`Total API Keys: ${stats.total}`)
     console.log(`Already have expiry: ${stats.alreadyHasExpiry}`)
@@ -97,11 +97,11 @@ async function migrateApiKeys() {
     // 如果不是 dry run，请求确认
     if (!DRY_RUN) {
       const confirmed = await askConfirmation(
-        `⚠️  This will set expiry dates for ${keysToMigrate.length} API Keys. Continue?`,
+        `This will set expiry dates for ${keysToMigrate.length} API Keys. Continue?`,
       )
 
       if (!confirmed) {
-        logger.warn('❌ Migration cancelled by user')
+        logger.warn('Migration cancelled by user')
         return
       }
     }
@@ -111,7 +111,7 @@ async function migrateApiKeys() {
     newExpiryDate.setDate(newExpiryDate.getDate() + DEFAULT_DAYS)
     const newExpiryISO = newExpiryDate.toISOString()
 
-    logger.info(`\n🚀 Starting migration... New expiry date: ${newExpiryDate.toLocaleString()}`)
+    logger.info(`\nStarting migration... New expiry date: ${newExpiryDate.toLocaleString()}`)
 
     // 执行迁移
     for (const key of keysToMigrate) {
@@ -120,20 +120,20 @@ async function migrateApiKeys() {
           // 直接更新 Redis 中的数据
           // 使用 hset 更新单个字段
           await redis.client.hset(`apikey:${key.id}`, 'expiresAt', newExpiryISO)
-          logger.success(`✅ Migrated: "${key.name}" (${key.id})`)
+          logger.success(`Migrated: "${key.name}" (${key.id})`)
         } else {
           logger.info(`[DRY RUN] Would migrate: "${key.name}" (${key.id})`)
         }
         stats.migrated++
       } catch (error) {
-        logger.error(`❌ Error migrating "${key.name}" (${key.id}):`, error.message)
+        logger.error(`Error migrating "${key.name}" (${key.id}):`, error.message)
         stats.errors++
       }
     }
 
     // 显示最终结果
     console.log(`\n${'='.repeat(60)}`)
-    console.log('✅ Migration Complete!')
+    console.log('Migration Complete!')
     console.log('='.repeat(60))
     console.log(`Successfully migrated: ${stats.migrated}`)
     console.log(`Errors: ${stats.errors}`)
@@ -141,17 +141,17 @@ async function migrateApiKeys() {
     console.log(`${'='.repeat(60)}\n`)
 
     if (DRY_RUN) {
-      logger.warn('⚠️  This was a DRY RUN. No actual changes were made.')
-      logger.info('💡 Run without --dry-run flag to apply changes.')
+      logger.warn('This was a DRY RUN. No actual changes were made.')
+      logger.info('Run without --dry-run flag to apply changes.')
     }
   } catch (error) {
-    logger.error('💥 Migration failed:', error)
+    logger.error('Migration failed:', error)
     process.exit(1)
   } finally {
     // 清理
     rl.close()
     await redis.disconnect()
-    logger.info('👋 Disconnected from Redis')
+    logger.info('Disconnected from Redis')
   }
 }
 
@@ -185,6 +185,6 @@ Examples:
 
 // 运行迁移
 migrateApiKeys().catch((error) => {
-  logger.error('💥 Unexpected error:', error)
+  logger.error('Unexpected error:', error)
   process.exit(1)
 })

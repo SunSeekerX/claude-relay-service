@@ -70,12 +70,12 @@ class WeeklyClaudeCostInitService {
   async backfillCurrentWeekClaudeCosts() {
     const client = redis.getClientSafe()
     if (!client) {
-      logger.warn('⚠️ Claude 周费用回填跳过：Redis client 不可用')
+      logger.warn('Claude 周费用回填跳过：Redis client 不可用')
       return { success: false, reason: 'redis_unavailable' }
     }
 
     if (!pricingService || !pricingService.pricingData) {
-      logger.warn('⚠️ Claude 周费用回填跳过：pricing service 未初始化')
+      logger.warn('Claude 周费用回填跳过：pricing service 未初始化')
       return { success: false, reason: 'pricing_uninitialized' }
     }
 
@@ -85,7 +85,7 @@ class WeeklyClaudeCostInitService {
     try {
       const alreadyDone = await client.get(doneKey)
       if (alreadyDone) {
-        logger.info(`ℹ️ Claude 周费用回填已完成（${todayStr}），跳过`)
+        logger.info(`Claude 周费用回填已完成（${todayStr}），跳过`)
         return { success: true, skipped: true }
       }
     } catch (e) {
@@ -98,13 +98,13 @@ class WeeklyClaudeCostInitService {
 
     const lockAcquired = await redis.setAccountLock(lockKey, lockValue, lockTtlMs)
     if (!lockAcquired) {
-      logger.info(`ℹ️ Claude 周费用回填已在运行（${todayStr}），跳过`)
+      logger.info(`Claude 周费用回填已在运行（${todayStr}），跳过`)
       return { success: true, skipped: true, reason: 'locked' }
     }
 
     const startedAt = Date.now()
     try {
-      logger.info(`💰 开始回填 Claude 周费用（${todayStr}）...`)
+      logger.info(`开始回填 Claude 周费用（${todayStr}）...`)
 
       const keyIds = await redis.scanApiKeyIds()
       const dates = this._getLast7DaysInTimezone()
@@ -127,7 +127,7 @@ class WeeklyClaudeCostInitService {
           }
         }
       }
-      logger.info(`💰 预加载 ${keyDataCache.size} 个 API Key 数据`)
+      logger.info(`预加载 ${keyDataCache.size} 个 API Key 数据`)
 
       // 收集每个 key 每天的费用: Map<keyId, Map<dateStr, ratedCost>>
       const costByKeyDate = new Map()
@@ -282,7 +282,7 @@ class WeeklyClaudeCostInitService {
 
       const durationMs = Date.now() - startedAt
       logger.info(
-        `✅ Claude 周费用回填完成（${todayStr}）：keys=${keyIds.length}, scanned=${scannedKeys}, matchedClaude=${matchedClaudeKeys}, filled=${filledCount}（${durationMs}ms）`,
+        `Claude 周费用回填完成（${todayStr}）：keys=${keyIds.length}, scanned=${scannedKeys}, matchedClaude=${matchedClaudeKeys}, filled=${filledCount}（${durationMs}ms）`,
       )
 
       return {
@@ -295,7 +295,7 @@ class WeeklyClaudeCostInitService {
         durationMs,
       }
     } catch (error) {
-      logger.error(`❌ Claude 周费用回填失败（${todayStr}）：`, error)
+      logger.error(`Claude 周费用回填失败（${todayStr}）：`, error)
       return { success: false, error: error.message }
     } finally {
       await redis.releaseAccountLock(lockKey, lockValue)
@@ -308,7 +308,7 @@ class WeeklyClaudeCostInitService {
   async backfillSingleKey(keyId) {
     const client = redis.getClientSafe()
     if (!client) {
-      logger.warn(`⚠️ 单 Key 回填跳过 (${keyId})：Redis client 不可用`)
+      logger.warn(`单 Key 回填跳过 (${keyId})：Redis client 不可用`)
       return { success: false, reason: 'redis_unavailable' }
     }
 
@@ -316,7 +316,7 @@ class WeeklyClaudeCostInitService {
       try {
         await pricingService.initialize()
       } catch (e) {
-        logger.warn(`⚠️ 单 Key 回填跳过 (${keyId})：pricing service 未初始化`)
+        logger.warn(`单 Key 回填跳过 (${keyId})：pricing service 未初始化`)
         return { success: false, reason: 'pricing_uninitialized' }
       }
     }
@@ -438,11 +438,11 @@ class WeeklyClaudeCostInitService {
       }
 
       await redis.setWeeklyOpusCost(keyId, totalCost, periodString)
-      logger.info(`💰 单 Key 回填完成 (${keyId})：period=${periodString}, cost=$${totalCost.toFixed(6)}`)
+      logger.info(`单 Key 回填完成 (${keyId})：period=${periodString}, cost=$${totalCost.toFixed(6)}`)
 
       return { success: true, cost: totalCost, periodString }
     } catch (error) {
-      logger.error(`❌ 单 Key 回填失败 (${keyId})：`, error)
+      logger.error(`单 Key 回填失败 (${keyId})：`, error)
       return { success: false, error: error.message }
     }
   }

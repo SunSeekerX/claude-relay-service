@@ -41,13 +41,7 @@
               :class="[
                 'whitespace-nowrap rounded-lg px-3 py-1.5 text-sm font-medium transition-all',
                 activeTab === tab.key
-                  ? tab.key === 'claude'
-                    ? 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300'
-                    : tab.key === 'gemini'
-                      ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300'
-                      : tab.key === 'droid'
-                        ? 'bg-cyan-100 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-300'
-                        : 'bg-gray-200 text-gray-700 dark:bg-gray-700 dark:text-gray-200'
+                  ? tabActiveClass(tab.key)
                   : 'bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-400 dark:hover:bg-gray-700'
               ]"
               type="button"
@@ -95,39 +89,52 @@
                 </div>
                 <div class="ml-4 flex items-center gap-2">
                   <span
-                    :class="[
-                      'rounded-full px-2 py-1 text-sm font-medium',
-                      group.platform === 'claude'
-                        ? 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300'
-                        : group.platform === 'gemini'
-                          ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300'
-                          : group.platform === 'openai'
-                            ? 'bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-200'
-                            : 'bg-cyan-100 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-300'
-                    ]"
+                    class="rounded-full px-2 py-1 text-sm font-medium"
+                    :class="platformBadgeClass(group.platform)"
                   >
-                    {{
-                      group.platform === 'claude'
-                        ? 'Claude'
-                        : group.platform === 'gemini'
-                          ? 'Gemini'
-                          : group.platform === 'openai'
-                            ? 'OpenAI'
-                            : 'Droid'
-                    }}
+                    {{ platformLabelMap[group.platform] || group.platform }}
                   </span>
                 </div>
               </div>
 
-              <div class="flex items-center gap-4 text-sm text-gray-600 dark:text-gray-400">
+              <div class="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-gray-600 dark:text-gray-400">
                 <span>
                   <i class="i-lucide-users mr-1" />
                   {{ group.memberCount || 0 }} 个成员
                 </span>
                 <span>
+                  <i class="i-lucide-percent mr-1" />
+                  倍率 {{ group.rateMultiplier ?? 1 }}
+                </span>
+                <span v-if="group.rpmLimit > 0">
+                  <i class="i-lucide-gauge mr-1" />
+                  RPM {{ group.rpmLimit }}
+                </span>
+                <span v-if="group.isExclusive" class="text-amber-600 dark:text-amber-400">专属</span>
+                <span
+                  v-if="group.platform === 'claude' && group.claudeCodeOnly"
+                  class="text-indigo-600 dark:text-indigo-400"
+                  >仅 CC</span
+                >
+                <span>
                   <i class="i-lucide-clock mr-1" />
                   {{ formatDate(group.createdAt) }}
                 </span>
+              </div>
+              <div
+                v-if="group.dailyLimitUsd || group.weeklyLimitUsd || group.monthlyLimitUsd"
+                class="mt-1 text-sm text-gray-500 dark:text-gray-400"
+              >
+                限额
+                <template v-if="group.dailyLimitUsd">
+                  日 ${{ formatUsage(group.usageCost?.daily) }}/${{ group.dailyLimitUsd }}
+                </template>
+                <template v-if="group.weeklyLimitUsd">
+                  周 ${{ formatUsage(group.usageCost?.weekly) }}/${{ group.weeklyLimitUsd }}
+                </template>
+                <template v-if="group.monthlyLimitUsd">
+                  月 ${{ formatUsage(group.usageCost?.monthly) }}/${{ group.monthlyLimitUsd }}
+                </template>
               </div>
               <div
                 class="mt-3 flex flex-wrap items-center gap-2 border-t border-gray-100 pt-3 dark:border-gray-700"
@@ -161,9 +168,9 @@
       v-if="showEditForm"
       class="modal fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4"
     >
-      <div class="modal-content w-full max-w-lg p-3 sm:p-4">
-        <div class="mb-4 flex items-center justify-between">
-          <h3 class="text-lg font-bold text-gray-900 dark:text-gray-100">编辑分组</h3>
+      <div class="modal-content custom-scrollbar max-h-[92vh] w-full max-w-2xl overflow-y-auto p-2.5 sm:p-3">
+        <div class="mb-3 flex items-center justify-between">
+          <h3 class="text-base font-bold text-gray-900 dark:text-gray-100 sm:text-lg">编辑分组</h3>
           <button class="text-gray-400 transition-colors hover:text-gray-600" @click="cancelEdit">
             <i class="i-lucide-x" />
           </button>
@@ -183,25 +190,19 @@
           </div>
 
           <div>
-            <label class="mb-2 block text-sm font-semibold text-gray-700 dark:text-gray-300"
+            <label class="mb-1.5 block text-sm font-semibold text-gray-700 dark:text-gray-300"
               >平台类型</label
             >
             <div
               class="rounded-lg bg-gray-100 px-3 py-2 text-sm text-gray-600 dark:bg-gray-700 dark:text-gray-300"
             >
-              {{
-                editForm.platform === 'claude'
-                  ? 'Claude'
-                  : editForm.platform === 'gemini'
-                    ? 'Gemini'
-                    : 'OpenAI'
-              }}
+              {{ platformLabelMap[editForm.platform] || editForm.platform }}
               <span class="ml-2 text-sm text-gray-500">(不可修改)</span>
             </div>
           </div>
 
           <div>
-            <label class="mb-2 block text-sm font-semibold text-gray-700 dark:text-gray-300"
+            <label class="mb-1.5 block text-sm font-semibold text-gray-700 dark:text-gray-300"
               >描述 (可选)</label
             >
             <textarea
@@ -212,9 +213,98 @@
             />
           </div>
 
+          <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div>
+              <label class="mb-1.5 block text-sm font-semibold text-gray-700 dark:text-gray-300"
+                >计费倍率</label
+              >
+              <input
+                v-model.number="editForm.rateMultiplier"
+                class="form-input w-full"
+                min="0"
+                step="0.01"
+                type="number"
+              />
+            </div>
+            <div>
+              <label class="mb-1.5 block text-sm font-semibold text-gray-700 dark:text-gray-300"
+                >RPM 上限（0=不限）</label
+              >
+              <input
+                v-model.number="editForm.rpmLimit"
+                class="form-input w-full"
+                min="0"
+                step="1"
+                type="number"
+              />
+            </div>
+            <div>
+              <label class="mb-1.5 block text-sm font-semibold text-gray-700 dark:text-gray-300"
+                >日限额 USD（空=不限）</label
+              >
+              <input
+                v-model="editForm.dailyLimitUsd"
+                class="form-input w-full"
+                min="0"
+                step="0.01"
+                type="number"
+              />
+            </div>
+            <div>
+              <label class="mb-1.5 block text-sm font-semibold text-gray-700 dark:text-gray-300"
+                >周限额 USD</label
+              >
+              <input
+                v-model="editForm.weeklyLimitUsd"
+                class="form-input w-full"
+                min="0"
+                step="0.01"
+                type="number"
+              />
+            </div>
+            <div>
+              <label class="mb-1.5 block text-sm font-semibold text-gray-700 dark:text-gray-300"
+                >月限额 USD</label
+              >
+              <input
+                v-model="editForm.monthlyLimitUsd"
+                class="form-input w-full"
+                min="0"
+                step="0.01"
+                type="number"
+              />
+            </div>
+          </div>
+
+          <div class="flex flex-wrap gap-4">
+            <label class="inline-flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
+              <input v-model="editForm.isExclusive" class="rounded" type="checkbox" />
+              专属分组（仅绑定可用）
+            </label>
+            <label
+              v-if="editForm.platform === 'claude'"
+              class="inline-flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300"
+            >
+              <input v-model="editForm.claudeCodeOnly" class="rounded" type="checkbox" />
+              仅 Claude Code 客户端
+            </label>
+          </div>
+
+          <div>
+            <label class="mb-1.5 block text-sm font-semibold text-gray-700 dark:text-gray-300"
+              >模型白名单（可选，每行或逗号分隔；空=不限）</label
+            >
+            <textarea
+              v-model="editForm.modelWhitelistText"
+              class="form-input w-full resize-none font-mono"
+              placeholder="claude-opus-4&#10;gpt-5"
+              rows="3"
+            />
+          </div>
+
           <div class="flex shrink-0 items-center gap-2 border-t border-gray-200 pt-3 dark:border-gray-700">
             <button
-              class="btn btn-primary h-10 inline-flex flex-1 items-center justify-center px-4 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-60"
+              class="btn btn-primary inline-flex h-10 flex-1 items-center justify-center px-4 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-60"
               type="button"
               :disabled="!editForm.name || updating"
               @click="updateGroup"
@@ -222,7 +312,13 @@
               <div v-if="updating" class="loading-spinner mr-2" />
               {{ updating ? '更新中...' : '更新' }}
             </button>
-            <button class="inline-flex h-10 flex-1 items-center justify-center rounded-lg bg-gray-100 px-4 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600" type="button" @click="cancelEdit">取消</button>
+            <button
+              class="inline-flex h-10 flex-1 items-center justify-center rounded-lg bg-gray-100 px-4 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600"
+              type="button"
+              @click="cancelEdit"
+            >
+              取消
+            </button>
           </div>
         </div>
       </div>
@@ -235,9 +331,9 @@
       v-if="showCreateForm"
       class="modal fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4"
     >
-      <div class="modal-content w-full max-w-lg p-3 sm:p-4">
-        <div class="mb-4 flex items-center justify-between">
-          <h3 class="text-lg font-bold text-gray-900 dark:text-gray-100">创建新分组</h3>
+      <div class="modal-content custom-scrollbar max-h-[92vh] w-full max-w-2xl overflow-y-auto p-2.5 sm:p-3">
+        <div class="mb-3 flex items-center justify-between">
+          <h3 class="text-base font-bold text-gray-900 dark:text-gray-100 sm:text-lg">创建新分组</h3>
           <button
             class="text-gray-400 transition-colors hover:text-gray-600 dark:hover:text-gray-300"
             @click="cancelCreate"
@@ -260,19 +356,19 @@
           </div>
 
           <div>
-            <label class="mb-2 block text-sm font-semibold text-gray-700 dark:text-gray-300"
+            <label class="mb-1.5 block text-sm font-semibold text-gray-700 dark:text-gray-300"
               >平台类型 *</label
             >
             <CuteOptionCards
               v-model="createForm.platform"
-              :columns="2"
+              :columns="3"
               :options="groupPlatformOptions"
               size="sm"
             />
           </div>
 
           <div>
-            <label class="mb-2 block text-sm font-semibold text-gray-700 dark:text-gray-300"
+            <label class="mb-1.5 block text-sm font-semibold text-gray-700 dark:text-gray-300"
               >描述 (可选)</label
             >
             <textarea
@@ -283,9 +379,98 @@
             />
           </div>
 
+          <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div>
+              <label class="mb-1.5 block text-sm font-semibold text-gray-700 dark:text-gray-300"
+                >计费倍率</label
+              >
+              <input
+                v-model.number="createForm.rateMultiplier"
+                class="form-input w-full"
+                min="0"
+                step="0.01"
+                type="number"
+              />
+            </div>
+            <div>
+              <label class="mb-1.5 block text-sm font-semibold text-gray-700 dark:text-gray-300"
+                >RPM 上限（0=不限）</label
+              >
+              <input
+                v-model.number="createForm.rpmLimit"
+                class="form-input w-full"
+                min="0"
+                step="1"
+                type="number"
+              />
+            </div>
+            <div>
+              <label class="mb-1.5 block text-sm font-semibold text-gray-700 dark:text-gray-300"
+                >日限额 USD（空=不限）</label
+              >
+              <input
+                v-model="createForm.dailyLimitUsd"
+                class="form-input w-full"
+                min="0"
+                step="0.01"
+                type="number"
+              />
+            </div>
+            <div>
+              <label class="mb-1.5 block text-sm font-semibold text-gray-700 dark:text-gray-300"
+                >周限额 USD</label
+              >
+              <input
+                v-model="createForm.weeklyLimitUsd"
+                class="form-input w-full"
+                min="0"
+                step="0.01"
+                type="number"
+              />
+            </div>
+            <div>
+              <label class="mb-1.5 block text-sm font-semibold text-gray-700 dark:text-gray-300"
+                >月限额 USD</label
+              >
+              <input
+                v-model="createForm.monthlyLimitUsd"
+                class="form-input w-full"
+                min="0"
+                step="0.01"
+                type="number"
+              />
+            </div>
+          </div>
+
+          <div class="flex flex-wrap gap-4">
+            <label class="inline-flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
+              <input v-model="createForm.isExclusive" class="rounded" type="checkbox" />
+              专属分组（仅绑定可用）
+            </label>
+            <label
+              v-if="createForm.platform === 'claude'"
+              class="inline-flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300"
+            >
+              <input v-model="createForm.claudeCodeOnly" class="rounded" type="checkbox" />
+              仅 Claude Code 客户端
+            </label>
+          </div>
+
+          <div>
+            <label class="mb-1.5 block text-sm font-semibold text-gray-700 dark:text-gray-300"
+              >模型白名单（可选，每行或逗号分隔；空=不限）</label
+            >
+            <textarea
+              v-model="createForm.modelWhitelistText"
+              class="form-input w-full resize-none font-mono"
+              placeholder="claude-opus-4&#10;gpt-5"
+              rows="3"
+            />
+          </div>
+
           <div class="flex shrink-0 items-center gap-2 border-t border-gray-200 pt-3 dark:border-gray-700">
             <button
-              class="btn btn-primary h-10 inline-flex flex-1 items-center justify-center px-4 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-60"
+              class="btn btn-primary inline-flex h-10 flex-1 items-center justify-center px-4 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-60"
               type="button"
               :disabled="!createForm.name || !createForm.platform || creating"
               @click="createGroup"
@@ -293,7 +478,13 @@
               <div v-if="creating" class="loading-spinner mr-2" />
               {{ creating ? '创建中...' : '创建' }}
             </button>
-            <button class="inline-flex h-10 flex-1 items-center justify-center rounded-lg bg-gray-100 px-4 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600" type="button" @click="cancelCreate">取消</button>
+            <button
+              class="inline-flex h-10 flex-1 items-center justify-center rounded-lg bg-gray-100 px-4 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600"
+              type="button"
+              @click="cancelCreate"
+            >
+              取消
+            </button>
           </div>
         </div>
       </div>
@@ -319,6 +510,7 @@ import { ref, computed, onMounted } from 'vue'
 import ModalTransition from '@/components/common/modal_transition.vue'
 import CuteOptionCards from '@/components/common/cute_option_cards.vue'
 import { showToast, formatDate } from '@/libs/tools'
+import { isOk, msgOf } from '@/libs/http_envelope'
 
 import * as httpApis from '@/libs/http_apis'
 import ConfirmModal from '@/components/common/confirm_modal.vue'
@@ -349,16 +541,71 @@ const activeTab = ref('all')
 const platformTabs = [
   { key: 'all', label: '全部', color: 'gray' },
   { key: 'claude', label: 'Claude', color: 'purple' },
+  { key: 'openai', label: 'OpenAI', color: 'emerald' },
   { key: 'gemini', label: 'Gemini', color: 'blue' },
-  { key: 'openai', label: 'OpenAI', color: 'gray' },
-  { key: 'droid', label: 'Droid', color: 'cyan' }
+  { key: 'antigravity', label: 'Antigravity', color: 'indigo' },
+  { key: 'droid', label: 'Droid', color: 'cyan' },
+  { key: 'grok', label: 'Grok', color: 'violet' }
 ]
+
+const platformLabelMap = {
+  claude: 'Claude',
+  openai: 'OpenAI',
+  gemini: 'Gemini',
+  antigravity: 'Antigravity',
+  droid: 'Droid',
+  grok: 'Grok'
+}
+
+const platformBadgeClass = (platform) => {
+  if (platform === 'claude') {
+    return 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300'
+  }
+  if (platform === 'openai') {
+    return 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300'
+  }
+  if (platform === 'gemini') {
+    return 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300'
+  }
+  if (platform === 'antigravity') {
+    return 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300'
+  }
+  if (platform === 'droid') {
+    return 'bg-cyan-100 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-300'
+  }
+  if (platform === 'grok') {
+    return 'bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300'
+  }
+  return 'bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-200'
+}
+
+const tabActiveClass = (key) => {
+  if (key === 'claude') {
+    return 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300'
+  }
+  if (key === 'openai') {
+    return 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300'
+  }
+  if (key === 'gemini') {
+    return 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300'
+  }
+  if (key === 'antigravity') {
+    return 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300'
+  }
+  if (key === 'droid') {
+    return 'bg-cyan-100 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-300'
+  }
+  if (key === 'grok') {
+    return 'bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300'
+  }
+  return 'bg-gray-200 text-gray-700 dark:bg-gray-700 dark:text-gray-200'
+}
 
 // 各平台分组数量
 const platformCounts = computed(() => {
   const counts = { all: groups.value.length }
   platformTabs.slice(1).forEach((tab) => {
-    counts[tab.key] = groups.value.filter((g) => g.platform === tab.key).length
+    counts[tab.key] = groups.value.filter((group) => group.platform === tab.key).length
   })
   return counts
 })
@@ -366,7 +613,21 @@ const platformCounts = computed(() => {
 // 过滤后的分组列表
 const filteredGroups = computed(() => {
   if (activeTab.value === 'all') return groups.value
-  return groups.value.filter((g) => g.platform === activeTab.value)
+  return groups.value.filter((group) => group.platform === activeTab.value)
+})
+
+const emptyGroupForm = () => ({
+  name: '',
+  platform: 'claude',
+  description: '',
+  rateMultiplier: 1,
+  isExclusive: false,
+  claudeCodeOnly: false,
+  rpmLimit: 0,
+  dailyLimitUsd: '',
+  weeklyLimitUsd: '',
+  monthlyLimitUsd: '',
+  modelWhitelistText: ''
 })
 
 // 删除确认
@@ -376,27 +637,58 @@ const deletingGroup = ref(null)
 // 创建表单
 const showCreateForm = ref(false)
 const creating = ref(false)
-const createForm = ref({
-  name: '',
-  platform: 'claude',
-  description: ''
-})
+const createForm = ref(emptyGroupForm())
 
 const groupPlatformOptions = [
   { value: 'claude', label: 'Claude', icon: 'i-lucide-brain' },
-  { value: 'gemini', label: 'Gemini', icon: 'i-lucide-gem' },
   { value: 'openai', label: 'OpenAI', icon: 'i-lucide-bot' },
-  { value: 'droid', label: 'Droid', icon: 'i-logos-android-icon' }
+  { value: 'gemini', label: 'Gemini', icon: 'i-lucide-gem' },
+  { value: 'antigravity', label: 'Antigravity', icon: 'i-lucide-orbit' },
+  { value: 'droid', label: 'Droid', icon: 'i-lucide-bot' },
+  { value: 'grok', label: 'Grok', icon: 'i-lucide-zap' }
 ]
 
 // 编辑表单
 const showEditForm = ref(false)
 const updating = ref(false)
 const editingGroup = ref(null)
-const editForm = ref({
-  name: '',
-  platform: '',
-  description: ''
+const editForm = ref(emptyGroupForm())
+
+const formatUsage = (value) => {
+  const number = Number(value)
+  if (!Number.isFinite(number) || number <= 0) return '0'
+  if (number < 0.01) return number.toFixed(4)
+  return number.toFixed(2)
+}
+
+const buildGroupPayload = (form) => ({
+  name: form.name,
+  platform: form.platform,
+  description: form.description,
+  rateMultiplier: form.rateMultiplier,
+  isExclusive: form.isExclusive,
+  claudeCodeOnly: form.claudeCodeOnly,
+  rpmLimit: form.rpmLimit,
+  dailyLimitUsd: form.dailyLimitUsd === '' ? 0 : form.dailyLimitUsd,
+  weeklyLimitUsd: form.weeklyLimitUsd === '' ? 0 : form.weeklyLimitUsd,
+  monthlyLimitUsd: form.monthlyLimitUsd === '' ? 0 : form.monthlyLimitUsd,
+  modelWhitelist: form.modelWhitelistText
+})
+
+const fillFormFromGroup = (group) => ({
+  name: group.name || '',
+  platform: group.platform || '',
+  description: group.description || '',
+  rateMultiplier: group.rateMultiplier ?? 1,
+  isExclusive: !!group.isExclusive,
+  claudeCodeOnly: !!group.claudeCodeOnly,
+  rpmLimit: group.rpmLimit || 0,
+  dailyLimitUsd: group.dailyLimitUsd ?? '',
+  weeklyLimitUsd: group.weeklyLimitUsd ?? '',
+  monthlyLimitUsd: group.monthlyLimitUsd ?? '',
+  modelWhitelistText: Array.isArray(group.modelWhitelist)
+    ? group.modelWhitelist.join('\n')
+    : ''
 })
 
 // 格式化日期
@@ -405,10 +697,10 @@ const editForm = ref({
 const loadGroups = async () => {
   loading.value = true
   const response = await httpApis.getAccountGroupsApi()
-  if (response.success) {
+  if (isOk(response)) {
     groups.value = response.data || []
   } else {
-    showToast(response.message || '加载分组列表失败', 'error')
+    showToast(msgOf(response, '加载分组列表失败'), 'error')
   }
   loading.value = false
 }
@@ -421,14 +713,10 @@ const createGroup = async () => {
   }
 
   creating.value = true
-  const response = await httpApis.createAccountGroupApi({
-    name: createForm.value.name,
-    platform: createForm.value.platform,
-    description: createForm.value.description
-  })
+  const response = await httpApis.createAccountGroupApi(buildGroupPayload(createForm.value))
   creating.value = false
-  if (!response.success) {
-    showToast(response.message || '创建分组失败', 'error')
+  if (!isOk(response)) {
+    showToast(msgOf(response, '创建分组失败'), 'error')
     return
   }
 
@@ -440,6 +728,7 @@ const createGroup = async () => {
 
 // 打开创建表单（根据当前 Tab 预选平台）
 const openCreateForm = () => {
+  createForm.value = emptyGroupForm()
   createForm.value.platform = activeTab.value !== 'all' ? activeTab.value : 'claude'
   showCreateForm.value = true
 }
@@ -447,21 +736,13 @@ const openCreateForm = () => {
 // 取消创建
 const cancelCreate = () => {
   showCreateForm.value = false
-  createForm.value = {
-    name: '',
-    platform: 'claude',
-    description: ''
-  }
+  createForm.value = emptyGroupForm()
 }
 
 // 编辑分组
 const editGroup = (group) => {
   editingGroup.value = group
-  editForm.value = {
-    name: group.name,
-    platform: group.platform,
-    description: group.description || ''
-  }
+  editForm.value = fillFormFromGroup(group)
   showEditForm.value = true
 }
 
@@ -473,13 +754,12 @@ const updateGroup = async () => {
   }
 
   updating.value = true
-  const response = await httpApis.updateAccountGroupApi(editingGroup.value.id, {
-    name: editForm.value.name,
-    description: editForm.value.description
-  })
+  const payload = buildGroupPayload(editForm.value)
+  delete payload.platform
+  const response = await httpApis.updateAccountGroupApi(editingGroup.value.id, payload)
   updating.value = false
-  if (!response.success) {
-    showToast(response.message || '更新分组失败', 'error')
+  if (!isOk(response)) {
+    showToast(msgOf(response, '更新分组失败'), 'error')
     return
   }
 
@@ -493,11 +773,7 @@ const updateGroup = async () => {
 const cancelEdit = () => {
   showEditForm.value = false
   editingGroup.value = null
-  editForm.value = {
-    name: '',
-    platform: '',
-    description: ''
-  }
+  editForm.value = emptyGroupForm()
 }
 
 // 删除分组 - 打开确认对话框
@@ -514,8 +790,8 @@ const deleteGroup = (group) => {
 const confirmDelete = async () => {
   if (!deletingGroup.value) return
   const response = await httpApis.deleteAccountGroupApi(deletingGroup.value.id)
-  if (!response.success) {
-    showToast(response.message || '删除分组失败', 'error')
+  if (!isOk(response)) {
+    showToast(msgOf(response, '删除分组失败'), 'error')
     return
   }
   showToast('分组删除成功', 'success')

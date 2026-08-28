@@ -56,7 +56,7 @@ function decryptClaudeData(encryptedData) {
     }
     return encryptedData
   } catch (error) {
-    logger.warn(`⚠️  Failed to decrypt data: ${error.message}`)
+    logger.warn(` Failed to decrypt data: ${error.message}`)
     return encryptedData
   }
 }
@@ -81,7 +81,7 @@ function decryptGeminiData(encryptedData) {
     }
     return encryptedData
   } catch (error) {
-    logger.warn(`⚠️  Failed to decrypt data: ${error.message}`)
+    logger.warn(` Failed to decrypt data: ${error.message}`)
     return encryptedData
   }
 }
@@ -290,7 +290,7 @@ async function exportUsageStats(keyId) {
 
     return stats
   } catch (error) {
-    logger.warn(`⚠️  Failed to export usage stats for ${keyId}: ${error.message}`)
+    logger.warn(` Failed to export usage stats for ${keyId}: ${error.message}`)
     return null
   }
 }
@@ -411,9 +411,9 @@ async function importUsageStats(keyId, stats) {
     }
 
     await pipeline.exec()
-    logger.info(`  📊 Imported ${importCount} usage stat entries for API Key ${keyId}`)
+    logger.info(`  Imported ${importCount} usage stat entries for API Key ${keyId}`)
   } catch (error) {
-    logger.warn(`⚠️  Failed to import usage stats for ${keyId}: ${error.message}`)
+    logger.warn(` Failed to import usage stats for ${keyId}: ${error.message}`)
   }
 }
 
@@ -482,14 +482,14 @@ async function exportData() {
     const shouldSanitize = params.sanitize === true
     const shouldDecrypt = params.decrypt !== false // 默认解密
 
-    logger.info('🔄 Starting data export...')
-    logger.info(`📁 Output file: ${outputFile}`)
-    logger.info(`📋 Data types: ${types.join(', ')}`)
-    logger.info(`🔒 Sanitize sensitive data: ${shouldSanitize ? 'YES' : 'NO'}`)
-    logger.info(`🔓 Decrypt data: ${shouldDecrypt ? 'YES' : 'NO'}`)
+    logger.info('Starting data export...')
+    logger.info(`Output file: ${outputFile}`)
+    logger.info(`Data types: ${types.join(', ')}`)
+    logger.info(`Sanitize sensitive data: ${shouldSanitize ? 'YES' : 'NO'}`)
+    logger.info(`Decrypt data: ${shouldDecrypt ? 'YES' : 'NO'}`)
 
     await redis.connect()
-    logger.success('✅ Connected to Redis')
+    logger.success('Connected to Redis')
 
     const exportDataObj = {
       metadata: {
@@ -504,7 +504,7 @@ async function exportData() {
 
     // 导出 API Keys
     if (types.includes('all') || types.includes('apikeys')) {
-      logger.info('📤 Exporting API Keys...')
+      logger.info('Exporting API Keys...')
       const keys = await redis.client.keys('apikey:*')
       const apiKeys = []
 
@@ -528,12 +528,12 @@ async function exportData() {
       }
 
       exportDataObj.data.apiKeys = apiKeys
-      logger.success(`✅ Exported ${apiKeys.length} API Keys`)
+      logger.success(`Exported ${apiKeys.length} API Keys`)
     }
 
     // 导出 Claude 账户
     if (types.includes('all') || types.includes('accounts')) {
-      logger.info('📤 Exporting Claude accounts...')
+      logger.info('Exporting Claude accounts...')
       const keys = await redis.client.keys('claude:account:*')
       logger.info(`Found ${keys.length} Claude account keys in Redis`)
       const accounts = []
@@ -571,10 +571,10 @@ async function exportData() {
       }
 
       exportDataObj.data.claudeAccounts = accounts
-      logger.success(`✅ Exported ${accounts.length} Claude accounts`)
+      logger.success(`Exported ${accounts.length} Claude accounts`)
 
       // 导出 Gemini 账户
-      logger.info('📤 Exporting Gemini accounts...')
+      logger.info('Exporting Gemini accounts...')
       const geminiKeys = await redis.client.keys('gemini_account:*')
       logger.info(`Found ${geminiKeys.length} Gemini account keys in Redis`)
       const geminiAccounts = []
@@ -606,12 +606,12 @@ async function exportData() {
       }
 
       exportDataObj.data.geminiAccounts = geminiAccounts
-      logger.success(`✅ Exported ${geminiAccounts.length} Gemini accounts`)
+      logger.success(`Exported ${geminiAccounts.length} Gemini accounts`)
     }
 
     // 导出管理员
     if (types.includes('all') || types.includes('admins')) {
-      logger.info('📤 Exporting admins...')
+      logger.info('Exporting admins...')
       const keys = await redis.client.keys('admin:*')
       const admins = []
 
@@ -627,12 +627,12 @@ async function exportData() {
       }
 
       exportDataObj.data.admins = admins
-      logger.success(`✅ Exported ${admins.length} admins`)
+      logger.success(`Exported ${admins.length} admins`)
     }
 
     // 导出全局模型统计（如果需要）
     if (types.includes('all') || types.includes('stats')) {
-      logger.info('📤 Exporting global model statistics...')
+      logger.info('Exporting global model statistics...')
       const globalStats = {
         daily: {},
         monthly: {},
@@ -648,14 +648,14 @@ async function exportData() {
       const monthlyMonths = await redis.client.smembers('usage:model:monthly:months')
       if (monthlyMonths && monthlyMonths.length > 0) {
         globalStats.monthlyMonths = monthlyMonths
-        logger.info(`📤 Found ${monthlyMonths.length} months in index`)
+        logger.info(`Found ${monthlyMonths.length} months in index`)
       }
 
       // 导出全局统计
       const globalTotal = await redis.client.hgetall('usage:global:total')
       if (globalTotal && Object.keys(globalTotal).length > 0) {
         globalStats.globalTotal = globalTotal
-        logger.info('📤 Found global total stats')
+        logger.info('Found global total stats')
       }
 
       // 导出全局每日统计
@@ -667,7 +667,7 @@ async function exportData() {
           globalStats.globalDaily[date] = data
         }
       }
-      logger.info(`📤 Found ${Object.keys(globalStats.globalDaily).length} global daily stats`)
+      logger.info(`Found ${Object.keys(globalStats.globalDaily).length} global daily stats`)
 
       // 导出全局每月统计
       const globalMonthlyKeys = await redis.client.keys('usage:global:monthly:*')
@@ -678,7 +678,7 @@ async function exportData() {
           globalStats.globalMonthly[month] = data
         }
       }
-      logger.info(`📤 Found ${Object.keys(globalStats.globalMonthly).length} global monthly stats`)
+      logger.info(`Found ${Object.keys(globalStats.globalMonthly).length} global monthly stats`)
 
       // 导出全局每日模型统计
       const modelDailyPattern = 'usage:model:daily:*'
@@ -735,7 +735,7 @@ async function exportData() {
       }
 
       exportDataObj.data.globalModelStats = globalStats
-      logger.success('✅ Exported global model statistics')
+      logger.success('Exported global model statistics')
     }
 
     // 写入文件
@@ -743,7 +743,7 @@ async function exportData() {
 
     // 显示导出摘要
     console.log(`\n${'='.repeat(60)}`)
-    console.log('✅ Export Complete!')
+    console.log('Export Complete!')
     console.log('='.repeat(60))
     console.log(`Output file: ${outputFile}`)
     console.log(`File size: ${(await fs.stat(outputFile)).size} bytes`)
@@ -763,13 +763,13 @@ async function exportData() {
     console.log('='.repeat(60))
 
     if (shouldSanitize) {
-      logger.warn('⚠️  Sensitive data has been sanitized in this export.')
+      logger.warn(' Sensitive data has been sanitized in this export.')
     }
     if (shouldDecrypt) {
-      logger.info('🔓 Encrypted data has been decrypted for portability.')
+      logger.info('Encrypted data has been decrypted for portability.')
     }
   } catch (error) {
-    logger.error('💥 Export failed:', error)
+    logger.error('Export failed:', error)
     process.exit(1)
   } finally {
     await redis.disconnect()
@@ -836,16 +836,16 @@ async function importData() {
   try {
     const inputFile = params.input
     if (!inputFile) {
-      logger.error('❌ Please specify input file with --input=filename.json')
+      logger.error('Please specify input file with --input=filename.json')
       process.exit(1)
     }
 
     const forceOverwrite = params.force === true
     const skipConflicts = params['skip-conflicts'] === true
 
-    logger.info('🔄 Starting data import...')
-    logger.info(`📁 Input file: ${inputFile}`)
-    logger.info(`⚡ Mode: ${forceOverwrite ? 'FORCE OVERWRITE' : skipConflicts ? 'SKIP CONFLICTS' : 'ASK ON CONFLICT'}`)
+    logger.info('Starting data import...')
+    logger.info(`Input file: ${inputFile}`)
+    logger.info(`Mode: ${forceOverwrite ? 'FORCE OVERWRITE' : skipConflicts ? 'SKIP CONFLICTS' : 'ASK ON CONFLICT'}`)
 
     // 读取文件
     const fileContent = await fs.readFile(inputFile, 'utf8')
@@ -853,26 +853,26 @@ async function importData() {
 
     // 验证文件格式
     if (!importDataObj.metadata || !importDataObj.data) {
-      logger.error('❌ Invalid backup file format')
+      logger.error('Invalid backup file format')
       process.exit(1)
     }
 
-    logger.info(`📅 Backup date: ${importDataObj.metadata.exportDate}`)
-    logger.info(`🔒 Sanitized: ${importDataObj.metadata.sanitized ? 'YES' : 'NO'}`)
-    logger.info(`🔓 Decrypted: ${importDataObj.metadata.decrypted ? 'YES' : 'NO'}`)
+    logger.info(`Backup date: ${importDataObj.metadata.exportDate}`)
+    logger.info(`Sanitized: ${importDataObj.metadata.sanitized ? 'YES' : 'NO'}`)
+    logger.info(`Decrypted: ${importDataObj.metadata.decrypted ? 'YES' : 'NO'}`)
 
     if (importDataObj.metadata.sanitized) {
-      logger.warn('⚠️  This backup contains sanitized data. Sensitive fields will be missing!')
+      logger.warn(' This backup contains sanitized data. Sensitive fields will be missing!')
       const proceed = await askConfirmation('Continue with sanitized data?')
       if (!proceed) {
-        logger.info('❌ Import cancelled')
+        logger.info('Import cancelled')
         return
       }
     }
 
     // 显示导入摘要
     console.log(`\n${'='.repeat(60)}`)
-    console.log('📋 Import Summary:')
+    console.log('Import Summary:')
     console.log('='.repeat(60))
     if (importDataObj.data.apiKeys) {
       console.log(`API Keys to import: ${importDataObj.data.apiKeys.length}`)
@@ -889,15 +889,15 @@ async function importData() {
     console.log(`${'='.repeat(60)}\n`)
 
     // 确认导入
-    const confirmed = await askConfirmation('⚠️  Proceed with import?')
+    const confirmed = await askConfirmation(' Proceed with import?')
     if (!confirmed) {
-      logger.info('❌ Import cancelled')
+      logger.info('Import cancelled')
       return
     }
 
     // 连接 Redis
     await redis.connect()
-    logger.success('✅ Connected to Redis')
+    logger.success('Connected to Redis')
 
     const stats = {
       imported: 0,
@@ -907,14 +907,14 @@ async function importData() {
 
     // 导入 API Keys
     if (importDataObj.data.apiKeys) {
-      logger.info('\n📥 Importing API Keys...')
+      logger.info('\nImporting API Keys...')
       for (const apiKey of importDataObj.data.apiKeys) {
         try {
           const exists = await redis.client.exists(`apikey:${apiKey.id}`)
 
           if (exists && !forceOverwrite) {
             if (skipConflicts) {
-              logger.warn(`⏭️  Skipped existing API Key: ${apiKey.name} (${apiKey.id})`)
+              logger.warn(` Skipped existing API Key: ${apiKey.name} (${apiKey.id})`)
               stats.skipped++
               continue
             } else {
@@ -941,11 +941,11 @@ async function importData() {
             // 如果是明文API Key，保存明文并计算哈希
             plainTextApiKey = apiKeyData.apiKey
             hashedApiKey = hashApiKey(plainTextApiKey)
-            logger.info(`🔐 Detected plaintext API Key for: ${apiKey.name} (${apiKey.id})`)
+            logger.info(`Detected plaintext API Key for: ${apiKey.name} (${apiKey.id})`)
           } else if (apiKeyData.apiKey) {
             // 如果已经是哈希值，直接使用
             hashedApiKey = apiKeyData.apiKey
-            logger.info(`🔍 Using existing hashed API Key for: ${apiKey.name} (${apiKey.id})`)
+            logger.info(`Using existing hashed API Key for: ${apiKey.name} (${apiKey.id})`)
           }
 
           // API Key字段始终存储哈希值
@@ -963,7 +963,7 @@ async function importData() {
           // 更新哈希映射：hash_map的key必须是哈希值
           if (!importDataObj.metadata.sanitized && hashedApiKey) {
             await redis.client.hset('apikey:hash_map', hashedApiKey, apiKey.id)
-            logger.info(`📝 Updated hash mapping: ${hashedApiKey.substring(0, 8)}... -> ${apiKey.id}`)
+            logger.info(`Updated hash mapping: ${hashedApiKey.substring(0, 8)}... -> ${apiKey.id}`)
           }
 
           // 导入使用统计数据
@@ -971,10 +971,10 @@ async function importData() {
             await importUsageStats(apiKey.id, usageStats)
           }
 
-          logger.success(`✅ Imported API Key: ${apiKey.name} (${apiKey.id})`)
+          logger.success(`Imported API Key: ${apiKey.name} (${apiKey.id})`)
           stats.imported++
         } catch (error) {
-          logger.error(`❌ Failed to import API Key ${apiKey.id}:`, error.message)
+          logger.error(`Failed to import API Key ${apiKey.id}:`, error.message)
           stats.errors++
         }
       }
@@ -982,14 +982,14 @@ async function importData() {
 
     // 导入 Claude 账户
     if (importDataObj.data.claudeAccounts) {
-      logger.info('\n📥 Importing Claude accounts...')
+      logger.info('\nImporting Claude accounts...')
       for (const account of importDataObj.data.claudeAccounts) {
         try {
           const exists = await redis.client.exists(`claude:account:${account.id}`)
 
           if (exists && !forceOverwrite) {
             if (skipConflicts) {
-              logger.warn(`⏭️  Skipped existing Claude account: ${account.name} (${account.id})`)
+              logger.warn(` Skipped existing Claude account: ${account.name} (${account.id})`)
               stats.skipped++
               continue
             } else {
@@ -1008,7 +1008,7 @@ async function importData() {
 
           // 如果数据已解密且不是脱敏数据，需要重新加密
           if (importDataObj.metadata.decrypted && !importDataObj.metadata.sanitized) {
-            logger.info(`🔐 Re-encrypting sensitive data for Claude account: ${account.name}`)
+            logger.info(`Re-encrypting sensitive data for Claude account: ${account.name}`)
 
             if (accountData.email) {
               accountData.email = encryptClaudeData(accountData.email)
@@ -1044,10 +1044,10 @@ async function importData() {
           }
           await pipeline.exec()
 
-          logger.success(`✅ Imported Claude account: ${account.name} (${account.id})`)
+          logger.success(`Imported Claude account: ${account.name} (${account.id})`)
           stats.imported++
         } catch (error) {
-          logger.error(`❌ Failed to import Claude account ${account.id}:`, error.message)
+          logger.error(`Failed to import Claude account ${account.id}:`, error.message)
           stats.errors++
         }
       }
@@ -1055,14 +1055,14 @@ async function importData() {
 
     // 导入 Gemini 账户
     if (importDataObj.data.geminiAccounts) {
-      logger.info('\n📥 Importing Gemini accounts...')
+      logger.info('\nImporting Gemini accounts...')
       for (const account of importDataObj.data.geminiAccounts) {
         try {
           const exists = await redis.client.exists(`gemini_account:${account.id}`)
 
           if (exists && !forceOverwrite) {
             if (skipConflicts) {
-              logger.warn(`⏭️  Skipped existing Gemini account: ${account.name} (${account.id})`)
+              logger.warn(` Skipped existing Gemini account: ${account.name} (${account.id})`)
               stats.skipped++
               continue
             } else {
@@ -1081,7 +1081,7 @@ async function importData() {
 
           // 如果数据已解密且不是脱敏数据，需要重新加密
           if (importDataObj.metadata.decrypted && !importDataObj.metadata.sanitized) {
-            logger.info(`🔐 Re-encrypting sensitive data for Gemini account: ${account.name}`)
+            logger.info(`Re-encrypting sensitive data for Gemini account: ${account.name}`)
 
             if (accountData.geminiOauth) {
               const oauthStr =
@@ -1105,10 +1105,10 @@ async function importData() {
           }
           await pipeline.exec()
 
-          logger.success(`✅ Imported Gemini account: ${account.name} (${account.id})`)
+          logger.success(`Imported Gemini account: ${account.name} (${account.id})`)
           stats.imported++
         } catch (error) {
-          logger.error(`❌ Failed to import Gemini account ${account.id}:`, error.message)
+          logger.error(`Failed to import Gemini account ${account.id}:`, error.message)
           stats.errors++
         }
       }
@@ -1116,14 +1116,14 @@ async function importData() {
 
     // 导入管理员账户
     if (importDataObj.data.admins) {
-      logger.info('\n📥 Importing admins...')
+      logger.info('\nImporting admins...')
       for (const admin of importDataObj.data.admins) {
         try {
           const exists = await redis.client.exists(`admin:${admin.id}`)
 
           if (exists && !forceOverwrite) {
             if (skipConflicts) {
-              logger.warn(`⏭️  Skipped existing admin: ${admin.username} (${admin.id})`)
+              logger.warn(` Skipped existing admin: ${admin.username} (${admin.id})`)
               stats.skipped++
               continue
             } else {
@@ -1145,10 +1145,10 @@ async function importData() {
           // 更新用户名映射
           await redis.client.set(`admin_username:${admin.username}`, admin.id)
 
-          logger.success(`✅ Imported admin: ${admin.username} (${admin.id})`)
+          logger.success(`Imported admin: ${admin.username} (${admin.id})`)
           stats.imported++
         } catch (error) {
-          logger.error(`❌ Failed to import admin ${admin.id}:`, error.message)
+          logger.error(`Failed to import admin ${admin.id}:`, error.message)
           stats.errors++
         }
       }
@@ -1156,7 +1156,7 @@ async function importData() {
 
     // 导入全局模型统计
     if (importDataObj.data.globalModelStats) {
-      logger.info('\n📥 Importing global model statistics...')
+      logger.info('\nImporting global model statistics...')
       try {
         const globalStats = importDataObj.data.globalModelStats
         const pipeline = redis.client.pipeline()
@@ -1167,7 +1167,7 @@ async function importData() {
           for (const month of globalStats.monthlyMonths) {
             pipeline.sadd('usage:model:monthly:months', month)
           }
-          logger.info(`📥 Importing ${globalStats.monthlyMonths.length} months to index`)
+          logger.info(`Importing ${globalStats.monthlyMonths.length} months to index`)
         }
 
         // 导入全局统计
@@ -1175,7 +1175,7 @@ async function importData() {
           for (const [field, value] of Object.entries(globalStats.globalTotal)) {
             pipeline.hset('usage:global:total', field, value)
           }
-          logger.info('📥 Importing global total stats')
+          logger.info('Importing global total stats')
         }
 
         // 导入全局每日统计
@@ -1185,7 +1185,7 @@ async function importData() {
               pipeline.hset(`usage:global:daily:${date}`, field, value)
             }
           }
-          logger.info(`📥 Importing ${Object.keys(globalStats.globalDaily).length} global daily stats`)
+          logger.info(`Importing ${Object.keys(globalStats.globalDaily).length} global daily stats`)
         }
 
         // 导入全局每月统计
@@ -1195,7 +1195,7 @@ async function importData() {
               pipeline.hset(`usage:global:monthly:${month}`, field, value)
             }
           }
-          logger.info(`📥 Importing ${Object.keys(globalStats.globalMonthly).length} global monthly stats`)
+          logger.info(`Importing ${Object.keys(globalStats.globalMonthly).length} global monthly stats`)
         }
 
         // 导入每日统计
@@ -1237,24 +1237,24 @@ async function importData() {
         }
 
         await pipeline.exec()
-        logger.success(`✅ Imported ${globalStatCount} global model stat entries`)
+        logger.success(`Imported ${globalStatCount} global model stat entries`)
         stats.imported += globalStatCount
       } catch (error) {
-        logger.error('❌ Failed to import global model stats:', error.message)
+        logger.error('Failed to import global model stats:', error.message)
         stats.errors++
       }
     }
 
     // 显示导入结果
     console.log(`\n${'='.repeat(60)}`)
-    console.log('✅ Import Complete!')
+    console.log('Import Complete!')
     console.log('='.repeat(60))
     console.log(`Successfully imported: ${stats.imported}`)
     console.log(`Skipped: ${stats.skipped}`)
     console.log(`Errors: ${stats.errors}`)
     console.log('='.repeat(60))
   } catch (error) {
-    logger.error('💥 Import failed:', error)
+    logger.error('Import failed:', error)
     process.exit(1)
   } finally {
     await redis.disconnect()
@@ -1279,7 +1279,7 @@ async function main() {
       break
 
     default:
-      logger.error(`❌ Unknown command: ${command}`)
+      logger.error(`Unknown command: ${command}`)
       showHelp()
       process.exit(1)
   }
@@ -1287,6 +1287,6 @@ async function main() {
 
 // 运行
 main().catch((error) => {
-  logger.error('💥 Unexpected error:', error)
+  logger.error('Unexpected error:', error)
   process.exit(1)
 })

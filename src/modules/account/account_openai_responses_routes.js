@@ -1,5 +1,6 @@
 import express from 'express'
 import axios from 'axios'
+
 import { openaiResponsesAccountService } from './account_openai_responses_service.js'
 import { testModelConfigService } from '../relay/relay_test_model_config_service.js'
 import { apiKeyService } from '../apikey/apikey_service.js'
@@ -7,11 +8,14 @@ import { accountGroupService } from './account_group_service.js'
 import { redis } from '../../infra/redis.js'
 import { RedisKeys } from '../../infra/redis_key.js'
 import { authenticateAdmin } from '../../infra/middleware_auth.js'
+import { asyncRoute } from '../../common/route_handler.js'
+import { ok, badRequest, notFound, unauthorized, fail, HttpError } from '../../common/http_result.js'
 import { logger } from '../../common/logger.js'
 import { webhookNotifier } from '../webhook/webhook_notifier.js'
 import { formatAccountExpiry, mapExpiryField } from '../admin/admin_utils_routes.js'
 import { stripReadonlyAccountFields } from '../../common/common_helper.js'
 import { createOpenAITestPayload, extractErrorMessage } from '../../common/test_payload_helper.js'
+import { parseObjectBody } from '../../common/parse_body.js'
 import { ProxyHelper } from '../proxy/proxy_helper.js'
 /**
  * Admin Routes - OpenAI-Responses 账户管理
@@ -23,8 +27,10 @@ export const router = express.Router()
 // === OpenAI-Responses 账户管理 API ===
 
 // 获取所有 OpenAI-Responses 账户
-router.get('/openai-responses-accounts', authenticateAdmin, async (req, res) => {
-  try {
+router.get(
+  '/openai-responses-accounts',
+  authenticateAdmin,
+  asyncRoute('Failed to get OpenAI-Responses accounts', async (req) => {
     const { platform, groupId } = req.query
     let accounts = await openaiResponsesAccountService.getAllAccounts(true)
 
@@ -136,17 +142,16 @@ router.get('/openai-responses-accounts', authenticateAdmin, async (req, res) => 
       }
     })
 
-    res.json({ success: true, data: accountsWithStats })
-  } catch (error) {
-    logger.error('Failed to get OpenAI-Responses accounts:', error)
-    res.status(500).json({ success: false, message: error.message })
-  }
-})
+    return accountsWithStats
+  }),
+)
 
 // 创建 OpenAI-Responses 账户
-router.post('/openai-responses-accounts', authenticateAdmin, async (req, res) => {
-  try {
-    const accountData = req.body
+router.post(
+  '/openai-responses-accounts',
+  authenticateAdmin,
+  asyncRoute('Failed to create OpenAI-Responses account', async (req) => {
+    const accountData = parseObjectBody(req.body, '创建OpenAI-Responses账户')
 
     // 验证分组类型
     if (
@@ -154,10 +159,7 @@ router.post('/openai-responses-accounts', authenticateAdmin, async (req, res) =>
       !accountData.groupId &&
       (!accountData.groupIds || accountData.groupIds.length === 0)
     ) {
-      return res.status(400).json({
-        success: false,
-        error: 'Group ID is required for group type accounts',
-      })
+      throw badRequest('Group ID is required for group type accounts')
     }
 
     const account = await openaiResponsesAccountService.createAccount(accountData)
@@ -167,41 +169,33 @@ router.post('/openai-responses-accounts', authenticateAdmin, async (req, res) =>
       if (accountData.groupIds && accountData.groupIds.length > 0) {
         // 多分组模式
         await accountGroupService.setAccountGroups(account.id, accountData.groupIds, 'openai')
-        logger.info(`🏢 Added OpenAI-Responses account ${account.id} to groups: ${accountData.groupIds.join(', ')}`)
+        logger.info(`Added OpenAI-Responses account ${account.id} to groups: ${accountData.groupIds.join(', ')}`)
       } else if (accountData.groupId) {
         // 单分组模式（向后兼容）
         await accountGroupService.addAccountToGroup(account.id, accountData.groupId, 'openai')
-        logger.info(`🏢 Added OpenAI-Responses account ${account.id} to group: ${accountData.groupId}`)
+        logger.info(`Added OpenAI-Responses account ${account.id} to group: ${accountData.groupId}`)
       }
     }
 
-    const formattedAccount = formatAccountExpiry(account)
-    res.json({ success: true, data: formattedAccount })
-  } catch (error) {
-    logger.error('Failed to create OpenAI-Responses account:', error)
-    res.status(500).json({
-      success: false,
-      error: error.message,
-    })
-  }
-})
+    return formatAccountExpiry(account)
+  }),
+)
 
 // 更新 OpenAI-Responses 账户
-router.put('/openai-responses-accounts/:id', authenticateAdmin, async (req, res) => {
-  try {
+router.put(
+  '/openai-responses-accounts/:id',
+  authenticateAdmin,
+  asyncRoute('Failed to update OpenAI-Responses account', async (req) => {
     const { id } = req.params
-    const updates = req.body
+    const updates = parseObjectBody(req.body, '更新OpenAI-Responses账户')
 
     // 获取当前账户信息
     const currentAccount = await openaiResponsesAccountService.getAccount(id)
     if (!currentAccount) {
-      return res.status(404).json({
-        success: false,
-        error: 'Account not found',
-      })
+      throw notFound('Account not found')
     }
 
-    // ✅ 【新增】映射字段名：前端的 expiresAt -> 后端的 subscriptionExpiresAt
+    // 【新增】映射字段名：前端的 expiresAt -> 后端的 subscriptionExpiresAt
     // review#3：剥离外部传入的状态类字段，禁止伪造自动停用证据
     const mappedUpdates = stripReadonlyAccountFields(mapExpiryField(updates, 'OpenAI-Responses', id))
 
@@ -209,10 +203,7 @@ router.put('/openai-responses-accounts/:id', authenticateAdmin, async (req, res)
     if (mappedUpdates.priority !== undefined) {
       const priority = parseInt(mappedUpdates.priority)
       if (isNaN(priority) || priority < 1 || priority > 100) {
-        return res.status(400).json({
-          success: false,
-          message: 'Priority must be a number between 1 and 100',
-        })
+        throw badRequest('Priority must be a number between 1 and 100')
       }
       mappedUpdates.priority = priority.toString()
     }
@@ -225,7 +216,7 @@ router.put('/openai-responses-accounts/:id', authenticateAdmin, async (req, res)
         for (const oldGroup of oldGroups) {
           await accountGroupService.removeAccountFromGroup(id, oldGroup.id)
         }
-        logger.info(`📤 Removed OpenAI-Responses account ${id} from all groups`)
+        logger.info(`Removed OpenAI-Responses account ${id} from all groups`)
       }
 
       // 如果新类型是分组，处理多分组支持
@@ -234,16 +225,16 @@ router.put('/openai-responses-accounts/:id', authenticateAdmin, async (req, res)
           if (mappedUpdates.groupIds && mappedUpdates.groupIds.length > 0) {
             // 设置新的多分组
             await accountGroupService.setAccountGroups(id, mappedUpdates.groupIds, 'openai')
-            logger.info(`📥 Added OpenAI-Responses account ${id} to groups: ${mappedUpdates.groupIds.join(', ')}`)
+            logger.info(`Added OpenAI-Responses account ${id} to groups: ${mappedUpdates.groupIds.join(', ')}`)
           } else {
             // groupIds 为空数组，从所有分组中移除
             await accountGroupService.removeAccountFromAllGroups(id)
-            logger.info(`📤 Removed OpenAI-Responses account ${id} from all groups (empty groupIds)`)
+            logger.info(`Removed OpenAI-Responses account ${id} from all groups (empty groupIds)`)
           }
         } else if (mappedUpdates.groupId) {
           // 向后兼容：仅当没有 groupIds 但有 groupId 时使用单分组逻辑
           await accountGroupService.addAccountToGroup(id, mappedUpdates.groupId, 'openai')
-          logger.info(`📥 Added OpenAI-Responses account ${id} to group: ${mappedUpdates.groupId}`)
+          logger.info(`Added OpenAI-Responses account ${id} to group: ${mappedUpdates.groupId}`)
         }
       }
     }
@@ -251,31 +242,25 @@ router.put('/openai-responses-accounts/:id', authenticateAdmin, async (req, res)
     const result = await openaiResponsesAccountService.updateAccount(id, mappedUpdates)
 
     if (!result.success) {
-      return res.status(400).json(result)
+      throw badRequest(result.error || result.message || 'Failed to update account')
     }
 
-    logger.success(`📝 Admin updated OpenAI-Responses account: ${id}`)
-    res.json({ success: true, ...result })
-  } catch (error) {
-    logger.error('Failed to update OpenAI-Responses account:', error)
-    res.status(500).json({
-      success: false,
-      error: error.message,
-    })
-  }
-})
+    logger.success(`Admin updated OpenAI-Responses account: ${id}`)
+    const { success: _success, ...payload } = result
+    return payload
+  }),
+)
 
 // 删除 OpenAI-Responses 账户
-router.delete('/openai-responses-accounts/:id', authenticateAdmin, async (req, res) => {
-  try {
+router.delete(
+  '/openai-responses-accounts/:id',
+  authenticateAdmin,
+  asyncRoute('Failed to delete OpenAI-Responses account', async (req) => {
     const { id } = req.params
 
     const account = await openaiResponsesAccountService.getAccount(id)
     if (!account) {
-      return res.status(404).json({
-        success: false,
-        message: 'Account not found',
-      })
+      throw notFound('Account not found')
     }
 
     // 自动解绑所有绑定的 API Keys
@@ -294,32 +279,24 @@ router.delete('/openai-responses-accounts/:id', authenticateAdmin, async (req, r
       message += `，${unboundCount} 个 API Key 已切换为共享池模式`
     }
 
-    logger.success(`🗑️ Admin deleted OpenAI-Responses account: ${id}, unbound ${unboundCount} keys`)
+    logger.success(`Admin deleted OpenAI-Responses account: ${id}, unbound ${unboundCount} keys`)
 
-    res.json({
-      success: true,
-      ...result,
-      message,
-      unboundKeys: unboundCount,
-    })
-  } catch (error) {
-    logger.error('Failed to delete OpenAI-Responses account:', error)
-    res.status(500).json({
-      success: false,
-      error: error.message,
-    })
-  }
-})
+    const { success: _success, ...resultPayload } = result || {}
+    return ok({ ...resultPayload, unboundKeys: unboundCount }, message)
+  }),
+)
 
 // 切换 OpenAI-Responses 账户调度状态
-router.put('/openai-responses-accounts/:id/toggle-schedulable', authenticateAdmin, async (req, res) => {
-  try {
+router.put(
+  '/openai-responses-accounts/:id/toggle-schedulable',
+  authenticateAdmin,
+  asyncRoute('Failed to toggle OpenAI-Responses account schedulable status', async (req) => {
     const { id } = req.params
 
     const result = await openaiResponsesAccountService.toggleSchedulable(id)
 
     if (!result.success) {
-      return res.status(400).json(result)
+      throw badRequest(result.error || result.message || 'Failed to toggle schedulable')
     }
 
     // 仅在停止调度时发送通知
@@ -333,27 +310,21 @@ router.put('/openai-responses-accounts/:id/toggle-schedulable', authenticateAdmi
       })
     }
 
-    res.json(result)
-  } catch (error) {
-    logger.error('Failed to toggle OpenAI-Responses account schedulable status:', error)
-    res.status(500).json({
-      success: false,
-      error: error.message,
-    })
-  }
-})
+    const { success: _success, ...payload } = result
+    return payload
+  }),
+)
 
 // 切换 OpenAI-Responses 账户激活状态
-router.put('/openai-responses-accounts/:id/toggle', authenticateAdmin, async (req, res) => {
-  try {
+router.put(
+  '/openai-responses-accounts/:id/toggle',
+  authenticateAdmin,
+  asyncRoute('Failed to toggle OpenAI-Responses account status', async (req) => {
     const { id } = req.params
 
     const account = await openaiResponsesAccountService.getAccount(id)
     if (!account) {
-      return res.status(404).json({
-        success: false,
-        message: 'Account not found',
-      })
+      throw notFound('Account not found')
     }
 
     const newActiveStatus = account.isActive === 'true' ? 'false' : 'true'
@@ -361,22 +332,15 @@ router.put('/openai-responses-accounts/:id/toggle', authenticateAdmin, async (re
       isActive: newActiveStatus,
     })
 
-    res.json({
-      success: true,
-      isActive: newActiveStatus === 'true',
-    })
-  } catch (error) {
-    logger.error('Failed to toggle OpenAI-Responses account status:', error)
-    res.status(500).json({
-      success: false,
-      error: error.message,
-    })
-  }
-})
+    return { isActive: newActiveStatus === 'true' }
+  }),
+)
 
 // 重置 OpenAI-Responses 账户限流状态
-router.post('/openai-responses-accounts/:id/reset-rate-limit', authenticateAdmin, async (req, res) => {
-  try {
+router.post(
+  '/openai-responses-accounts/:id/reset-rate-limit',
+  authenticateAdmin,
+  asyncRoute('Failed to reset OpenAI-Responses account rate limit', async (req) => {
     const { id } = req.params
 
     await openaiResponsesAccountService.updateAccount(id, {
@@ -386,39 +350,31 @@ router.post('/openai-responses-accounts/:id/reset-rate-limit', authenticateAdmin
       errorMessage: '',
     })
 
-    logger.info(`🔄 Admin manually reset rate limit for OpenAI-Responses account ${id}`)
+    logger.info(`Admin manually reset rate limit for OpenAI-Responses account ${id}`)
 
-    res.json({
-      success: true,
-      message: 'Rate limit reset successfully',
-    })
-  } catch (error) {
-    logger.error('Failed to reset OpenAI-Responses account rate limit:', error)
-    res.status(500).json({
-      success: false,
-      error: error.message,
-    })
-  }
-})
+    return ok(undefined, 'Rate limit reset successfully')
+  }),
+)
 
 // 重置 OpenAI-Responses 账户状态（清除所有异常状态）
-router.post('/openai-responses-accounts/:id/reset-status', authenticateAdmin, async (req, res) => {
-  try {
+router.post(
+  '/openai-responses-accounts/:id/reset-status',
+  authenticateAdmin,
+  asyncRoute('Failed to reset OpenAI-Responses account status', async (req) => {
     const { id } = req.params
 
     const result = await openaiResponsesAccountService.resetAccountStatus(id)
 
     logger.success(`Admin reset status for OpenAI-Responses account: ${id}`)
-    return res.json({ success: true, data: result })
-  } catch (error) {
-    logger.error('❌ Failed to reset OpenAI-Responses account status:', error)
-    return res.status(500).json({ error: 'Failed to reset status', message: error.message })
-  }
-})
+    return result
+  }),
+)
 
 // 手动重置 OpenAI-Responses 账户的每日使用量
-router.post('/openai-responses-accounts/:id/reset-usage', authenticateAdmin, async (req, res) => {
-  try {
+router.post(
+  '/openai-responses-accounts/:id/reset-usage',
+  authenticateAdmin,
+  asyncRoute('Failed to reset OpenAI-Responses account usage', async (req) => {
     const { id } = req.params
 
     await openaiResponsesAccountService.updateAccount(id, {
@@ -429,123 +385,118 @@ router.post('/openai-responses-accounts/:id/reset-usage', authenticateAdmin, asy
 
     logger.success(`Admin manually reset daily usage for OpenAI-Responses account ${id}`)
 
-    res.json({
-      success: true,
-      message: 'Daily usage reset successfully',
-    })
-  } catch (error) {
-    logger.error('Failed to reset OpenAI-Responses account usage:', error)
-    res.status(500).json({
-      success: false,
-      error: error.message,
-    })
-  }
-})
+    return ok(undefined, 'Daily usage reset successfully')
+  }),
+)
 
 // 测试 OpenAI-Responses 账户连通性
-router.post('/openai-responses-accounts/:accountId/test', authenticateAdmin, async (req, res) => {
-  const { accountId } = req.params
-  const startTime = Date.now()
+router.post(
+  '/openai-responses-accounts/:accountId/test',
+  authenticateAdmin,
+  asyncRoute('OpenAI-Responses account test failed', async (req) => {
+    const { accountId } = req.params
+    const startTime = Date.now()
 
-  try {
-    // 请求显式指定优先，否则用后台配置的默认测试模型（单一事实源）
-    const model = await testModelConfigService.resolveAccountModel('openai-responses', req.body.model)
-    // 获取账户信息（apiKey 已自动解密）
-    const account = await openaiResponsesAccountService.getAccount(accountId)
-    if (!account) {
-      return res.status(404).json({ error: 'Account not found' })
-    }
-
-    if (!account.apiKey) {
-      return res.status(401).json({ error: 'API Key not found or decryption failed' })
-    }
-
-    // 构造测试请求（根据 providerEndpoint 和 baseApi 决定端点路径）
-    const baseUrl = account.baseApi || 'https://api.openai.com'
-    const providerEndpoint = account.providerEndpoint || 'responses'
-    let endpointPath = '/responses'
-    if (providerEndpoint === 'auto') {
-      endpointPath = '/responses' // 测试时默认用 responses
-    }
-    // 防止 baseApi 已含 /v1 时路径重复
-    if (!baseUrl.endsWith('/v1')) {
-      endpointPath = `/v1${endpointPath}`
-    }
-    const apiUrl = `${baseUrl}${endpointPath}`
-    const payload = createOpenAITestPayload(model, { stream: false })
-
-    const requestConfig = {
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${account.apiKey}`,
-      },
-      timeout: 30000,
-    }
-
-    // 配置代理
-    if (account.proxy) {
-      const agent = ProxyHelper.createProxyAgent(account.proxy)
-      if (agent) {
-        requestConfig.httpsAgent = agent
-        requestConfig.httpAgent = agent
+    try {
+      // 请求显式指定优先，否则用后台配置的默认测试模型（单一事实源）
+      const body = parseObjectBody(req.body, '测试OpenAI-Responses账户')
+      const model = await testModelConfigService.resolveAccountModel('openai-responses', body.model)
+      // 获取账户信息（apiKey 已自动解密）
+      const account = await openaiResponsesAccountService.getAccount(accountId)
+      if (!account) {
+        throw notFound('Account not found')
       }
-    }
 
-    const response = await axios.post(apiUrl, payload, requestConfig)
-    const latency = Date.now() - startTime
+      if (!account.apiKey) {
+        throw unauthorized('API Key not found or decryption failed')
+      }
 
-    // 提取响应文本（Responses API 格式）
-    let responseText = ''
-    const output = response.data?.output
-    if (Array.isArray(output)) {
-      for (const item of output) {
-        if (item.type === 'message' && Array.isArray(item.content)) {
-          for (const block of item.content) {
-            if (block.type === 'output_text' && block.text) {
-              responseText += block.text
+      // 构造测试请求（根据 providerEndpoint 和 baseApi 决定端点路径）
+      const baseUrl = account.baseApi || 'https://api.openai.com'
+      const providerEndpoint = account.providerEndpoint || 'responses'
+      let endpointPath = '/responses'
+      if (providerEndpoint === 'auto') {
+        endpointPath = '/responses' // 测试时默认用 responses
+      }
+      // 防止 baseApi 已含 /v1 时路径重复
+      if (!baseUrl.endsWith('/v1')) {
+        endpointPath = `/v1${endpointPath}`
+      }
+      const apiUrl = `${baseUrl}${endpointPath}`
+      const payload = createOpenAITestPayload(model, { stream: false })
+
+      const requestConfig = {
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${account.apiKey}`,
+        },
+        timeout: 30000,
+      }
+
+      // 配置代理
+      if (account.proxy) {
+        const agent = ProxyHelper.createProxyAgent(account.proxy)
+        if (agent) {
+          requestConfig.httpsAgent = agent
+          requestConfig.httpAgent = agent
+        }
+      }
+
+      const response = await axios.post(apiUrl, payload, requestConfig)
+      const latency = Date.now() - startTime
+
+      // 提取响应文本（Responses API 格式）
+      let responseText = ''
+      const output = response.data?.output
+      if (Array.isArray(output)) {
+        for (const item of output) {
+          if (item.type === 'message' && Array.isArray(item.content)) {
+            for (const block of item.content) {
+              if (block.type === 'output_text' && block.text) {
+                responseText += block.text
+              }
             }
           }
         }
       }
-    }
 
-    logger.success(`✅ OpenAI-Responses account test passed: ${account.name} (${accountId}), latency: ${latency}ms`)
+      logger.success(`OpenAI-Responses account test passed: ${account.name} (${accountId}), latency: ${latency}ms`)
 
-    return res.json({
-      success: true,
-      data: {
+      return {
         accountId,
         accountName: account.name,
         model,
         latency,
         responseText: responseText.substring(0, 200),
-      },
-    })
-  } catch (error) {
-    const latency = Date.now() - startTime
-    logger.error(`❌ OpenAI-Responses account test failed: ${accountId}`, error.message)
-
-    return res.status(500).json({
-      success: false,
-      error: 'Test failed',
-      message: extractErrorMessage(error.response?.data, error.message),
-      latency,
-    })
-  }
-})
+      }
+    } catch (error) {
+      if (error.statusCode) {
+        throw error
+      }
+      const latency = Date.now() - startTime
+      logger.error(`OpenAI-Responses account test failed: ${accountId}`, error.message)
+      return fail(500, extractErrorMessage(error.response?.data, error.message), {
+        data: { latency },
+      })
+    }
+  }),
+)
 
 // 从上游同步模型列表（对齐 sub2api/CLIProxy：GET {base}/models）
 // body: { accountId? } 或 { baseApi, apiKey }（创建前探测）
-router.post('/openai-responses-accounts/fetch-models', authenticateAdmin, async (req, res) => {
-  try {
-    let baseApi = String(req.body?.baseApi || '').trim()
-    let apiKey = String(req.body?.apiKey || '').trim()
-    const accountId = req.body?.accountId
+router.post(
+  '/openai-responses-accounts/fetch-models',
+  authenticateAdmin,
+  asyncRoute('Failed to fetch OpenAI-Responses upstream models', async (req) => {
+    const body = parseObjectBody(req.body, '获取OpenAI-Responses模型列表')
+    let baseApi = String(body.baseApi || '').trim()
+    let apiKey = String(body.apiKey || '').trim()
+    const { accountId } = body
 
     if (accountId) {
       const account = await openaiResponsesAccountService.getAccount(accountId)
       if (!account) {
-        return res.status(404).json({ success: false, message: 'Account not found' })
+        throw notFound('Account not found')
       }
       // 表单已填的 baseApi/apiKey 优先（编辑未保存时按当前表单探测）；空才回落账户已存值
       if (!baseApi) {
@@ -557,10 +508,10 @@ router.post('/openai-responses-accounts/fetch-models', authenticateAdmin, async 
     }
 
     if (!baseApi) {
-      return res.status(400).json({ success: false, message: 'baseApi is required' })
+      throw badRequest('baseApi is required')
     }
     if (!apiKey) {
-      return res.status(400).json({ success: false, message: 'apiKey is required' })
+      throw badRequest('apiKey is required')
     }
 
     const normalizedBase = baseApi.replace(/\/+$/, '')
@@ -613,10 +564,7 @@ router.post('/openai-responses-accounts/fetch-models', authenticateAdmin, async 
     }
 
     if (models.length === 0) {
-      return res.status(502).json({
-        success: false,
-        message: lastError || 'Failed to fetch models from upstream',
-      })
+      throw new HttpError(502, lastError || 'Failed to fetch models from upstream')
     }
 
     // 去重保序
@@ -630,10 +578,6 @@ router.post('/openai-responses-accounts/fetch-models', authenticateAdmin, async 
     }
 
     logger.info(`[openai-responses] fetch-models base=${normalizedBase} count=${unique.length}`)
-    return res.json({ success: true, data: { models: unique } })
-  } catch (error) {
-    logger.error('Failed to fetch OpenAI-Responses upstream models:', error)
-    console.error(error)
-    return res.status(500).json({ success: false, message: error.message })
-  }
-})
+    return { models: unique }
+  }),
+)

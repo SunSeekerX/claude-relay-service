@@ -2,10 +2,10 @@
   <ModalTransition @after-leave="onClosed">
     <div
       v-if="visible"
-      class="modal fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4"
+      class="modal fixed inset-0 z-50 flex items-center justify-center p-3"
     >
       <div
-        class="modal-content mx-auto flex max-h-[90vh] w-full max-w-4xl flex-col overflow-hidden p-3 sm:p-4"
+        class="modal-content mx-auto flex max-h-[92vh] w-full max-w-5xl flex-col overflow-hidden p-2.5 sm:p-3"
       >
         <div class="mb-3 flex items-center justify-between">
           <div class="flex items-center gap-2 sm:gap-3">
@@ -30,7 +30,7 @@
           class="flex min-h-0 flex-1 flex-col overflow-hidden"
           @submit.prevent="batchUpdateApiKeys"
         >
-          <div class="modal-scroll-content custom-scrollbar min-h-0 flex-1 space-y-3 overflow-y-auto sm:space-y-4">
+          <div class="modal-scroll-content custom-scrollbar min-h-0 flex-1 space-y-3 overflow-y-auto sm:space-y-3">
           <!-- 说明文本 -->
           <div class="rounded-lg bg-blue-50 p-4 dark:bg-blue-900/20">
             <div class="flex items-start gap-3">
@@ -52,7 +52,7 @@
             >
               标签 (批量操作)
             </label>
-            <div class="space-y-4">
+            <div class="space-y-3">
               <!-- 标签操作模式选择 -->
               <CuteOptionCards
                 v-model="tagOperation"
@@ -410,8 +410,21 @@
             </div>
           </div>
 
+          <div
+            class="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-800 dark:border-blue-800 dark:bg-blue-900/20 dark:text-blue-200"
+          >
+            <p class="font-medium">跨协议桥接提示</p>
+            <p class="mt-1">
+              批量绑定 OpenAI/Grok 专属账号后，Claude
+              <code class="font-mono">/v1/messages</code>
+              可按 model 跨协议；未绑定则只走 Claude 池。
+            </p>
           </div>
-          <div class="flex shrink-0 items-center gap-2 border-t border-gray-200 pt-2 dark:border-gray-700">
+          </div>
+
+          <div
+            class="flex shrink-0 items-center gap-2 border-t border-gray-200 pt-2 dark:border-gray-700"
+          >
             <button
               class="inline-flex h-10 flex-1 items-center justify-center rounded-lg bg-gray-100 px-4 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600"
               type="button"
@@ -420,7 +433,7 @@
               取消
             </button>
             <button
-              class="btn btn-primary h-10 inline-flex flex-1 items-center justify-center px-4 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-60"
+              class="btn btn-primary inline-flex h-10 flex-1 items-center justify-center px-4 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-60"
               :disabled="loading"
               type="submit"
             >
@@ -441,6 +454,7 @@ import { ref, reactive, computed, onMounted } from 'vue'
 import ModalTransition from '@/components/common/modal_transition.vue'
 import CuteOptionCards from '@/components/common/cute_option_cards.vue'
 import { showToast } from '@/libs/tools'
+import { isOk, msgOf } from '@/libs/http_envelope'
 import { useApiKeysStore } from '@/stores/api_keys'
 import * as httpApis from '@/libs/http_apis'
 import AccountSelector from '@/components/common/account_selector.vue'
@@ -651,7 +665,7 @@ const refreshAccounts = async () => {
     // 合并Claude OAuth账户和Claude Console账户
     const claudeAccounts = []
 
-    if (claudeData.success) {
+    if (isOk(claudeData)) {
       claudeData.data?.forEach((account) => {
         claudeAccounts.push({
           ...account,
@@ -661,7 +675,7 @@ const refreshAccounts = async () => {
       })
     }
 
-    if (claudeConsoleData.success) {
+    if (isOk(claudeConsoleData)) {
       claudeConsoleData.data?.forEach((account) => {
         claudeAccounts.push({
           ...account,
@@ -676,7 +690,7 @@ const refreshAccounts = async () => {
     // 合并 Gemini OAuth 和 Gemini API 账号
     const geminiAccounts = []
 
-    if (geminiData.success) {
+    if (isOk(geminiData)) {
       ;(geminiData.data || []).forEach((account) => {
         geminiAccounts.push({
           ...account,
@@ -686,7 +700,7 @@ const refreshAccounts = async () => {
       })
     }
 
-    if (geminiApiData.success) {
+    if (isOk(geminiApiData)) {
       ;(geminiApiData.data || []).forEach((account) => {
         geminiAccounts.push({
           ...account,
@@ -700,7 +714,7 @@ const refreshAccounts = async () => {
 
     const openaiAccounts = []
 
-    if (openaiData.success) {
+    if (isOk(openaiData)) {
       ;(openaiData.data || []).forEach((account) => {
         openaiAccounts.push({
           ...account,
@@ -710,7 +724,7 @@ const refreshAccounts = async () => {
       })
     }
 
-    if (openaiResponsesData.success) {
+    if (isOk(openaiResponsesData)) {
       ;(openaiResponsesData.data || []).forEach((account) => {
         openaiAccounts.push({
           ...account,
@@ -722,14 +736,14 @@ const refreshAccounts = async () => {
 
     localAccounts.value.openai = openaiAccounts
 
-    if (bedrockData.success) {
+    if (isOk(bedrockData)) {
       localAccounts.value.bedrock = (bedrockData.data || []).map((account) => ({
         ...account,
         isDedicated: account.accountType === 'dedicated'
       }))
     }
 
-    if (droidData.success) {
+    if (isOk(droidData)) {
       localAccounts.value.droid = (droidData.data || []).map((account) => ({
         ...account,
         platform: 'droid',
@@ -738,10 +752,12 @@ const refreshAccounts = async () => {
     }
 
     // 处理分组数据
-    if (groupsData.success) {
+    if (isOk(groupsData)) {
       const allGroups = groupsData.data || []
       localAccounts.value.claudeGroups = allGroups.filter((g) => g.platform === 'claude')
-      localAccounts.value.geminiGroups = allGroups.filter((g) => g.platform === 'gemini')
+      localAccounts.value.geminiGroups = allGroups.filter(
+        (g) => g.platform === 'gemini' || g.platform === 'antigravity',
+      )
       localAccounts.value.openaiGroups = allGroups.filter((g) => g.platform === 'openai')
       localAccounts.value.droidGroups = allGroups.filter((g) => g.platform === 'droid')
     }
@@ -861,7 +877,7 @@ const batchUpdateApiKeys = async () => {
       updates
     })
 
-    if (result.success) {
+    if (isOk(result)) {
       const { successCount, failedCount, errors } = result.data
 
       if (successCount > 0) {
@@ -878,7 +894,7 @@ const batchUpdateApiKeys = async () => {
       emit('success')
       requestClose()
     } else {
-      showToast(result.message || '批量编辑失败', 'error')
+      showToast(msgOf(result, '批量编辑失败'), 'error')
     }
   } catch (error) {
     showToast('批量编辑失败', 'error')

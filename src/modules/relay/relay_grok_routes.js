@@ -43,7 +43,7 @@ const denyIfNoPermission = (req, res) => {
   if (hasGrokPermission(req.apiKey)) {
     return false
   }
-  logger.security?.(`🚫 API Key ${req.apiKey?.id || 'unknown'} 缺少 Grok 权限，拒绝访问 ${req.originalUrl}`)
+  logger.security?.(`API Key ${req.apiKey?.id || 'unknown'} 缺少 Grok 权限，拒绝访问 ${req.originalUrl}`)
   res.status(403).json({
     error: 'permission_denied',
     message: '此 API Key 未启用 Grok 权限',
@@ -99,6 +99,19 @@ router.post(['/v1/responses', '/responses'], authenticateApiKey, async (req, res
       return
     }
     await grokRelayService.relayResponses(req, res, req.apiKey, resolveSessionHash(req))
+  } catch (error) {
+    console.error(error)
+    sendRouteError(res, error)
+  }
+})
+
+// Anthropic Messages 形态（官方 Grok CLI ApiBackend::Messages）
+router.post(['/v1/messages', '/messages'], authenticateApiKey, async (req, res) => {
+  try {
+    if (denyIfNoPermission(req, res)) {
+      return
+    }
+    await grokRelayService.relayMessages(req, res, req.apiKey, resolveSessionHash(req))
   } catch (error) {
     console.error(error)
     sendRouteError(res, error)

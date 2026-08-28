@@ -43,7 +43,7 @@ class ModelService {
     try {
       const client = getRedis().getClient()
       if (!client) {
-        logger.warn('⚠️ Redis 未连接，跳过内部模型目录加载')
+        logger.warn('Redis 未连接，跳过内部模型目录加载')
         return
       }
       const stored = await client.hgetall(RedisKeys.importedModels)
@@ -57,13 +57,13 @@ class ModelService {
           }
           this.importedModels.set(modelId, parsed)
         } catch (error) {
-          logger.warn(`⚠️ 内部模型条目解析失败，跳过 modelId=${modelId}`)
+          logger.warn(`内部模型条目解析失败，跳过 modelId=${modelId}`)
           console.error(error)
         }
       }
-      logger.info(`📋 已载入 ${this.importedModels.size} 个内部模型`)
+      logger.info(`已载入 ${this.importedModels.size} 个内部模型`)
     } catch (error) {
-      logger.error('❌ 载入内部模型目录失败:', error)
+      logger.error('载入内部模型目录失败:', error)
       console.error(error)
     }
   }
@@ -360,7 +360,7 @@ class ModelService {
     await this.loadImportedModels()
 
     logger.info(
-      `📋 导入内部计费模型 ${writeCount} 个（升级 ${upgraded.length}），跳过 ${skipped.length}，拒收 ${rejected.length}`,
+      `导入内部计费模型 ${writeCount} 个（升级 ${upgraded.length}），跳过 ${skipped.length}，拒收 ${rejected.length}`,
     )
     const rejectedNote = rejected.length > 0 ? `，拒收 ${rejected.length} 个非对话类模型` : ''
     const upgradeNote = upgraded.length > 0 ? `，升级 ${upgraded.length} 个旧目录项` : ''
@@ -421,7 +421,7 @@ class ModelService {
 
     await client.hset(RedisKeys.importedModels, name, JSON.stringify(record))
     this.importedModels.set(name, record)
-    logger.info(`📋 保存内部计费模型 name=${name}`)
+    logger.info(`保存内部计费模型 name=${name}`)
     return this.getInternalModel(name)
   }
 
@@ -492,7 +492,7 @@ class ModelService {
     await client.hdel(RedisKeys.importedModels, ...targets)
     await this.loadImportedModels()
 
-    logger.info(`📋 移除内部模型 ${targets.length} 个`)
+    logger.info(`移除内部模型 ${targets.length} 个`)
     return { removed: targets.length, message: `已移除 ${targets.length} 个模型` }
   }
 
@@ -513,7 +513,7 @@ class ModelService {
   }
 
   cleanup() {
-    logger.debug('📋 Model service cleanup (no-op)')
+    logger.debug('Model service cleanup (no-op)')
   }
 }
 

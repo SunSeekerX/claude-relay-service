@@ -133,7 +133,7 @@
                 </div>
               </div>
               <p class="mt-2 text-sm text-yellow-700 dark:text-yellow-400">
-                💡 记得将 "你的API密钥" 替换为在上方 "API Keys" 标签页中创建的实际密钥。
+                记得将 "你的API密钥" 替换为在上方 "API Keys" 标签页中创建的实际密钥。
               </p>
             </div>
 
@@ -161,7 +161,7 @@
                 </div>
               </div>
               <p class="mt-2 text-sm text-blue-700 dark:text-blue-300">
-                💡 设置后需要重新打开 PowerShell 窗口才能生效。
+                设置后需要重新打开 PowerShell 窗口才能生效。
               </p>
             </div>
           </template>
@@ -186,7 +186,7 @@
                 </div>
               </div>
               <p class="mt-2 text-sm text-yellow-700 dark:text-yellow-400">
-                💡 记得将 "你的API密钥" 替换为在上方 "API Keys" 标签页中创建的实际密钥。
+                记得将 "你的API密钥" 替换为在上方 "API Keys" 标签页中创建的实际密钥。
               </p>
             </div>
 
@@ -244,7 +244,7 @@
             }}</code>
           </p>
           <p class="text-sm text-indigo-600 dark:text-indigo-400">
-            💡 如果该文件不存在，请手动创建。
+            如果该文件不存在，请手动创建。
           </p>
         </div>
         <div
@@ -294,7 +294,7 @@
             <div>cr_xxxxxxxxxxxxxxxxxx</div>
           </div>
           <p class="text-sm text-blue-700 dark:text-blue-300">
-            💡 如果输出为空或显示变量名本身，说明环境变量设置失败，请重新设置。
+            如果输出为空或显示变量名本身，说明环境变量设置失败，请重新设置。
           </p>
         </div>
       </div>

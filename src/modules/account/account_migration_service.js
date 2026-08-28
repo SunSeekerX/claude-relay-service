@@ -23,9 +23,9 @@ export { CRS_PLATFORM } from './account_migration_mappers.js'
  * 编排层：读账户(解密) -> 规范化快照；导出/预检/导入。
  *
  * 职责边界：
- *   - 这里承担「各平台解密不一致」的脏活（claude 原样加密、openai 不解 accessToken、droid 掩码 apiKeys…）。
- *   - 格式转换委托给 mappers；格式识别/解析委托给 parsers。
- *   - 不破坏现有 /admin/sync/export-accounts 契约（本服务全部走新路径）。
+ * - 这里承担「各平台解密不一致」的脏活（claude 原样加密、openai 不解 accessToken、droid 掩码 apiKeys…）。
+ * - 格式转换委托给 mappers；格式识别/解析委托给 parsers。
+ * - 不破坏现有 /admin/sync/export-accounts 契约（本服务全部走新路径）。
  */
 
 const CRS_EXPORT_TYPE = parsers.CRS_TYPE
@@ -480,7 +480,7 @@ const gatherSnapshots = async function gatherSnapshots(idSet) {
           snapshots.push(snap)
         }
       } catch (err) {
-        logger.warn(`⚠️ Account export: read ${platform}:${id} failed: ${err.message}`)
+        logger.warn(`Account export: read ${platform}:${id} failed: ${err.message}`)
         errors.push({ platform, id, message: err.message })
       }
     }
@@ -972,7 +972,7 @@ export const importAccounts = async function importAccounts({ filename, contentB
       }
     } catch (err) {
       failed += 1
-      logger.error(`❌ Account import failed (${label.platform}/${label.name}): ${err.message}`)
+      logger.error(`Account import failed (${label.platform}/${label.name}): ${err.message}`)
       results.push({ ...label, action: 'failed', error: err.message })
     }
   }

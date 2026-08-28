@@ -1,4 +1,4 @@
-import requestDetailService from '../src/modules/relay/relay_request_detail_service.js'
+import { requestDetailService } from '../src/modules/relay/relay_request_detail_service.js'
 import '../src/modules/relay/relay_request_details_routes.js'
 const mockRouter = {
   get: jest.fn(),
@@ -18,10 +18,12 @@ jest.mock('../src/infra/middleware_auth.js', () => ({
 }))
 
 jest.mock('../src/modules/relay/relay_request_detail_service.js', () => ({
-  listRequestDetails: jest.fn(),
-  getRequestDetail: jest.fn(),
-  getRequestBodyPreviewStats: jest.fn(),
-  purgeRequestBodySnapshots: jest.fn()
+  requestDetailService: {
+    listRequestDetails: jest.fn(),
+    getRequestDetail: jest.fn(),
+    getRequestBodyPreviewStats: jest.fn(),
+    purgeRequestBodySnapshots: jest.fn()
+  }
 }))
 
 jest.mock('../src/common/logger.js', () => ({
@@ -78,8 +80,8 @@ describe('requestDetails admin routes', () => {
     await handler({ query: { startDate: 'bad' } }, res)
 
     expect(res.status).toHaveBeenCalledWith(400)
-    expect(res.body.success).toBe(false)
-    expect(res.body.message).toBe('Invalid date range')
+    expect(res.body.code).toBe(400)
+    expect(res.body.msg).toBe('Invalid date range')
   })
 
   test('returns retained detail records even when capture is disabled', async () => {
@@ -97,8 +99,8 @@ describe('requestDetails admin routes', () => {
 
     await handler({ params: { requestId: 'req_1' } }, res)
 
-    expect(res.status).not.toHaveBeenCalled()
-    expect(res.body.success).toBe(true)
+    expect(res.status).toHaveBeenCalledWith(200)
+    expect(res.body.code).toBe(200)
     expect(res.body.data.captureEnabled).toBe(false)
     expect(res.body.data.record.requestId).toBe('req_1')
   })
@@ -117,8 +119,8 @@ describe('requestDetails admin routes', () => {
 
     await handler({}, res)
 
-    expect(res.status).not.toHaveBeenCalled()
-    expect(res.body.success).toBe(true)
+    expect(res.status).toHaveBeenCalledWith(200)
+    expect(res.body.code).toBe(200)
     expect(res.body.data.snapshotCount).toBe(3)
     expect(res.body.data.hasSnapshots).toBe(true)
   })
@@ -133,9 +135,9 @@ describe('requestDetails admin routes', () => {
 
     await handler({}, res)
 
-    expect(res.status).not.toHaveBeenCalled()
-    expect(res.body.success).toBe(true)
-    expect(res.body.message).toBe('清理完毕')
+    expect(res.status).toHaveBeenCalledWith(200)
+    expect(res.body.code).toBe(200)
+    expect(res.body.msg).toBe('清理完毕')
     expect(res.body.data.updatedRecords).toBe(7)
   })
 })

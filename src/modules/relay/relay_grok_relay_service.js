@@ -16,6 +16,7 @@ import * as xaiHelper from '../../common/xai_helper.js'
 import { applyFilteredResponseHeaders } from './relay_header_filter.js'
 import { isNonProtocolUpstreamBody, handleNonProtocolUpstream } from './relay_upstream_protocol_guard.js'
 import * as grokProtocol from './relay_grok_protocol.js'
+import * as claudeResponses from './translator/relay_translator_claude_responses.js'
 /**
  * Grok / xAI 转发服务
  * OpenAI 兼容 chat/completions + responses；AbortController 清理；usage 捕获
@@ -37,6 +38,53 @@ class GrokRelayService {
       return this._relay(req, res, apiKeyData, sessionHash, 'responses_compact')
     }
     return this._relay(req, res, apiKeyData, sessionHash, 'responses')
+  }
+
+  // Claude Messages → xAI Responses → Anthropic 形态回包（对齐官方 Grok CLI Messages 后端）
+  async relayMessages(req, res, apiKeyData, sessionHash = null) {
+    const originalBody = req.body
+    const responsesBody = claudeResponses.convertClaudeRequestToResponses(originalBody || {}, {})
+    responsesBody.store = false
+    if (!Array.isArray(responsesBody.include)) {
+      responsesBody.include = ['reasoning.encrypted_content']
+    } else if (!responsesBody.include.includes('reasoning.encrypted_content')) {
+      responsesBody.include = [...responsesBody.include, 'reasoning.encrypted_content']
+    }
+    const wantStream = originalBody?.stream === true
+    responsesBody.stream = wantStream
+    req.body = responsesBody
+    req._grokMessagesBridge = true
+    req._grokMessagesOriginalModel = originalBody?.model || responsesBody.model
+
+    if (!wantStream) {
+      const originalJson = res.json.bind(res)
+      res.json = (data) => {
+        try {
+          const claudeMessage = claudeResponses.convertResponsesResultToClaudeMessage(data)
+          return originalJson(claudeMessage)
+        } catch (error) {
+          console.error(error)
+          return originalJson(data)
+        }
+      }
+      try {
+        return await this._relay(req, res, apiKeyData, sessionHash, 'responses')
+      } finally {
+        res.json = originalJson
+        req.body = originalBody
+        delete req._grokMessagesBridge
+        delete req._grokMessagesOriginalModel
+      }
+    }
+
+    // 真流式：_relay → _handleStreamResponse 认 reverseBridgeToClaudeMessages
+    try {
+      return await this._relay(req, res, apiKeyData, sessionHash, 'responses')
+    } finally {
+      req.body = originalBody
+      delete req._grokMessagesBridge
+      delete req._grokMessagesOriginalModel
+    }
   }
 
   async relayMedia(req, res, apiKeyData, endpoint, sessionHash = null) {
@@ -253,17 +301,62 @@ class GrokRelayService {
       if (response.status >= 400 && grokProtocol.shouldFailoverGrokStatus(response.status) && !forcedAccountId) {
         if (response.status === 429) {
           const retryAfter = upstreamErrorHelper.parseRetryAfter?.(response.headers) || 3600
-          await grokAccountService.markAccountRateLimited(account.id, Math.ceil(retryAfter / 60) || 60)
-          if (!(account.disableAutoProtection === true || account.disableAutoProtection === 'true')) {
-            await upstreamErrorHelper
-              .markTempUnavailable(account.id, 'grok', 429, retryAfter)
-              .catch((e) => console.error(e))
+          const grokAutoOff = account.disableAutoProtection === true || account.disableAutoProtection === 'true'
+          if (!grokAutoOff) {
+            await grokAccountService.markAccountRateLimited(account.id, Math.ceil(retryAfter / 60) || 60)
           }
+          const grokCtx = upstreamErrorHelper.buildErrorContext({
+            url: targetUrl,
+            method: 'POST',
+            requestHeaders: headers,
+            requestBody: body,
+            model: requestedModel,
+            responseStatus: 429,
+            responseHeaders: response.headers,
+            responseBody: response.data,
+          })
+          await upstreamErrorHelper
+            .markTempUnavailable(account.id, 'grok', 429, retryAfter, grokCtx)
+            .catch((e) => console.error(e))
         } else if (response.status === 401 || response.status === 403) {
           await grokAccountService.markAccountUnauthorized(account.id, `Grok upstream ${response.status}`)
+          await upstreamErrorHelper
+            .markTempUnavailable(
+              account.id,
+              'grok',
+              response.status,
+              null,
+              upstreamErrorHelper.buildErrorContext({
+                url: targetUrl,
+                method: 'POST',
+                requestHeaders: headers,
+                requestBody: body,
+                model: requestedModel,
+                responseStatus: response.status,
+                responseHeaders: response.headers,
+                responseBody: response.data,
+                message: `Grok upstream ${response.status}`,
+              }),
+            )
+            .catch((e) => console.error(e))
         } else if (response.status >= 500 || response.status === 405) {
           await upstreamErrorHelper
-            .markTempUnavailable(account.id, 'grok', response.status)
+            .markTempUnavailable(
+              account.id,
+              'grok',
+              response.status,
+              null,
+              upstreamErrorHelper.buildErrorContext({
+                url: targetUrl,
+                method: 'POST',
+                requestHeaders: headers,
+                requestBody: body,
+                model: requestedModel,
+                responseStatus: response.status,
+                responseHeaders: response.headers,
+                responseBody: response.data,
+              }),
+            )
             .catch((e) => console.error(e))
         }
 
@@ -299,12 +392,24 @@ class GrokRelayService {
 
       if (response.status === 429) {
         const retryAfter = upstreamErrorHelper.parseRetryAfter?.(response.headers) || 3600
-        await grokAccountService.markAccountRateLimited(account.id, Math.ceil(retryAfter / 60) || 60)
-        if (!(account.disableAutoProtection === true || account.disableAutoProtection === 'true')) {
-          await upstreamErrorHelper
-            .markTempUnavailable(account.id, 'grok', 429, retryAfter)
-            .catch((e) => console.error(e))
+        const grokAutoOff = account.disableAutoProtection === true || account.disableAutoProtection === 'true'
+        if (!grokAutoOff) {
+          await grokAccountService.markAccountRateLimited(account.id, Math.ceil(retryAfter / 60) || 60)
         }
+        const grokCtx = upstreamErrorHelper.buildErrorContext({
+          url: targetUrl,
+          method: 'POST',
+          requestHeaders: headers,
+          requestBody: body,
+          model: requestedModel,
+          responseStatus: 429,
+          responseHeaders: response.headers,
+          responseBody: response.data,
+        })
+        await upstreamErrorHelper
+          .markTempUnavailable(account.id, 'grok', 429, retryAfter, grokCtx)
+          .catch((e) => console.error(e))
+
         const clientError = buildClientError({
           statusCode: 429,
           protocol: 'openai',
@@ -316,6 +421,25 @@ class GrokRelayService {
 
       if (response.status === 401 || response.status === 403) {
         await grokAccountService.markAccountUnauthorized(account.id, `Grok upstream ${response.status}`)
+        await upstreamErrorHelper
+          .markTempUnavailable(
+            account.id,
+            'grok',
+            response.status,
+            null,
+            upstreamErrorHelper.buildErrorContext({
+              url: targetUrl,
+              method: 'POST',
+              requestHeaders: headers,
+              requestBody: body,
+              model: requestedModel,
+              responseStatus: response.status,
+              responseHeaders: response.headers,
+              responseBody: response.data,
+              message: `Grok upstream ${response.status}`,
+            }),
+          )
+          .catch((e) => console.error(e))
         const clientError = buildClientError({
           statusCode: response.status,
           protocol: 'openai',
@@ -368,7 +492,22 @@ class GrokRelayService {
           })
         } else if (!autoOff && (response.status >= 500 || response.status === 405)) {
           await upstreamErrorHelper
-            .markTempUnavailable(account.id, 'grok', response.status)
+            .markTempUnavailable(
+              account.id,
+              'grok',
+              response.status,
+              null,
+              upstreamErrorHelper.buildErrorContext({
+                url: targetUrl,
+                method: 'POST',
+                requestHeaders: headers,
+                requestBody: body,
+                model: requestedModel,
+                responseStatus: response.status,
+                responseHeaders: response.headers,
+                responseBody: response.data,
+              }),
+            )
             .catch((e) => console.error(e))
         }
 
@@ -416,7 +555,13 @@ class GrokRelayService {
           apiKeyData,
           body?.model || originalChatModel || requestedModel,
           req,
-          { reverseBridgeToChat, originalChatModel, endpointKind },
+          {
+            reverseBridgeToChat,
+            reverseBridgeToClaudeMessages: Boolean(req._grokMessagesBridge),
+            originalChatModel,
+            originalClaudeModel: req._grokMessagesOriginalModel,
+            endpointKind,
+          },
         )
       }
 
@@ -429,7 +574,9 @@ class GrokRelayService {
         req,
         {
           reverseBridgeToChat,
+          reverseBridgeToClaudeMessages: Boolean(req._grokMessagesBridge),
           originalChatModel,
+          originalClaudeModel: req._grokMessagesOriginalModel,
           isCompact: endpointKind === 'responses_compact',
           endpointKind,
         },
@@ -696,6 +843,15 @@ class GrokRelayService {
         logger.warn(`[GrokRelay] reverse bridge failed: ${error.message}`)
       }
     }
+    // Responses → Claude Messages 回桥
+    if (options.reverseBridgeToClaudeMessages) {
+      try {
+        data = claudeResponses.convertResponsesResultToClaudeMessage(data)
+      } catch (error) {
+        console.error(error)
+        logger.warn(`[GrokRelay] claude messages reverse bridge failed: ${error.message}`)
+      }
+    }
 
     const usage = data?.usage || response.data?.usage || null
     const mediaBilling = this._buildMediaBillingUsage(data, req, options.endpointKind)
@@ -725,18 +881,42 @@ class GrokRelayService {
 
   async _handleStreamResponse(response, res, account, apiKeyData, requestedModel, req, options = {}) {
     res.status(response.status)
-    res.setHeader('Content-Type', 'text/event-stream')
-    res.setHeader('Cache-Control', 'no-cache')
-    res.setHeader('Connection', 'keep-alive')
+    const reverseClaude = Boolean(options.reverseBridgeToClaudeMessages)
+    const reverseBridge = Boolean(options.reverseBridgeToChat)
+    // Claude Messages 桥：Anthropic SSE；Chat 桥 / 透传：OpenAI SSE
+    if (reverseClaude) {
+      res.setHeader('Content-Type', 'text/event-stream')
+      res.setHeader('Cache-Control', 'no-cache')
+      res.setHeader('Connection', 'keep-alive')
+      res.setHeader('X-Accel-Buffering', 'no')
+    } else {
+      res.setHeader('Content-Type', 'text/event-stream')
+      res.setHeader('Cache-Control', 'no-cache')
+      res.setHeader('Connection', 'keep-alive')
+    }
     applyFilteredResponseHeaders(res, response.headers)
 
     let usageData = null
     let actualModel = requestedModel
     let buffer = ''
     let clientGone = Boolean(req?._crsClientGone)
-    const reverseBridge = Boolean(options.reverseBridgeToChat)
     const converter = reverseBridge ? new CodexToOpenAIConverter() : null
     const streamState = reverseBridge ? converter.createStreamState() : null
+    const claudeState = reverseClaude ? claudeResponses.createClaudeFromResponsesStreamState() : null
+    if (claudeState) {
+      claudeState.model = options.originalClaudeModel || requestedModel || ''
+    }
+
+    const writeClaudeEvents = (events) => {
+      for (const item of events) {
+        const eventName = item.event || item.data?.type
+        const data = item.data || item
+        if (eventName) {
+          res.write(`event: ${eventName}\n`)
+        }
+        res.write(`data: ${JSON.stringify(data)}\n\n`)
+      }
+    }
 
     response.data.on('data', (chunk) => {
       if (req?._crsClientGone) {
@@ -748,7 +928,7 @@ class GrokRelayService {
         return
       }
 
-      if (!clientGone && !reverseBridge) {
+      if (!clientGone && !reverseBridge && !reverseClaude) {
         res.write(Buffer.from(filtered))
       }
 
@@ -790,6 +970,10 @@ class GrokRelayService {
               res.write(out)
             }
           }
+          if (!clientGone && reverseClaude) {
+            const events = claudeResponses.convertResponsesStreamEventToClaude(parsed, claudeState)
+            writeClaudeEvents(events)
+          }
         } catch {
           // ignore partial JSON
         }
@@ -808,6 +992,11 @@ class GrokRelayService {
     if (!clientGone && !res.writableEnded) {
       if (reverseBridge) {
         res.write('data: [DONE]\n\n')
+      }
+      // Claude Messages 双终点：若未收到 completed，补 message_stop
+      if (reverseClaude && claudeState && !claudeState.stopped) {
+        writeClaudeEvents([{ event: 'message_stop', data: { type: 'message_stop' } }])
+        claudeState.stopped = true
       }
       res.end()
     }

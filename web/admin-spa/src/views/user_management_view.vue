@@ -472,6 +472,7 @@
 import { ref, computed, onMounted } from 'vue'
 
 import * as httpApis from '@/libs/http_apis'
+import { isOk, msgOf, dataOf } from '@/libs/http_envelope'
 import { showToast, formatNumber, formatDate, debounce } from '@/libs/tools'
 import UserUsageStatsModal from '@/components/admin/user_usage_stats_modal.vue'
 import ChangeRoleModal from '@/components/admin/change_role_modal.vue'
@@ -552,16 +553,16 @@ const loadUsers = async () => {
       httpApis.getFrontUsersStatsOverviewApi()
     ])
 
-    if (usersResponse.success) {
-      users.value = usersResponse.users
+    if (isOk(usersResponse)) {
+      users.value = dataOf(usersResponse)?.users || []
     } else {
-      showToast(usersResponse.message || 'Failed to load users', 'error')
+      showToast(msgOf(usersResponse, 'Failed to load users'), 'error')
     }
 
-    if (statsResponse.success) {
-      userStats.value = statsResponse.stats
+    if (isOk(statsResponse)) {
+      userStats.value = dataOf(statsResponse)?.stats
     } else {
-      showToast(statsResponse.message || 'Failed to load user stats', 'error')
+      showToast(msgOf(statsResponse, 'Failed to load user stats'), 'error')
     }
   } catch (error) {
     console.error('Failed to load users:', error)
@@ -623,23 +624,23 @@ const handleConfirmAction = async () => {
         isActive: !user.isActive
       })
 
-      if (response.success) {
+      if (isOk(response)) {
         const userIndex = users.value.findIndex((u) => u.id === user.id)
         if (userIndex !== -1) {
           users.value[userIndex].isActive = !user.isActive
         }
         showToast(`User ${user.isActive ? 'disabled' : 'enabled'} successfully`, 'success')
       } else {
-        showToast(response.message || `Failed to ${action}`, 'error')
+        showToast(msgOf(response, `Failed to ${action}`), 'error')
       }
     } else if (action === 'disableKeys') {
       const response = await httpApis.disableFrontUserKeysApi(user.id)
 
-      if (response.success) {
-        showToast(`Disabled ${response.disabledCount} API keys`, 'success')
+      if (isOk(response)) {
+        showToast(`Disabled ${dataOf(response)?.disabledCount ?? 0} API keys`, 'success')
         await loadUsers() // Refresh to get updated counts
       } else {
-        showToast(response.message || `Failed to ${action}`, 'error')
+        showToast(msgOf(response, `Failed to ${action}`), 'error')
       }
     }
   } catch (error) {

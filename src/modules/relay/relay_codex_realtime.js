@@ -5,8 +5,8 @@ import { logger } from '../../common/logger.js'
 // - POST 建连：/v1/realtime/calls | /v1/live | /backend-api/codex/realtime/calls
 // - 回包：SDP body + Location（含 call_id）
 // - sideband WS：
-//   API：wss://.../v1/realtime?call_id= 或 /v1/live/{call_id} 或 /v1/realtime/calls/{call_id}
-//   ChatGPT OAuth：wss://chatgpt.com/backend-api/codex/{call_id}
+// API：wss://.../v1/realtime?call_id= 或 /v1/live/{call_id} 或 /v1/realtime/calls/{call_id}
+// ChatGPT OAuth：wss://chatgpt.com/backend-api/codex/{call_id}
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 

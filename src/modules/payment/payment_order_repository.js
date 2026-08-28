@@ -351,11 +351,11 @@ class OrderRepository {
 
   // 统计某 provider 实例仍被「在途」订单引用的数量。
   // [配置快照化后] 退款不再回查实例 config：下单时已把渠道 config/密钥快照进订单（providerConfigSnapshot），
-  //   _executeChannelRefund 读订单快照调渠道。故「completed 订单退款依赖实例」的耦合已解除。
+  // _executeChannelRefund 读订单快照调渠道。故「completed 订单退款依赖实例」的耦合已解除。
   // includeCompleted=true（删除守卫用）：含 completed —— 物理删除不可逆，且【存量无快照旧订单】退款仍回退读实例，
-  //   删实例会让这类旧订单永久无法退款，保守保留。
+  // 删实例会让这类旧订单永久无法退款，保守保留。
   // includeCompleted=false（更新守卫用）：仅 pending/paid/refunding（短期在途，验签/查单仍依赖实例当前 config）。
-  //   不含 completed —— 快照化后 completed 订单退款自包含，改密钥/配置/下线旧商户号不再被 completed 单冻结。
+  // 不含 completed —— 快照化后 completed 订单退款自包含，改密钥/配置/下线旧商户号不再被 completed 单冻结。
   // 终态：expired/cancelled/failed/refunded 一律不计。分片 pipeline 扫 created 索引。
   async countActiveByProviderInstance(instanceId, { includeCompleted = true } = {}) {
     if (!instanceId) {

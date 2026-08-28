@@ -1032,6 +1032,7 @@ import {
   removeImportedModelsApi,
   updateModelPricingSourceApi
 } from '@/libs/http_apis'
+import { isOk, msgOf } from '@/libs/http_envelope'
 import { showToast, copyText } from '@/libs/tools'
 import { formatLocalDateTime } from '@/libs/time'
 import { sortModelsForDisplay } from '@/libs/model_sort'
@@ -1485,27 +1486,27 @@ const loadData = async () => {
   loading.value = true
   if (props.readonly) {
     const result = await getPublicModelPricingApi()
-    if (result.success) {
+    if (isOk(result)) {
       pricingData.value = result.data?.pricing || {}
       pricingStatus.value = result.data?.status || {}
     } else {
-      showToast(result.message || '加载模型价格失败', 'error')
+      showToast(msgOf(result, '加载模型价格失败'), 'error')
     }
   } else {
     const [pricingResult, statusResult] = await Promise.all([
       getModelPricingApi(),
       getModelPricingStatusApi()
     ])
-    if (pricingResult.success) {
+    if (isOk(pricingResult)) {
       pricingData.value = pricingResult.data
     } else {
-      showToast(pricingResult.message || '加载模型价格失败', 'error')
+      showToast(msgOf(pricingResult, '加载模型价格失败'), 'error')
     }
-    if (statusResult.success) {
+    if (isOk(statusResult)) {
       pricingStatus.value = statusResult.data
       syncSourceForm()
     } else {
-      showToast(statusResult.message || '获取价格状态失败', 'error')
+      showToast(msgOf(statusResult, '获取价格状态失败'), 'error')
     }
   }
   loading.value = false
@@ -1517,11 +1518,11 @@ const loadData = async () => {
 const handleRefresh = async () => {
   refreshing.value = true
   const result = await refreshModelPricingApi()
-  if (result.success) {
+  if (isOk(result)) {
     showToast('价格数据已刷新', 'success')
     await loadData()
   } else {
-    showToast(result.message || '刷新失败', 'error')
+    showToast(msgOf(result, '刷新失败'), 'error')
   }
   refreshing.value = false
 }
@@ -1529,14 +1530,14 @@ const handleRefresh = async () => {
 const saveSource = async (payload) => {
   savingSource.value = true
   const result = await updateModelPricingSourceApi(payload)
-  if (result.success) {
+  if (isOk(result)) {
     showToast('数据源已保存', 'success')
     await loadData()
   } else {
-    showToast(result.message || '保存数据源失败', 'error')
+    showToast(msgOf(result, '保存数据源失败'), 'error')
   }
   savingSource.value = false
-  return result.success
+  return isOk(result)
 }
 
 const handleSaveSource = () => {
@@ -1560,15 +1561,15 @@ const loadModelCatalog = async () => {
     getImportableModelsApi(),
     getImportedModelsApi()
   ])
-  if (importableResult.success) {
+  if (isOk(importableResult)) {
     importableModels.value = importableResult.data?.models || []
   } else {
-    showToast(importableResult.message || '获取可导入模型失败', 'error')
+    showToast(msgOf(importableResult, '获取可导入模型失败'), 'error')
   }
-  if (importedResult.success) {
+  if (isOk(importedResult)) {
     importedModels.value = importedResult.data?.models || []
   } else {
-    showToast(importedResult.message || '获取已导入模型失败', 'error')
+    showToast(msgOf(importedResult, '获取已导入模型失败'), 'error')
   }
   modelsLoading.value = false
 }
@@ -1576,11 +1577,11 @@ const loadModelCatalog = async () => {
 const handleImportModels = async () => {
   modelsLoading.value = true
   const result = await importModelsApi(selectedImportable.value)
-  if (result.success) {
-    showToast(result.message || '导入完成', 'success')
+  if (isOk(result)) {
+    showToast(msgOf(result, '导入完成'), 'success')
     selectedImportable.value = []
   } else {
-    showToast(result.message || '导入失败', 'error')
+    showToast(msgOf(result, '导入失败'), 'error')
   }
   modelsLoading.value = false
   await loadData()
@@ -1590,11 +1591,11 @@ const handleImportModels = async () => {
 const handleRemoveModels = async () => {
   modelsLoading.value = true
   const result = await removeImportedModelsApi(selectedImported.value)
-  if (result.success) {
-    showToast(result.message || '移除完成', 'success')
+  if (isOk(result)) {
+    showToast(msgOf(result, '移除完成'), 'success')
     selectedImported.value = []
   } else {
-    showToast(result.message || '移除失败', 'error')
+    showToast(msgOf(result, '移除失败'), 'error')
   }
   modelsLoading.value = false
   await loadData()
@@ -1604,10 +1605,10 @@ const handleRemoveModels = async () => {
 const handleImport = async () => {
   importing.value = true
   const result = await pullModelPricingApi()
-  if (result.success) {
+  if (isOk(result)) {
     showToast(`已拉取最新价格，共 ${result.data?.modelCount ?? 0} 个模型`, 'success')
   } else {
-    showToast(result.message || '拉取失败', 'error')
+    showToast(msgOf(result, '拉取失败'), 'error')
   }
   // 失败时也刷新:后端会回落 fallback 数据,展示需与实际一致
   await loadData()
@@ -1635,7 +1636,7 @@ const copyToInternalEditor = async (name) => {
   rawModal.value.show = false
   addingInternalName.value = name
   const internal = await getInternalModelApi(name)
-  if (internal.success && internal.data?.pricing) {
+  if (isOk(internal) && internal.data?.pricing) {
     addingInternalName.value = ''
     const data = internal.data
     editor.value = {
@@ -1651,8 +1652,8 @@ const copyToInternalEditor = async (name) => {
   }
   const seeded = await buildInternalFromSeedApi(name, true)
   addingInternalName.value = ''
-  if (!seeded.success) {
-    showToast(seeded.message || '从种子构建模型失败', 'error')
+  if (!isOk(seeded)) {
+    showToast(msgOf(seeded, '从种子构建模型失败'), 'error')
     return
   }
   editor.value = { show: true, isCreate: true, model: seeded.data }
@@ -1664,15 +1665,15 @@ const addToInternal = async (name, _options = {}) => {
   rawModal.value.show = false
   addingInternalName.value = name
   const existing = await getInternalModelApi(name)
-  if (existing.success && existing.data?.hasBilling && existing.data?.pricing) {
+  if (isOk(existing) && existing.data?.hasBilling && existing.data?.pricing) {
     addingInternalName.value = ''
     editor.value = { show: true, model: existing.data, isCreate: false }
     return
   }
   const seeded = await buildInternalFromSeedApi(name, false)
   addingInternalName.value = ''
-  if (!seeded.success) {
-    showToast(seeded.message || '从种子构建模型失败', 'error')
+  if (!isOk(seeded)) {
+    showToast(msgOf(seeded, '从种子构建模型失败'), 'error')
     return
   }
   editor.value = { show: true, isCreate: true, model: seeded.data }
@@ -1689,8 +1690,8 @@ const openCreateInternal = () => {
 
 const openEditInternalByName = async (name) => {
   const result = await getInternalModelApi(name)
-  if (!result.success) {
-    showToast(result.message || '加载内部模型失败', 'error')
+  if (!isOk(result)) {
+    showToast(msgOf(result, '加载内部模型失败'), 'error')
     return
   }
   editor.value = { show: true, model: result.data, isCreate: false }

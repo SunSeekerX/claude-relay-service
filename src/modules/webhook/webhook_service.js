@@ -49,7 +49,7 @@ class WebhookService {
         return
       }
 
-      logger.info(`📢 发送 ${type} 通知到 ${enabledPlatforms.length} 个平台`)
+      logger.info(`发送 ${type} 通知到 ${enabledPlatforms.length} 个平台`)
 
       // 并发发送到所有平台
       const promises = enabledPlatforms.map((platform) =>
@@ -63,9 +63,9 @@ class WebhookService {
       const failed = results.filter((r) => r.status === 'rejected').length
 
       if (failed > 0) {
-        logger.warn(`⚠️ Webhook通知: ${succeeded}成功, ${failed}失败`)
+        logger.warn(`Webhook通知: ${succeeded}成功, ${failed}失败`)
       } else {
-        logger.info(`✅ 所有webhook通知发送成功`)
+        logger.info(`所有webhook通知发送成功`)
       }
 
       return { succeeded, failed }
@@ -92,9 +92,9 @@ class WebhookService {
         retrySettings?.retryDelay || 1000,
       )
 
-      logger.info(`✅ 成功发送到 ${platform.name || platform.type}`)
+      logger.info(`成功发送到 ${platform.name || platform.type}`)
     } catch (error) {
-      logger.error(`❌ 发送到 ${platform.name || platform.type} 失败:`, error.message)
+      logger.error(`发送到 ${platform.name || platform.type} 失败:`, error.message)
       throw error
     }
   }
@@ -310,7 +310,7 @@ class WebhookService {
 
       // 发送邮件
       const info = await transporter.sendMail(mailOptions)
-      logger.info(`✅ 邮件发送成功: ${info.messageId}`)
+      logger.info(`邮件发送成功: ${info.messageId}`)
 
       return info
     } catch (error) {
@@ -356,7 +356,7 @@ class WebhookService {
 
         if (i < maxRetries - 1) {
           const delay = baseDelay * Math.pow(2, i) // 指数退避
-          logger.debug(`🔄 重试 ${i + 1}/${maxRetries}，等待 ${delay}ms`)
+          logger.debug(`重试 ${i + 1}/${maxRetries}，等待 ${delay}ms`)
           await new Promise((resolve) => setTimeout(resolve, delay))
         }
       }
@@ -445,7 +445,7 @@ class WebhookService {
       // 移除结尾的 /
       return parsed.href.replace(/\/$/, '')
     } catch (error) {
-      logger.warn(`⚠️ Telegram API 基础地址无效，将使用默认值: ${error.message}`)
+      logger.warn(`Telegram API 基础地址无效，将使用默认值: ${error.message}`)
       return defaultBase
     }
   }
@@ -472,10 +472,10 @@ class WebhookService {
           options.httpsAgent = agent
           options.proxy = false
         } else {
-          logger.warn(`⚠️ 不支持的Telegram代理协议: ${protocol}`)
+          logger.warn(`不支持的Telegram代理协议: ${protocol}`)
         }
       } catch (error) {
-        logger.warn(`⚠️ Telegram代理配置无效，将忽略: ${error.message}`)
+        logger.warn(`Telegram代理配置无效，将忽略: ${error.message}`)
       }
     }
 
@@ -528,15 +528,15 @@ class WebhookService {
    */
   getNotificationTitle(type) {
     const titles = {
-      accountAnomaly: '⚠️ 账号异常通知',
-      quotaWarning: '📊 配额警告',
-      systemError: '❌ 系统错误',
-      securityAlert: '🔒 安全警报',
-      rateLimitRecovery: '🎉 限流恢复通知',
-      test: '🧪 测试通知',
+      accountAnomaly: '账号异常通知',
+      quotaWarning: '配额警告',
+      systemError: '系统错误',
+      securityAlert: '安全警报',
+      rateLimitRecovery: '限流恢复通知',
+      test: '测试通知',
     }
 
-    return titles[type] || '📢 系统通知'
+    return titles[type] || '系统通知'
   }
 
   /**

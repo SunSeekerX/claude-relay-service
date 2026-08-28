@@ -170,7 +170,7 @@ async function* handleStreamResponse(response, model, apiKeyId, accountId = null
                   requestMeta,
                 )
                 .catch((error) => {
-                  logger.error('❌ Failed to record Gemini usage:', error)
+                  logger.error('Failed to record Gemini usage:', error)
                 })
             }
 
@@ -284,12 +284,12 @@ export const sendGeminiRequest = async function sendGeminiRequest({
   // 添加代理配置
   const proxyAgent = createProxyAgent(proxy)
   if (proxyAgent) {
-    // 只设置 httpsAgent，因为目标 URL 是 HTTPS (cloudcode.googleapis.com)
+    // 只设置 httpsAgent，目标 URL 为 HTTPS
     axiosConfig.httpsAgent = proxyAgent
     axiosConfig.proxy = false
-    logger.info(`🌐 Using proxy for Gemini API request: ${ProxyHelper.getProxyDescription(proxy)}`)
+    logger.info(`Using proxy for Gemini API request: ${ProxyHelper.getProxyDescription(proxy)}`)
   } else {
-    logger.debug('🌐 No proxy configured for Gemini API request')
+    logger.debug('No proxy configured for Gemini API request')
   }
 
   // 添加 AbortController 信号支持
@@ -336,7 +336,7 @@ export const sendGeminiRequest = async function sendGeminiRequest({
             requestMeta,
           )
           .catch((error) => {
-            logger.error('❌ Failed to record Gemini usage:', error)
+            logger.error('Failed to record Gemini usage:', error)
           })
       }
 
@@ -410,12 +410,12 @@ export const getAvailableModels = async function getAvailableModels(
 
   const proxyAgent = createProxyAgent(proxy)
   if (proxyAgent) {
-    // 只设置 httpsAgent，因为目标 URL 是 HTTPS (cloudcode.googleapis.com)
+    // 只设置 httpsAgent，目标 URL 为 HTTPS
     axiosConfig.httpsAgent = proxyAgent
     axiosConfig.proxy = false
-    logger.info(`🌐 Using proxy for Gemini models request: ${ProxyHelper.getProxyDescription(proxy)}`)
+    logger.info(`Using proxy for Gemini models request: ${ProxyHelper.getProxyDescription(proxy)}`)
   } else {
-    logger.debug('🌐 No proxy configured for Gemini models request')
+    logger.debug('No proxy configured for Gemini models request')
   }
 
   try {
@@ -509,12 +509,12 @@ export const countTokens = async function countTokens({
   // 添加代理配置
   const proxyAgent = createProxyAgent(proxy)
   if (proxyAgent) {
-    // 只设置 httpsAgent，因为目标 URL 是 HTTPS (cloudcode.googleapis.com)
+    // 只设置 httpsAgent，目标 URL 为 HTTPS
     axiosConfig.httpsAgent = proxyAgent
     axiosConfig.proxy = false
-    logger.info(`🌐 Using proxy for Gemini countTokens request: ${ProxyHelper.getProxyDescription(proxy)}`)
+    logger.info(`Using proxy for Gemini countTokens request: ${ProxyHelper.getProxyDescription(proxy)}`)
   } else {
-    logger.debug('🌐 No proxy configured for Gemini countTokens request')
+    logger.debug('No proxy configured for Gemini countTokens request')
   }
 
   try {

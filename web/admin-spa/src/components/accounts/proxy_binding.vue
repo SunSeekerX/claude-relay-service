@@ -52,6 +52,7 @@ import { ref, computed, onMounted } from 'vue'
 import ProxyConfig from './proxy_config.vue'
 import CuteOptionCards from '@/components/common/cute_option_cards.vue'
 import * as httpApis from '@/libs/http_apis'
+import { isOk } from '@/libs/http_envelope'
 
 // 仅这些平台的 relay 已接入代理池解析，绑定才会真正生效
 const POOL_SUPPORTED_PLATFORMS = [
@@ -192,10 +193,10 @@ const loadPoolData = async () => {
     httpApis.getProxyGroupsApi(),
     httpApis.getProxiesApi()
   ])
-  if (groupRes.success) {
+  if (isOk(groupRes)) {
     groups.value = groupRes.data || []
   }
-  if (proxyRes.success) {
+  if (isOk(proxyRes)) {
     proxies.value = proxyRes.data || []
   }
 }

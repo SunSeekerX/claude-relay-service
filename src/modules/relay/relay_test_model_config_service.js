@@ -58,7 +58,7 @@ class TestModelConfigService {
 
       const client = redis.getClient()
       if (!client) {
-        logger.warn('⚠️ Redis not connected, using default test model config')
+        logger.warn('Redis not connected, using default test model config')
         return this._withDefaults(null)
       }
 
@@ -67,7 +67,7 @@ class TestModelConfigService {
       configCacheTime = Date.now()
       return configCache
     } catch (error) {
-      logger.error('❌ Failed to get test model config:', error)
+      logger.error('Failed to get test model config:', error)
       return this._withDefaults(null)
     }
   }
@@ -107,10 +107,10 @@ class TestModelConfigService {
       configCache = merged
       configCacheTime = Date.now()
 
-      logger.info(`✅ Test model config updated by ${updatedBy}`)
+      logger.info(`Test model config updated by ${updatedBy}`)
       return merged
     } catch (error) {
-      logger.error('❌ Failed to update test model config:', error)
+      logger.error('Failed to update test model config:', error)
       throw error
     }
   }

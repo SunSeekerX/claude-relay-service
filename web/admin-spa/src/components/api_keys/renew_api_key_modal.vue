@@ -56,11 +56,12 @@
               @change="updateRenewExpireAt"
             />
             <div v-if="form.renewDuration === 'custom'" class="mt-3">
-              <input
+              <AppDateRangePicker
                 v-model="form.customExpireDate"
-                class="form-input w-full dark:border-transparent dark:bg-gray-700 dark:text-gray-200"
+                class="w-full"
+                mode="single"
                 :min="minDateTime"
-                type="datetime-local"
+                :presets="false"
                 @change="updateCustomRenewExpireAt"
               />
             </div>
@@ -98,13 +99,11 @@
 import { ref, reactive, computed, onMounted } from 'vue'
 
 import ModalTransition from '@/components/common/modal_transition.vue'
+import AppDateRangePicker from '@/components/common/app_date_range_picker.vue'
 import { showToast } from '@/libs/tools'
-import {
-  formatDateTimeLocalValue,
-  getDateTimeLocalMinValue,
-  localDateTimeInputToISOString
-} from '@/libs/time'
+import { toStoreDateTime, localDateTimeInputToISOString } from '@/libs/time'
 import * as httpApis from '@/libs/http_apis'
+import { isOk, msgOf } from '@/libs/http_envelope'
 
 const props = defineProps({
   apiKey: {
@@ -144,14 +143,14 @@ const form = reactive({
   newExpiresAt: null
 })
 
-// 计算最小日期时间
+// 计算最小日期时间（保留供后续校验；选择器本身不限制 min）
 const minDateTime = computed(() => {
   // 如果有当前过期时间且未过期，从当前过期时间开始
   if (props.apiKey.expiresAt && new Date(props.apiKey.expiresAt) > new Date()) {
-    return formatDateTimeLocalValue(props.apiKey.expiresAt)
+    return toStoreDateTime(props.apiKey.expiresAt)
   }
   // 否则从现在开始
-  return getDateTimeLocalMinValue(1)
+  return toStoreDateTime(new Date(Date.now() + 60_000))
 })
 
 // 格式化过期日期
@@ -232,12 +231,12 @@ const renewApiKey = async () => {
 
     const result = await httpApis.updateApiKeyApi(props.apiKey.id, data)
 
-    if (result.success) {
+    if (isOk(result)) {
       showToast('API Key 续期成功', 'success')
       emit('success')
       requestClose()
     } else {
-      showToast(result.message || '续期失败', 'error')
+      showToast(msgOf(result, '续期失败'), 'error')
     }
   } catch (error) {
     showToast('续期失败', 'error')

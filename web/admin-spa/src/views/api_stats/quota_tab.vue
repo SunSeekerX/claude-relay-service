@@ -79,7 +79,7 @@
             <div
               :class="[
                 'rounded-xl p-4',
-                redeemResult.success
+                isOk(redeemResult)
                   ? redeemResult.hasWarnings
                     ? 'bg-yellow-50 text-yellow-700 dark:bg-yellow-900/20 dark:text-yellow-300'
                     : 'bg-green-50 text-green-700 dark:bg-green-900/20 dark:text-green-300'
@@ -90,7 +90,7 @@
                 <i
                   :class="[
                     'mt-0.5 text-lg',
-                    redeemResult.success
+                    isOk(redeemResult)
                       ? redeemResult.hasWarnings
                         ? 'i-lucide-triangle-alert'
                         : 'i-lucide-circle-check'
@@ -100,7 +100,7 @@
                 <div>
                   <p class="font-medium">
                     {{
-                      redeemResult.success
+                      isOk(redeemResult)
                         ? redeemResult.hasWarnings
                           ? '兑换成功（部分截断）'
                           : '兑换成功'
@@ -108,7 +108,7 @@
                     }}
                   </p>
                   <p class="mt-1 text-sm opacity-90">{{ redeemResult.message }}</p>
-                  <div v-if="redeemResult.success && redeemResult.data" class="mt-2 text-sm">
+                  <div v-if="isOk(redeemResult) && redeemResult.data" class="mt-2 text-sm">
                     <p v-if="redeemResult.data.quotaAdded">
                       额度增加:
                       <span class="font-medium">${{ redeemResult.data.quotaAdded }}</span>
@@ -237,6 +237,7 @@ import { useRoute } from 'vue-router'
 import { storeToRefs } from 'pinia'
 import { useApiStatsStore } from '@/stores/api_stats'
 import { redeemCardByApiIdApi, getRedemptionHistoryByApiIdApi } from '@/libs/http_apis'
+import { isOk, msgOf } from '@/libs/http_envelope'
 import { formatDateTime, showToast } from '@/libs/tools'
 
 const route = useRoute()
@@ -265,13 +266,12 @@ const handleRedeem = async () => {
 
   redeemLoading.value = false
 
-  if (res.success) {
+  if (isOk(res)) {
     const warnings = res.data?.warnings || []
     const hasWarnings = warnings.length > 0
     redeemResult.value = {
-      success: true,
+      ...res,
       message: hasWarnings ? warnings.join('；') : '额度卡兑换成功！',
-      data: res.data,
       hasWarnings
     }
     redeemCode.value = ''
@@ -282,10 +282,10 @@ const handleRedeem = async () => {
     loadStatsWithApiId()
   } else {
     redeemResult.value = {
-      success: false,
-      message: res.error || res.message || '兑换失败'
+      ...res,
+      message: msgOf(res, '兑换失败')
     }
-    showToast(res.error || res.message || '兑换失败', 'error')
+    showToast(msgOf(res, '兑换失败'), 'error')
   }
 }
 
@@ -296,7 +296,7 @@ const loadRedemptionHistory = async () => {
   const res = await getRedemptionHistoryByApiIdApi(apiId.value)
   historyLoading.value = false
 
-  if (res.success) {
+  if (isOk(res)) {
     // 后端 getRedemptions 返回 { redemptions, total, limit, offset }
     const payload = res.data
     redemptionHistory.value = Array.isArray(payload)
@@ -304,7 +304,7 @@ const loadRedemptionHistory = async () => {
       : payload?.redemptions || payload?.records || []
   } else {
     redemptionHistory.value = []
-    showToast(res.message || res.error || '加载兑换记录失败', 'error')
+    showToast(msgOf(res, '加载兑换记录失败'), 'error')
   }
 }
 

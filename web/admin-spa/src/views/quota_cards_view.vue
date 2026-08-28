@@ -758,14 +758,14 @@
           <!-- Footer -->
           <div class="mt-6 flex gap-3">
             <button
-              class="flex-1 rounded-xl bg-gray-100 px-4 py-2.5 font-medium text-gray-700 transition-colors hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600"
+              class="toolbar-btn h-10 flex-1 px-4 text-sm font-medium"
               type="button"
               @click="showCreateModal = false"
             >
               取消
             </button>
             <button
-              class="flex-1 rounded-xl bg-gradient-to-r from-blue-500 to-blue-600 px-4 py-2.5 font-medium text-white shadow-sm transition-colors hover:from-blue-600 hover:to-blue-700 disabled:opacity-50"
+              class="btn btn-primary h-10 flex-1 px-4 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-50"
               :disabled="creating"
               type="button"
               @click="createCard"
@@ -854,14 +854,14 @@
           <!-- Footer -->
           <div class="mt-6 flex gap-3">
             <button
-              class="flex-1 rounded-xl bg-gray-100 px-4 py-2.5 font-medium text-gray-700 transition-colors hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600"
+              class="toolbar-btn h-10 flex-1 px-4 text-sm font-medium"
               type="button"
               @click="showLimitsModal = false"
             >
               取消
             </button>
             <button
-              class="flex-1 rounded-xl bg-gradient-to-r from-blue-500 to-blue-600 px-4 py-2.5 font-medium text-white shadow-sm transition-colors hover:from-blue-600 hover:to-blue-700 disabled:opacity-50"
+              class="btn btn-primary h-10 flex-1 px-4 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-50"
               :disabled="savingLimits || limitsStatus !== 'loaded'"
               type="button"
               @click="saveLimits"
@@ -943,7 +943,7 @@
           <!-- Actions -->
           <div class="flex gap-3">
             <button
-              class="flex-1 rounded-xl bg-gradient-to-r from-blue-500 to-blue-600 px-4 py-2.5 font-medium text-white shadow-sm transition-colors hover:from-blue-600 hover:to-blue-700"
+              class="btn btn-primary h-10 flex-1 px-4 text-sm font-medium"
               type="button"
               @click="downloadCards"
             >
@@ -951,7 +951,7 @@
               下载 TXT
             </button>
             <button
-              class="flex-1 rounded-xl bg-gray-100 px-4 py-2.5 font-medium text-gray-700 transition-colors hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600"
+              class="toolbar-btn h-10 flex-1 px-4 text-sm font-medium"
               type="button"
               @click="copyAllCards"
             >
@@ -1056,6 +1056,7 @@ import ConfirmModal from '@/components/common/confirm_modal.vue'
 import ModalTransition from '@/components/common/modal_transition.vue'
 
 import * as httpApis from '@/libs/http_apis'
+import { isOk, msgOf } from '@/libs/http_envelope'
 import { showToast, copyText, formatDate, calcViewportBottomReserve } from '@/libs/tools'
 
 const loading = ref(false)
@@ -1253,16 +1254,16 @@ const loadCards = async () => {
       }),
       httpApis.getQuotaCardsStatsApi()
     ])
-    if (!cardsData.success) {
-      showToast(cardsData.message || '加载卡片列表失败', 'error')
+    if (!isOk(cardsData)) {
+      showToast(msgOf(cardsData, '加载卡片列表失败'), 'error')
     } else {
       cards.value = cardsData.data?.cards || []
       totalCards.value = cardsData.data?.total || 0
     }
-    if (statsData.success) {
+    if (isOk(statsData)) {
       stats.value = statsData.data || stats.value
     } else {
-      showToast(statsData.message || '加载统计失败', 'error')
+      showToast(msgOf(statsData, '加载统计失败'), 'error')
     }
   } catch (error) {
     console.error('加载卡片列表异常:', error)
@@ -1282,8 +1283,8 @@ const loadRedemptions = async () => {
       offset,
       search: redemptionSearch.value || undefined
     })
-    if (!data.success) {
-      showToast(data.message || '加载核销记录失败', 'error')
+    if (!isOk(data)) {
+      showToast(msgOf(data, '加载核销记录失败'), 'error')
       return
     }
     redemptions.value = data.data?.redemptions || []
@@ -1301,14 +1302,14 @@ const loadLimits = async () => {
   limitsStatus.value = 'loading'
   try {
     const result = await httpApis.getQuotaCardLimitsApi()
-    if (result.success) {
+    if (isOk(result)) {
       if (result.data) {
         limitsConfig.value = result.data
       }
       limitsStatus.value = 'loaded'
     } else {
       limitsStatus.value = 'error'
-      showToast(result.message || '加载上限配置失败', 'error')
+      showToast(msgOf(result, '加载上限配置失败'), 'error')
     }
   } catch (error) {
     limitsStatus.value = 'error'
@@ -1330,12 +1331,12 @@ const saveLimits = async () => {
   savingLimits.value = true
   try {
     const result = await httpApis.updateQuotaCardLimitsApi(limitsForm.value)
-    if (result.success) {
+    if (isOk(result)) {
       limitsConfig.value = { ...limitsForm.value }
       showLimitsModal.value = false
       showToast('配置已保存', 'success')
     } else {
-      showToast(result.message || '配置保存失败', 'error')
+      showToast(msgOf(result, '配置保存失败'), 'error')
     }
   } catch (error) {
     console.error('保存上限配置异常:', error)
@@ -1425,7 +1426,7 @@ const createCard = async () => {
       codePrefix: newCard.value.usePrefix ? newCard.value.codePrefix.trim() : ''
     }
     const result = await httpApis.createQuotaCardApi(payload)
-    if (result.success) {
+    if (isOk(result)) {
       showCreateModal.value = false
 
       // 处理返回的卡片数据
@@ -1446,7 +1447,7 @@ const createCard = async () => {
       showToast(`成功创建 ${createdCards.value.length} 张卡片`, 'success')
       applyCardFilters()
     } else {
-      showToast(result.message || '创建卡片失败', 'error')
+      showToast(msgOf(result, '创建卡片失败'), 'error')
     }
   } catch (error) {
     console.error('创建卡片异常:', error)
@@ -1522,16 +1523,16 @@ const cardStatusLabel = (status) => {
 const toggleCardStatus = async (card) => {
   const enabled = card.status === 'disabled'
   const result = await httpApis.toggleQuotaCardApi(card.id, enabled)
-  if (!result.success) {
+  if (!isOk(result)) {
     // 404 卡已不存在 / 409 状态已变更：均说明本地列表已过时，提示后刷新与服务端对齐
     if (result.httpStatus === 404) {
       showToast('卡片不存在，可能已被删除', 'error')
       loadCards()
     } else if (result.httpStatus === 409) {
-      showToast(result.message || result.error || '卡片状态已变更，无法执行该操作', 'warning')
+      showToast(msgOf(result, '卡片状态已变更，无法执行该操作'), 'warning')
       loadCards()
     } else {
-      showToast(result.message || result.error || '操作失败', 'error')
+      showToast(msgOf(result, '操作失败'), 'error')
     }
     return
   }
@@ -1550,7 +1551,7 @@ const deleteCard = async (card) => {
   if (!confirmed) return
 
   const result = await httpApis.deleteQuotaCardApi(card.id)
-  if (!result.success) {
+  if (!isOk(result)) {
     // 404 卡已不存在：等价于删除目的已达成，提示并刷新与服务端对齐；409 状态冲突单独提示
     if (result.httpStatus === 404) {
       showToast('卡片不存在，可能已被删除', 'warning')
@@ -1558,11 +1559,11 @@ const deleteCard = async (card) => {
       return
     }
     if (result.httpStatus === 409) {
-      showToast(result.message || result.error || '该状态的卡片无法删除', 'warning')
+      showToast(msgOf(result, '该状态的卡片无法删除'), 'warning')
       loadCards()
       return
     }
-    showToast(result.message || '删除卡片失败', 'error')
+    showToast(msgOf(result, '删除卡片失败'), 'error')
     return
   }
   showToast('卡片已删除', 'success')
@@ -1587,7 +1588,7 @@ const deleteSelectedCards = async () => {
   let conflict = 0
   let failed = 0
   for (const r of results) {
-    if (r.success || r.httpStatus === 404) ok += 1
+    if (isOk(r) || r.httpStatus === 404) ok += 1
     else if (r.httpStatus === 409) conflict += 1
     else failed += 1
   }
@@ -1614,8 +1615,8 @@ const executeRevoke = async () => {
   const result = await httpApis.revokeRedemptionApi(revokingRedemption.value.id, {
     reason: revokeReason.value
   })
-  if (!result.success) {
-    showToast(result.message || '撤销失败', 'error')
+  if (!isOk(result)) {
+    showToast(msgOf(result, '撤销失败'), 'error')
     return
   }
   showToast('核销已撤销', 'success')

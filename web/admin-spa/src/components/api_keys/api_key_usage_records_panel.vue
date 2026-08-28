@@ -1,10 +1,14 @@
 <template>
-  <div class="space-y-3" :class="showHeader ? 'p-3 sm:p-4' : ''">
-    <div v-if="showHeader" class="flex flex-wrap items-center justify-between gap-3">
+  <div
+    class="flex min-h-0 flex-col gap-3"
+    :class="showHeader ? 'p-3 sm:p-4' : 'h-full'"
+  >
+    <div v-if="showHeader" class="flex shrink-0 flex-wrap items-center justify-between gap-3">
       <div class="flex items-center gap-3">
         <button
           v-if="showBack"
           class="rounded-full border border-gray-200 px-3 py-2 text-sm text-gray-700 transition hover:bg-gray-100 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800"
+          type="button"
           @click="emit('back')"
         >
           ← 返回
@@ -26,33 +30,26 @@
       </div>
     </div>
 
-    <div class="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+    <div
+      class="shrink-0 rounded-xl border border-gray-200 bg-white p-3 shadow-sm dark:border-gray-700 dark:bg-gray-900"
+    >
       <div
-        v-for="card in summaryCards"
-        :key="card.key"
-        class="rounded-xl border border-gray-200 bg-white p-3 shadow-sm dark:border-gray-700 dark:bg-gray-900"
+        class="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-sm text-gray-600 dark:text-gray-400"
       >
-        <div class="flex items-start justify-between gap-3">
-          <div class="min-w-0 flex-1">
-            <p class="text-sm uppercase text-gray-500 dark:text-gray-400">{{ card.label }}</p>
-            <p class="mt-1 text-xl font-bold" :class="card.valueClass">
-              {{ card.value }}
-            </p>
-            <p v-if="card.hint" class="mt-1 text-sm text-gray-500 dark:text-gray-400">
-              {{ card.hint }}
-            </p>
-          </div>
-          <div
-            class="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-gray-50 dark:bg-gray-800"
-          >
-            <i class="text-base" :class="[card.icon, card.iconClass]" />
-          </div>
-        </div>
+        <span
+          v-for="card in summaryCards"
+          :key="card.key"
+          class="inline-flex items-center gap-1 whitespace-nowrap"
+        >
+          <span>{{ card.label }}:</span>
+          <span class="font-semibold" :class="card.valueClass">{{ card.value }}</span>
+        </span>
       </div>
     </div>
 
+    <!-- overflow-visible：日期面板不被卡片裁切 -->
     <div
-      class="rounded-xl border border-gray-200 bg-white p-3 shadow-sm dark:border-gray-700 dark:bg-gray-900"
+      class="shrink-0 overflow-visible rounded-xl border border-gray-200 bg-white p-3 shadow-sm dark:border-gray-700 dark:bg-gray-900"
     >
       <div class="flex flex-col gap-2">
         <div class="flex flex-wrap items-start gap-3">
@@ -104,15 +101,15 @@
     </div>
 
     <div
-      class="rounded-xl border border-gray-200 bg-white shadow-sm dark:border-gray-700 dark:bg-gray-900"
+      class="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm dark:border-gray-700 dark:bg-gray-900"
     >
       <div
         v-if="loading"
-        class="flex items-center justify-center p-10 text-gray-500 dark:text-gray-400"
+        class="flex flex-1 items-center justify-center p-10 text-gray-500 dark:text-gray-400"
       >
         <i class="i-lucide-loader-circle animate-spin mr-2" /> 加载中...
       </div>
-      <div v-else>
+      <div v-else class="flex min-h-0 flex-1 flex-col">
         <div
           v-if="records.length === 0"
           class="flex flex-col items-center gap-2 p-10 text-gray-500 dark:text-gray-400"
@@ -120,10 +117,10 @@
           <i class="i-lucide-inbox text-2xl" />
           <p>暂无记录</p>
         </div>
-        <div v-else class="space-y-4">
-          <div class="hidden overflow-x-auto md:block" :class="tableBodyClass">
+        <div v-else class="flex min-h-0 flex-1 flex-col gap-4">
+          <div class="hidden min-h-0 flex-1 overflow-auto md:block" :class="tableBodyClass">
             <table class="min-w-full divide-y divide-gray-200 dark:divide-gray-800">
-              <thead class="bg-gray-50 dark:bg-gray-800">
+              <thead class="sticky top-0 z-[1] bg-gray-50 dark:bg-gray-800">
                 <tr>
                   <th
                     class="px-4 py-3 text-left text-sm font-medium uppercase tracking-wider text-gray-500 dark:text-gray-300"
@@ -170,11 +167,6 @@
                     class="px-4 py-3 text-left text-sm font-medium uppercase tracking-wider text-gray-500 dark:text-gray-300"
                   >
                     费用
-                  </th>
-                  <th
-                    class="px-4 py-3 text-right text-sm font-medium uppercase tracking-wider text-gray-500 dark:text-gray-300"
-                  >
-                    操作
                   </th>
                 </tr>
               </thead>
@@ -225,9 +217,6 @@
                   >
                     {{ record.costFormatted || formatCost(record.cost) }}
                   </td>
-                  <td class="whitespace-nowrap px-4 py-3 text-right text-sm">
-                    <button class="whitespace-nowrap rounded-md border border-gray-200 px-2 py-1 text-sm text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800" type="button" @click="openDetail(record)">详情</button>
-                  </td>
                 </tr>
               </tbody>
             </table>
@@ -239,25 +228,22 @@
               :key="buildRecordKey(record, index)"
               class="rounded-lg border border-gray-200 bg-white p-3 shadow-sm dark:border-gray-700 dark:bg-gray-900"
             >
-              <div class="flex items-center justify-between gap-3">
-                <div>
-                  <p
-                    v-if="showAccountColumn"
-                    class="text-sm font-semibold text-gray-900 dark:text-gray-100"
-                  >
-                    {{ record.accountName || '未知账户' }}
-                  </p>
-                  <p v-else class="text-sm font-semibold text-gray-900 dark:text-gray-100">
-                    {{ record.model }}
-                  </p>
-                  <p class="text-sm text-gray-500 dark:text-gray-400">
-                    {{ formatDate(record.timestamp) }}
-                  </p>
-                  <p v-if="showAccountColumn" class="text-sm text-gray-500 dark:text-gray-400">
-                    {{ record.accountTypeName || '未知渠道' }} · {{ record.model }}
-                  </p>
-                </div>
-                <button class="whitespace-nowrap rounded-md border border-gray-200 px-2 py-1 text-sm text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800" type="button" @click="openDetail(record)">详情</button>
+              <div>
+                <p
+                  v-if="showAccountColumn"
+                  class="text-sm font-semibold text-gray-900 dark:text-gray-100"
+                >
+                  {{ record.accountName || '未知账户' }}
+                </p>
+                <p v-else class="text-sm font-semibold text-gray-900 dark:text-gray-100">
+                  {{ record.model }}
+                </p>
+                <p class="text-sm text-gray-500 dark:text-gray-400">
+                  {{ formatDate(record.timestamp) }}
+                </p>
+                <p v-if="showAccountColumn" class="text-sm text-gray-500 dark:text-gray-400">
+                  {{ record.accountTypeName || '未知渠道' }} · {{ record.model }}
+                </p>
               </div>
               <div class="mt-3 grid grid-cols-2 gap-2 text-sm text-gray-700 dark:text-gray-300">
                 <div>输入：{{ formatNumber(record.inputTokens) }}</div>
@@ -272,10 +258,7 @@
             </div>
           </div>
 
-          <div class="flex items-center justify-between px-4 pb-4">
-            <div class="text-sm text-gray-500 dark:text-gray-400">
-              共 {{ pagination.totalRecords }} 条记录
-            </div>
+          <div class="px-4 pb-4">
             <AppPagination
               v-model:current-page="pagination.currentPage"
               v-model:page-size="pagination.pageSize"
@@ -289,14 +272,13 @@
       </div>
     </div>
 
-    <RecordDetailModal :record="activeRecord" :show="detailVisible" @close="closeDetail" />
   </div>
 </template>
 
 <script setup>
 import { computed, onMounted, reactive, ref, watch } from 'vue'
-import RecordDetailModal from '@/components/api_keys/record_detail_modal.vue'
 import { showToast, formatNumber, formatDate } from '@/libs/tools'
+import { isOk, msgOf } from '@/libs/http_envelope'
 import { buildDateRangePreset } from '@/libs/time.js'
 import AppDateRangePicker from '@/components/common/app_date_range_picker.vue'
 import AppPagination from '@/components/common/app_pagination.vue'
@@ -390,8 +372,6 @@ const apiKeyInfo = reactive({
   name: props.apiKeyName
 })
 
-const detailVisible = ref(false)
-const activeRecord = ref(null)
 
 const apiKeyDisplayName = computed(() => apiKeyInfo.name || props.apiKeyName || props.keyId)
 const shouldShowAccountFilter = computed(
@@ -407,64 +387,48 @@ const summaryCards = computed(() => [
     key: 'requests',
     label: '总请求',
     value: formatNumber(summary.totalRequests),
-    icon: 'i-lucide-send',
-    iconClass: 'text-blue-500',
     valueClass: 'text-gray-900 dark:text-gray-100'
   },
   {
     key: 'total_tokens',
     label: '总 Token',
     value: formatNumber(summary.totalTokens),
-    icon: 'i-lucide-coins',
-    iconClass: 'text-gray-500',
     valueClass: 'text-gray-900 dark:text-gray-100'
   },
   {
     key: 'input_tokens',
-    label: '输入 Token',
+    label: '输入',
     value: formatNumber(summary.inputTokens),
-    icon: 'i-lucide-arrow-down',
-    iconClass: 'text-blue-500',
     valueClass: 'text-blue-600 dark:text-blue-400'
   },
   {
     key: 'output_tokens',
-    label: '输出 Token',
+    label: '输出',
     value: formatNumber(summary.outputTokens),
-    icon: 'i-lucide-arrow-up',
-    iconClass: 'text-green-500',
     valueClass: 'text-green-600 dark:text-green-400'
   },
   {
     key: 'cache_create_tokens',
     label: '缓存写入',
     value: formatNumber(summary.cacheCreateTokens),
-    icon: 'i-lucide-database',
-    iconClass: 'text-purple-500',
     valueClass: 'text-purple-600 dark:text-purple-400'
   },
   {
     key: 'cache_read_tokens',
     label: '缓存读取',
     value: formatNumber(summary.cacheReadTokens),
-    icon: 'i-lucide-download',
-    iconClass: 'text-orange-500',
     valueClass: 'text-orange-600 dark:text-orange-400'
   },
   {
     key: 'total_cost',
     label: '总费用',
     value: formatCost(summary.totalCost),
-    icon: 'i-lucide-dollar-sign',
-    iconClass: 'text-yellow-500',
     valueClass: 'text-yellow-600 dark:text-yellow-400'
   },
   {
     key: 'avg_cost',
-    label: '平均费用/次',
+    label: '平均/次',
     value: formatCost(summary.avgCost),
-    icon: 'i-lucide-calculator',
-    iconClass: 'text-indigo-500',
     valueClass: 'text-gray-900 dark:text-gray-100'
   }
 ])
@@ -537,10 +501,10 @@ const fetchRecords = async (page = pagination.currentPage) => {
   if (!props.keyId) return
 
   loading.value = true
-  // request.js 为 resolve-only：失败也 resolve 成 { success:false }，不会抛异常，必须显式判 success
+  // request.js 为 resolve-only：失败也 resolve，不会抛异常，必须显式判 isOk
   const response = await props.fetchApi(props.keyId, buildParams(page))
-  if (!response.success) {
-    showToast(`加载请求记录失败：${response.message || '未知错误'}`, 'error')
+  if (!isOk(response)) {
+    showToast(`加载请求记录失败：${msgOf(response, '未知错误')}`, 'error')
     loading.value = false
     return
   }
@@ -567,15 +531,6 @@ const resetFilters = () => {
   filters.dateRange = buildDateRangePreset('24h')
 }
 
-const openDetail = (record) => {
-  activeRecord.value = record
-  detailVisible.value = true
-}
-
-const closeDetail = () => {
-  detailVisible.value = false
-  activeRecord.value = null
-}
 
 const buildRecordKey = (record, index) => {
   return [
@@ -602,8 +557,8 @@ const exportCsv = async () => {
         pageSize: 200
       })
       // resolve-only：接口失败需中断导出并提示，否则会误导出空 CSV
-      if (!response.success) {
-        showToast(`导出失败：${response.message || '未知错误'}`, 'error')
+      if (!isOk(response)) {
+        showToast(`导出失败：${msgOf(response, '未知错误')}`, 'error')
         return
       }
       const payload = response.data || {}

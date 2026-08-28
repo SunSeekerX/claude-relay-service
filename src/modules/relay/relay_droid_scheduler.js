@@ -1,5 +1,6 @@
 import { droidAccountService } from '../account/account_droid_service.js'
 import { accountGroupService } from '../account/account_group_service.js'
+import * as groupPolicy from '../account/account_group_policy.js'
 import { redis } from '../../infra/redis.js'
 import { logger } from '../../common/logger.js'
 import * as upstreamErrorHelper from './relay_upstream_error_helper.js'
@@ -11,15 +12,15 @@ class DroidScheduler {
   }
 
   // [人工决策-2026-06-03 14:51:27] droid 账户同步硬门单一判定（完整清单）：schedulable(手动停用)、订阅过期、endpoint 兼容
-  //   始终生效；开关 ON 仅跳过 status 健康检查。temp_unavailable 为异步,由各路径单独 await（不并入此处）。
-  //   group/dedicated/syncFiltered 三条路径统一调用此函数,避免订阅/endpoint 等硬门在某条路径漏检漂移。
+  // 始终生效；开关 ON 仅跳过 status 健康检查。temp_unavailable 为异步,由各路径单独 await（不并入此处）。
+  // group/dedicated/syncFiltered 三条路径统一调用此函数,避免订阅/endpoint 等硬门在某条路径漏检漂移。
   _passesDroidSyncGates(account, normalizedEndpoint) {
     if (!account || !this._isAccountSchedulable(account)) {
       return false
     }
     // [人工决策-2026-06-03 14:51:27] isActive(手动停用) 是硬门,开关 ON 也不豁免。
-    //   注意 commonHelper.isAccountHealthy 把 isActive+status 绑在一起,所以此处必须单独硬挡 isActive,
-    //   否则下面 `autoOff || commonHelper.isAccountHealthy` 在开关 ON 时会连 isActive=false 一起放行。
+    // 注意 commonHelper.isAccountHealthy 把 isActive+status 绑在一起,此处必须单独硬挡 isActive
+    // 否则下面 `autoOff || commonHelper.isAccountHealthy`在开关 ON 时会连 isActive=false 一起放行。
     if (!commonHelper.isTruthy(account.isActive)) {
       return false
     }
@@ -34,8 +35,8 @@ class DroidScheduler {
   }
 
   // [人工决策-2026-06-03 14:51:27] droid 账户完整可调度判定(唯一真相,含异步 temp_unavailable)：
-  //   sync 硬门(_passesDroidSyncGates) + temp_unavailable(开关 ON 跳过)。group/dedicated/共享池三路径统一调用此函数,
-  //   不再各自在外面叠 temp,避免"两段式 gate"漂移。
+  // sync 硬门(_passesDroidSyncGates) + temp_unavailable(开关 ON 跳过)。group/dedicated/共享池三路径统一调用此函数,
+  // 不再各自在外面叠 temp,避免"两段式 gate"漂移。
   async _isDroidAccountUsable(account, normalizedEndpoint) {
     if (!this._passesDroidSyncGates(account, normalizedEndpoint)) {
       return false
@@ -68,38 +69,77 @@ class DroidScheduler {
     return RedisKeys.session.droidSticky(normalizedEndpoint, apiKeyPart, sessionHash)
   }
 
-  async _loadGroupAccounts(groupId, normalizedEndpoint) {
-    const memberIds = await accountGroupService.getGroupMembers(groupId)
-    if (!memberIds || memberIds.length === 0) {
-      return []
+  async _loadGroupAccounts(groupId, normalizedEndpoint, requestedModel = null, holdTarget = null) {
+    const group = await accountGroupService.getGroup(groupId)
+    if (!group) {
+      throw new Error(`Droid group ${groupId} not found`)
+    }
+    if (group.platform && group.platform !== 'droid') {
+      throw new Error(`Group ${group.name} is not a Droid group`)
     }
 
-    const accounts = await Promise.all(
-      memberIds.map(async (memberId) => {
-        try {
-          return await droidAccountService.getAccount(memberId)
-        } catch (error) {
-          logger.warn(`⚠️ 获取 Droid 分组成员账号失败: ${memberId}`, error)
-          return null
-        }
-      }),
-    )
-
-    const result = []
-    for (const account of accounts) {
-      // 统一走 _isDroidAccountUsable（完整可调度判定单点：sync 硬门 + 异步 temp）
-      if (await this._isDroidAccountUsable(account, normalizedEndpoint)) {
-        result.push(account)
+    let groupCostHoldReleased = false
+    const releaseGroupCostHoldOnce = async () => {
+      if (groupCostHoldReleased) {
+        return
+      }
+      groupCostHoldReleased = true
+      if (holdTarget && holdTarget.groupCostHoldGroupId === groupId) {
+        holdTarget.groupCostHoldGroupId = null
+      }
+      if (holdTarget && holdTarget.groupCostHoldMeta && holdTarget.groupCostHoldMeta.groupId === groupId) {
+        holdTarget.groupCostHoldMeta = null
+      }
+      try {
+        await groupPolicy.releaseGroupCostHolds(groupId)
+      } catch (error) {
+        console.error(error)
       }
     }
-    return result
+
+    try {
+      await groupPolicy.assertGroupRequestAllowed(group, { requestedModel, holdTarget })
+
+      const memberIds = await accountGroupService.getGroupMembers(groupId)
+      if (!memberIds || memberIds.length === 0) {
+        await releaseGroupCostHoldOnce()
+        return []
+      }
+
+      const accounts = await Promise.all(
+        memberIds.map(async (memberId) => {
+          try {
+            return await droidAccountService.getAccount(memberId)
+          } catch (error) {
+            logger.warn(`获取 Droid 分组成员账号失败: ${memberId}`, error)
+            return null
+          }
+        }),
+      )
+
+      const result = []
+      for (const account of accounts) {
+        // 统一走 _isDroidAccountUsable（完整可调度判定单点：sync 硬门 + 异步 temp）
+        if (await this._isDroidAccountUsable(account, normalizedEndpoint)) {
+          result.push(account)
+        }
+      }
+      // 无可用成员：释放 hold；有可用则留给计费/中间件
+      if (result.length === 0) {
+        await releaseGroupCostHoldOnce()
+      }
+      return result
+    } catch (error) {
+      await releaseGroupCostHoldOnce()
+      throw error
+    }
   }
 
   async _ensureLastUsedUpdated(accountId) {
     try {
       await droidAccountService.touchLastUsedAt(accountId)
     } catch (error) {
-      logger.warn(`⚠️ 更新 Droid 账号最后使用时间失败: ${accountId}`, error)
+      logger.warn(`更新 Droid 账号最后使用时间失败: ${accountId}`, error)
     }
   }
 
@@ -110,7 +150,7 @@ class DroidScheduler {
     try {
       await redis.deleteSessionAccountMapping(stickyKey)
     } catch (error) {
-      logger.warn(`⚠️ 清理 Droid 粘性会话映射失败: ${stickyKey}`, error)
+      logger.warn(`清理 Droid 粘性会话映射失败: ${stickyKey}`, error)
     }
   }
 
@@ -125,8 +165,12 @@ class DroidScheduler {
       const binding = apiKeyData.droidAccountId
       if (binding.startsWith('group:')) {
         const groupId = binding.substring('group:'.length)
-        logger.info(`🤖 API Key ${apiKeyData.name || apiKeyData.id} 绑定 Droid 分组 ${groupId}，按分组调度`)
-        candidates = await this._loadGroupAccounts(groupId, normalizedEndpoint)
+        logger.info(`API Key ${apiKeyData.name || apiKeyData.id} 绑定 Droid 分组 ${groupId}，按分组调度`)
+        candidates = await this._loadGroupAccounts(groupId, normalizedEndpoint, null, apiKeyData)
+        // 分组绑定：只在组内选，绝不退回共享池
+        if (!candidates.length) {
+          throw new Error(`No available Droid accounts in bound group ${groupId} (respecting binding)`)
+        }
       } else {
         const account = await droidAccountService.getAccount(binding)
         if (account) {
@@ -135,16 +179,24 @@ class DroidScheduler {
             candidates = [account]
             isDedicatedBinding = true
           } else {
-            logger.warn(
-              `⏱️ Bound Droid account ${account.name || account.id} not usable (schedulable/subscription/endpoint/health/temp), falling back to pool`,
+            // 专属绑定不可用：直接失败，禁止静默退共享池
+            throw new Error(
+              `Bound Droid account ${account.name || account.id} is not available (respecting dedicated binding)`,
             )
           }
+        } else {
+          throw new Error(`Bound Droid account ${binding} not found (respecting dedicated binding)`)
         }
       }
     }
 
     if (!candidates || candidates.length === 0) {
       candidates = await droidAccountService.getSchedulableAccounts(normalizedEndpoint)
+      // 独占 droid 分组成员不进共享池
+      const exclusiveMemberIds = await groupPolicy.collectExclusiveMemberIds(accountGroupService, 'droid')
+      if (exclusiveMemberIds.size > 0) {
+        candidates = candidates.filter((account) => !exclusiveMemberIds.has(account.id))
+      }
     }
 
     // 统一走 _isDroidAccountUsable（完整可调度判定单点：sync 硬门 + 异步 temp）
@@ -167,7 +219,7 @@ class DroidScheduler {
         const mappedAccount = filtered.find((account) => account.id === mappedAccountId)
         if (mappedAccount) {
           await redis.extendSessionAccountMappingTTL(stickyKey)
-          logger.info(`🤖 命中 Droid 粘性会话: ${sessionHash} -> ${mappedAccount.name || mappedAccount.id}`)
+          logger.info(`命中 Droid 粘性会话: ${sessionHash} -> ${mappedAccount.name || mappedAccount.id}`)
           await this._ensureLastUsedUpdated(mappedAccount.id)
           return mappedAccount
         }
@@ -190,7 +242,7 @@ class DroidScheduler {
     await this._ensureLastUsedUpdated(selected.id)
 
     logger.info(
-      `🤖 选择 Droid 账号 ${selected.name || selected.id}（endpoint: ${normalizedEndpoint}, priority: ${selected.priority || 50}）`,
+      `选择 Droid 账号 ${selected.name || selected.id}（endpoint: ${normalizedEndpoint}, priority: ${selected.priority || 50}）`,
     )
 
     return selected

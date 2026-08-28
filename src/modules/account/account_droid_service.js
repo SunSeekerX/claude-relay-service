@@ -29,11 +29,11 @@ class DroidAccountService {
     // 使用 commonHelper 的加密器
     this._encryptor = createEncryptor('droid-account-salt')
 
-    // 🧹 定期清理缓存（每10分钟）
+    // 定期清理缓存（每10分钟）
     setInterval(
       () => {
         this._encryptor.clearCache()
-        logger.info('🧹 Droid decrypt cache cleanup completed', this._encryptor.getStats())
+        logger.info('Droid decrypt cache cleanup completed', this._encryptor.getStats())
       },
       10 * 60 * 1000,
     )
@@ -91,7 +91,7 @@ class DroidAccountService {
         const parsed = JSON.parse(rawEntries)
         return Array.isArray(parsed) ? parsed : []
       } catch (error) {
-        logger.warn('⚠️ Failed to parse Droid API Key entries:', error.message)
+        logger.warn('Failed to parse Droid API Key entries:', error.message)
         return []
       }
     }
@@ -233,7 +233,7 @@ class DroidAccountService {
 
       await redis.setDroidAccount(accountId, accountData)
     } catch (error) {
-      logger.warn(`⚠️ Failed to update API key usage for Droid account ${accountId}:`, error)
+      logger.warn(`Failed to update API key usage for Droid account ${accountId}:`, error)
     }
   }
 
@@ -266,11 +266,11 @@ class DroidAccountService {
 
       await redis.setDroidAccount(accountId, accountData)
 
-      logger.warn(`🚫 已删除 Droid API Key ${keyId}（Account: ${accountId}），剩余 ${filtered.length}`)
+      logger.warn(`已删除 Droid API Key ${keyId}（Account: ${accountId}），剩余 ${filtered.length}`)
 
       return { removed: true, remainingCount: filtered.length }
     } catch (error) {
-      logger.error(`❌ 删除 Droid API Key 失败：${keyId}（Account: ${accountId}）`, error)
+      logger.error(`删除 Droid API Key 失败：${keyId}（Account: ${accountId}）`, error)
       return { removed: false, remainingCount: 0, error }
     }
   }
@@ -291,7 +291,7 @@ class DroidAccountService {
 
       // disableAutoProtection：关闭自动防护时不把 API Key 标记为异常（保持可用、透传上游错误）
       if (accountData.disableAutoProtection === true || accountData.disableAutoProtection === 'true') {
-        logger.info(`🛡️ Droid 账号 ${accountId} 已关闭自动防护，跳过将 API Key ${keyId} 标记为异常`)
+        logger.info(`Droid 账号 ${accountId} 已关闭自动防护，跳过将 API Key ${keyId} 标记为异常`)
         return { marked: false, skipped: true }
       }
 
@@ -320,11 +320,11 @@ class DroidAccountService {
       accountData.apiKeys = JSON.stringify(updatedEntries)
       await redis.setDroidAccount(accountId, accountData)
 
-      logger.warn(`⚠️ 已标记 Droid API Key ${keyId} 为异常状态（Account: ${accountId}）：${errorMessage}`)
+      logger.warn(`已标记 Droid API Key ${keyId} 为异常状态（Account: ${accountId}）：${errorMessage}`)
 
       return { marked: true }
     } catch (error) {
-      logger.error(`❌ 标记 Droid API Key 异常状态失败：${keyId}（Account: ${accountId}）`, error)
+      logger.error(`标记 Droid API Key 异常状态失败：${keyId}（Account: ${accountId}）`, error)
       return { marked: false, error: error.message }
     }
   }
@@ -361,7 +361,7 @@ class DroidAccountService {
         requestOptions.httpAgent = proxyAgent
         requestOptions.httpsAgent = proxyAgent
         requestOptions.proxy = false
-        logger.info(`🌐 使用代理验证 Droid Refresh Token: ${ProxyHelper.getProxyDescription(proxyConfig)}`)
+        logger.info(`使用代理验证 Droid Refresh Token: ${ProxyHelper.getProxyDescription(proxyConfig)}`)
       }
     }
 
@@ -428,10 +428,10 @@ class DroidAccountService {
       if (Array.isArray(data.workosOrgIds) && data.workosOrgIds.length > 0) {
         return data.workosOrgIds
       }
-      logger.warn('⚠️ 未从 Factory CLI 接口获取到 workosOrgIds')
+      logger.warn('未从 Factory CLI 接口获取到 workosOrgIds')
       return []
     } catch (error) {
-      logger.warn('⚠️ 获取 Factory 组织信息失败:', error.message)
+      logger.warn('获取 Factory 组织信息失败:', error.message)
       return []
     }
   }
@@ -508,10 +508,10 @@ class DroidAccountService {
     const provisioningMode = isApiKeyProvision ? 'api_key' : isManualProvision ? 'manual' : 'oauth'
 
     if (isApiKeyProvision) {
-      logger.info(`🔍 [Droid api_key] 初始密钥 - AccountName: ${name}, KeyCount: ${apiKeyEntries.length}`)
+      logger.info(`[Droid api_key] 初始密钥 - AccountName: ${name}, KeyCount: ${apiKeyEntries.length}`)
     } else {
       logger.info(
-        `🔍 [Droid ${provisioningMode}] 初始令牌 - AccountName: ${name}, AccessToken: ${
+        ` [Droid ${provisioningMode}] 初始令牌 - AccountName: ${name}, AccessToken: ${
           normalizedAccessToken || '[empty]'
         }, RefreshToken: ${normalizedRefreshToken || '[empty]'}`,
       )
@@ -524,7 +524,7 @@ class DroidAccountService {
       try {
         proxyConfig = JSON.parse(proxy)
       } catch (error) {
-        logger.warn('⚠️ Droid 代理配置解析失败，已忽略:', error.message)
+        logger.warn('Droid 代理配置解析失败，已忽略:', error.message)
         proxyConfig = null
       }
     }
@@ -534,7 +534,7 @@ class DroidAccountService {
         const refreshed = await this._refreshTokensWithWorkOS(normalizedRefreshToken, proxyConfig)
 
         logger.info(
-          `🔍 [Droid manual] 刷新后令牌 - AccountName: ${name}, AccessToken: ${refreshed.accessToken || '[empty]'}, RefreshToken: ${refreshed.refreshToken || '[empty]'}, ExpiresAt: ${refreshed.expiresAt || '[empty]'}, ExpiresIn: ${
+          ` [Droid manual] 刷新后令牌 - AccountName: ${name}, AccessToken: ${refreshed.accessToken || '[empty]'}, RefreshToken: ${refreshed.refreshToken || '[empty]'}, ExpiresAt: ${refreshed.expiresAt || '[empty]'}, ExpiresIn: ${
             refreshed.expiresIn !== null && refreshed.expiresIn !== undefined ? refreshed.expiresIn : '[empty]'
           }`,
         )
@@ -585,7 +585,7 @@ class DroidAccountService {
         status = 'active'
         logger.success(`使用 Refresh Token 成功验证并刷新 Droid 账户: ${name} (${accountId})`)
       } catch (error) {
-        logger.error('❌ 使用 Refresh Token 验证 Droid 账户失败:', error)
+        logger.error('使用 Refresh Token 验证 Droid 账户失败:', error)
         throw new Error(`Refresh Token 验证失败：${error.message}`, { cause: error })
       }
     } else if (!isApiKeyProvision && normalizedRefreshToken && !isManualProvision) {
@@ -597,12 +597,12 @@ class DroidAccountService {
           ''
 
         if (!selectedOrgId) {
-          logger.warn(`⚠️ [Droid oauth] 未获取到组织ID，跳过 WorkOS 刷新: ${name} (${accountId})`)
+          logger.warn(`[Droid oauth] 未获取到组织ID，跳过 WorkOS 刷新: ${name} (${accountId})`)
         } else {
           const refreshed = await this._refreshTokensWithWorkOS(normalizedRefreshToken, proxyConfig, selectedOrgId)
 
           logger.info(
-            `🔍 [Droid oauth] 组织刷新后令牌 - AccountName: ${name}, AccessToken: ${refreshed.accessToken || '[empty]'}, RefreshToken: ${refreshed.refreshToken || '[empty]'}, OrganizationId: ${
+            ` [Droid oauth] 组织刷新后令牌 - AccountName: ${name}, AccessToken: ${refreshed.accessToken || '[empty]'}, RefreshToken: ${refreshed.refreshToken || '[empty]'}, OrganizationId: ${
               refreshed.organizationId || selectedOrgId
             }, ExpiresAt: ${refreshed.expiresAt || '[empty]'}`,
           )
@@ -655,7 +655,7 @@ class DroidAccountService {
           status = 'active'
         }
       } catch (error) {
-        logger.warn(`⚠️ [Droid oauth] 初始化刷新失败: ${name} (${accountId}) - ${error.message}`)
+        logger.warn(`[Droid oauth] 初始化刷新失败: ${name} (${accountId}) - ${error.message}`)
       }
     }
 
@@ -680,7 +680,7 @@ class DroidAccountService {
     }
 
     logger.info(
-      `🔍 [Droid ${provisioningMode}] 写入前令牌快照 - AccountName: ${name}, AccessToken: ${normalizedAccessToken || '[empty]'}, RefreshToken: ${normalizedRefreshToken || '[empty]'}, ExpiresAt: ${normalizedExpiresAt || '[empty]'}, ExpiresIn: ${
+      ` [Droid ${provisioningMode}] 写入前令牌快照 - AccountName: ${name}, AccessToken: ${normalizedAccessToken || '[empty]'}, RefreshToken: ${normalizedRefreshToken || '[empty]'}, ExpiresAt: ${normalizedExpiresAt || '[empty]'}, ExpiresIn: ${
         normalizedExpiresIn !== null && normalizedExpiresIn !== undefined ? normalizedExpiresIn : '[empty]'
       }`,
     )
@@ -693,7 +693,7 @@ class DroidAccountService {
       accessToken: this._encryptSensitiveData(normalizedAccessToken),
       expiresAt: normalizedExpiresAt || '', // OAuth Token 过期时间（技术字段，自动刷新）
 
-      // ✅ 新增：账户订阅到期时间（业务字段，手动管理）
+      // 新增：账户订阅到期时间（业务字段，手动管理）
       subscriptionExpiresAt: options.subscriptionExpiresAt || null,
 
       proxy: proxy ? JSON.stringify(proxy) : '',
@@ -726,15 +726,15 @@ class DroidAccountService {
 
     await redis.setDroidAccount(accountId, accountData)
 
-    logger.success(`🏢 Created Droid account: ${name} (${accountId}) - Endpoint: ${normalizedEndpointType}`)
+    logger.success(`Created Droid account: ${name} (${accountId}) - Endpoint: ${normalizedEndpointType}`)
 
     try {
       const verifyAccount = await this.getAccount(accountId)
       logger.info(
-        `🔍 [Droid ${provisioningMode}] Redis 写入后验证 - AccountName: ${name}, AccessToken: ${verifyAccount?.accessToken || '[empty]'}, RefreshToken: ${verifyAccount?.refreshToken || '[empty]'}, ExpiresAt: ${verifyAccount?.expiresAt || '[empty]'}`,
+        ` [Droid ${provisioningMode}] Redis 写入后验证 - AccountName: ${name}, AccessToken: ${verifyAccount?.accessToken || '[empty]'}, RefreshToken: ${verifyAccount?.refreshToken || '[empty]'}, ExpiresAt: ${verifyAccount?.expiresAt || '[empty]'}`,
       )
     } catch (verifyError) {
-      logger.warn(`⚠️ [Droid ${provisioningMode}] 写入后验证失败: ${name} (${accountId}) - ${verifyError.message}`)
+      logger.warn(`[Droid ${provisioningMode}] 写入后验证失败: ${name} (${accountId}) - ${verifyError.message}`)
     }
     return { id: accountId, ...accountData }
   }
@@ -774,7 +774,7 @@ class DroidAccountService {
       refreshToken: account.refreshToken ? '***ENCRYPTED***' : '',
       accessToken: account.accessToken ? maskToken(this._decryptSensitiveData(account.accessToken)) : '',
 
-      // ✅ 前端显示订阅过期时间（业务字段）
+      // 前端显示订阅过期时间（业务字段）
       expiresAt: account.subscriptionExpiresAt || null,
       platform: account.platform || 'droid',
 
@@ -829,7 +829,7 @@ class DroidAccountService {
         try {
           return JSON.parse(value)
         } catch (error) {
-          logger.warn('⚠️ Failed to parse stored Droid proxy config:', error.message)
+          logger.warn('Failed to parse stored Droid proxy config:', error.message)
         }
       }
       return null
@@ -907,12 +907,12 @@ class DroidAccountService {
           }
         }
       } catch (error) {
-        logger.error('❌ 使用新的 Refresh Token 更新 Droid 账户失败:', error)
+        logger.error('使用新的 Refresh Token 更新 Droid 账户失败:', error)
         throw new Error(`Refresh Token 验证失败：${error.message || '未知错误'}`, { cause: error })
       }
     }
 
-    // ✅ 如果通过路由映射更新了 subscriptionExpiresAt，直接保存
+    // 如果通过路由映射更新了 subscriptionExpiresAt，直接保存
     // subscriptionExpiresAt 是业务字段，与 token 刷新独立
     if (sanitizedUpdates.subscriptionExpiresAt !== undefined) {
       // 直接保存，不做任何调整
@@ -983,10 +983,10 @@ class DroidAccountService {
         apiKeysUpdated = removedCount > 0
 
         if (!apiKeysUpdated) {
-          logger.warn(`⚠️ 删除模式未匹配任何 Droid API Key: ${accountId} (提供 ${removalHashes.size} 条)`)
+          logger.warn(`删除模式未匹配任何 Droid API Key: ${accountId} (提供 ${removalHashes.size} 条)`)
         }
       } else if (removeApiKeysInput.length > 0) {
-        logger.warn(`⚠️ 删除模式未收到有效的 Droid API Key: ${accountId}`)
+        logger.warn(`删除模式未收到有效的 Droid API Key: ${accountId}`)
       }
     } else if (apiKeyUpdateMode === 'update') {
       // 更新模式：根据提供的 key 匹配现有条目并更新状态
@@ -1020,7 +1020,7 @@ class DroidAccountService {
           mergedApiKeys[existingIndex] = {
             ...existingEntry,
             // [人工决策-2026-06-02 23:30:05] review#4 代码级保证：key 级 status/errorMessage 只由自动流程(markApiKeyAsError)写入，
-            //   更新模式一律忽略外部传入的 status/errorMessage（防伪造 key 级 error），仅接受 lastUsedAt/usageCount
+            // 更新模式一律忽略外部传入的 status/errorMessage（防伪造 key 级 error），仅接受 lastUsedAt/usageCount
             status: existingEntry.status || 'active',
             errorMessage: existingEntry.errorMessage || '',
             lastUsedAt: updateItem.lastUsedAt !== undefined ? updateItem.lastUsedAt : existingEntry.lastUsedAt || '',
@@ -1032,7 +1032,7 @@ class DroidAccountService {
       }
 
       if (!apiKeysUpdated) {
-        logger.warn(`⚠️ 更新模式未匹配任何 Droid API Key: ${accountId} (提供 ${updatedHashes.size} 个哈希)`)
+        logger.warn(`更新模式未匹配任何 Droid API Key: ${accountId} (提供 ${updatedHashes.size} 个哈希)`)
       }
     } else {
       const clearExisting = apiKeyUpdateMode === 'replace' || wantsClearApiKeys
@@ -1050,19 +1050,19 @@ class DroidAccountService {
 
       if (apiKeyUpdateMode === 'delete') {
         logger.info(
-          `🔑 删除模式更新 Droid API keys for ${accountId}: 已移除 ${removedCount} 条，剩余 ${mergedApiKeys.length}`,
+          ` 删除模式更新 Droid API keys for ${accountId}: 已移除 ${removedCount} 条，剩余 ${mergedApiKeys.length}`,
         )
       } else if (apiKeyUpdateMode === 'update') {
         logger.info(
-          `🔑 更新模式更新 Droid API keys for ${accountId}: 更新了 ${newApiKeysInput.length} 个 API Key 的状态信息`,
+          ` 更新模式更新 Droid API keys for ${accountId}: 更新了 ${newApiKeysInput.length} 个 API Key 的状态信息`,
         )
       } else if (apiKeyUpdateMode === 'replace' || wantsClearApiKeys) {
         logger.info(
-          `🔑 覆盖模式更新 Droid API keys for ${accountId}: 当前总数 ${mergedApiKeys.length}，新增 ${addedCount}`,
+          ` 覆盖模式更新 Droid API keys for ${accountId}: 当前总数 ${mergedApiKeys.length}，新增 ${addedCount}`,
         )
       } else {
         logger.info(
-          `🔑 追加模式更新 Droid API keys for ${accountId}: 当前总数 ${mergedApiKeys.length}，新增 ${addedCount}`,
+          ` 追加模式更新 Droid API keys for ${accountId}: 当前总数 ${mergedApiKeys.length}，新增 ${addedCount}`,
         )
       }
 
@@ -1142,7 +1142,7 @@ class DroidAccountService {
       await upstreamErrorHelper.clearAutoProtectionCooldowns(accountId, 'droid')
     }
 
-    logger.info(`✅ Updated Droid account: ${accountId}`)
+    logger.info(`Updated Droid account: ${accountId}`)
 
     return this.getAccount(accountId)
   }
@@ -1152,7 +1152,7 @@ class DroidAccountService {
    */
   async deleteAccount(accountId) {
     await redis.deleteDroidAccount(accountId)
-    logger.success(`🗑️  Deleted Droid account: ${accountId}`)
+    logger.success(`Deleted Droid account: ${accountId}`)
   }
 
   /**
@@ -1170,7 +1170,7 @@ class DroidAccountService {
       throw new Error(`Droid account ${accountId} has no refresh token`)
     }
 
-    logger.info(`🔄 Refreshing Droid account token: ${account.name} (${accountId})`)
+    logger.info(`Refreshing Droid account token: ${account.name} (${accountId})`)
 
     try {
       const proxy = proxyConfig || (account.proxy ? JSON.parse(account.proxy) : null)
@@ -1197,8 +1197,8 @@ class DroidAccountService {
       if (refreshed.user) {
         const { user } = refreshed
         const updates = {}
-        logger.info(`✅ Droid token refreshed for: ${user.email} (${user.first_name} ${user.last_name})`)
-        logger.info(`   Organization ID: ${refreshed.organizationId || 'N/A'}`)
+        logger.info(`Droid token refreshed for: ${user.email} (${user.first_name} ${user.last_name})`)
+        logger.info(`Organization ID: ${refreshed.organizationId || 'N/A'}`)
 
         if (typeof user.email === 'string' && user.email.trim()) {
           updates.ownerEmail = user.email.trim()
@@ -1242,11 +1242,11 @@ class DroidAccountService {
         expiresAt: refreshed.expiresAt,
       }
     } catch (error) {
-      logger.error(`❌ Failed to refresh Droid account token: ${accountId}`, error)
+      logger.error(`Failed to refresh Droid account token: ${accountId}`, error)
 
       // disableAutoProtection：关闭自动防护时不把账户写成 error（保持可调度、透传上游错误）
       if (account?.disableAutoProtection === true || account?.disableAutoProtection === 'true') {
-        logger.info(`🛡️ Droid 账号 ${accountId} 已关闭自动防护，token 刷新失败时跳过写 error 状态`)
+        logger.info(`Droid 账号 ${accountId} 已关闭自动防护，token 刷新失败时跳过写 error 状态`)
         upstreamErrorHelper
           .recordErrorHistory(
             accountId,
@@ -1316,7 +1316,7 @@ class DroidAccountService {
 
     // 检查是否需要刷新
     if (this.shouldRefreshToken(account)) {
-      logger.info(`🔄 Droid account token needs refresh: ${accountId}`)
+      logger.info(`Droid account token needs refresh: ${accountId}`)
       const proxyConfig = account.proxy ? JSON.parse(account.proxy) : null
       await this.refreshAccessToken(accountId, proxyConfig)
       account = await this.getAccount(accountId)
@@ -1343,11 +1343,9 @@ class DroidAccountService {
         const isSchedulable = this._isTruthy(account.schedulable)
         const status = typeof account.status === 'string' ? account.status.toLowerCase() : ''
 
-        // ✅ 检查账户订阅是否过期
+        // 检查账户订阅是否过期
         if (this.isSubscriptionExpired(account)) {
-          logger.debug(
-            `⏰ Skipping expired Droid account: ${account.name}, expired at ${account.subscriptionExpiresAt}`,
-          )
+          logger.debug(`Skipping expired Droid account: ${account.name}, expired at ${account.subscriptionExpiresAt}`)
           return false
         }
 
@@ -1355,7 +1353,7 @@ class DroidAccountService {
           return false
         }
         // [人工决策-2026-06-02 23:30:05] 开 disableAutoProtection = 暴力打：忽略 status!=='active'；
-        //   isActive/schedulable(手动停用)、订阅过期仍生效
+        // isActive/schedulable(手动停用)、订阅过期仍生效
         const autoOff = account.disableAutoProtection === true || account.disableAutoProtection === 'true'
         if (!autoOff && status !== 'active') {
           return false
@@ -1430,7 +1428,7 @@ class DroidAccountService {
     })
 
     logger.info(
-      `✅ Selected Droid account: ${selectedAccount.name} (${selectedAccount.id}) - Endpoint: ${this._sanitizeEndpointType(selectedAccount.endpointType)}`,
+      ` Selected Droid account: ${selectedAccount.name} (${selectedAccount.id}) - Endpoint: ${this._sanitizeEndpointType(selectedAccount.endpointType)}`,
     )
 
     return selectedAccount
@@ -1459,11 +1457,11 @@ class DroidAccountService {
       const client = redis.getClientSafe()
       await client.hset(RedisKeys.accounts.droid(accountId), 'lastUsedAt', new Date().toISOString())
     } catch (error) {
-      logger.warn(`⚠️ Failed to update lastUsedAt for Droid account ${accountId}:`, error)
+      logger.warn(`Failed to update lastUsedAt for Droid account ${accountId}:`, error)
     }
   }
 
-  // 🔄 重置Droid账户所有异常状态
+  // 重置Droid账户所有异常状态
   async resetAccountStatus(accountId) {
     try {
       const accountData = await this.getAccount(accountId)
@@ -1517,7 +1515,7 @@ class DroidAccountService {
 
       return { success: true, accountId }
     } catch (error) {
-      logger.error(`❌ Failed to reset Droid account status: ${accountId}`, error)
+      logger.error(`Failed to reset Droid account status: ${accountId}`, error)
       throw error
     }
   }

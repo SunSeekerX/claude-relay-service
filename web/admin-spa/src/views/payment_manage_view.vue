@@ -740,6 +740,7 @@ import SegmentedTabs from '@/components/common/segmented_tabs.vue'
 import { ref, reactive, computed, onMounted, watch } from 'vue'
 
 import ModalTransition from '@/components/common/modal_transition.vue'
+import { isOk, msgOf } from '@/libs/http_envelope'
 import { showToast, formatDateTime } from '@/libs/tools'
 import {
   getPaymentConfigApi,
@@ -776,7 +777,7 @@ const TOGGLE = 'app-toggle-track'
 const BTN_PRIMARY =
   'btn btn-primary h-10 inline-flex items-center justify-center rounded-xl px-4 text-sm font-medium text-white shadow-sm transition-colors disabled:opacity-50'
 const BTN_SECONDARY =
-  'inline-flex h-10 items-center justify-center rounded-xl bg-gray-100 px-4 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-200 disabled:opacity-50 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600'
+  'toolbar-btn h-10 inline-flex items-center justify-center px-4 text-sm font-medium disabled:opacity-50'
 const LINK = 'ml-3 text-sm text-blue-500 hover:text-blue-600'
 const BADGE_ON = 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300'
 const BADGE_OFF = 'bg-gray-100 text-gray-500 dark:bg-gray-700'
@@ -916,12 +917,12 @@ const loadConfig = async () => {
   configLoadFailed.value = false
   const res = await getPaymentConfigApi()
   configLoading.value = false
-  if (res.success && res.data) {
+  if (isOk(res) && res.data) {
     config.value = { ...config.value, ...res.data }
   } else {
     // 加载失败：标记失败态，禁止保存，避免用本地默认值覆盖生产配置
     configLoadFailed.value = true
-    showToast(res.message || '配置加载失败，请重试', 'error')
+    showToast(msgOf(res, '配置加载失败，请重试'), 'error')
   }
 }
 const saveConfig = async () => {
@@ -933,10 +934,10 @@ const saveConfig = async () => {
   const res = await updatePaymentConfigApi(config.value)
   savingConfig.value = false
   showToast(
-    res.success ? '配置已保存' : res.message || '保存失败',
-    res.success ? 'success' : 'error'
+    isOk(res) ? '配置已保存' : msgOf(res, '保存失败'),
+    isOk(res) ? 'success' : 'error'
   )
-  if (res.success) configModal.value = false
+  if (isOk(res)) configModal.value = false
 }
 
 // ========== 商品 ==========
@@ -945,7 +946,7 @@ const planModal = ref(false)
 const planForm = ref({})
 const loadPlans = async () => {
   const res = await getPaymentPlansAdminApi()
-  if (res.success) plans.value = res.data || []
+  if (isOk(res)) plans.value = res.data || []
 }
 const openPlanModal = (p) => {
   planForm.value = p
@@ -964,7 +965,7 @@ const openPlanModal = (p) => {
 const savePlan = async () => {
   const { id, ...data } = planForm.value
   const res = id ? await updatePaymentPlanApi(id, data) : await createPaymentPlanApi(data)
-  if (!res.success) return showToast(res.message || '保存失败', 'error')
+  if (!isOk(res)) return showToast(msgOf(res, '保存失败'), 'error')
   showToast('已保存', 'success')
   planModal.value = false
   loadPlans()
@@ -997,7 +998,7 @@ watch(
 )
 const loadProviders = async () => {
   const res = await getPaymentProvidersApi()
-  if (res.success) providers.value = res.data || []
+  if (isOk(res)) providers.value = res.data || []
 }
 const openProviderModal = async (p) => {
   configMode.value = 'fields'
@@ -1020,8 +1021,8 @@ const openProviderModal = async (p) => {
   loadingProviderDetail.value = true
   const res = await getPaymentProviderApi(p.id)
   loadingProviderDetail.value = false
-  if (!res.success || !res.data) {
-    return showToast(res.message || '加载渠道配置失败', 'error')
+  if (!isOk(res) || !res.data) {
+    return showToast(msgOf(res, '加载渠道配置失败'), 'error')
   }
   providerForm.value = {
     ...res.data,
@@ -1075,7 +1076,7 @@ const saveProvider = async () => {
     }
   }
   const res = id ? await updatePaymentProviderApi(id, data) : await createPaymentProviderApi(data)
-  if (!res.success) return showToast(res.message || '保存失败', 'error')
+  if (!isOk(res)) return showToast(msgOf(res, '保存失败'), 'error')
   showToast('已保存', 'success')
   providerModal.value = false
   loadProviders()
@@ -1093,7 +1094,7 @@ const loadOrders = async () => {
     limit: PAGE,
     status: orderStatus.value
   })
-  if (res.success) {
+  if (isOk(res)) {
     orders.value = res.data?.orders || res.data || []
     orderTotal.value = res.data?.total ?? orders.value.length
   }
@@ -1127,7 +1128,7 @@ const openAudit = async (id) => {
   auditLogs.value = []
   auditModal.value = true
   const res = await getPaymentOrderAuditApi(id)
-  if (res.success) auditLogs.value = res.data || []
+  if (isOk(res)) auditLogs.value = res.data || []
 }
 
 // ========== 看板 ==========
@@ -1145,11 +1146,11 @@ const loadDashboard = async () => {
   dashboardLoading.value = true
   const res = await getPaymentDashboardApi()
   dashboardLoading.value = false
-  if (res.success && res.data) {
+  if (isOk(res) && res.data) {
     dashboard.value = res.data
     dashboardLoaded.value = true
   } else {
-    showToast(res.message || '数据看板加载失败，请重试', 'error')
+    showToast(msgOf(res, '数据看板加载失败，请重试'), 'error')
   }
 }
 
@@ -1162,7 +1163,7 @@ const confirmDelete = (kind, item) => {
       kind === 'plan'
         ? await deletePaymentPlanApi(item.id)
         : await deletePaymentProviderApi(item.id)
-    if (!res.success) return showToast(res.message || '删除失败', 'error')
+    if (!isOk(res)) return showToast(msgOf(res, '删除失败'), 'error')
     showToast('已删除', 'success')
     if (kind === 'plan') loadPlans()
     else loadProviders()
@@ -1176,7 +1177,7 @@ const confirmRefund = (o) => {
   confirmState.message = `确定为订单 ${o.outTradeNo} 退款?（按未消费余额对称退还）`
   confirmState.action = async () => {
     const res = await refundPaymentOrderApi(o.id)
-    if (!res.success) return showToast(res.message || '退款失败', 'error')
+    if (!isOk(res)) return showToast(msgOf(res, '退款失败'), 'error')
     showToast(`已退款 ${res.data?.refundAmount ?? ''}`, 'success')
     loadOrders()
   }
@@ -1185,7 +1186,7 @@ const confirmRefund = (o) => {
 // 管理端查单补单
 const doVerify = async (o) => {
   const res = await verifyPaymentOrderAdminApi(o.id)
-  if (!res.success) return showToast(res.message || res.error || '查单失败', 'error')
+  if (!isOk(res)) return showToast(msgOf(res, '查单失败'), 'error')
   const st = res.data?.status
   showToast(
     st === 'completed' ? '已补单入账' : `查单完成，状态：${orderStatusLabel(st)}`,
@@ -1220,7 +1221,7 @@ const submitManualComplete = async () => {
     tradeNo: manualModal.tradeNo
   })
   manualModal.saving = false
-  if (!res.success) return showToast(res.message || res.error || '入账失败', 'error')
+  if (!isOk(res)) return showToast(msgOf(res, '入账失败'), 'error')
   showToast(res.data?.alreadyDone ? '订单已完成' : '手工入账成功', 'success')
   manualModal.show = false
   loadOrders()
@@ -1233,7 +1234,7 @@ const confirmResolve = (o, outcome) => {
       : `确认渠道侧【未退款】订单 ${o.outTradeNo}?（将回滚已扣额度并解锁，需退款请重新发起）`
   confirmState.action = async () => {
     const res = await resolvePaymentRefundApi(o.id, outcome)
-    if (!res.success) return showToast(res.message || '裁决失败', 'error')
+    if (!isOk(res)) return showToast(msgOf(res, '裁决失败'), 'error')
     showToast('裁决完成', 'success')
     loadOrders()
   }

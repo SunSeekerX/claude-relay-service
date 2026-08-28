@@ -37,7 +37,7 @@ import {
 export const openaiRoutes = express.Router()
 // Codex CLI 系统提示词（非 Codex CLI 客户端请求时注入，统一端点也使用）
 export const CODEX_CLI_INSTRUCTIONS =
-  "You are Codex, based on GPT-5. You are running as a coding agent in the Codex CLI on a user's computer.\n\n## General\n\n- When searching for text or files, prefer using `rg` or `rg --files` respectively because `rg` is much faster than alternatives like `grep`. (If the `rg` command is not found, then use alternatives.)\n\n## Editing constraints\n\n- Default to ASCII when editing or creating files. Only introduce non-ASCII or other Unicode characters when there is a clear justification and the file already uses them.\n- Add succinct code comments that explain what is going on if code is not self-explanatory. You should not add comments like \"Assigns the value to the variable\", but a brief comment might be useful ahead of a complex code block that the user would otherwise have to spend time parsing out. Usage of these comments should be rare.\n- Try to use apply_patch for single file edits, but it is fine to explore other options to make the edit if it does not work well. Do not use apply_patch for changes that are auto-generated (i.e. generating package.json or running a lint or format command like gofmt) or when scripting is more efficient (such as search and replacing a string across a codebase).\n- You may be in a dirty git worktree.\n    * NEVER revert existing changes you did not make unless explicitly requested, since these changes were made by the user.\n    * If asked to make a commit or code edits and there are unrelated changes to your work or changes that you didn't make in those files, don't revert those changes.\n    * If the changes are in files you've touched recently, you should read carefully and understand how you can work with the changes rather than reverting them.\n    * If the changes are in unrelated files, just ignore them and don't revert them.\n- Do not amend a commit unless explicitly requested to do so.\n- While you are working, you might notice unexpected changes that you didn't make. If this happens, STOP IMMEDIATELY and ask the user how they would like to proceed.\n- **NEVER** use destructive commands like `git reset --hard` or `git checkout --` unless specifically requested or approved by the user.\n\n## Plan tool\n\nWhen using the planning tool:\n- Skip using the planning tool for straightforward tasks (roughly the easiest 25%).\n- Do not make single-step plans.\n- When you made a plan, update it after having performed one of the sub-tasks that you shared on the plan.\n\n## Codex CLI harness, sandboxing, and approvals\n\nThe Codex CLI harness supports several different configurations for sandboxing and escalation approvals that the user can choose from.\n\nFilesystem sandboxing defines which files can be read or written. The options for `sandbox_mode` are:\n- **read-only**: The sandbox only permits reading files.\n- **workspace-write**: The sandbox permits reading files, and editing files in `cwd` and `writable_roots`. Editing files in other directories requires approval.\n- **danger-full-access**: No filesystem sandboxing - all commands are permitted.\n\nNetwork sandboxing defines whether network can be accessed without approval. Options for `network_access` are:\n- **restricted**: Requires approval\n- **enabled**: No approval needed\n\nApprovals are your mechanism to get user consent to run shell commands without the sandbox. Possible configuration options for `approval_policy` are\n- **untrusted**: The harness will escalate most commands for user approval, apart from a limited allowlist of safe \"read\" commands.\n- **on-failure**: The harness will allow all commands to run in the sandbox (if enabled), and failures will be escalated to the user for approval to run again without the sandbox.\n- **on-request**: Commands will be run in the sandbox by default, and you can specify in your tool call if you want to escalate a command to run without sandboxing. (Note that this mode is not always available. If it is, you'll see parameters for it in the `shell` command description.)\n- **never**: This is a non-interactive mode where you may NEVER ask the user for approval to run commands. Instead, you must always persist and work around constraints to solve the task for the user. You MUST do your utmost best to finish the task and validate your work before yielding. If this mode is paired with `danger-full-access`, take advantage of it to deliver the best outcome for the user. Further, in this mode, your default testing philosophy is overridden: Even if you don't see local patterns for testing, you may add tests and scripts to validate your work. Just remove them before yielding.\n\nWhen you are running with `approval_policy == on-request`, and sandboxing enabled, here are scenarios where you'll need to request approval:\n- You need to run a command that writes to a directory that requires it (e.g. running tests that write to /var)\n- You need to run a GUI app (e.g., open/xdg-open/osascript) to open browsers or files.\n- You are running sandboxed and need to run a command that requires network access (e.g. installing packages)\n- If you run a command that is important to solving the user's query, but it fails because of sandboxing, rerun the command with approval. ALWAYS proceed to use the `with_escalated_permissions` and `justification` parameters - do not message the user before requesting approval for the command.\n- You are about to take a potentially destructive action such as an `rm` or `git reset` that the user did not explicitly ask for\n- (for all of these, you should weigh alternative paths that do not require approval)\n\nWhen `sandbox_mode` is set to read-only, you'll need to request approval for any command that isn't a read.\n\nYou will be told what filesystem sandboxing, network sandboxing, and approval mode are active in a developer or user message. If you are not told about this, assume that you are running with workspace-write, network sandboxing enabled, and approval on-failure.\n\nAlthough they introduce friction to the user because your work is paused until the user responds, you should leverage them when necessary to accomplish important work. If the completing the task requires escalated permissions, Do not let these settings or the sandbox deter you from attempting to accomplish the user's task unless it is set to \"never\", in which case never ask for approvals.\n\nWhen requesting approval to execute a command that will require escalated privileges:\n  - Provide the `with_escalated_permissions` parameter with the boolean value true\n  - Include a short, 1 sentence explanation for why you need to enable `with_escalated_permissions` in the justification parameter\n\n## Special user requests\n\n- If the user makes a simple request (such as asking for the time) which you can fulfill by running a terminal command (such as `date`), you should do so.\n- If the user asks for a \"review\", default to a code review mindset: prioritise identifying bugs, risks, behavioural regressions, and missing tests. Findings must be the primary focus of the response - keep summaries or overviews brief and only after enumerating the issues. Present findings first (ordered by severity with file/line references), follow with open questions or assumptions, and offer a change-summary only as a secondary detail. If no findings are discovered, state that explicitly and mention any residual risks or testing gaps.\n\n## Frontend tasks\nWhen doing frontend design tasks, avoid collapsing into \"AI slop\" or safe, average-looking layouts.\nAim for interfaces that feel intentional, bold, and a bit surprising.\n- Typography: Use expressive, purposeful fonts and avoid default stacks (Inter, Roboto, Arial, system).\n- Color & Look: Choose a clear visual direction; define CSS variables; avoid purple-on-white defaults. No purple bias or dark mode bias.\n- Motion: Use a few meaningful animations (page-load, staggered reveals) instead of generic micro-motions.\n- Background: Don't rely on flat, single-color backgrounds; use gradients, shapes, or subtle patterns to build atmosphere.\n- Overall: Avoid boilerplate layouts and interchangeable UI patterns. Vary themes, type families, and visual languages across outputs.\n- Ensure the page loads properly on both desktop and mobile\n\nException: If working within an existing website or design system, preserve the established patterns, structure, and visual language.\n\n## Presenting your work and final message\n\nYou are producing plain text that will later be styled by the CLI. Follow these rules exactly. Formatting should make results easy to scan, but not feel mechanical. Use judgment to decide how much structure adds value.\n\n- Default: be very concise; friendly coding teammate tone.\n- Ask only when needed; suggest ideas; mirror the user's style.\n- For substantial work, summarize clearly; follow final‑answer formatting.\n- Skip heavy formatting for simple confirmations.\n- Don't dump large files you've written; reference paths only.\n- No \"save/copy this file\" - User is on the same machine.\n- Offer logical next steps (tests, commits, build) briefly; add verify steps if you couldn't do something.\n- For code changes:\n  * Lead with a quick explanation of the change, and then give more details on the context covering where and why a change was made. Do not start this explanation with \"summary\", just jump right in.\n  * If there are natural next steps the user may want to take, suggest them at the end of your response. Do not make suggestions if there are no natural next steps.\n  * When suggesting multiple options, use numeric lists for the suggestions so the user can quickly respond with a single number.\n- The user does not command execution outputs. When asked to show the output of a command (e.g. `git show`), relay the important details in your answer or summarize the key lines so the user understands the result.\n\n### Final answer structure and style guidelines\n\n- Plain text; CLI handles styling. Use structure only when it helps scanability.\n- Headers: optional; short Title Case (1-3 words) wrapped in **…**; no blank line before the first bullet; add only if they truly help.\n- Bullets: use - ; merge related points; keep to one line when possible; 4–6 per list ordered by importance; keep phrasing consistent.\n- Monospace: backticks for commands/paths/env vars/code ids and inline examples; use for literal keyword bullets; never combine with **.\n- Code samples or multi-line snippets should be wrapped in fenced code blocks; include an info string as often as possible.\n- Structure: group related bullets; order sections general → specific → supporting; for subsections, start with a bolded keyword bullet, then items; match complexity to the task.\n- Tone: collaborative, concise, factual; present tense, active voice; self‑contained; no \"above/below\"; parallel wording.\n- Don'ts: no nested bullets/hierarchies; no ANSI codes; don't cram unrelated keywords; keep keyword lists short—wrap/reformat if long; avoid naming formatting styles in answers.\n- Adaptation: code explanations → precise, structured with code refs; simple tasks → lead with outcome; big changes → logical walkthrough + rationale + next actions; casual one-offs → plain sentences, no headers/bullets.\n- File References: When referencing files in your response follow the below rules:\n  * Use inline code to make file paths clickable.\n  * Each reference should have a stand alone path. Even if it's the same file.\n  * Accepted: absolute, workspace‑relative, a/ or b/ diff prefixes, or bare filename/suffix.\n  * Optionally include line/column (1‑based): :line[:column] or #Lline[Ccolumn] (column defaults to 1).\n  * Do not use URIs like file://, vscode://, or https://.\n  * Do not provide range of lines\n  * Examples: src/app.ts, src/app.ts:42, b/server/index.js#L10, C:\\repo\\project\\main.rs:12:5\n"
+  "You are Codex, based on GPT-5. You are running as a coding agent in the Codex CLI on a user's computer.\n\n## General\n\n- When searching for text or files, prefer using `rg`or `rg --files`respectively because `rg`is much faster than alternatives like `grep`. (If the `rg`command is not found, then use alternatives.)\n\n## Editing constraints\n\n- Default to ASCII when editing or creating files. Only introduce non-ASCII or other Unicode characters when there is a clear justification and the file already uses them.\n- Add succinct code comments that explain what is going on if code is not self-explanatory. You should not add comments like \"Assigns the value to the variable\", but a brief comment might be useful ahead of a complex code block that the user would otherwise have to spend time parsing out. Usage of these comments should be rare.\n- Try to use apply_patch for single file edits, but it is fine to explore other options to make the edit if it does not work well. Do not use apply_patch for changes that are auto-generated (i.e. generating package.json or running a lint or format command like gofmt) or when scripting is more efficient (such as search and replacing a string across a codebase).\n- You may be in a dirty git worktree.\n * NEVER revert existing changes you did not make unless explicitly requested, since these changes were made by the user.\n * If asked to make a commit or code edits and there are unrelated changes to your work or changes that you didn't make in those files, don't revert those changes.\n * If the changes are in files you've touched recently, you should read carefully and understand how you can work with the changes rather than reverting them.\n * If the changes are in unrelated files, just ignore them and don't revert them.\n- Do not amend a commit unless explicitly requested to do so.\n- While you are working, you might notice unexpected changes that you didn't make. If this happens, STOP IMMEDIATELY and ask the user how they would like to proceed.\n- **NEVER** use destructive commands like `git reset --hard`or `git checkout --`unless specifically requested or approved by the user.\n\n## Plan tool\n\nWhen using the planning tool:\n- Skip using the planning tool for straightforward tasks (roughly the easiest 25%).\n- Do not make single-step plans.\n- When you made a plan, update it after having performed one of the sub-tasks that you shared on the plan.\n\n## Codex CLI harness, sandboxing, and approvals\n\nThe Codex CLI harness supports several different configurations for sandboxing and escalation approvals that the user can choose from.\n\nFilesystem sandboxing defines which files can be read or written. The options for `sandbox_mode`are:\n- **read-only**: The sandbox only permits reading files.\n- **workspace-write**: The sandbox permits reading files, and editing files in `cwd`and `writable_roots`. Editing files in other directories requires approval.\n- **danger-full-access**: No filesystem sandboxing - all commands are permitted.\n\nNetwork sandboxing defines whether network can be accessed without approval. Options for `network_access`are:\n- **restricted**: Requires approval\n- **enabled**: No approval needed\n\nApprovals are your mechanism to get user consent to run shell commands without the sandbox. Possible configuration options for `approval_policy`are\n- **untrusted**: The harness will escalate most commands for user approval, apart from a limited allowlist of safe \"read\"commands.\n- **on-failure**: The harness will allow all commands to run in the sandbox (if enabled), and failures will be escalated to the user for approval to run again without the sandbox.\n- **on-request**: Commands will be run in the sandbox by default, and you can specify in your tool call if you want to escalate a command to run without sandboxing. (Note that this mode is not always available. If it is, you'll see parameters for it in the `shell`command description.)\n- **never**: This is a non-interactive mode where you may NEVER ask the user for approval to run commands. Instead, you must always persist and work around constraints to solve the task for the user. You MUST do your utmost best to finish the task and validate your work before yielding. If this mode is paired with `danger-full-access`, take advantage of it to deliver the best outcome for the user. Further, in this mode, your default testing philosophy is overridden: Even if you don't see local patterns for testing, you may add tests and scripts to validate your work. Just remove them before yielding.\n\nWhen you are running with `approval_policy == on-request`, and sandboxing enabled, here are scenarios where you'll need to request approval:\n- You need to run a command that writes to a directory that requires it (e.g. running tests that write to /var)\n- You need to run a GUI app (e.g., open/xdg-open/osascript) to open browsers or files.\n- You are running sandboxed and need to run a command that requires network access (e.g. installing packages)\n- If you run a command that is important to solving the user's query, but it fails because of sandboxing, rerun the command with approval. ALWAYS proceed to use the `with_escalated_permissions`and `justification`parameters - do not message the user before requesting approval for the command.\n- You are about to take a potentially destructive action such as an `rm`or `git reset`that the user did not explicitly ask for\n- (for all of these, you should weigh alternative paths that do not require approval)\n\nWhen `sandbox_mode`is set to read-only, you'll need to request approval for any command that isn't a read.\n\nYou will be told what filesystem sandboxing, network sandboxing, and approval mode are active in a developer or user message. If you are not told about this, assume that you are running with workspace-write, network sandboxing enabled, and approval on-failure.\n\nAlthough they introduce friction to the user because your work is paused until the user responds, you should leverage them when necessary to accomplish important work. If the completing the task requires escalated permissions, Do not let these settings or the sandbox deter you from attempting to accomplish the user's task unless it is set to \"never\", in which case never ask for approvals.\n\nWhen requesting approval to execute a command that will require escalated privileges:\n - Provide the `with_escalated_permissions`parameter with the boolean value true\n - Include a short, 1 sentence explanation for why you need to enable `with_escalated_permissions`in the justification parameter\n\n## Special user requests\n\n- If the user makes a simple request (such as asking for the time) which you can fulfill by running a terminal command (such as `date`), you should do so.\n- If the user asks for a \"review\", default to a code review mindset: prioritise identifying bugs, risks, behavioural regressions, and missing tests. Findings must be the primary focus of the response - keep summaries or overviews brief and only after enumerating the issues. Present findings first (ordered by severity with file/line references), follow with open questions or assumptions, and offer a change-summary only as a secondary detail. If no findings are discovered, state that explicitly and mention any residual risks or testing gaps.\n\n## Frontend tasks\nWhen doing frontend design tasks, avoid collapsing into \"AI slop\"or safe, average-looking layouts.\nAim for interfaces that feel intentional, bold, and a bit surprising.\n- Typography: Use expressive, purposeful fonts and avoid default stacks (Inter, Roboto, Arial, system).\n- Color & Look: Choose a clear visual direction; define CSS variables; avoid purple-on-white defaults. No purple bias or dark mode bias.\n- Motion: Use a few meaningful animations (page-load, staggered reveals) instead of generic micro-motions.\n- Background: Don't rely on flat, single-color backgrounds; use gradients, shapes, or subtle patterns to build atmosphere.\n- Overall: Avoid boilerplate layouts and interchangeable UI patterns. Vary themes, type families, and visual languages across outputs.\n- Ensure the page loads properly on both desktop and mobile\n\nException: If working within an existing website or design system, preserve the established patterns, structure, and visual language.\n\n## Presenting your work and final message\n\nYou are producing plain text that will later be styled by the CLI. Follow these rules exactly. Formatting should make results easy to scan, but not feel mechanical. Use judgment to decide how much structure adds value.\n\n- Default: be very concise; friendly coding teammate tone.\n- Ask only when needed; suggest ideas; mirror the user's style.\n- For substantial work, summarize clearly; follow final‑answer formatting.\n- Skip heavy formatting for simple confirmations.\n- Don't dump large files you've written; reference paths only.\n- No \"save/copy this file\" - User is on the same machine.\n- Offer logical next steps (tests, commits, build) briefly; add verify steps if you couldn't do something.\n- For code changes:\n * Lead with a quick explanation of the change, and then give more details on the context covering where and why a change was made. Do not start this explanation with \"summary\", just jump right in.\n * If there are natural next steps the user may want to take, suggest them at the end of your response. Do not make suggestions if there are no natural next steps.\n * When suggesting multiple options, use numeric lists for the suggestions so the user can quickly respond with a single number.\n- The user does not command execution outputs. When asked to show the output of a command (e.g. `git show`), relay the important details in your answer or summarize the key lines so the user understands the result.\n\n### Final answer structure and style guidelines\n\n- Plain text; CLI handles styling. Use structure only when it helps scanability.\n- Headers: optional; short Title Case (1-3 words) wrapped in **…**; no blank line before the first bullet; add only if they truly help.\n- Bullets: use - ; merge related points; keep to one line when possible; 4–6 per list ordered by importance; keep phrasing consistent.\n- Monospace: backticks for commands/paths/env vars/code ids and inline examples; use for literal keyword bullets; never combine with **.\n- Code samples or multi-line snippets should be wrapped in fenced code blocks; include an info string as often as possible.\n- Structure: group related bullets; order sections general → specific → supporting; for subsections, start with a bolded keyword bullet, then items; match complexity to the task.\n- Tone: collaborative, concise, factual; present tense, active voice; self‑contained; no \"above/below\"; parallel wording.\n- Don'ts: no nested bullets/hierarchies; no ANSI codes; don't cram unrelated keywords; keep keyword lists short—wrap/reformat if long; avoid naming formatting styles in answers.\n- Adaptation: code explanations → precise, structured with code refs; simple tasks → lead with outcome; big changes → logical walkthrough + rationale + next actions; casual one-offs → plain sentences, no headers/bullets.\n- File References: When referencing files in your response follow the below rules:\n * Use inline code to make file paths clickable.\n * Each reference should have a stand alone path. Even if it's the same file.\n * Accepted: absolute, workspace‑relative, a/ or b/ diff prefixes, or bare filename/suffix.\n * Optionally include line/column (1‑based): :line[:column] or #Lline[Ccolumn] (column defaults to 1).\n * Do not use URIs like file://, vscode://, or https://.\n * Do not provide range of lines\n * Examples: src/app.ts, src/app.ts:42, b/server/index.js#L10, C:\\repo\\project\\main.rs:12:5\n"
 
 // 检查 API Key 是否具备 OpenAI 权限
 const checkOpenAIPermissions = function checkOpenAIPermissions(apiKeyData) {
@@ -134,7 +134,7 @@ const normalizeGpt5ModelForCodex = function normalizeGpt5ModelForCodex(body = {}
   const compatibleModel = getCodexCompatibleModel(requestedModel)
 
   if (compatibleModel !== requestedModel) {
-    logger.info(`📝 Model ${requestedModel} detected, normalizing to gpt-5 for Codex API`)
+    logger.info(`Model ${requestedModel} detected, normalizing to gpt-5 for Codex API`)
     body.model = compatibleModel
   }
 
@@ -142,6 +142,8 @@ const normalizeGpt5ModelForCodex = function normalizeGpt5ModelForCodex(body = {}
 }
 
 const applyCodexCliAdaptation = function applyCodexCliAdaptation(body = {}) {
+  // 仅剥 OAuth Codex 后端不接受/会干扰的采样与安全字段
+  // 保留 text（json_schema/verbosity）与 service_tier（priority/flex 计费档）
   const fieldsToRemove = [
     'temperature',
     'top_p',
@@ -149,8 +151,6 @@ const applyCodexCliAdaptation = function applyCodexCliAdaptation(body = {}) {
     'user',
     'text_formatting',
     'truncation',
-    'text',
-    'service_tier',
     'prompt_cache_retention',
     'safety_identifier',
   ]
@@ -187,13 +187,13 @@ const applyRateLimitTracking = async function applyRateLimitTracking(
     )
 
     if (totalTokens > 0) {
-      logger.api(`📊 Updated rate limit token count${label}: +${totalTokens} tokens`)
+      logger.api(`Updated rate limit token count${label}: +${totalTokens} tokens`)
     }
     if (typeof totalCost === 'number' && totalCost > 0) {
-      logger.api(`💰 Updated rate limit cost count${label}: +$${totalCost.toFixed(6)}`)
+      logger.api(`Updated rate limit cost count${label}: +$${totalCost.toFixed(6)}`)
     }
   } catch (error) {
-    logger.error(`❌ Failed to update rate limit counters${label}:`, error)
+    logger.error(`Failed to update rate limit counters${label}:`, error)
   }
 }
 
@@ -251,12 +251,12 @@ const getOpenAIAuthToken = async function getOpenAIAuthToken(apiKeyData, session
       // 检查 token 是否过期并自动刷新（双重保护）
       if (openaiAccountService.isTokenExpired(account)) {
         if (account.refreshToken) {
-          logger.info(`🔄 Token expired, auto-refreshing for account ${account.name} (fallback)`)
+          logger.info(`Token expired, auto-refreshing for account ${account.name} (fallback)`)
           try {
             await openaiAccountService.refreshAccountToken(result.accountId)
             // 重新获取更新后的账户
             account = await openaiAccountService.getAccount(result.accountId)
-            logger.info(`✅ Token refreshed successfully in route handler`)
+            logger.info(`Token refreshed successfully in route handler`)
           } catch (refreshError) {
             logger.error(`Failed to refresh token for ${account.name}:`, refreshError)
             const error = new Error(`Token expired and refresh failed: ${refreshError.message}`)
@@ -321,7 +321,7 @@ export const handleResponses = async (req, res) => {
     const apiKeyData = req.apiKey || {}
 
     if (!checkOpenAIPermissions(apiKeyData)) {
-      logger.security(`🚫 API Key ${apiKeyData.id || 'unknown'} 缺少 OpenAI 权限，拒绝访问 ${req.originalUrl}`)
+      logger.security(`API Key ${apiKeyData.id || 'unknown'} 缺少 OpenAI 权限，拒绝访问 ${req.originalUrl}`)
       return res.status(403).json({
         error: {
           message: 'This API key does not have permission to access OpenAI',
@@ -347,25 +347,25 @@ export const handleResponses = async (req, res) => {
       if (shouldApplyCodexAdaptation) {
         normalizeGpt5ModelForCodex(req.body)
         applyCodexCliAdaptation(req.body)
-        logger.info('📝 Standard Responses request applied Codex CLI adaptation')
+        logger.info('Standard Responses request applied Codex CLI adaptation')
       } else if (isCodexCLI) {
-        logger.info('✅ Codex CLI request detected, forwarding current payload')
+        logger.info('Codex CLI request detected, forwarding current payload')
       } else {
-        logger.info('📦 Standard Responses request is passing through without Codex adaptation')
+        logger.info('Standard Responses request is passing through without Codex adaptation')
       }
 
       if (shouldApplyPayloadRules) {
         req.body = requestBodyRuleService.applyRules(req.body, apiKeyData.openaiResponsesPayloadRules)
-        logger.info('🧩 Standard Responses request applied API key payload rules')
+        logger.info('Standard Responses request applied API key payload rules')
       }
     } else {
       normalizeGpt5ModelForCodex(req.body)
 
       if (!isCodexCLI && !req._fromUnifiedEndpoint) {
         applyCodexCliAdaptation(req.body)
-        logger.info('📝 Non-Codex CLI request detected, applying Codex CLI adaptation')
+        logger.info('Non-Codex CLI request detected, applying Codex CLI adaptation')
       } else {
-        logger.info('✅ Codex CLI request detected, forwarding as-is')
+        logger.info('Codex CLI request detected, forwarding as-is')
       }
     }
 
@@ -397,9 +397,7 @@ export const handleResponses = async (req, res) => {
     const isStream = searchRoute || realtimeRoute ? false : req.body?.stream !== false
 
     if (schedulerModel !== requestedModel) {
-      logger.info(
-        `🧭 Using Codex-compatible model ${schedulerModel} for account selection (requested: ${requestedModel})`,
-      )
+      logger.info(`Using Codex-compatible model ${schedulerModel} for account selection (requested: ${requestedModel})`)
     }
 
     // 使用调度器选择账户
@@ -412,7 +410,7 @@ export const handleResponses = async (req, res) => {
     // Codex search / realtime 是 ChatGPT OAuth 协议面，openai-responses（第三方 JSON API）不能承接
     if (accountType === 'openai-responses') {
       if (searchRoute || realtimeRoute) {
-        logger.warn(`❌ openai-responses account cannot serve Codex ${searchRoute ? 'search' : 'realtime'}`)
+        logger.warn(`openai-responses account cannot serve Codex ${searchRoute ? 'search' : 'realtime'}`)
         return res.status(400).json({
           error: {
             message: 'Codex search/realtime requires an OpenAI OAuth (ChatGPT) account, not openai-responses',
@@ -421,13 +419,13 @@ export const handleResponses = async (req, res) => {
           },
         })
       }
-      logger.info(`🔀 Using OpenAI-Responses relay service for account: ${account.name}`)
+      logger.info(`Using OpenAI-Responses relay service for account: ${account.name}`)
       return await openaiResponsesRelayService.handleRequest(req, res, account, apiKeyData)
     }
 
     if (schedulerModel !== requestedModel) {
       logger.info(
-        `📝 Standard Responses request normalized model ${requestedModel} -> ${schedulerModel} for OpenAI Codex backend`,
+        `Standard Responses request normalized model ${requestedModel} -> ${schedulerModel} for OpenAI Codex backend`,
       )
       req.body.model = schedulerModel
     }
@@ -520,9 +518,9 @@ export const handleResponses = async (req, res) => {
       axiosConfig.httpAgent = proxyAgent
       axiosConfig.httpsAgent = proxyAgent
       axiosConfig.proxy = false
-      logger.info('🌐 Using proxy for OpenAI request')
+      logger.info('Using proxy for OpenAI request')
     } else {
-      logger.debug('🌐 No proxy configured for OpenAI request')
+      logger.debug('No proxy configured for OpenAI request')
     }
 
     // 按请求路径选择 Codex 上游端点（官方并集：responses/compact/search/realtime）
@@ -581,7 +579,7 @@ export const handleResponses = async (req, res) => {
       try {
         await openaiAccountService.updateCodexUsageSnapshot(accountId, codexUsageSnapshot)
       } catch (codexError) {
-        logger.error('⚠️ 更新 Codex 使用统计失败:', codexError)
+        logger.error('更新 Codex 使用统计失败:', codexError)
       }
     }
 
@@ -626,7 +624,7 @@ export const handleResponses = async (req, res) => {
 
     // 处理 429 限流错误
     if (upstream.status === 429) {
-      logger.warn(`🚫 Rate limit detected for OpenAI account ${accountId} (Codex API)`)
+      logger.warn(`Rate limit detected for OpenAI account ${accountId} (Codex API)`)
 
       // 解析响应体中的限流信息
       let resetsInSeconds = null
@@ -661,17 +659,36 @@ export const handleResponses = async (req, res) => {
         if (errorData && errorData.error && errorData.error.resets_in_seconds) {
           resetsInSeconds = errorData.error.resets_in_seconds
           logger.info(
-            `🕐 Codex rate limit will reset in ${resetsInSeconds} seconds (${Math.ceil(resetsInSeconds / 60)} minutes / ${Math.ceil(resetsInSeconds / 3600)} hours)`,
+            `Codex rate limit will reset in ${resetsInSeconds} seconds (${Math.ceil(resetsInSeconds / 60)} minutes / ${Math.ceil(resetsInSeconds / 3600)} hours)`,
           )
         } else {
-          logger.warn('⚠️ Could not extract resets_in_seconds from 429 response, using default 60 minutes')
+          logger.warn('Could not extract resets_in_seconds from 429 response, using default 60 minutes')
         }
       } catch (e) {
-        logger.error('⚠️ Failed to parse rate limit error:', e)
+        logger.error('Failed to parse rate limit error:', e)
       }
 
-      // 标记账户为限流状态
+      // 标记账户为限流状态（账户层在关闭自动防护时会跳过暂停，但历史必须写）
       await unifiedOpenAIScheduler.markAccountRateLimited(accountId, 'openai', sessionHash, resetsInSeconds)
+      await upstreamErrorHelper
+        .markTempUnavailable(
+          accountId,
+          'openai',
+          429,
+          resetsInSeconds,
+          upstreamErrorHelper.buildErrorContext({
+            url: codexEndpoint,
+            method: 'POST',
+            requestHeaders: headers,
+            requestBody: outboundBody,
+            model: upstreamRequestedModel,
+            sessionId: sessionHash,
+            responseStatus: 429,
+            responseHeaders: upstream.headers,
+            responseBody: errorData,
+          }),
+        )
+        .catch(() => {})
 
       // 返回错误响应给客户端
       const errorResponse = errorData || {
@@ -698,7 +715,7 @@ export const handleResponses = async (req, res) => {
     } else if (upstream.status === 401 || upstream.status === 402) {
       const unauthorizedStatus = upstream.status
       const statusDescription = unauthorizedStatus === 401 ? 'Unauthorized' : 'Payment required'
-      logger.warn(`🔐 ${statusDescription} error detected for OpenAI account ${accountId} (Codex API)`)
+      logger.warn(`${statusDescription} error detected for OpenAI account ${accountId} (Codex API)`)
 
       let errorData = null
 
@@ -724,7 +741,7 @@ export const handleResponses = async (req, res) => {
           errorData = upstream.data
         }
       } catch (parseError) {
-        logger.error(`⚠️ Failed to handle ${unauthorizedStatus} error response:`, parseError)
+        logger.error(`Failed to handle ${unauthorizedStatus} error response:`, parseError)
       }
 
       const statusLabel = unauthorizedStatus === 401 ? '401错误' : '402错误'
@@ -745,8 +762,29 @@ export const handleResponses = async (req, res) => {
       try {
         await unifiedOpenAIScheduler.markAccountUnauthorized(accountId, 'openai', sessionHash, reason)
       } catch (markError) {
-        logger.error(`❌ Failed to mark OpenAI account unauthorized after ${unauthorizedStatus}:`, markError)
+        logger.error(`Failed to mark OpenAI account unauthorized after ${unauthorizedStatus}:`, markError)
       }
+      // 关闭自动防护时 markAccountUnauthorized 会跳过，仍必须记详细错误历史
+      await upstreamErrorHelper
+        .markTempUnavailable(
+          accountId,
+          'openai',
+          unauthorizedStatus,
+          null,
+          upstreamErrorHelper.buildErrorContext({
+            url: codexEndpoint,
+            method: 'POST',
+            requestHeaders: headers,
+            requestBody: outboundBody,
+            model: upstreamRequestedModel,
+            sessionId: sessionHash,
+            responseStatus: unauthorizedStatus,
+            responseHeaders: upstream.headers,
+            responseBody: errorData,
+            message: reason,
+          }),
+        )
+        .catch(() => {})
 
       let errorResponse = errorData
       if (!errorResponse || typeof errorResponse !== 'object' || Buffer.isBuffer(errorResponse)) {
@@ -766,7 +804,7 @@ export const handleResponses = async (req, res) => {
       // 请求成功，检查并移除限流状态
       const isRateLimited = await unifiedOpenAIScheduler.isAccountRateLimited(accountId)
       if (isRateLimited) {
-        logger.info(`✅ Removing rate limit for OpenAI account ${accountId} after successful request`)
+        logger.info(`Removing rate limit for OpenAI account ${accountId} after successful request`)
         await unifiedOpenAIScheduler.removeAccountRateLimit(accountId, 'openai')
       }
     }
@@ -839,6 +877,7 @@ export const handleResponses = async (req, res) => {
     let usageReported = false
     let rateLimitDetected = false
     let rateLimitResetsInSeconds = null
+    let rateLimitErrorData = null
 
     if (!isStream) {
       // 非流式响应处理（含 Codex search JSON、realtime SDP）
@@ -874,14 +913,14 @@ export const handleResponses = async (req, res) => {
           return
         }
 
-        logger.info(`📄 Processing OpenAI non-stream response for model: ${upstreamRequestedModel}`)
+        logger.info(`Processing OpenAI non-stream response for model: ${upstreamRequestedModel}`)
 
         // 从响应中获取实际的 model 和 usage（仅 responses 类 JSON）
         actualModel =
           (responseData && typeof responseData === 'object' && responseData.model) || upstreamRequestedModel || 'gpt-4'
         usageData = responseData && typeof responseData === 'object' ? responseData.usage : null
 
-        logger.debug(`📊 Non-stream response - Model: ${actualModel}, Usage:`, usageData)
+        logger.debug(`Non-stream response - Model: ${actualModel}, Usage:`, usageData)
 
         // 记录使用统计
         if (usageData) {
@@ -916,7 +955,7 @@ export const handleResponses = async (req, res) => {
           )
 
           logger.info(
-            `📊 Recorded OpenAI non-stream usage - Input: ${totalInputTokens}(actual:${actualInputTokens}+cached:${cacheReadTokens}), Output: ${outputTokens}, Total: ${usageData.total_tokens || totalInputTokens + outputTokens}, Model: ${actualModel}`,
+            `Recorded OpenAI non-stream usage - Input: ${totalInputTokens}(actual:${actualInputTokens}+cached:${cacheReadTokens}), Output: ${outputTokens}, Total: ${usageData.total_tokens || totalInputTokens + outputTokens}, Model: ${actualModel}`,
           )
 
           await applyRateLimitTracking(
@@ -958,27 +997,28 @@ export const handleResponses = async (req, res) => {
         // 从响应中获取真实的 model
         if (eventData.response.model) {
           actualModel = eventData.response.model
-          logger.debug(`📊 Captured actual model: ${actualModel}`)
+          logger.debug(`Captured actual model: ${actualModel}`)
         }
 
         if (eventData.response.service_tier) {
           streamServiceTierFromUpstream = eventData.response.service_tier
-          logger.debug(`📊 Captured service_tier: ${streamServiceTierFromUpstream}`)
+          logger.debug(`Captured service_tier: ${streamServiceTierFromUpstream}`)
         }
 
         // 获取 usage 数据
         if (eventData.response.usage) {
           usageData = eventData.response.usage
-          logger.debug('📊 Captured OpenAI usage data:', usageData)
+          logger.debug('Captured OpenAI usage data:', usageData)
         }
       }
 
       // 检查是否有限流错误
       if (eventData.error && eventData.error.type === 'usage_limit_reached') {
         rateLimitDetected = true
+        rateLimitErrorData = eventData.error
         if (eventData.error.resets_in_seconds) {
           rateLimitResetsInSeconds = eventData.error.resets_in_seconds
-          logger.warn(`🚫 Rate limit detected in stream, resets in ${rateLimitResetsInSeconds} seconds`)
+          logger.warn(`Rate limit detected in stream, resets in ${rateLimitResetsInSeconds} seconds`)
         }
       }
     }
@@ -1047,7 +1087,7 @@ export const handleResponses = async (req, res) => {
           )
 
           logger.info(
-            `📊 Recorded OpenAI usage - Input: ${totalInputTokens}(actual:${actualInputTokens}+cached:${cacheReadTokens}), Output: ${outputTokens}, Total: ${usageData.total_tokens || totalInputTokens + outputTokens}, Model: ${modelToRecord} (actual: ${actualModel}, requested: ${upstreamRequestedModel})`,
+            `Recorded OpenAI usage - Input: ${totalInputTokens}(actual:${actualInputTokens}+cached:${cacheReadTokens}), Output: ${outputTokens}, Total: ${usageData.total_tokens || totalInputTokens + outputTokens}, Model: ${modelToRecord} (actual: ${actualModel}, requested: ${upstreamRequestedModel})`,
           )
           usageReported = true
 
@@ -1071,13 +1111,32 @@ export const handleResponses = async (req, res) => {
 
       // 如果在流式响应中检测到限流
       if (rateLimitDetected) {
-        logger.warn(`🚫 Processing rate limit for OpenAI account ${accountId} from stream`)
+        logger.warn(`Processing rate limit for OpenAI account ${accountId} from stream`)
         await unifiedOpenAIScheduler.markAccountRateLimited(accountId, 'openai', sessionHash, rateLimitResetsInSeconds)
+        await upstreamErrorHelper
+          .markTempUnavailable(
+            accountId,
+            'openai',
+            429,
+            rateLimitResetsInSeconds,
+            upstreamErrorHelper.buildErrorContext({
+              url: codexEndpoint,
+              method: 'POST',
+              requestHeaders: headers,
+              requestBody: outboundBody,
+              model: upstreamRequestedModel,
+              sessionId: sessionHash,
+              responseStatus: 429,
+              responseHeaders: upstream.headers,
+              responseBody: rateLimitErrorData,
+            }),
+          )
+          .catch(() => {})
       } else if (upstream.status === 200) {
         // 流式请求成功，检查并移除限流状态
         const isRateLimited = await unifiedOpenAIScheduler.isAccountRateLimited(accountId)
         if (isRateLimited) {
-          logger.info(`✅ Removing rate limit for OpenAI account ${accountId} after successful stream`)
+          logger.info(`Removing rate limit for OpenAI account ${accountId} after successful stream`)
           await unifiedOpenAIScheduler.removeAccountRateLimit(accountId, 'openai')
         }
       }
@@ -1150,7 +1209,7 @@ export const handleResponses = async (req, res) => {
       try {
         await unifiedOpenAIScheduler.markAccountUnauthorized(accountId, accountType || 'openai', sessionHash, reason)
       } catch (markError) {
-        logger.error('❌ Failed to mark OpenAI account unauthorized in catch handler:', markError)
+        logger.error('Failed to mark OpenAI account unauthorized in catch handler:', markError)
       }
     }
 
@@ -1182,7 +1241,7 @@ const handleImages = async function handleImages(req, res) {
   let sessionHash = null
   try {
     if (!checkOpenAIPermissions(apiKeyData)) {
-      logger.security(`🚫 API Key ${apiKeyData.id || 'unknown'} 缺少 OpenAI 权限，拒绝访问 ${req.originalUrl}`)
+      logger.security(`API Key ${apiKeyData.id || 'unknown'} 缺少 OpenAI 权限，拒绝访问 ${req.originalUrl}`)
       return res.status(403).json({
         error: {
           message: 'This API key does not have permission to access OpenAI',
@@ -1315,11 +1374,29 @@ const handleImages = async function handleImages(req, res) {
       }
 
       if (upstream.status === 429) {
-        logger.warn(`🚫 Rate limit detected for OpenAI account ${accountId} (images bridge)`)
+        logger.warn(`Rate limit detected for OpenAI account ${accountId} (images bridge)`)
         const resetsInSeconds = (errorData && errorData.error && errorData.error.resets_in_seconds) || null
 
         // 标记账户为限流状态
         await unifiedOpenAIScheduler.markAccountRateLimited(accountId, 'openai', sessionHash, resetsInSeconds)
+        await upstreamErrorHelper
+          .markTempUnavailable(
+            accountId,
+            'openai',
+            429,
+            resetsInSeconds,
+            upstreamErrorHelper.buildErrorContext({
+              url: 'https://chatgpt.com/backend-api/codex/responses',
+              method: 'POST',
+              requestHeaders: headers,
+              requestBody: payload,
+              sessionId: sessionHash,
+              responseStatus: 429,
+              responseHeaders: upstream.headers,
+              responseBody: errorData,
+            }),
+          )
+          .catch(() => {})
 
         const errorResponse = errorData || {
           error: {
@@ -1342,13 +1419,32 @@ const handleImages = async function handleImages(req, res) {
         if (messageCandidate) {
           reason = `${reason}：${messageCandidate}`
         }
-        logger.warn(`🔐 ${statusLabel} detected for OpenAI account ${accountId} (images bridge)`)
+        logger.warn(`${statusLabel} detected for OpenAI account ${accountId} (images bridge)`)
 
         try {
           await unifiedOpenAIScheduler.markAccountUnauthorized(accountId, 'openai', sessionHash, reason)
         } catch (markError) {
-          logger.error('❌ Failed to mark OpenAI account unauthorized (images bridge):', markError)
+          logger.error('Failed to mark OpenAI account unauthorized (images bridge):', markError)
         }
+        await upstreamErrorHelper
+          .markTempUnavailable(
+            accountId,
+            'openai',
+            upstream.status,
+            null,
+            upstreamErrorHelper.buildErrorContext({
+              url: 'https://chatgpt.com/backend-api/codex/responses',
+              method: 'POST',
+              requestHeaders: headers,
+              requestBody: payload,
+              sessionId: sessionHash,
+              responseStatus: upstream.status,
+              responseHeaders: upstream.headers,
+              responseBody: errorData,
+              message: reason,
+            }),
+          )
+          .catch(() => {})
 
         return res.status(upstream.status).json(
           errorData || {
@@ -1357,7 +1453,7 @@ const handleImages = async function handleImages(req, res) {
         )
       }
 
-      logger.error(`❌ Images upstream error ${upstream.status}: ${rawBody.slice(0, 500)}`)
+      logger.error(`Images upstream error ${upstream.status}: ${rawBody.slice(0, 500)}`)
       return res.status(upstream.status).json(
         errorData && errorData.error
           ? errorData
@@ -1373,7 +1469,7 @@ const handleImages = async function handleImages(req, res) {
     // 请求成功，检查并移除限流状态
     const isRateLimited = await unifiedOpenAIScheduler.isAccountRateLimited(accountId)
     if (isRateLimited) {
-      logger.info(`✅ Removing rate limit for OpenAI account ${accountId} after successful request`)
+      logger.info(`Removing rate limit for OpenAI account ${accountId} after successful request`)
       await unifiedOpenAIScheduler.removeAccountRateLimit(accountId, 'openai')
     }
 
@@ -1475,7 +1571,7 @@ const handleImages = async function handleImages(req, res) {
           )
 
           logger.info(
-            `📊 Recorded OpenAI images usage - Input: ${totalInputTokens}(actual:${actualInputTokens}+cached:${cacheReadTokens}), Output: ${outputTokens}, Images: ${imageCount}, BillModel: ${modelToRecord}, UpstreamModel: ${actualModel || '-'}`,
+            `Recorded OpenAI images usage - Input: ${totalInputTokens}(actual:${actualInputTokens}+cached:${cacheReadTokens}), Output: ${outputTokens}, Images: ${imageCount}, BillModel: ${modelToRecord}, UpstreamModel: ${actualModel || '-'}`,
           )
 
           await applyRateLimitTracking(
@@ -1533,7 +1629,7 @@ const handleImages = async function handleImages(req, res) {
           `OpenAI账号认证失败（${statusLabel}${extraHint}）`,
         )
       } catch (markError) {
-        logger.error('❌ Failed to mark OpenAI account unauthorized (images bridge):', markError)
+        logger.error('Failed to mark OpenAI account unauthorized (images bridge):', markError)
       }
     }
 
@@ -1616,6 +1712,154 @@ export const handleModels = async (req, res) => {
     })
   }
 }
+
+// OpenAI Embeddings（openai-responses / 自定义 base 透传；OAuth Codex 无 embeddings）
+const handleEmbeddings = async function handleEmbeddings(req, res) {
+  try {
+    const apiKeyData = req.apiKey
+    if (!checkOpenAIPermissions(apiKeyData)) {
+      logger.security(`API Key ${apiKeyData?.id || 'unknown'} 缺少 OpenAI 权限，拒绝访问 ${req.originalUrl}`)
+      return res.status(403).json({
+        error: {
+          message: 'This API key does not have permission to access OpenAI',
+          type: 'permission_denied',
+          code: 'permission_denied',
+        },
+      })
+    }
+    const sessionId =
+      req.headers['session-id'] || req.headers['session_id'] || req.headers['x-session-id'] || req.body?.user || null
+    const { accountType, account, accessToken } = await getOpenAIAuthToken(
+      apiKeyData,
+      sessionId,
+      req.body?.model || 'text-embedding-3-small',
+    )
+
+    if (accountType !== 'openai-responses' && accountType !== 'openai') {
+      return res.status(501).json({
+        error: {
+          message: 'Embeddings require openai-responses (API base) account',
+          type: 'not_implemented',
+          code: 'embeddings_unsupported_account',
+        },
+      })
+    }
+
+    if (accountType === 'openai') {
+      // ChatGPT OAuth 无标准 embeddings；拒绝明确
+      return res.status(501).json({
+        error: {
+          message: 'ChatGPT OAuth accounts do not support /v1/embeddings; bind an openai-responses API account',
+          type: 'not_implemented',
+        },
+      })
+    }
+
+    // openai-responses：透传到账户 baseApi/embeddings
+    return await openaiResponsesRelayService.handleEmbeddingsRequest(req, res, account, apiKeyData, accessToken)
+  } catch (error) {
+    console.error(error)
+    logger.error('Failed embeddings request:', error)
+    if (!res.headersSent) {
+      res.status(error.statusCode || 500).json({
+        error: {
+          message: error.message || 'embeddings failed',
+          type: 'api_error',
+        },
+      })
+    }
+  }
+}
+
+openaiRoutes.post('/embeddings', authenticateApiKey, handleEmbeddings)
+openaiRoutes.post('/v1/embeddings', authenticateApiKey, handleEmbeddings)
+
+// OpenAI Audio 透传（openai-responses base）
+const handleOpenAIAudioPassthrough = async function handleOpenAIAudioPassthrough(req, res) {
+  try {
+    const apiKeyData = req.apiKey
+    if (!checkOpenAIPermissions(apiKeyData)) {
+      logger.security(`API Key ${apiKeyData?.id || 'unknown'} 缺少 OpenAI 权限，拒绝访问 ${req.originalUrl}`)
+      return res.status(403).json({
+        error: {
+          message: 'This API key does not have permission to access OpenAI',
+          type: 'permission_denied',
+          code: 'permission_denied',
+        },
+      })
+    }
+    const sessionId = req.headers['session-id'] || req.headers['session_id'] || req.headers['x-session-id'] || null
+    const { accountType, account, accessToken } = await getOpenAIAuthToken(
+      apiKeyData,
+      sessionId,
+      req.body?.model || 'whisper-1',
+    )
+    if (accountType !== 'openai-responses') {
+      return res.status(501).json({
+        error: {
+          message: 'Audio endpoints require openai-responses API account',
+          type: 'not_implemented',
+        },
+      })
+    }
+    return await openaiResponsesRelayService.handleGenericPassthrough(req, res, account, apiKeyData, accessToken)
+  } catch (error) {
+    console.error(error)
+    logger.error('Failed audio passthrough:', error)
+    if (!res.headersSent) {
+      res.status(error.statusCode || 500).json({
+        error: { message: error.message || 'audio failed', type: 'api_error' },
+      })
+    }
+  }
+}
+
+openaiRoutes.post(
+  [
+    '/audio/transcriptions',
+    '/v1/audio/transcriptions',
+    '/audio/translations',
+    '/v1/audio/translations',
+    '/audio/speech',
+    '/v1/audio/speech',
+  ],
+  authenticateApiKey,
+  handleOpenAIAudioPassthrough,
+)
+
+openaiRoutes.post(['/moderations', '/v1/moderations'], authenticateApiKey, async (req, res) => {
+  try {
+    const apiKeyData = req.apiKey
+    if (!checkOpenAIPermissions(apiKeyData)) {
+      logger.security(`API Key ${apiKeyData?.id || 'unknown'} 缺少 OpenAI 权限，拒绝访问 ${req.originalUrl}`)
+      return res.status(403).json({
+        error: {
+          message: 'This API key does not have permission to access OpenAI',
+          type: 'permission_denied',
+          code: 'permission_denied',
+        },
+      })
+    }
+    const { accountType, account, accessToken } = await getOpenAIAuthToken(
+      apiKeyData,
+      null,
+      req.body?.model || 'omni-moderation-latest',
+    )
+    if (accountType !== 'openai-responses') {
+      return res.status(501).json({
+        error: { message: 'Moderations require openai-responses API account', type: 'not_implemented' },
+      })
+    }
+    return await openaiResponsesRelayService.handleGenericPassthrough(req, res, account, apiKeyData, accessToken)
+  } catch (error) {
+    console.error(error)
+    if (!res.headersSent) {
+      res.status(error.statusCode || 500).json({
+        error: { message: error.message || 'moderations failed', type: 'api_error' },
+      })
+    }
+  }
+})
 
 openaiRoutes.get('/models', authenticateApiKey, handleModels)
 openaiRoutes.get('/v1/models', authenticateApiKey, handleModels)

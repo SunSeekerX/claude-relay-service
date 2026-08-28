@@ -11,11 +11,8 @@
   box-sizing: border-box;
 }
 
-/* 全局按钮重置：去掉 UA 默认边框/浅色底，避免暗色下露白边 */
-button,
-[type='button'],
-[type='submit'],
-[type='reset'] {
+/* 全局按钮重置：用 :where() 零特异性，避免压过 Uno 工具类 / .btn 的背景、内边距、颜色 */
+:where(button, [type='button'], [type='submit'], [type='reset']) {
   border: 0;
   background: transparent;
   color: inherit;
@@ -28,9 +25,7 @@ button,
   cursor: pointer;
 }
 
-button:disabled,
-[type='button']:disabled,
-[type='submit']:disabled {
+:where(button, [type='button'], [type='submit'], [type='reset']):disabled {
   cursor: not-allowed;
 }
 
@@ -303,10 +298,9 @@ body::before {
   z-index: -1;
 }
 
-/* 通用transition - 仅应用于特定元素 */
+/* 通用 transition：不写 all，避免按钮 height/padding 过渡造成「高度不对」的观感 */
 body,
 div,
-button,
 input,
 select,
 textarea,
@@ -322,7 +316,25 @@ h3,
 h4,
 h5,
 h6 {
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  transition:
+    color 0.2s ease,
+    background-color 0.2s ease,
+    border-color 0.2s ease,
+    box-shadow 0.2s ease,
+    opacity 0.2s ease;
+}
+
+button,
+[type='button'],
+[type='submit'],
+[type='reset'] {
+  transition:
+    color 0.15s ease,
+    background-color 0.15s ease,
+    border-color 0.15s ease,
+    box-shadow 0.15s ease,
+    opacity 0.15s ease,
+    transform 0.15s ease;
 }
 
 /* Element Plus 主题覆盖 */

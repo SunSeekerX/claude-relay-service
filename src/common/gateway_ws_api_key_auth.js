@@ -3,6 +3,7 @@ import { redis } from '../infra/redis.js'
 import { logger } from './logger.js'
 import { ClientValidator } from './validator_client_validator.js'
 import { balanceLedger } from '../modules/payment/payment_balance_ledger.js'
+import * as groupPolicy from '../modules/account/account_group_policy.js'
 import crypto from 'node:crypto'
 import { env } from '../../config/env.js'
 // WebSocket / HTTP Upgrade 鉴权：对齐 authenticateApiKey 的硬门（无 Express 排队）
@@ -149,7 +150,7 @@ export const authenticateApiKeyForUpgrade = async (req, url, opts = {}) => {
   if (keyData.enableClientRestriction && keyData.allowedClients?.length > 0) {
     const clientResult = ClientValidator.validateRequest(keyData.allowedClients, req)
     if (!clientResult.allowed) {
-      logger.security(`🚫 WS client restriction failed for key: ${keyData.id} (${keyData.name})`)
+      logger.security(`WS client restriction failed for key: ${keyData.id} (${keyData.name})`)
       return fail(403, 'Client not allowed')
     }
   }
@@ -213,6 +214,10 @@ export const authenticateApiKeyForUpgrade = async (req, url, opts = {}) => {
     })
   }
 
+  // 供调度器挂分组 USD hold（与 HTTP req.apiKey.groupCostHoldGroupId 同语义）
+  keyData.groupCostHoldGroupId = keyData.groupCostHoldGroupId || null
+  keyData.groupCostHoldMeta = keyData.groupCostHoldMeta || null
+
   let released = false
   const release = async () => {
     if (released) {
@@ -223,6 +228,17 @@ export const authenticateApiKeyForUpgrade = async (req, url, opts = {}) => {
       stopRenew()
     } catch (error) {
       console.error(error)
+    }
+    // 连接结束兜底释放分组 hold（选号成功但未/零计费时）
+    const holdGroupId = keyData.groupCostHoldGroupId
+    if (holdGroupId) {
+      keyData.groupCostHoldGroupId = null
+      keyData.groupCostHoldMeta = null
+      try {
+        await groupPolicy.releaseGroupCostHolds(holdGroupId)
+      } catch (error) {
+        console.error(error)
+      }
     }
     if (!hasSlot || !requestId) {
       return

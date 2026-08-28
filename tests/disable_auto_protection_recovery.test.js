@@ -6,8 +6,8 @@ import { hasAutoStopEvidence, hasModelFamilyRateLimit, buildAutoProtectionRecove
  * 验证 buildAutoProtectionRecoveryPatch 的核心契约：
  * - 自动停用（限流/配额/过载/5h/401/403/Opus 周限/带 autoStoppedAt 标记的硬停）→ 生成恢复补丁
  * - 不恢复：isActive=false、无任何自动信号的 schedulable=false、以及裸 status='error'（无标记）
- *   说明：通用 status='error' 来源过宽（token 刷新/余额/外部直写），不可靠区分来源，故不作恢复依据；
- *   自动写 error 的路径改为在写入点用 disableAutoProtection 守卫，防止开关开启后再被写成 error
+ * 说明：通用 status='error' 来源过宽（token 刷新/余额/外部直写），不可靠区分来源，故不作恢复依据；
+ * 自动写 error 的路径改为在写入点用 disableAutoProtection 守卫，防止开关开启后再被写成 error
  */
 
 jest.mock('../src/common/logger.js', () => ({

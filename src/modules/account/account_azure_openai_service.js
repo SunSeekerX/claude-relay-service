@@ -10,7 +10,7 @@ import { webhookNotifier } from '../webhook/webhook_notifier.js'
 const ALGORITHM = 'aes-256-cbc'
 const IV_LENGTH = 16
 
-// 🚀 安全的加密密钥生成，支持动态salt
+// 安全的加密密钥生成，支持动态salt
 const ENCRYPTION_SALT = config.security?.azureOpenaiSalt || 'azure-openai-account-default-salt'
 
 class EncryptionKeyManager {
@@ -32,7 +32,7 @@ class EncryptionKeyManager {
       timestamp: Date.now(),
     })
 
-    logger.debug('🔑 Azure OpenAI encryption key generated/refreshed')
+    logger.debug('Azure OpenAI encryption key generated/refreshed')
     return key
   }
 
@@ -127,7 +127,7 @@ export const createAccount = async function createAccount(accountData) {
       accountData.supportedModels || ['gpt-4', 'gpt-4-turbo', 'gpt-35-turbo', 'gpt-35-turbo-16k'],
     ),
 
-    // ✅ 新增：账户订阅到期时间（业务字段，手动管理）
+    // 新增：账户订阅到期时间（业务字段，手动管理）
     // 注意：Azure OpenAI 使用 API Key 认证，没有 OAuth token，因此没有 expiresAt
     subscriptionExpiresAt: accountData.subscriptionExpiresAt || null,
 
@@ -219,7 +219,7 @@ export const updateAccount = async function updateAccount(accountId, updates) {
       typeof updates.supportedModels === 'string' ? updates.supportedModels : JSON.stringify(updates.supportedModels)
   }
 
-  // ✅ 直接保存 subscriptionExpiresAt（如果提供）
+  // 直接保存 subscriptionExpiresAt（如果提供）
   // Azure OpenAI 使用 API Key，没有 token 刷新逻辑，不会覆盖此字段
   if (updates.subscriptionExpiresAt !== undefined) {
     // 直接保存，不做任何调整
@@ -339,7 +339,7 @@ export const getAllAccounts = async function getAllAccounts() {
         isActive: accountData.isActive === 'true',
         schedulable: accountData.schedulable !== 'false',
 
-        // ✅ 前端显示订阅过期时间（业务字段）
+        // 前端显示订阅过期时间（业务字段）
         expiresAt: accountData.subscriptionExpiresAt || null,
         platform: 'azure-openai',
       })
@@ -398,7 +398,7 @@ export const selectAvailableAccount = async function selectAvailableAccount(sess
           logger.debug(`Reusing Azure OpenAI account ${accountId} for session ${sessionId}`)
           return account
         }
-        logger.warn(`⏱️ Session-bound Azure OpenAI account ${accountId} temporarily unavailable, falling back to pool`)
+        logger.warn(`Session-bound Azure OpenAI account ${accountId} temporarily unavailable, falling back to pool`)
       }
     }
   }
@@ -411,7 +411,7 @@ export const selectAvailableAccount = async function selectAvailableAccount(sess
   for (const acc of sharedAccounts) {
     // 检查账户订阅是否过期
     if (isSubscriptionExpired(acc)) {
-      logger.debug(`⏰ Skipping expired Azure OpenAI account: ${acc.name}, expired at ${acc.subscriptionExpiresAt}`)
+      logger.debug(`Skipping expired Azure OpenAI account: ${acc.name}, expired at ${acc.subscriptionExpiresAt}`)
       continue
     }
 
@@ -422,7 +422,7 @@ export const selectAvailableAccount = async function selectAvailableAccount(sess
     // 检查临时不可用状态
     const isTempUnavail = await upstreamErrorHelper.isTempUnavailable(acc.id, 'azure-openai')
     if (isTempUnavail) {
-      logger.debug(`⏱️ Skipping temporarily unavailable Azure OpenAI account: ${acc.name}`)
+      logger.debug(`Skipping temporarily unavailable Azure OpenAI account: ${acc.name}`)
       continue
     }
 
@@ -542,7 +542,7 @@ export const migrateApiKeysForAzureSupport = async function migrateApiKeysForAzu
   return migratedCount
 }
 
-// 🔄 重置Azure OpenAI账户所有异常状态
+// 重置Azure OpenAI账户所有异常状态
 export const resetAccountStatus = async function resetAccountStatus(accountId) {
   try {
     const accountData = await getAccount(accountId)
@@ -596,7 +596,7 @@ export const resetAccountStatus = async function resetAccountStatus(accountId) {
 
     return { success: true, accountId }
   } catch (error) {
-    logger.error(`❌ Failed to reset Azure OpenAI account status: ${accountId}`, error)
+    logger.error(`Failed to reset Azure OpenAI account status: ${accountId}`, error)
     throw error
   }
 }

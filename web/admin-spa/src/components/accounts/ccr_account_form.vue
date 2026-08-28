@@ -266,6 +266,7 @@
 import { ref, computed, watch } from 'vue'
 import ModalTransition from '@/components/common/modal_transition.vue'
 import { updateCcrAccountApi, createCcrAccountApi } from '@/libs/http_apis'
+import { isOk, msgOf } from '@/libs/http_envelope'
 import { showToast } from '@/libs/tools'
 import ProxyBinding from '@/components/accounts/proxy_binding.vue'
 
@@ -383,11 +384,11 @@ const submit = async () => {
         updates.apiKey = form.value.apiKey
       }
       const res = await updateCcrAccountApi(props.account.id, updates)
-      if (res.success) {
+      if (isOk(res)) {
         // 不在这里显示 toast，由父组件统一处理
         emit('success')
       } else {
-        showToast(res.message || '保存失败', 'error')
+        showToast(msgOf(res, '保存失败'), 'error')
       }
     } else {
       // 创建
@@ -406,11 +407,11 @@ const submit = async () => {
         quotaResetTime: form.value.quotaResetTime || '00:00'
       }
       const res = await createCcrAccountApi(payload)
-      if (res.success) {
+      if (isOk(res)) {
         // 不在这里显示 toast，由父组件统一处理
         emit('success')
       } else {
-        showToast(res.message || '创建失败', 'error')
+        showToast(msgOf(res, '创建失败'), 'error')
       }
     }
   } catch (err) {

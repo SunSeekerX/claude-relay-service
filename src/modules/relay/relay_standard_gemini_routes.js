@@ -66,6 +66,19 @@ router.post(
 )
 
 /**
+ * POST /v1beta/models/:modelName:embedContent
+ */
+router.post(
+  '/v1beta/models/:modelName\\:embedContent',
+  authenticateApiKey,
+  geminiHandlers.ensureGeminiPermissionMiddleware,
+  (req, res, next) => {
+    logger.info(`Standard Gemini API request: ${req.method} ${req.originalUrl}`)
+    geminiHandlers.handleEmbedContent(req, res, next)
+  },
+)
+
+/**
  * POST /v1beta/models/:modelName:generateContent
  * 使用专门的标准 API 处理函数（支持 OAuth 和 API 账户）
  */
@@ -121,6 +134,19 @@ router.post(
   (req, res, next) => {
     logger.info(`Standard Gemini API request (v1): ${req.method} ${req.originalUrl}`)
     geminiHandlers.handleCountTokens(req, res, next)
+  },
+)
+
+/**
+ * POST /v1/models/:modelName:embedContent
+ */
+router.post(
+  '/v1/models/:modelName\\:embedContent',
+  authenticateApiKey,
+  geminiHandlers.ensureGeminiPermissionMiddleware,
+  (req, res, next) => {
+    logger.info(`Standard Gemini API request (v1): ${req.method} ${req.originalUrl}`)
+    geminiHandlers.handleEmbedContent(req, res, next)
   },
 )
 
@@ -192,6 +218,32 @@ router.post(
   (req, res, next) => {
     logger.info(`Standard Gemini API request (v1internal): ${req.method} ${req.originalUrl}`)
     geminiHandlers.handleStreamGenerateContent(req, res, next)
+  },
+)
+
+/**
+ * POST /v1beta/interactions — Gemini Interactions API
+ */
+router.post(
+  '/v1beta/interactions',
+  authenticateApiKey,
+  geminiHandlers.ensureGeminiPermissionMiddleware,
+  (req, res, next) => {
+    logger.info(`Gemini Interactions request: ${req.method} ${req.originalUrl}`)
+    geminiHandlers.handleInteractions(req, res, next)
+  },
+)
+
+/**
+ * POST /v1/interactions
+ */
+router.post(
+  '/v1/interactions',
+  authenticateApiKey,
+  geminiHandlers.ensureGeminiPermissionMiddleware,
+  (req, res, next) => {
+    logger.info(`Gemini Interactions request (v1): ${req.method} ${req.originalUrl}`)
+    geminiHandlers.handleInteractions(req, res, next)
   },
 )
 

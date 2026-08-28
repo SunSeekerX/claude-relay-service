@@ -1,15 +1,15 @@
 // 兼容层:usage 统计的 token 字段旧格式标准化
 //
 // 来源:src/models/redis.js
-//   - normalizeKeyTokenStats   = getUsageStats 内 handleLegacyData(收拢前 L1720),函数体逐字搬迁
-//   - normalizeAccountTokenStats = getAccountUsageStats 内 handleAccountData(收拢前 L2225),函数体逐字搬迁
+// - normalizeKeyTokenStats   = getUsageStats 内 handleLegacyData(收拢前 L1720),函数体逐字搬迁
+// - normalizeAccountTokenStats = getAccountUsageStats 内 handleAccountData(收拢前 L2225),函数体逐字搬迁
 // 收拢日期:2026-06-03
 // 原始语义:旧数据只有单一 totalTokens/tokens 字段,新数据分离 input/output/cache。两者差异 **不可合并**:
-//   - Key 维度(normalizeKeyTokenStats):旧单字段按 30% input / 70% output 拆分,allTokens=tokens
-//   - 账户维度(normalizeAccountTokenStats):旧单字段 **不拆分**,input/output 保持 0,tokens 取原值
-//   tests/compat/tokenStats.test.js 与 tests/compat/tokenStatsGolden.test.js 用同批 case 钉死这一差异。
+// - Key 维度(normalizeKeyTokenStats):旧单字段按 30% input / 70% output 拆分,allTokens=tokens
+// - 账户维度(normalizeAccountTokenStats):旧单字段 **不拆分**,input/output 保持 0,tokens 取原值
+// tests/compat/tokenStats.test.js 与 tests/compat/tokenStatsGolden.test.js 用同批 case 钉死这一差异。
 // 下线条件:确认 Redis 中所有 usage 数据均已写入分离字段(无裸 totalTokens 的旧数据)后,
-//   可移除 30/70 拆分分支与 tokens/totalTokens 兜底。
+// 可移除 30/70 拆分分支与 tokens/totalTokens 兜底。
 
 // API Key 维度:旧单字段按 30/70 拆 input/output
 export const normalizeKeyTokenStats = (data) => {

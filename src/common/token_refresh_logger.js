@@ -118,7 +118,7 @@ export const logRefreshError = function logRefreshError(
 }
 
 /**
- * 记录 token 刷新跳过（由于并发锁）
+ * 记录 token 刷新跳过（并发锁占用）
  */
 export const logRefreshSkipped = function logRefreshSkipped(
   accountId,

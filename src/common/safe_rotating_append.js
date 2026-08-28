@@ -68,7 +68,7 @@ export const safeRotatingAppend = async function safeRotatingAppend(filepath, li
       await fs.rename(filepath, backupPath)
     } catch (renameErr) {
       // 轮转失败时记录警告日志，继续写入原文件
-      logger.warn('⚠️ Log rotation failed, continuing to write to original file', {
+      logger.warn('Log rotation failed, continuing to write to original file', {
         filepath,
         backupPath,
         error: renameErr?.message || String(renameErr),

@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 
 import { createHttp } from '@/libs/http'
+import { isOk, msgOf, dataOf } from '@/libs/http_envelope'
 import { showToast, APP_CONFIG } from '@/libs/tools'
 
 // 清除前台用户的本地存储
@@ -19,10 +20,10 @@ const userHttp = createHttp({
   },
   onResponse: (res, json) => {
     // 网络异常 / 超时 / 取消
-    if (!res) throw Object.assign(new Error(json.message || '请求失败'), { status: json.status })
+    if (!res) throw Object.assign(new Error(msgOf(json, '请求失败')), { status: json.status })
     // 全局: 账户被禁用时清理并跳转登录页
     if (res.status === 403) {
-      const message = json?.message
+      const message = msgOf(json, '')
       if (message && (message.includes('disabled') || message.includes('Account disabled'))) {
         clearUserStorage()
         showToast(message, 'error')
@@ -34,7 +35,7 @@ const userHttp = createHttp({
       }
     }
     if (!res.ok) {
-      throw Object.assign(new Error(json?.message || `HTTP ${res.status}`), {
+      throw Object.assign(new Error(msgOf(json, `HTTP ${res.status}`)), {
         status: res.status,
         data: json
       })
@@ -59,15 +60,16 @@ export const useUserStore = defineStore('user', {
   },
 
   actions: {
-    // 🔐 用户登录
+    // 用户登录
     async login(credentials) {
       this.loading = true
       try {
         const body = await userHttp({ url: '/login', method: 'POST', data: credentials })
 
-        if (body.success) {
-          this.user = body.user
-          this.sessionToken = body.sessionToken
+        if (isOk(body)) {
+          const data = dataOf(body, {})
+          this.user = data.user
+          this.sessionToken = data.sessionToken || data.token
           this.isAuthenticated = true
 
           // 保存到 localStorage（后续请求由 userHttp 自动注入 token）
@@ -75,9 +77,8 @@ export const useUserStore = defineStore('user', {
           localStorage.setItem('userData', JSON.stringify(this.user))
 
           return body
-        } else {
-          throw new Error(body.message || 'Login failed')
         }
+        throw new Error(msgOf(body, 'Login failed'))
       } catch (error) {
         this.clearAuth()
         throw error
@@ -86,7 +87,7 @@ export const useUserStore = defineStore('user', {
       }
     },
 
-    // 🚪 用户登出
+    // 用户登出
     async logout() {
       try {
         if (this.sessionToken) {
@@ -99,7 +100,7 @@ export const useUserStore = defineStore('user', {
       }
     },
 
-    // 🔄 检查认证状态
+    // 检查认证状态
     async checkAuth() {
       const token = localStorage.getItem('userToken')
       const userData = localStorage.getItem('userData')
@@ -126,43 +127,46 @@ export const useUserStore = defineStore('user', {
       }
     },
 
-    // 👤 获取用户资料
+    // 获取用户资料
     async getUserProfile() {
       try {
         const body = await userHttp({ url: '/profile', method: 'GET' })
 
-        if (body.success) {
-          this.user = body.user
-          this.config = body.config
+        if (isOk(body)) {
+          const data = dataOf(body, {})
+          this.user = data.user
+          this.config = data.config
           localStorage.setItem('userData', JSON.stringify(this.user))
           localStorage.setItem('userConfig', JSON.stringify(this.config))
-          return body.user
+          return data.user
         }
       } catch (error) {
         if (error.status === 401 || error.status === 403) {
           // 401: 会话无效/过期, 403: 账户被禁用
           this.clearAuth()
           if (error.status === 403) {
-            throw new Error(error.data?.message || 'Your account has been disabled')
+            throw new Error(msgOf(error.data, 'Your account has been disabled'))
           }
         }
         throw error
       }
     },
 
-    // 🔑 获取用户API Keys
+    // 获取用户API Keys
     async getUserApiKeys(includeDeleted = false) {
       try {
         const params = includeDeleted ? { includeDeleted: 'true' } : undefined
         const body = await userHttp({ url: '/api-keys', method: 'GET', params })
-        return body.success ? body.apiKeys : []
+        if (!isOk(body)) return []
+        const data = dataOf(body, {})
+        return data.apiKeys || []
       } catch (error) {
         console.error('Failed to fetch API keys:', error)
         throw error
       }
     },
 
-    // 🔑 创建API Key
+    // 创建API Key
     async createApiKey(keyData) {
       try {
         return await userHttp({ url: '/api-keys', method: 'POST', data: keyData })
@@ -172,7 +176,7 @@ export const useUserStore = defineStore('user', {
       }
     },
 
-    // 🗑️ 删除API Key
+    // 删除API Key
     async deleteApiKey(keyId) {
       try {
         return await userHttp({ url: `/api-keys/${keyId}`, method: 'DELETE' })
@@ -182,18 +186,20 @@ export const useUserStore = defineStore('user', {
       }
     },
 
-    // 📊 获取使用统计
+    // 获取使用统计
     async getUserUsageStats(params = {}) {
       try {
         const body = await userHttp({ url: '/usage-stats', method: 'GET', params })
-        return body.success ? body.stats : null
+        if (!isOk(body)) return null
+        const data = dataOf(body, {})
+        return data.stats ?? null
       } catch (error) {
         console.error('Failed to fetch usage stats:', error)
         throw error
       }
     },
 
-    // 🧹 清除认证信息
+    // 清除认证信息
     clearAuth() {
       this.user = null
       this.sessionToken = null

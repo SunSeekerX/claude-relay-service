@@ -307,7 +307,8 @@ const props = defineProps({
   platform: {
     type: String,
     required: true,
-    validator: (value) => ['claude', 'gemini', 'openai', 'bedrock', 'droid'].includes(value)
+    validator: (value) =>
+      ['claude', 'gemini', 'openai', 'bedrock', 'droid', 'grok', 'antigravity'].includes(value)
   },
   accounts: {
     type: Array,
@@ -442,12 +443,17 @@ const sortedAccounts = computed(() => {
 const filteredGroups = computed(() => {
   // 只显示与当前平台匹配的分组
   let groups = props.groups.filter((group) => {
-    // 如果分组有platform属性，则必须匹配当前平台
-    // 如果没有platform属性，则认为是旧数据，根据平台判断
     if (group.platform) {
+      if (props.platform === 'gemini') {
+        // Gemini 绑定字段同时承载 antigravity 分组
+        return group.platform === 'gemini' || group.platform === 'antigravity'
+      }
+      if (props.platform === 'antigravity') {
+        return group.platform === 'antigravity'
+      }
       return group.platform === props.platform
     }
-    // 向后兼容：如果没有platform字段，通过其他方式判断
+    // 向后兼容：如果没有 platform 字段，保留
     return true
   })
 

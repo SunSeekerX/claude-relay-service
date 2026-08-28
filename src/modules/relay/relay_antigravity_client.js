@@ -384,7 +384,7 @@ export const request = async function request({
         axiosConfig.proxy = false
         if (index === 0) {
           logger.info(
-            `🌐 Using proxy for Antigravity ${stream ? 'streamGenerateContent' : 'generateContent'}: ${ProxyHelper.getProxyDescription(proxyConfig)}`,
+            `Using proxy for Antigravity ${stream ? 'streamGenerateContent' : 'generateContent'}: ${ProxyHelper.getProxyDescription(proxyConfig)}`,
           )
         }
       } else {
@@ -414,7 +414,7 @@ export const request = async function request({
 
         const hasNext = index + 1 < endpoints.length
         if (hasNext && isRetryable(error)) {
-          logger.warn('⚠️ Antigravity upstream error, retrying with fallback baseUrl', {
+          logger.warn('Antigravity upstream error, retrying with fallback baseUrl', {
             status,
             from: baseUrl,
             to: endpoints[index + 1],
@@ -471,7 +471,7 @@ export const request = async function request({
         // 递归重试读闭包变量；赋值后本帧不再读，eslint 会误报 no-useless-assignment
         // eslint-disable-next-line no-useless-assignment -- recursive attemptRequest reads this flag
         retriedAfterDelay = true
-        logger.warn('⏳ Antigravity 429 RESOURCE_EXHAUSTED, waiting 2s before retry', { model })
+        logger.warn('Antigravity 429 RESOURCE_EXHAUSTED, waiting 2s before retry', { model })
         await new Promise((resolve) => setTimeout(resolve, 2000))
         return await attemptRequest()
       }
@@ -505,9 +505,7 @@ export const fetchAvailableModels = async function fetchAvailableModels({
       axiosConfig.httpsAgent = proxyAgent
       axiosConfig.proxy = false
       if (index === 0) {
-        logger.info(
-          `🌐 Using proxy for Antigravity fetchAvailableModels: ${ProxyHelper.getProxyDescription(proxyConfig)}`,
-        )
+        logger.info(`Using proxy for Antigravity fetchAvailableModels: ${ProxyHelper.getProxyDescription(proxyConfig)}`)
       }
     } else {
       axiosConfig.httpsAgent = keepAliveAgent
@@ -563,7 +561,7 @@ export const countTokens = async function countTokens({
       axiosConfig.httpsAgent = proxyAgent
       axiosConfig.proxy = false
       if (index === 0) {
-        logger.info(`🌐 Using proxy for Antigravity countTokens: ${ProxyHelper.getProxyDescription(proxyConfig)}`)
+        logger.info(`Using proxy for Antigravity countTokens: ${ProxyHelper.getProxyDescription(proxyConfig)}`)
       }
     } else {
       axiosConfig.httpsAgent = keepAliveAgent

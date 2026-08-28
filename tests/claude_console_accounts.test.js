@@ -7,9 +7,11 @@ jest.mock('../src/infra/middleware_auth.js', () => ({
 }))
 
 jest.mock('../src/modules/relay/relay_claude_console_relay_service.js', () => ({
-  testAccountConnection: jest.fn(async (accountId, res) =>
-    res.status(200).json({ success: true, accountId })
-  )
+  claudeConsoleRelayService: {
+    testAccountConnection: jest.fn(async (accountId, res) =>
+      res.status(200).json({ code: 200, msg: 'Ok', data: { accountId } })
+    )
+  }
 }))
 
 jest.mock('../src/modules/account/account_claude_console_service.js', () => ({}))
@@ -50,7 +52,7 @@ describe('POST /admin/claude-console-accounts/:accountId/test', () => {
       .send({})
 
     expect(response.status).toBe(400)
-    expect(response.body).toEqual({ error: 'model is required' })
+    expect(response.body).toEqual({ code: 400, msg: 'model is required' })
     expect(claudeConsoleRelayService.testAccountConnection).not.toHaveBeenCalled()
   })
 

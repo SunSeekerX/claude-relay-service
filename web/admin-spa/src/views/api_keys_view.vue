@@ -2271,6 +2271,7 @@ import {
   calcViewportBottomReserve
 } from '@/libs/tools'
 import { formatLocalDate, formatLocalDateTime, toLocalDateString } from '@/libs/time'
+import { isOk, msgOf } from '@/libs/http_envelope'
 
 import * as httpApis from '@/libs/http_apis'
 import { useAuthStore } from '@/stores/auth'
@@ -2646,7 +2647,7 @@ const loadAccounts = async (forceRefresh = false) => {
     // 合并Claude OAuth账户和Claude Console账户
     const claudeAccounts = []
 
-    if (claudeData.success) {
+    if (isOk(claudeData)) {
       claudeData.data?.forEach((account) => {
         claudeAccounts.push({
           ...account,
@@ -2656,7 +2657,7 @@ const loadAccounts = async (forceRefresh = false) => {
       })
     }
 
-    if (claudeConsoleData.success) {
+    if (isOk(claudeConsoleData)) {
       claudeConsoleData.data?.forEach((account) => {
         claudeAccounts.push({
           ...account,
@@ -2671,7 +2672,7 @@ const loadAccounts = async (forceRefresh = false) => {
     // 合并 Gemini OAuth 和 Gemini API 账户
     const geminiAccounts = []
 
-    if (geminiData.success) {
+    if (isOk(geminiData)) {
       ;(geminiData.data || []).forEach((account) => {
         geminiAccounts.push({
           ...account,
@@ -2681,7 +2682,7 @@ const loadAccounts = async (forceRefresh = false) => {
       })
     }
 
-    if (geminiApiData.success) {
+    if (isOk(geminiApiData)) {
       // 保存原始 Gemini-API 账号列表供子组件初始化使用
       accounts.value.geminiApi = (geminiApiData.data || []).map((account) => ({
         ...account,
@@ -2696,28 +2697,28 @@ const loadAccounts = async (forceRefresh = false) => {
 
     accounts.value.gemini = geminiAccounts
 
-    if (openaiData.success) {
+    if (isOk(openaiData)) {
       accounts.value.openai = (openaiData.data || []).map((account) => ({
         ...account,
         isDedicated: account.accountType === 'dedicated'
       }))
     }
 
-    if (openaiResponsesData.success) {
+    if (isOk(openaiResponsesData)) {
       accounts.value.openaiResponses = (openaiResponsesData.data || []).map((account) => ({
         ...account,
         isDedicated: account.accountType === 'dedicated'
       }))
     }
 
-    if (bedrockData.success) {
+    if (isOk(bedrockData)) {
       accounts.value.bedrock = (bedrockData.data || []).map((account) => ({
         ...account,
         isDedicated: account.accountType === 'dedicated'
       }))
     }
 
-    if (droidData.success) {
+    if (isOk(droidData)) {
       accounts.value.droid = (droidData.data || []).map((account) => ({
         ...account,
         platform: 'droid',
@@ -2725,7 +2726,7 @@ const loadAccounts = async (forceRefresh = false) => {
       }))
     }
 
-    if (groupsData.success) {
+    if (isOk(groupsData)) {
       // 处理分组数据
       const allGroups = groupsData.data || []
       accounts.value.claudeGroups = allGroups.filter((g) => g.platform === 'claude')
@@ -2747,7 +2748,7 @@ const loadAccounts = async (forceRefresh = false) => {
 const loadUsedModels = async () => {
   try {
     const data = await httpApis.getApiKeyUsedModelsApi()
-    if (data.success) {
+    if (isOk(data)) {
       availableModels.value = data.data || []
     }
   } catch (error) {
@@ -2836,7 +2837,7 @@ const loadApiKeys = async (clearStatsCache = true) => {
     }
 
     const data = await httpApis.getApiKeysWithParamsApi(params.toString())
-    if (data.success) {
+    if (isOk(data)) {
       // 更新数据
       apiKeys.value = data.data?.items || []
 
@@ -2918,7 +2919,7 @@ const loadPageStats = async () => {
 
     const response = await httpApis.getApiKeysBatchStatsApi(requestBody)
 
-    if (response.success && response.data) {
+    if (isOk(response) && response.data) {
       // 更新缓存
       for (const [keyId, stats] of Object.entries(response.data)) {
         statsCache.value.set(keyId, {
@@ -2972,7 +2973,7 @@ const loadPageLastUsage = async () => {
   try {
     const response = await httpApis.getApiKeysBatchLastUsageApi({ keyIds })
 
-    if (response.success && response.data) {
+    if (isOk(response) && response.data) {
       // 更新缓存
       for (const [keyId, lastUsage] of Object.entries(response.data)) {
         lastUsageCache.value.set(keyId, lastUsage)
@@ -3011,13 +3012,14 @@ const loadDeletedApiKeys = async () => {
       pageSize: deletedPageSize.value,
       search: deletedSearchApplied.value || undefined
     })
-    if (data.success) {
-      deletedApiKeys.value = data.apiKeys || []
-      if (data.pagination) {
-        deletedPagination.value = data.pagination
+    if (isOk(data)) {
+      const payload = data.data || {}
+      deletedApiKeys.value = payload.apiKeys || []
+      if (payload.pagination) {
+        deletedPagination.value = payload.pagination
         // 后端可能对越界页码做了 clamp，同步回本地状态
-        if (data.pagination.page !== deletedCurrentPage.value) {
-          deletedCurrentPage.value = data.pagination.page
+        if (payload.pagination.page !== deletedCurrentPage.value) {
+          deletedCurrentPage.value = payload.pagination.page
         }
       }
     }
@@ -3112,7 +3114,7 @@ const batchPermanentDeleteApiKeys = async () => {
   // 请求层只 resolve（见 utils/request.js）：非 2xx（>1000 阈值、参数校验失败等）返回 { success:false, message }，不带 data。
   // 只有带 data(计数) 才说明批量删除真正执行过；否则透传后端真实错误信息，别一律吞成"全部失败"。
   if (!data.data) {
-    showToast(data.message || data.error || '批量彻底删除失败', 'error')
+    showToast(msgOf(data, '批量彻底删除失败'), 'error')
     return
   }
   const { successCount = 0, failedCount = 0 } = data.data
@@ -3218,7 +3220,7 @@ let costSortStatusTimer = null
 const fetchCostSortStatus = async () => {
   try {
     const data = await httpApis.getApiKeysCostSortStatusApi()
-    if (data.success) {
+    if (isOk(data)) {
       costSortStatus.value = data.data || {}
 
       // 根据索引状态动态调整刷新间隔
@@ -3382,10 +3384,10 @@ const getClaudeBindingInfo = (key) => {
     // 检查账户是否存在
     const account = accounts.value.claude.find((acc) => acc.id === key.claudeAccountId)
     if (!account) {
-      return `⚠️ ${info} (账户不存在)`
+      return `${info} (账户不存在)`
     }
     if (account.accountType === 'dedicated') {
-      return `🔒 专属-${info}`
+      return `专属-${info}`
     }
     return info
   }
@@ -3394,7 +3396,7 @@ const getClaudeBindingInfo = (key) => {
       (acc) => acc.id === key.claudeConsoleAccountId && acc.platform === 'claude-console'
     )
     if (!account) {
-      return `⚠️ Console账户不存在`
+      return `Console账户不存在`
     }
     return `Console-${account.name}`
   }
@@ -3416,10 +3418,10 @@ const getGeminiBindingInfo = (key) => {
         (acc) => acc.id === realAccountId && acc.platform === 'gemini-api'
       )
       if (!account) {
-        return `⚠️ ${info} (账户不存在)`
+        return `${info} (账户不存在)`
       }
       if (account.accountType === 'dedicated') {
-        return `🔒 API专属-${info}`
+        return `API专属-${info}`
       }
       return `API-${info}`
     }
@@ -3427,10 +3429,10 @@ const getGeminiBindingInfo = (key) => {
     // 检查 Gemini OAuth 账户是否存在
     const account = accounts.value.gemini.find((acc) => acc.id === key.geminiAccountId)
     if (!account) {
-      return `⚠️ ${info} (账户不存在)`
+      return `${info} (账户不存在)`
     }
     if (account.accountType === 'dedicated') {
-      return `🔒 专属-${info}`
+      return `专属-${info}`
     }
     return info
   }
@@ -3456,10 +3458,10 @@ const getOpenAIBindingInfo = (key) => {
     }
 
     if (!account) {
-      return `⚠️ ${info} (账户不存在)`
+      return `${info} (账户不存在)`
     }
     if (account.accountType === 'dedicated') {
-      return `🔒 专属-${info}`
+      return `专属-${info}`
     }
     return info
   }
@@ -3476,10 +3478,10 @@ const getBedrockBindingInfo = (key) => {
     // 检查账户是否存在
     const account = accounts.value.bedrock.find((acc) => acc.id === key.bedrockAccountId)
     if (!account) {
-      return `⚠️ ${info} (账户不存在)`
+      return `${info} (账户不存在)`
     }
     if (account.accountType === 'dedicated') {
-      return `🔒 专属-${info}`
+      return `专属-${info}`
     }
     return info
   }
@@ -3494,10 +3496,10 @@ const getDroidBindingInfo = (key) => {
     }
     const account = accounts.value.droid.find((acc) => acc.id === key.droidAccountId)
     if (!account) {
-      return `⚠️ ${info} (账户不存在)`
+      return `${info} (账户不存在)`
     }
     if (account.accountType === 'dedicated') {
-      return `🔒 专属-${info}`
+      return `专属-${info}`
     }
     return info
   }
@@ -3559,7 +3561,7 @@ const loadApiKeyModelStats = async (keyId, forceReload = false) => {
     }
 
     const data = await httpApis.getApiKeyModelStatsApi(keyId, params)
-    if (data.success) {
+    if (isOk(data)) {
       apiKeyModelStats.value[keyId] = data.data || []
     }
   } catch (error) {
@@ -4226,7 +4228,7 @@ const toggleApiKeyStatus = async (key) => {
   try {
     const data = await httpApis.updateApiKeyApi(key.id, { isActive: !key.isActive })
 
-    if (data.success) {
+    if (isOk(data)) {
       showToast(`API Key 已${key.isActive ? '禁用' : '激活'}`, 'success')
       // 更新本地数据
       const localKey = apiKeys.value.find((k) => k.id === key.id)
@@ -4234,7 +4236,7 @@ const toggleApiKeyStatus = async (key) => {
         localKey.isActive = !key.isActive
       }
     } else {
-      showToast(data.message || '操作失败', 'error')
+      showToast(msgOf(data, '操作失败'), 'error')
     }
   } catch (error) {
     showToast('操作失败', 'error')
@@ -4256,7 +4258,7 @@ const deleteApiKey = async (keyId) => {
 
   try {
     const data = await httpApis.deleteApiKeyApi(keyId)
-    if (data.success) {
+    if (isOk(data)) {
       showToast('API Key 已删除', 'success')
       // 从选中列表中移除
       const index = selectedApiKeys.value.indexOf(keyId)
@@ -4266,7 +4268,7 @@ const deleteApiKey = async (keyId) => {
       updateSelectAllState()
       loadApiKeys()
     } else {
-      showToast(data.message || '删除失败', 'error')
+      showToast(msgOf(data, '删除失败'), 'error')
     }
   } catch (error) {
     showToast('删除失败', 'error')
@@ -4287,14 +4289,14 @@ const restoreApiKey = async (keyId) => {
 
   try {
     const data = await httpApis.restoreApiKeyApi(keyId)
-    if (data.success) {
+    if (isOk(data)) {
       showToast('API Key 已成功恢复', 'success')
       // 刷新已删除列表（按新总数收敛页码）
       reloadDeletedToValidPage(deletedPagination.value.total - 1)
       // 同时刷新活跃列表
       await loadApiKeys()
     } else {
-      showToast(data.error || '恢复失败', 'error')
+      showToast(msgOf(data, '恢复失败'), 'error')
     }
   } catch (error) {
     showToast(error.response?.data?.error || '恢复失败', 'error')
@@ -4315,12 +4317,12 @@ const permanentDeleteApiKey = async (keyId) => {
 
   try {
     const data = await httpApis.permanentDeleteApiKeyApi(keyId)
-    if (data.success) {
+    if (isOk(data)) {
       showToast('API Key 已彻底删除', 'success')
       // 刷新已删除列表（按新总数收敛页码）
       reloadDeletedToValidPage(deletedPagination.value.total - 1)
     } else {
-      showToast(data.error || '彻底删除失败', 'error')
+      showToast(msgOf(data, '彻底删除失败'), 'error')
     }
   } catch (error) {
     showToast(error.response?.data?.error || '彻底删除失败', 'error')
@@ -4347,8 +4349,8 @@ const clearAllDeletedApiKeys = async () => {
 
   try {
     const data = await httpApis.clearAllDeletedApiKeysApi()
-    if (data.success) {
-      showToast(data.message || '已清空所有已删除的 API Keys', 'success')
+    if (isOk(data)) {
+      showToast(msgOf(data, '已清空所有已删除的 API Keys'), 'success')
 
       // 如果有失败的，显示详细信息
       if (data.details && data.details.failedCount > 0) {
@@ -4360,7 +4362,7 @@ const clearAllDeletedApiKeys = async () => {
       // 刷新已删除列表（清空后剩余的即失败条目数，按新总数收敛页码）
       reloadDeletedToValidPage(data.details?.failedCount || 0)
     } else {
-      showToast(data.error || '清空失败', 'error')
+      showToast(msgOf(data, '清空失败'), 'error')
     }
   } catch (error) {
     showToast(error.response?.data?.error || '清空失败', 'error')
@@ -4390,7 +4392,7 @@ const batchDeleteApiKeys = async () => {
   try {
     const data = await httpApis.batchDeleteApiKeysApi({ keyIds })
 
-    if (data.success) {
+    if (isOk(data)) {
       const { successCount, failedCount, errors } = data.data
 
       if (successCount > 0) {
@@ -4410,7 +4412,7 @@ const batchDeleteApiKeys = async () => {
       updateSelectAllState()
       loadApiKeys()
     } else {
-      showToast(data.message || '批量删除失败', 'error')
+      showToast(msgOf(data, '批量删除失败'), 'error')
     }
   } catch (error) {
     showToast('批量删除失败', 'error')
@@ -4473,7 +4475,7 @@ const handleSaveExpiry = async ({ keyId, expiresAt, activateNow }) => {
       activateNow: activateNow || false
     })
 
-    if (data.success) {
+    if (isOk(data)) {
       showToast(activateNow ? 'API Key已激活' : '过期时间已更新', 'success')
       // 更新本地数据
       const key = apiKeys.value.find((k) => k.id === keyId)
@@ -4507,7 +4509,7 @@ const handleSaveExpiry = async ({ keyId, expiresAt, activateNow }) => {
       }
       closeExpiryEdit()
     } else {
-      showToast(data.message || '更新失败', 'error')
+      showToast(msgOf(data, '更新失败'), 'error')
       // 重置保存状态
       if (expiryEditModalRef.value) {
         expiryEditModalRef.value.resetSaving()
@@ -4541,39 +4543,39 @@ const formatWindowTime = (seconds) => {
 
 // 获取每日费用进度 - 已移到 LimitProgressBar 组件中
 // const getDailyCostProgress = (key) => {
-//   if (!key.dailyCostLimit || key.dailyCostLimit === 0) return 0
-//   const percentage = ((key.dailyCost || 0) / key.dailyCostLimit) * 100
-//   return Math.min(percentage, 100)
+// if (!key.dailyCostLimit || key.dailyCostLimit === 0) return 0
+// const percentage = ((key.dailyCost || 0) / key.dailyCostLimit) * 100
+// return Math.min(percentage, 100)
 // }
 
 // 获取每日费用进度条颜色 - 已移到 LimitProgressBar 组件中
 // const getDailyCostProgressColor = (key) => {
-//   const progress = getDailyCostProgress(key)
-//   if (progress >= 100) return 'bg-red-500'
-//   if (progress >= 80) return 'bg-yellow-500'
-//   return 'bg-green-500'
+// const progress = getDailyCostProgress(key)
+// if (progress >= 100) return 'bg-red-500'
+// if (progress >= 80) return 'bg-yellow-500'
+// return 'bg-green-500'
 // }
 
 // 获取 Opus 周费用进度 - 已移到 LimitBadge 组件中
 // const getWeeklyOpusCostProgress = (key) => {
-//   if (!key.weeklyOpusCostLimit || key.weeklyOpusCostLimit === 0) return 0
-//   const percentage = ((key.weeklyOpusCost || 0) / key.weeklyOpusCostLimit) * 100
-//   return Math.min(percentage, 100)
+// if (!key.weeklyOpusCostLimit || key.weeklyOpusCostLimit === 0) return 0
+// const percentage = ((key.weeklyOpusCost || 0) / key.weeklyOpusCostLimit) * 100
+// return Math.min(percentage, 100)
 // }
 
 // 获取 Opus 周费用进度条颜色 - 已移到 LimitBadge 组件中
 // const getWeeklyOpusCostProgressColor = (key) => {
-//   const progress = getWeeklyOpusCostProgress(key)
-//   if (progress >= 100) return 'bg-red-500'
-//   if (progress >= 80) return 'bg-yellow-500'
-//   return 'bg-green-500'
+// const progress = getWeeklyOpusCostProgress(key)
+// if (progress >= 100) return 'bg-red-500'
+// if (progress >= 80) return 'bg-yellow-500'
+// return 'bg-green-500'
 // }
 
 // 获取总费用进度 - 暂时不用
 // const getTotalCostProgress = (key) => {
-//   if (!key.totalCostLimit || key.totalCostLimit === 0) return 0
-//   const percentage = ((key.totalCost || 0) / key.totalCostLimit) * 100
-//   return Math.min(percentage, 100)
+// if (!key.totalCostLimit || key.totalCostLimit === 0) return 0
+// const percentage = ((key.totalCost || 0) / key.totalCostLimit) * 100
+// return Math.min(percentage, 100)
 // }
 
 // 显示使用详情
@@ -4630,19 +4632,19 @@ const closeUsageRecordsDialog = () => {
 
 // 格式化时间（秒转换为可读格式） - 已移到 WindowLimitBar 组件中
 // const formatTime = (seconds) => {
-//   if (seconds === null || seconds === undefined) return '--:--'
+// if (seconds === null || seconds === undefined) return '--:--'
 //
-//   const hours = Math.floor(seconds / 3600)
-//   const minutes = Math.floor((seconds % 3600) / 60)
-//   const secs = seconds % 60
+// const hours = Math.floor(seconds / 3600)
+// const minutes = Math.floor((seconds % 3600) / 60)
+// const secs = seconds % 60
 //
-//   if (hours > 0) {
-//     return `${hours}h ${minutes}m`
-//   } else if (minutes > 0) {
-//     return `${minutes}m ${secs}s`
-//   } else {
-//     return `${secs}s`
-//   }
+// if (hours > 0) {
+// return `${hours}h ${minutes}m`
+// } else if (minutes > 0) {
+// return `${minutes}m ${secs}s`
+// } else {
+// return `${secs}s`
+// }
 // }
 
 // 格式化最后使用时间

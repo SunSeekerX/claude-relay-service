@@ -263,6 +263,7 @@ import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { showToast } from '@/libs/tools'
+import { isOk, msgOf } from '@/libs/http_envelope'
 
 import { checkUpdatesApi, changePasswordApi } from '@/libs/http_apis'
 import LogoTitle from '@/components/common/logo_title.vue'
@@ -349,7 +350,7 @@ const checkForUpdates = async () => {
   try {
     const result = await checkUpdatesApi()
 
-    if (result.success) {
+    if (isOk(result)) {
       const data = result.data
 
       versionInfo.value.current = data.current
@@ -433,7 +434,7 @@ const changePassword = async () => {
       newUsername: changePasswordForm.newUsername || undefined
     })
 
-    if (data.success) {
+    if (isOk(data)) {
       const message = changePasswordForm.newUsername
         ? '账户信息修改成功，请重新登录'
         : '密码修改成功，请重新登录'
@@ -446,7 +447,7 @@ const changePassword = async () => {
         router.push('/login')
       }, 1500)
     } else {
-      showToast(data.message || '修改失败', 'error')
+      showToast(msgOf(data, '修改失败'), 'error')
     }
   } catch (error) {
     showToast('修改密码失败', 'error')

@@ -100,7 +100,7 @@ class AtomicUsageReporter {
       }
 
       logger.info(
-        `📊 Azure OpenAI Usage recorded for ${requestId}: ` +
+        `Azure OpenAI Usage recorded for ${requestId}: ` +
           `model=${modelToRecord}, ` +
           `input=${inputTokens}, output=${outputTokens}, ` +
           `cache_create=${cacheCreateTokens}, cache_read=${cacheReadTokens}`,
@@ -149,7 +149,7 @@ router.post('/chat/completions', authenticateApiKey, async (req, res) => {
   const requestId = `azure_req_${Date.now()}_${crypto.randomBytes(8).toString('hex')}`
   const sessionId = req.sessionId || req.headers['x-session-id'] || null
 
-  logger.info(`🚀 Azure OpenAI Chat Request ${requestId}`, {
+  logger.info(`Azure OpenAI Chat Request ${requestId}`, {
     apiKeyId: req.apiKey?.id,
     sessionId,
     model: req.body.model,
@@ -165,7 +165,7 @@ router.post('/chat/completions', authenticateApiKey, async (req, res) => {
       if (account) {
         const isTempUnavailable = await upstreamErrorHelper.isTempUnavailable(account.id, 'azure-openai')
         if (isTempUnavailable) {
-          logger.warn(`⏱️ Bound Azure OpenAI account temporarily unavailable, falling back to pool`)
+          logger.warn(`Bound Azure OpenAI account temporarily unavailable, falling back to pool`)
           account = null
         }
       }
@@ -280,7 +280,7 @@ router.post('/responses', authenticateApiKey, async (req, res) => {
   const requestId = `azure_resp_${Date.now()}_${crypto.randomBytes(8).toString('hex')}`
   const sessionId = req.sessionId || req.headers['x-session-id'] || null
 
-  logger.info(`🚀 Azure OpenAI Responses Request ${requestId}`, {
+  logger.info(`Azure OpenAI Responses Request ${requestId}`, {
     apiKeyId: req.apiKey?.id,
     sessionId,
     model: req.body.model,
@@ -296,7 +296,7 @@ router.post('/responses', authenticateApiKey, async (req, res) => {
       if (account) {
         const isTempUnavailable = await upstreamErrorHelper.isTempUnavailable(account.id, 'azure-openai')
         if (isTempUnavailable) {
-          logger.warn(`⏱️ Bound Azure OpenAI account temporarily unavailable, falling back to pool`)
+          logger.warn(`Bound Azure OpenAI account temporarily unavailable, falling back to pool`)
           account = null
         }
       }
@@ -411,7 +411,7 @@ router.post('/embeddings', authenticateApiKey, async (req, res) => {
   const requestId = `azure_embed_${Date.now()}_${crypto.randomBytes(8).toString('hex')}`
   const sessionId = req.sessionId || req.headers['x-session-id'] || null
 
-  logger.info(`🚀 Azure OpenAI Embeddings Request ${requestId}`, {
+  logger.info(`Azure OpenAI Embeddings Request ${requestId}`, {
     apiKeyId: req.apiKey?.id,
     sessionId,
     model: req.body.model,
@@ -426,7 +426,7 @@ router.post('/embeddings', authenticateApiKey, async (req, res) => {
       if (account) {
         const isTempUnavailable = await upstreamErrorHelper.isTempUnavailable(account.id, 'azure-openai')
         if (isTempUnavailable) {
-          logger.warn(`⏱️ Bound Azure OpenAI account temporarily unavailable, falling back to pool`)
+          logger.warn(`Bound Azure OpenAI account temporarily unavailable, falling back to pool`)
           account = null
         }
       }

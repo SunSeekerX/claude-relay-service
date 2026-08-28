@@ -3,6 +3,7 @@ import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import { logger } from '../../common/logger.js'
+import * as geminiSignature from './translator/relay_translator_gemini_signature.js'
 import { onClientDisconnect } from '../../common/client_disconnect.js'
 import { getProjectRoot } from '../../common/project_paths.js'
 import { buildTokenUsagePayload, createRequestDetailMeta } from './relay_request_detail_helper.js'
@@ -343,7 +344,7 @@ const compactJsonSchemaDescriptionsForAntigravity = function compactJsonSchemaDe
 /**
  * 清洗 thinking block 的 signature
  * 检查格式是否合法（Base64-like token），不合法则返回空串
- * 这是为了避免 "Invalid signature in thinking block" 400 错误
+ * 避免 "Invalid signature in thinking block" 400 错误
  * @param {string} signature - 原始 signature
  * @returns {string} 清洗后的 signature（不合法则为空串）
  */
@@ -537,20 +538,20 @@ const normalizeToolResultContent = function normalizeToolResultContent(content, 
  * 这是关键的预处理函数，处理以下问题：
  *
  * 1. Antigravity thinking block 顺序调整
- *    - Antigravity 要求 thinking blocks 必须在 assistant 消息的最前面
- *    - 移除 thinking block 中的 cache_control 字段（上游不接受）
+ * - Antigravity 要求 thinking blocks 必须在 assistant 消息的最前面
+ * - 移除 thinking block 中的 cache_control 字段（上游不接受）
  *
  * 2. tool_use 后的冗余内容剥离
- *    - 移除 tool_use 后的空文本、"(no content)" 等冗余 part
+ * - 移除 tool_use 后的空文本、"(no content)"等冗余 part
  *
  * 3. 缺失 tool_result 补全（Antigravity 专用）
- *    - 检测消息历史中是否有 tool_use 没有对应的 tool_result
- *    - 自动插入合成的 tool_result（is_error: true）
- *    - 避免 "tool_use concurrency" 400 错误
+ * - 检测消息历史中是否有 tool_use 没有对应的 tool_result
+ * - 自动插入合成的 tool_result（is_error: true）
+ * - 避免 "tool_use concurrency" 400 错误
  *
  * 4. tool_result 和 user 文本拆分
- *    - Claude Code 可能把 tool_result 和用户文本混在一个 user message 中
- *    - 拆分为两个 message 以符合 Anthropic 规范
+ * - Claude Code 可能把 tool_result 和用户文本混在一个 user message 中
+ * - 拆分为两个 message 以符合 Anthropic 规范
  *
  * @param {Array} messages - 原始消息列表
  * @param {Object} options - 选项，包含 vendor
@@ -752,8 +753,8 @@ const normalizeAnthropicMessages = function normalizeAnthropicMessages(messages,
  * 2. JSON Schema 清洗（移除不支持的字段如 $schema, format 等）
  * 3. Schema description 压缩（Antigravity: 200 字符上限，保留关键约束）
  * 4. 输出格式差异：
- *    - Antigravity: 使用 parametersJsonSchema
- *    - Gemini: 使用 parameters
+ * - Antigravity: 使用 parametersJsonSchema
+ * - Gemini: 使用 parameters
  *
  * @param {Array} tools - Anthropic 格式的工具定义数组
  * @param {Object} options - 选项，包含 vendor
@@ -810,7 +811,7 @@ const convertAnthropicToolsToGeminiTools = function convertAnthropicToolsToGemin
       if (key === 'title' || key === 'default' || key === 'examples' || key === 'example') {
         continue
       }
-      // 上游对 JSON Schema "format" 支持不稳定（特别是 format=uri），直接移除以降低 400 概率
+      // 上游对 JSON Schema "format"支持不稳定（特别是 format=uri），直接移除以降低 400 概率
       if (key === 'format') {
         continue
       }
@@ -941,10 +942,10 @@ const convertAnthropicToolsToGeminiTools = function convertAnthropicToolsToGemin
 /**
  * 将 Anthropic 的 tool_choice 转换为 Gemini 的 toolConfig
  * 映射关系：
- *   auto → AUTO（模型自决定是否调用工具）
- *   any  → ANY（必须调用某个工具）
- *   tool → ANY + allowedFunctionNames（指定工具）
- *   none → NONE（禁止调用工具）
+ * auto → AUTO（模型自决定是否调用工具）
+ * any → ANY（必须调用某个工具）
+ * tool → ANY + allowedFunctionNames（指定工具）
+ * none → NONE（禁止调用工具）
  */
 const convertAnthropicToolChoiceToGeminiToolConfig = function convertAnthropicToolChoiceToGeminiToolConfig(toolChoice) {
   if (!toolChoice || typeof toolChoice !== 'object') {
@@ -1198,7 +1199,7 @@ const convertAnthropicMessagesToGeminiContents = function convertAnthropicMessag
  * - 如果有 thinking 文本或 signature，则可以启用
  * - 如果是空 thinking block（无文本且无 signature），则不能启用
  *
- * 这是为了避免 "When thinking is disabled, an assistant message cannot contain thinking" 错误
+ * 避免 "When thinking is disabled, an assistant message cannot contain thinking" 错误
  *
  * @param {Array} messages - 消息列表
  * @returns {boolean} 是否可以启用 thinking
@@ -1293,12 +1294,15 @@ const buildGeminiRequestFromAnthropic = function buildGeminiRequestFromAnthropic
     }
   }
 
-  const contents = convertAnthropicMessagesToGeminiContents(normalizedMessages || [], toolUseIdToName, {
+  let contents = convertAnthropicMessagesToGeminiContents(normalizedMessages || [], toolUseIdToName, {
     vendor,
     // 当 Antigravity 无法启用 thinking 时，剥离所有 thinking blocks
     stripThinking: vendor === 'antigravity' && !canEnableThinking,
     sessionId,
   })
+  // Gemini 3 thoughtSignature / functionResponse.id 纪律
+  contents = geminiSignature.ensureThoughtSignaturesOnContents(contents)
+  contents = geminiSignature.ensureFunctionResponseIds(contents)
   const systemParts = buildSystemParts(body.system)
 
   if (vendor === 'antigravity' && isEnvEnabled(env[TOOL_ERROR_CONTINUE_ENV])) {
@@ -1334,7 +1338,7 @@ const buildGeminiRequestFromAnthropic = function buildGeminiRequestFromAnthropic
           include_thoughts: true,
         }
       } else {
-        logger.warn('⚠️ Antigravity thinking request dropped: last assistant message lacks usable thinking block', {
+        logger.warn('Antigravity thinking request dropped: last assistant message lacks usable thinking block', {
           model: baseModel,
         })
       }
@@ -1489,7 +1493,7 @@ const isEnvEnabled = function isEnvEnabled(value) {
 
 /**
  * 从文本中提取 Write 工具调用
- * 处理模型在文本中输出 "Write: <path>" 格式的情况
+ * 处理模型在文本中输出 "Write: <path>"格式的情况
  * 这是一个兜底机制，用于处理 function calling 失败的情况
  */
 const tryExtractWriteToolFromText = function tryExtractWriteToolFromText(text, fallbackCwd) {
@@ -1758,7 +1762,7 @@ const dumpToolsPayload = function dumpToolsPayload({ vendor, model, tools, toolC
 
   try {
     fs.appendFileSync(filePath, `${JSON.stringify(payload)}\n`, 'utf8')
-    logger.warn(`🧾 Tools payload dumped to ${filePath}`)
+    logger.warn(`Tools payload dumped to ${filePath}`)
   } catch (error) {
     logger.warn('Failed to dump tools payload:', error.message)
   }
@@ -1792,13 +1796,13 @@ const applyRateLimitTracking = async function applyRateLimitTracking(
       preCalculatedCost,
     )
     if (totalTokens > 0) {
-      logger.api(`📊 Updated rate limit token count${label}: +${totalTokens} tokens`)
+      logger.api(`Updated rate limit token count${label}: +${totalTokens} tokens`)
     }
     if (typeof totalCost === 'number' && totalCost > 0) {
-      logger.api(`💰 Updated rate limit cost count${label}: +$${totalCost.toFixed(6)}`)
+      logger.api(`Updated rate limit cost count${label}: +$${totalCost.toFixed(6)}`)
     }
   } catch (error) {
-    logger.error(`❌ Failed to update rate limit counters${label}:`, error)
+    logger.error(`Failed to update rate limit counters${label}:`, error)
   }
 }
 
@@ -1918,7 +1922,7 @@ export const handleAnthropicMessagesToGemini = async function handleAnthropicMes
 
   const effectiveModel = pickFallbackModel(account, baseModel)
   if (effectiveModel !== baseModel) {
-    logger.warn('⚠️ Requested model not supported by account, falling back', {
+    logger.warn('Requested model not supported by account, falling back', {
       requestedModel: baseModel,
       effectiveModel,
       vendor,
@@ -1991,7 +1995,7 @@ export const handleAnthropicMessagesToGemini = async function handleAnthropicMes
       } catch (error) {
         const sanitized = sanitizeUpstreamError(error)
         if (shouldRetryWithoutTools(sanitized) && requestData.request?.tools) {
-          logger.warn('⚠️ Tool schema rejected by upstream, retrying without tools', {
+          logger.warn('Tool schema rejected by upstream, retrying without tools', {
             vendor,
             accountId,
           })
@@ -2004,7 +2008,7 @@ export const handleAnthropicMessagesToGemini = async function handleAnthropicMes
             sanitized.upstreamMessage?.toLowerCase()?.includes('exhausted') ||
             sanitized.message?.toLowerCase()?.includes('capacity'))
         ) {
-          logger.warn('⚠️ Antigravity 429 quota exhausted (non-stream), switching account and retrying', {
+          logger.warn('Antigravity 429 quota exhausted (non-stream), switching account and retrying', {
             vendor,
             accountId,
             model: effectiveModel,
@@ -2026,7 +2030,7 @@ export const handleAnthropicMessagesToGemini = async function handleAnthropicMes
             if (!newClient) {
               throw new Error('Failed to get new Gemini client for retry', { cause: error })
             }
-            logger.info(`🔄 Retrying non-stream with new account: ${newAccountId} (was: ${accountId})`)
+            logger.info(`Retrying non-stream with new account: ${newAccountId} (was: ${accountId})`)
             // 用新账户的 client 重试
             rawResponse =
               vendor === 'antigravity'
@@ -2049,7 +2053,7 @@ export const handleAnthropicMessagesToGemini = async function handleAnthropicMes
             // 更新 accountId 以便后续使用记录
             accountId = newAccountId
           } catch (retryError) {
-            logger.error('❌ Failed to retry non-stream with new account:', retryError)
+            logger.error('Failed to retry non-stream with new account:', retryError)
             throw error // 抛出原始错误
           }
         } else {
@@ -2080,7 +2084,7 @@ export const handleAnthropicMessagesToGemini = async function handleAnthropicMes
           })
           content = blocks
           hasToolUse = true
-          logger.warn('⚠️ Synthesized tool_use from plain text Write directive', {
+          logger.warn('Synthesized tool_use from plain text Write directive', {
             vendor,
             accountId,
             tool: extracted.tool.name,
@@ -2200,7 +2204,7 @@ export const handleAnthropicMessagesToGemini = async function handleAnthropicMes
     } catch (error) {
       const sanitized = sanitizeUpstreamError(error)
       if (shouldRetryWithoutTools(sanitized) && requestData.request?.tools) {
-        logger.warn('⚠️ Tool schema rejected by upstream, retrying stream without tools', {
+        logger.warn('Tool schema rejected by upstream, retrying stream without tools', {
           vendor,
           accountId,
         })
@@ -2213,7 +2217,7 @@ export const handleAnthropicMessagesToGemini = async function handleAnthropicMes
           sanitized.upstreamMessage?.toLowerCase()?.includes('exhausted') ||
           sanitized.message?.toLowerCase()?.includes('capacity'))
       ) {
-        logger.warn('⚠️ Antigravity 429 quota exhausted, switching account and retrying', {
+        logger.warn('Antigravity 429 quota exhausted, switching account and retrying', {
           vendor,
           accountId,
           model: effectiveModel,
@@ -2235,7 +2239,7 @@ export const handleAnthropicMessagesToGemini = async function handleAnthropicMes
           if (!newClient) {
             throw new Error('Failed to get new Gemini client for retry', { cause: error })
           }
-          logger.info(`🔄 Retrying with new account: ${newAccountId} (was: ${accountId})`)
+          logger.info(`Retrying with new account: ${newAccountId} (was: ${accountId})`)
           // 用新账户的 client 重试
           streamResponse =
             vendor === 'antigravity'
@@ -2260,7 +2264,7 @@ export const handleAnthropicMessagesToGemini = async function handleAnthropicMes
           // 更新 accountId 以便后续使用记录
           accountId = newAccountId
         } catch (retryError) {
-          logger.error('❌ Failed to retry with new account:', retryError)
+          logger.error('Failed to retry with new account:', retryError)
           throw error // 抛出原始错误
         }
       } else {
@@ -2312,10 +2316,10 @@ export const handleAnthropicMessagesToGemini = async function handleAnthropicMes
           return
         }
 
-        // 🛑【关键修改】先锁门！防止 abort() 触发的 onError 再次写入 res
+        // 先设置 finished，防止 abort() 触发的 onError 再次写入 res
         finished = true
 
-        logger.warn('⚠️ Upstream stream zombie detected (no data for 45s). Forcing termination.', {
+        logger.warn('Upstream stream zombie detected (no data for 45s). Forcing termination.', {
           requestId: req.requestId,
         })
 
@@ -2334,7 +2338,7 @@ export const handleAnthropicMessagesToGemini = async function handleAnthropicMes
       }, STREAM_ACTIVITY_TIMEOUT_MS)
     }
 
-    // 🔥【这里！】一定要加这句来启动它！
+    // 启动活动超时计时器
     resetActivityTimeout()
     // ===
 
@@ -2548,7 +2552,7 @@ export const handleAnthropicMessagesToGemini = async function handleAnthropicMes
       // 上游可能在没有 finishReason 的情况下静默结束（例如 browser_snapshot 输出过大被截断）。
       // 这种情况下主动向客户端发送错误，避免长时间挂起。
       if (!finishReason) {
-        logger.warn('⚠️ Upstream stream ended without finishReason; sending overloaded_error to client', {
+        logger.warn('Upstream stream ended without finishReason; sending overloaded_error to client', {
           requestId: req.requestId,
           model: effectiveModel,
           hasToolCalls: emittedAnyToolUse,
@@ -2676,7 +2680,7 @@ export const handleAnthropicMessagesToGemini = async function handleAnthropicMes
     }
 
     streamResponse.on('data', (chunk) => {
-      resetActivityTimeout() // <--- 【新增】收到数据了，重置倒计时！
+      resetActivityTimeout() // 收到数据，重置倒计时
 
       if (finished) {
         return
@@ -2869,7 +2873,7 @@ export const handleAnthropicMessagesToGemini = async function handleAnthropicMes
     streamResponse.on('end', () => {
       if (activityTimeout) {
         clearTimeout(activityTimeout)
-      } // <--- 【新增】正常结束，取消报警
+      } // 正常结束，清除超时计时器
 
       finalize().catch((e) => logger.error('Failed to finalize Anthropic SSE response:', e))
     })
@@ -2877,7 +2881,7 @@ export const handleAnthropicMessagesToGemini = async function handleAnthropicMes
     streamResponse.on('error', (error) => {
       if (activityTimeout) {
         clearTimeout(activityTimeout)
-      } // <--- 【新增】报错了，取消报警
+      } // 出错，清除超时计时器
 
       if (finished) {
         return
@@ -2903,13 +2907,13 @@ export const handleAnthropicMessagesToGemini = async function handleAnthropicMes
     })
 
     // 2. 打印安全日志，绝对不会崩
-    logger.error(`❌ [Critical] Failed to start Gemini stream. 错误详情:\n${safeErrorDetails}`)
+    logger.error(`[Critical] Failed to start Gemini stream. 错误详情:\n${safeErrorDetails}`)
 
     const sanitized = sanitizeUpstreamError(error)
 
     // 3. 特殊处理 Antigravity 的参数错误 (400)，输出详细请求信息便于调试
     if (vendor === 'antigravity' && effectiveModel.includes('claude') && isInvalidAntigravityArgumentError(sanitized)) {
-      logger.warn('⚠️ Antigravity Claude invalid argument detected', {
+      logger.warn('Antigravity Claude invalid argument detected', {
         requestId: req.requestId,
         ...summarizeAntigravityRequestForDebug(requestData),
         statusCode: sanitized.statusCode,

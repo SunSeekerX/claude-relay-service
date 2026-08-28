@@ -736,7 +736,7 @@ import Chart from 'chart.js/auto'
 import { useDashboardStore } from '@/stores/dashboard'
 import { useThemeStore } from '@/stores/theme'
 import { formatNumber, showToast } from '@/libs/tools'
-
+import { isOk, msgOf } from '@/libs/http_envelope'
 import { getBalanceSummaryApi } from '@/libs/http_apis'
 import AppDateRangePicker from '@/components/common/app_date_range_picker.vue'
 
@@ -862,7 +862,7 @@ const formatLastUpdate = (isoString) => {
 const loadBalanceSummary = async () => {
   loadingBalanceSummary.value = true
   const response = await getBalanceSummaryApi()
-  if (response?.success) {
+  if (isOk(response)) {
     balanceSummary.value = response.data || {
       totalBalance: 0,
       totalCost: 0,
@@ -870,8 +870,8 @@ const loadBalanceSummary = async () => {
       platforms: {}
     }
     balanceSummaryUpdatedAt.value = new Date().toISOString()
-  } else if (response?.message) {
-    console.debug('加载余额汇总失败:', response.message)
+  } else {
+    console.debug('加载余额汇总失败:', msgOf(response, ''))
     showToast('加载余额汇总失败', 'error')
   }
   loadingBalanceSummary.value = false
@@ -887,8 +887,8 @@ const isRefreshing = ref(false)
 
 // 计算倒计时显示
 // const refreshCountdownDisplay = computed(() => {
-//   if (!autoRefreshEnabled.value || refreshCountdown.value <= 0) return ''
-//   return `${refreshCountdown.value}秒后刷新`
+// if (!autoRefreshEnabled.value || refreshCountdown.value <= 0) return ''
+// return `${refreshCountdown.value}秒后刷新`
 // })
 
 // 图表颜色配置（根据主题动态调整）
@@ -1345,9 +1345,9 @@ function createApiKeysUsageTrendChart() {
 
               // 准备排名标识
               let rankIcon = ''
-              if (rank === 1) rankIcon = '🥇 '
-              else if (rank === 2) rankIcon = '🥈 '
-              else if (rank === 3) rankIcon = '🥉 '
+              if (rank === 1) rankIcon = '1. '
+              else if (rank === 2) rankIcon = '2. '
+              else if (rank === 3) rankIcon = '3. '
 
               if (apiKeysTrendMetric.value === 'tokens') {
                 // 格式化token显示
@@ -1543,9 +1543,9 @@ function createAccountUsageTrendChart() {
 
               const rank = allValues.findIndex((item) => item.index === datasetIndex) + 1
               let rankIcon = ''
-              if (rank === 1) rankIcon = '🥇 '
-              else if (rank === 2) rankIcon = '🥈 '
-              else if (rank === 3) rankIcon = '🥉 '
+              if (rank === 1) rankIcon = '1. '
+              else if (rank === 2) rankIcon = '2. '
+              else if (rank === 3) rankIcon = '3. '
 
               const formattedCost = accountDetail?.formattedCost || formatCostValue(value)
               const requests = accountDetail?.requests || 0
@@ -1686,12 +1686,12 @@ function stopAutoRefresh() {
 
 // 切换自动刷新
 // function toggleAutoRefresh() {
-//   autoRefreshEnabled.value = !autoRefreshEnabled.value
-//   if (autoRefreshEnabled.value) {
-//     startAutoRefresh()
-//   } else {
-//     stopAutoRefresh()
-//   }
+// autoRefreshEnabled.value = !autoRefreshEnabled.value
+// if (autoRefreshEnabled.value) {
+// startAutoRefresh()
+// } else {
+// stopAutoRefresh()
+// }
 // }
 
 // 监听自动刷新状态变化

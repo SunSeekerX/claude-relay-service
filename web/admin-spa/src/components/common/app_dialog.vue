@@ -3,7 +3,7 @@
   <ModalTransition @after-leave="emit('after-leave')">
     <div
       v-if="modelValue"
-      class="modal fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4"
+      class="modal fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-3"
       @mousedown.self="onMask"
     >
       <div
@@ -104,7 +104,7 @@ const onMask = () => {
 
 <style scoped>
 .app-dialog {
-  max-height: min(90vh, 920px);
+  max-height: min(92dvh, 960px);
   /* 统一紧凑内边距：不再 p-6/p-8 */
   padding: 0;
 }
@@ -131,7 +131,7 @@ const onMask = () => {
   align-items: flex-start;
   justify-content: space-between;
   gap: 0.75rem;
-  padding: 0.875rem 1rem 0.75rem;
+  padding: 0.75rem 0.875rem 0.625rem;
   border-bottom: 1px solid rgb(229 231 235 / 0.9);
 }
 

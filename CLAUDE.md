@@ -15,6 +15,9 @@
 - 项目内导入超 3 项用命名空间导入：import * as dtos from './upstream_account.dto'，引用处 dtos.CreateXxxDto（npm 库不适用）。两个例外保持命名导入：被本文件 export {} re-export 的桥接、Vue 组件在模板作标签。禁止以"导入列表长"为由拆分被导入的文件，导入写法问题用命名空间导入解决
 - 导出风格 inline：本地符号在定义处直接 export，禁止文件尾聚合 export { a, b, c }；唯一例外是 lib 入口 re-export 第三方库（export { X } from 'pkg'）
 - 环境变量单一入口：process.env/import.meta.env 只在单一配置模块读取并导出 env 对象，业务代码一律从 env 取值，禁止散落 process.env.X（及其 || 默认）；含 OS 环境（HOME/USERPROFILE/APPDATA/XDG_*）与 worker 身份（NODE_APP_INSTANCE/WORKER_COUNT/pm_id/NODE_ENV），派生量从 env 再算；新增配置加 env 模块并按需 fail-fast。后端仅两类例外可直接 process.env：① dotenv 启动引导（早于配置模块）② 子进程环境按白名单动态枚举拷贝；process.pid 是进程 API 不受约束
+-  管理 JSON API（/admin /users /web /apiStats /payment 非 webhook）统一响应 { code 数字, msg 字符串, data?
+  }：业务成功 code 为 2xx 且 HTTP 同值；业务失败 HTTP 200 仅用 body.code 区分（鉴权 401/403、限流 429、未捕获
+  5xx 用真 HTTP）；字符串业务细分码只放 data.reason；中转协议面与支付 webhook 禁止套此信封；路由用 asyncRoute
 
 ## 项目概述
 

@@ -4,6 +4,7 @@ import { authenticateApiKey } from '../../infra/middleware_auth.js'
 import { claudeRelayService } from './relay_claude_relay_service.js'
 import { claudeConsoleRelayService } from './relay_claude_console_relay_service.js'
 import { openaiToClaude } from './relay_openai_to_claude.js'
+import { buildClaudeBetaHeader } from './relay_claude_beta.js'
 import { apiKeyService } from '../apikey/apikey_service.js'
 import { unifiedClaudeScheduler } from './relay_unified_claude_scheduler.js'
 import { claudeCodeHeadersService } from './relay_claude_code_headers_service.js'
@@ -21,7 +22,7 @@ import { onClientDisconnect } from '../../common/client_disconnect.js'
 
 export const openaiClaudeRoutes = express.Router()
 
-// 🔧 辅助函数：检查 API Key 权限
+// 辅助函数：检查 API Key 权限
 const checkPermissions = function checkPermissions(apiKeyData, requiredPermission = 'claude') {
   return apiKeyService.hasPermission(apiKeyData?.permissions, requiredPermission)
 }
@@ -44,18 +45,18 @@ const queueRateLimitUpdate = function queueRateLimitUpdate(
   updateRateLimitCounters(rateLimitInfo, usageSummary, model, keyId, accountType, preCalculatedCost)
     .then(({ totalTokens, totalCost }) => {
       if (totalTokens > 0) {
-        logger.api(`📊 Updated rate limit token count${label}: +${totalTokens} tokens`)
+        logger.api(`Updated rate limit token count${label}: +${totalTokens} tokens`)
       }
       if (typeof totalCost === 'number' && totalCost > 0) {
-        logger.api(`💰 Updated rate limit cost count${label}: +$${totalCost.toFixed(6)}`)
+        logger.api(`Updated rate limit cost count${label}: +$${totalCost.toFixed(6)}`)
       }
     })
     .catch((error) => {
-      logger.error(`❌ Failed to update rate limit counters${label}:`, error)
+      logger.error(`Failed to update rate limit counters${label}:`, error)
     })
 }
 
-// 📋 OpenAI 兼容的模型列表端点
+// OpenAI 兼容的模型列表端点
 openaiClaudeRoutes.get('/v1/models', authenticateApiKey, async (req, res) => {
   try {
     const apiKeyData = req.apiKey
@@ -97,7 +98,7 @@ openaiClaudeRoutes.get('/v1/models', authenticateApiKey, async (req, res) => {
       data: models,
     })
   } catch (error) {
-    logger.error('❌ Failed to get OpenAI-Claude models:', error)
+    logger.error('Failed to get OpenAI-Claude models:', error)
     res.status(500).json({
       error: {
         message: 'Failed to retrieve models',
@@ -109,7 +110,7 @@ openaiClaudeRoutes.get('/v1/models', authenticateApiKey, async (req, res) => {
   return undefined
 })
 
-// 📄 OpenAI 兼容的模型详情端点
+// OpenAI 兼容的模型详情端点
 openaiClaudeRoutes.get('/v1/models/:model', authenticateApiKey, async (req, res) => {
   try {
     const apiKeyData = req.apiKey
@@ -131,7 +132,7 @@ openaiClaudeRoutes.get('/v1/models/:model', authenticateApiKey, async (req, res)
       if (apiKeyData.restrictedModels.includes(modelId)) {
         return res.status(404).json({
           error: {
-            message: `Model '${modelId}' not found`,
+            message: `Model '${modelId}'not found`,
             type: 'invalid_request_error',
             code: 'model_not_found',
           },
@@ -171,7 +172,7 @@ openaiClaudeRoutes.get('/v1/models/:model', authenticateApiKey, async (req, res)
 
     res.json(modelInfo)
   } catch (error) {
-    logger.error('❌ Failed to get model details:', error)
+    logger.error('Failed to get model details:', error)
     res.status(500).json({
       error: {
         message: 'Failed to retrieve model details',
@@ -183,7 +184,7 @@ openaiClaudeRoutes.get('/v1/models/:model', authenticateApiKey, async (req, res)
   return undefined
 })
 
-// 🔧 处理聊天完成请求的核心函数
+// 处理聊天完成请求的核心函数
 export const handleChatCompletion = async function handleChatCompletion(req, res, apiKeyData) {
   const startTime = Date.now()
   let abortController = null
@@ -201,7 +202,7 @@ export const handleChatCompletion = async function handleChatCompletion(req, res
     }
 
     // 记录原始请求
-    logger.debug('📥 Received OpenAI format request:', {
+    logger.debug('Received OpenAI format request:', {
       model: req.body.model,
       messageCount: req.body.messages?.length,
       stream: req.body.stream,
@@ -232,7 +233,11 @@ export const handleChatCompletion = async function handleChatCompletion(req, res
     let accountSelection
     try {
       accountSelection = await unifiedClaudeScheduler.selectAccountForApiKey(
-        apiKeyData,
+        {
+          ...apiKeyData,
+          // OpenAI 兼容入口不是 Claude Code 客户端
+          _isClaudeCode: false,
+        },
         sessionHash,
         claudeRequest.model,
       )
@@ -251,13 +256,13 @@ export const handleChatCompletion = async function handleChatCompletion(req, res
     // 获取该账号存储的 Claude Code headers
     const claudeCodeHeaders = await claudeCodeHeadersService.getAccountHeaders(accountId)
 
-    logger.debug(`📋 Using Claude Code headers for account ${accountId}:`, {
+    logger.debug(`Using Claude Code headers for account ${accountId}:`, {
       userAgent: claudeCodeHeaders['user-agent'],
     })
 
     // 处理流式请求
     if (claudeRequest.stream) {
-      logger.info(`🌊 Processing OpenAI stream request for model: ${req.body.model}`)
+      logger.info(`Processing OpenAI stream request for model: ${req.body.model}`)
 
       // 设置 SSE 响应头
       res.setHeader('Content-Type', 'text/event-stream')
@@ -333,7 +338,7 @@ export const handleChatCompletion = async function handleChatCompletion(req, res
               )
             })
             .catch((error) => {
-              logger.error('❌ Failed to record usage:', error)
+              logger.error('Failed to record usage:', error)
               queueRateLimitUpdate(
                 req.rateLimitInfo,
                 {
@@ -377,14 +382,20 @@ export const handleChatCompletion = async function handleChatCompletion(req, res
           usageCallback,
           streamTransformer,
           {
-            betaHeader:
-              'oauth-2025-04-20,claude-code-20250219,interleaved-thinking-2025-05-14,fine-grained-tool-streaming-2025-05-14',
+            betaHeader: buildClaudeBetaHeader({
+              modelId: claudeRequest.model || req.body.model,
+              accountType: 'claude-official',
+              clientBetaHeader: req.headers['anthropic-beta'],
+              body: claudeRequest,
+              isRealClaudeCode: false,
+              oauthMimic: true,
+            }),
           },
         )
       }
     } else {
       // 非流式请求
-      logger.info(`📄 Processing OpenAI non-stream request for model: ${req.body.model}`)
+      logger.info(`Processing OpenAI non-stream request for model: ${req.body.model}`)
 
       // 根据账户类型选择转发服务
       let claudeResponse
@@ -401,7 +412,14 @@ export const handleChatCompletion = async function handleChatCompletion(req, res
       } else {
         // Claude Official 账户使用标准转发服务
         claudeResponse = await claudeRelayService.relayRequest(claudeRequest, apiKeyData, req, res, claudeCodeHeaders, {
-          betaHeader: 'oauth-2025-04-20',
+          betaHeader: buildClaudeBetaHeader({
+            modelId: claudeRequest.model || req.body.model,
+            accountType: 'claude-official',
+            clientBetaHeader: req.headers['anthropic-beta'],
+            body: claudeRequest,
+            isRealClaudeCode: false,
+            oauthMimic: true,
+          }),
         })
       }
 
@@ -410,7 +428,7 @@ export const handleChatCompletion = async function handleChatCompletion(req, res
       try {
         claudeData = JSON.parse(claudeResponse.body)
       } catch (error) {
-        logger.error('❌ Failed to parse Claude response:', error)
+        logger.error('Failed to parse Claude response:', error)
         return res.status(502).json({
           error: {
             message: 'Invalid response from Claude API',
@@ -483,7 +501,7 @@ export const handleChatCompletion = async function handleChatCompletion(req, res
             )
           })
           .catch((error) => {
-            logger.error('❌ Failed to record usage:', error)
+            logger.error('Failed to record usage:', error)
             queueRateLimitUpdate(
               req.rateLimitInfo,
               {
@@ -505,13 +523,13 @@ export const handleChatCompletion = async function handleChatCompletion(req, res
     }
 
     const duration = Date.now() - startTime
-    logger.info(`✅ OpenAI-Claude request completed in ${duration}ms`)
+    logger.info(`OpenAI-Claude request completed in ${duration}ms`)
   } catch (error) {
     // 客户端主动断开连接是正常情况，使用 INFO 级别
     if (error.message === 'Client disconnected') {
-      logger.info('🔌 OpenAI-Claude stream ended: Client disconnected')
+      logger.info('OpenAI-Claude stream ended: Client disconnected')
     } else {
-      logger.error('❌ OpenAI-Claude request error:', error)
+      logger.error('OpenAI-Claude request error:', error)
     }
 
     // 检查响应是否已发送（流式响应场景），避免 ERR_HTTP_HEADERS_SENT
@@ -539,12 +557,12 @@ export const handleChatCompletion = async function handleChatCompletion(req, res
   return undefined
 }
 
-// 🚀 OpenAI 兼容的聊天完成端点
+// OpenAI 兼容的聊天完成端点
 openaiClaudeRoutes.post('/v1/chat/completions', authenticateApiKey, async (req, res) => {
   await handleChatCompletion(req, res, req.apiKey)
 })
 
-// 🔧 OpenAI 兼容的 completions 端点（传统格式，转换为 chat 格式）
+// OpenAI 兼容的 completions 端点（传统格式，转换为 chat 格式）
 openaiClaudeRoutes.post('/v1/completions', authenticateApiKey, async (req, res) => {
   try {
     const apiKeyData = req.apiKey
@@ -585,7 +603,7 @@ openaiClaudeRoutes.post('/v1/completions', authenticateApiKey, async (req, res) 
     // 使用共享的处理函数
     await handleChatCompletion(req, res, apiKeyData)
   } catch (error) {
-    logger.error('❌ OpenAI completions error:', error)
+    logger.error('OpenAI completions error:', error)
     res.status(500).json({
       error: {
         message: 'Failed to process completion request',

@@ -129,7 +129,7 @@ export const handleAzureOpenAIRequest = async function handleAzureOpenAIRequest(
     })
 
     const requestStartTime = Date.now()
-    logger.debug(`🔄 Starting Azure OpenAI HTTP request at ${new Date().toISOString()}`)
+    logger.debug(`Starting Azure OpenAI HTTP request at ${new Date().toISOString()}`)
 
     // 发送请求
     const response = await axios(axiosConfig)
@@ -138,7 +138,7 @@ export const handleAzureOpenAIRequest = async function handleAzureOpenAIRequest(
     proxyResolver.report(proxyResolution.proxyId, proxyResolution.contextKey, null)
 
     const requestDuration = Date.now() - requestStartTime
-    logger.debug(`✅ Azure OpenAI HTTP request completed at ${new Date().toISOString()}`)
+    logger.debug(`Azure OpenAI HTTP request completed at ${new Date().toISOString()}`)
 
     logger.debug(`Azure OpenAI response received`, {
       status: response.status,
@@ -182,13 +182,13 @@ export const handleAzureOpenAIRequest = async function handleAzureOpenAIRequest(
         suggestion: 'Check if proxy settings are correct or Azure service is accessible',
       })
     } else if (error.code === 'ECONNRESET' || error.message.includes('socket hang up')) {
-      logger.error('🚨 Azure OpenAI Connection Reset / Socket Hang Up', {
+      logger.error('Azure OpenAI Connection Reset / Socket Hang Up', {
         ...errorDetails,
         suggestion:
           'Connection was dropped by Azure OpenAI or proxy. This might be due to long request processing time, proxy timeout, or network instability. Try reducing request complexity or check proxy settings.',
       })
     } else if (error.code === 'ECONNABORTED' || error.code === 'ETIMEDOUT') {
-      logger.error('🚨 Azure OpenAI Request Timeout', {
+      logger.error('Azure OpenAI Request Timeout', {
         ...errorDetails,
         timeoutMs: 600000,
         suggestion:
@@ -330,7 +330,7 @@ export const handleStreamResponse = function handleStreamResponse(upstreamRespon
       for (const line of lines) {
         if (line.startsWith('data: ')) {
           try {
-            const jsonStr = line.slice(6) // 移除 'data: ' 前缀
+            const jsonStr = line.slice(6) // 移除 'data: '前缀
             if (jsonStr.trim() === '[DONE]') {
               continue
             }
@@ -355,7 +355,7 @@ export const handleStreamResponse = function handleStreamResponse(upstreamRespon
               if (extractedModel) {
                 actualModel = extractedModel
               }
-              logger.debug(`🎯 Stream usage captured via robust extraction`, {
+              logger.debug(`Stream usage captured via robust extraction`, {
                 isFromFinalBuffer,
                 usageData,
                 actualModel,
@@ -371,14 +371,14 @@ export const handleStreamResponse = function handleStreamResponse(upstreamRespon
                 }
                 if (eventData.response.usage) {
                   usageData = eventData.response.usage
-                  logger.debug('🎯 Stream usage (backup method - response.usage):', usageData)
+                  logger.debug('Stream usage (backup method - response.usage):', usageData)
                 }
               }
 
               // 兼容 Chat Completions 风格（顶层 usage）
               if (!usageData && eventData.usage) {
                 usageData = eventData.usage
-                logger.debug('🎯 Stream usage (backup method - top-level):', usageData)
+                logger.debug('Stream usage (backup method - top-level):', usageData)
               }
             }
           } catch (e) {
@@ -478,7 +478,7 @@ export const handleStreamResponse = function handleStreamResponse(upstreamRespon
       hasEnded = true
 
       try {
-        logger.debug(`🔚 Stream ended, performing comprehensive usage extraction for ${streamId}`, {
+        logger.debug(`Stream ended, performing comprehensive usage extraction for ${streamId}`, {
           mainBufferSize: buffer.length,
           finalChunksBufferSize: finalChunksBuffer.length,
           parsedEventsCount: allParsedEvents.length,
@@ -487,7 +487,7 @@ export const handleStreamResponse = function handleStreamResponse(upstreamRespon
 
         // 多层次的最终usage提取策略
         if (!usageData) {
-          logger.debug('🔍 No usage found during stream, trying final extraction methods...')
+          logger.debug('No usage found during stream, trying final extraction methods...')
 
           // 方法1: 解析剩余的主buffer
           if (buffer.trim() && buffer.length <= MAX_EVENT_SIZE) {
@@ -496,15 +496,15 @@ export const handleStreamResponse = function handleStreamResponse(upstreamRespon
 
           // 方法2: 解析保留的final chunks buffer
           if (!usageData && finalChunksBuffer.trim()) {
-            logger.debug('🔍 Trying final chunks buffer for usage extraction...')
+            logger.debug('Trying final chunks buffer for usage extraction...')
             parseSSEForUsage(finalChunksBuffer, true)
           }
 
           // 方法3: 从所有解析的事件中重新搜索usage
           if (!usageData && allParsedEvents.length > 0) {
-            logger.debug('🔍 Searching through all parsed events for usage...')
+            logger.debug('Searching through all parsed events for usage...')
 
-            // 倒序查找，因为usage通常在最后
+            // 倒序查找，usage通常在最后
             for (let i = allParsedEvents.length - 1; i >= 0; i--) {
               const { usageData: foundUsage, actualModel: foundModel } = extractUsageDataRobust(
                 allParsedEvents[i],
@@ -515,7 +515,7 @@ export const handleStreamResponse = function handleStreamResponse(upstreamRespon
                 if (foundModel) {
                   actualModel = foundModel
                 }
-                logger.debug(`🎯 Usage found in event ${i} during final scan!`)
+                logger.debug(`Usage found in event ${i} during final scan!`)
                 break
               }
             }
@@ -523,7 +523,7 @@ export const handleStreamResponse = function handleStreamResponse(upstreamRespon
 
           // 方法4: 尝试合并所有事件并搜索
           if (!usageData && allParsedEvents.length > 0) {
-            logger.debug('🔍 Trying combined events analysis...')
+            logger.debug('Trying combined events analysis...')
             const combinedData = {
               events: allParsedEvents,
               lastEvent: allParsedEvents[allParsedEvents.length - 1],
@@ -533,14 +533,14 @@ export const handleStreamResponse = function handleStreamResponse(upstreamRespon
             const { usageData: combinedUsage } = extractUsageDataRobust(combinedData, 'combined-events')
             if (combinedUsage) {
               usageData = combinedUsage
-              logger.debug('🎯 Usage found via combined events analysis!')
+              logger.debug('Usage found via combined events analysis!')
             }
           }
         }
 
         // 最终usage状态报告
         if (usageData) {
-          logger.debug('✅ Final stream usage extraction SUCCESS', {
+          logger.debug('Final stream usage extraction SUCCESS', {
             streamId,
             usageData,
             actualModel,
@@ -548,7 +548,7 @@ export const handleStreamResponse = function handleStreamResponse(upstreamRespon
             finalBufferSize: finalChunksBuffer.length,
           })
         } else {
-          logger.warn('❌ Final stream usage extraction FAILED', {
+          logger.warn('Final stream usage extraction FAILED', {
             streamId,
             totalEvents: allParsedEvents.length,
             finalBufferSize: finalChunksBuffer.length,
@@ -620,7 +620,7 @@ export const handleStreamResponse = function handleStreamResponse(upstreamRespon
 
 // 强化的用量数据提取函数
 const extractUsageDataRobust = function extractUsageDataRobust(responseData, context = 'unknown') {
-  logger.debug(`🔍 Attempting usage extraction for ${context}`, {
+  logger.debug(`Attempting usage extraction for ${context}`, {
     responseDataKeys: Object.keys(responseData || {}),
     responseDataType: typeof responseData,
     hasUsage: !!responseData?.usage,
@@ -635,14 +635,14 @@ const extractUsageDataRobust = function extractUsageDataRobust(responseData, con
     if (responseData?.usage) {
       usageData = responseData.usage
       actualModel = responseData.model
-      logger.debug('✅ Usage extracted via Strategy 1 (top-level)', { usageData, actualModel })
+      logger.debug('Usage extracted via Strategy 1 (top-level)', { usageData, actualModel })
     }
 
     // 策略 2: response.usage (Responses API)
     else if (responseData?.response?.usage) {
       usageData = responseData.response.usage
       actualModel = responseData.response.model || responseData.model
-      logger.debug('✅ Usage extracted via Strategy 2 (response.usage)', { usageData, actualModel })
+      logger.debug('Usage extracted via Strategy 2 (response.usage)', { usageData, actualModel })
     }
 
     // 策略 3: 嵌套搜索 - 深度查找 usage 字段
@@ -656,7 +656,7 @@ const extractUsageDataRobust = function extractUsageDataRobust(responseData, con
           const currentPath = path ? `${path}.${key}` : key
 
           if (key === 'usage' && value && typeof value === 'object') {
-            logger.debug(`✅ Usage found at path: ${currentPath}`, value)
+            logger.debug(`Usage found at path: ${currentPath}`, value)
             return { usage: value, path: currentPath }
           }
 
@@ -681,7 +681,7 @@ const extractUsageDataRobust = function extractUsageDataRobust(responseData, con
           modelParent = modelParent?.[part]
         }
         actualModel = modelParent?.model || responseData?.model
-        logger.debug('✅ Usage extracted via Strategy 3 (recursive)', {
+        logger.debug('Usage extracted via Strategy 3 (recursive)', {
           usageData,
           actualModel,
           foundPath: found.path,
@@ -697,14 +697,14 @@ const extractUsageDataRobust = function extractUsageDataRobust(responseData, con
         if (lastChoice?.usage) {
           usageData = lastChoice.usage
           actualModel = responseData.model || lastChoice.model
-          logger.debug('✅ Usage extracted via Strategy 4 (choices)', { usageData, actualModel })
+          logger.debug('Usage extracted via Strategy 4 (choices)', { usageData, actualModel })
         }
       }
     }
 
     // 最终验证和记录
     if (usageData) {
-      logger.debug('🎯 Final usage extraction result', {
+      logger.debug('Final usage extraction result', {
         context,
         usageData,
         actualModel,
@@ -713,7 +713,7 @@ const extractUsageDataRobust = function extractUsageDataRobust(responseData, con
         totalTokens: usageData.total_tokens || 0,
       })
     } else {
-      logger.warn('❌ Failed to extract usage data', {
+      logger.warn('Failed to extract usage data', {
         context,
         responseDataStructure: `${JSON.stringify(responseData, null, 2).substring(0, 1000)}...`,
         availableKeys: Object.keys(responseData || {}),
@@ -721,7 +721,7 @@ const extractUsageDataRobust = function extractUsageDataRobust(responseData, con
       })
     }
   } catch (extractionError) {
-    logger.error('🚨 Error during usage extraction', {
+    logger.error('Error during usage extraction', {
       context,
       error: extractionError.message,
       stack: extractionError.stack,

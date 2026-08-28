@@ -448,7 +448,7 @@ router.post('/v1/chat/completions', authenticateApiKey, async (req, res) => {
               // 捕获usage数据
               if (data.response?.usageMetadata) {
                 totalUsage = data.response.usageMetadata
-                logger.debug('📊 Captured Gemini usage data:', totalUsage)
+                logger.debug('Captured Gemini usage data:', totalUsage)
               }
 
               // 转换为 OpenAI 流式格式
@@ -544,7 +544,7 @@ router.post('/v1/chat/completions', authenticateApiKey, async (req, res) => {
               }),
             )
             logger.info(
-              `📊 Recorded Gemini stream usage - Input: ${totalUsage.promptTokenCount}, Output: ${totalUsage.candidatesTokenCount}, Total: ${totalUsage.totalTokenCount}`,
+              `Recorded Gemini stream usage - Input: ${totalUsage.promptTokenCount}, Output: ${totalUsage.candidatesTokenCount}, Total: ${totalUsage.totalTokenCount}`,
             )
 
             // 修复：标记 usage 已上报，避免重复上报
@@ -656,7 +656,7 @@ router.post('/v1/chat/completions', authenticateApiKey, async (req, res) => {
             }),
           )
           logger.info(
-            `📊 Recorded Gemini usage - Input: ${openaiResponse.usage.prompt_tokens}, Output: ${openaiResponse.usage.completion_tokens}, Total: ${openaiResponse.usage.total_tokens}`,
+            `Recorded Gemini usage - Input: ${openaiResponse.usage.prompt_tokens}, Output: ${openaiResponse.usage.completion_tokens}, Total: ${openaiResponse.usage.total_tokens}`,
           )
         } catch (error) {
           logger.error('Failed to record Gemini usage:', error)
@@ -828,7 +828,7 @@ router.get('/v1/models/:model', authenticateApiKey, async (req, res) => {
       if (!apiKeyData.restrictedModels.includes(modelId)) {
         return res.status(404).json({
           error: {
-            message: `Model '${modelId}' not found`,
+            message: `Model '${modelId}'not found`,
             type: 'invalid_request_error',
             code: 'model_not_found',
           },

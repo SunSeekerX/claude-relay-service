@@ -195,6 +195,7 @@ import { ref, reactive, watch } from 'vue'
 
 import ModalTransition from '@/components/common/modal_transition.vue'
 import { useUserStore } from '@/stores/user'
+import { isOk, msgOf } from '@/libs/http_envelope'
 import { showToast } from '@/libs/tools'
 
 const props = defineProps({
@@ -241,11 +242,11 @@ const handleSubmit = async () => {
 
     const result = await userStore.createApiKey(apiKeyData)
 
-    if (result.success) {
+    if (isOk(result)) {
       newApiKey.value = result.apiKey
       showToast('API key created successfully!', 'success')
     } else {
-      error.value = result.message || 'Failed to create API key'
+      error.value = msgOf(result, 'Failed to create API key')
     }
   } catch (err) {
     console.error('Create API key error:', err)

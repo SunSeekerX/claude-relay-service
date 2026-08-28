@@ -344,14 +344,17 @@ body::before {
   /* focus ring 3px，左右留边避免被父级 overflow 裁切 */
   margin-left: 3px;
   margin-right: 3px;
-  padding: 16px;
-  font-size: 16px;
+  /* 禁止 padding 简写：会盖掉 form-input--with-icon 的 padding-right */
+  padding-top: 8px;
+  padding-bottom: 8px;
+  padding-left: 12px;
+  padding-right: 12px;
+  font-size: 14px;
   color: var(--text-primary);
   transition:
     background-color 0.3s ease,
     border-color 0.3s ease,
     box-shadow 0.3s ease;
-  /* 移除模糊效果 */
 }
 
 .form-input.w-full {
@@ -553,14 +556,17 @@ body::before {
   /* focus ring 3px，左右留边避免被父级 overflow 裁切 */
   margin-left: 3px;
   margin-right: 3px;
-  padding: 16px;
-  font-size: 16px;
+  /* 禁止 padding 简写：会盖掉 form-input--with-icon 的 padding-right */
+  padding-top: 8px;
+  padding-bottom: 8px;
+  padding-left: 12px;
+  padding-right: 12px;
+  font-size: 14px;
   color: var(--text-primary);
   transition:
     background-color 0.3s ease,
     border-color 0.3s ease,
     box-shadow 0.3s ease;
-  /* 移除模糊效果 */
 }
 
 .form-input:focus {
@@ -614,12 +620,11 @@ body::before {
 
 .modal-content {
   background: white;
-  border-radius: 24px;
+  border-radius: 12px;
   border: 1px solid rgba(229, 231, 235, 0.8);
   box-shadow:
     0 10px 25px -5px rgba(0, 0, 0, 0.15),
     0 0 0 1px rgba(255, 255, 255, 0.05);
-  /* 移除模糊效果 */
   transition:
     background-color 0.3s ease,
     border-color 0.3s ease;

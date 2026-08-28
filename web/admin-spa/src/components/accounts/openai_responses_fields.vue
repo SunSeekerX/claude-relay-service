@@ -213,7 +213,13 @@
             class="rounded-lg bg-purple-50 p-3 text-sm text-purple-700 dark:bg-purple-900/30 dark:text-purple-400"
           >
             <i class="i-lucide-info mr-1" />
-            把客户端请求的模型名<strong>改写成</strong>上游真实模型。不限制能否调度（限制请去「模型白名单」）。
+            把客户端模型名改写成上游模型。支持前缀通配
+            <code class="mx-0.5">gpt-*</code>
+            →
+            <code class="mx-0.5">gpt-5.4</code>
+            ；目标含
+            <code class="mx-0.5">*</code>
+            时替换后缀。不限制调度（限制去「模型白名单」）。
           </div>
           <button
             class="rounded-lg bg-emerald-100 px-3 py-1.5 text-sm font-medium text-emerald-700 hover:bg-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-400"
@@ -243,7 +249,7 @@
             <input
               v-model="row.from"
               class="form-input flex-1 border-transparent dark:border-transparent dark:bg-gray-700 dark:text-gray-200"
-              placeholder="客户端模型"
+              placeholder="客户端模型，如 gpt-*"
               type="text"
               @input="emitMappings"
             />
@@ -292,6 +298,7 @@
 import { ref, computed, watch } from 'vue'
 
 import DialogSideNav from '@/components/common/dialog_side_nav.vue'
+import { isOk, msgOf } from '@/libs/http_envelope'
 import * as httpApis from '@/libs/http_apis'
 import { showToast } from '@/libs/tools'
 
@@ -430,8 +437,8 @@ const fetchUpstream = async () => {
     }
 
     const result = await httpApis.fetchOpenAIResponsesUpstreamModelsApi(payload)
-    if (!result?.success || !Array.isArray(result.data?.models)) {
-      showToast(result?.message || '同步上游模型失败', 'error')
+    if (!isOk(result) || !Array.isArray(result.data?.models)) {
+      showToast(msgOf(result, '同步上游模型失败'), 'error')
       return
     }
     const models = result.data.models.filter((m) => typeof m === 'string' && m.trim())

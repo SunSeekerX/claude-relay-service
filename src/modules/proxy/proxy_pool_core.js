@@ -192,12 +192,10 @@ export class CircuitBreaker {
   }
 
   // 半开期只放一个探针
-  // [人工决策-2026-06-05 11:42:11] 已知问题：本方法是死代码，全仓零调用。半开期本应靠它把
-  //   probeInFlight 置 true 以「只放一个探针」，但无人调用，而 computeDynamicWeight 在 HALF_OPEN
-  //   时只读 probeInFlight（恒为 false）→ 权重恒为 1 → 半开期会放多个并发探针而非一个，单探针闸门
-  //   实际未生效。根因同 proxyResolver.report() 死链（见该处 [人工决策] 注释）：业务流量从不回写代理池，
-  //   熔断/半开状态机对真实流量整体未驱动。接 report() 接线时应一并修复（在半开期入选前调 tryAcquireProbe
-  //   做准入）。详见本次审计 #2。
+  // [人工决策-2026-06-05 11:42:11] 本方法当前死代码（全仓零调用）。半开应靠它置 probeInFlight
+  // 只放一个探针；无人调用时 computeDynamicWeight 在 HALF_OPEN 读 probeInFlight 恒 false、权重恒 1，
+  // 半开会放多探针。根因同 proxyResolver.report() 死链：业务流量不回写代理池，熔断/半开未驱动。
+  // 接 report() 时半开入选前调 tryAcquireProbe 做准入。
   tryAcquireProbe() {
     if (this.state !== CircuitState.HALF_OPEN) {
       return false

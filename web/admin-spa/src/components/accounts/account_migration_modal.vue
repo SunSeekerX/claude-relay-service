@@ -2,45 +2,61 @@
   <ModalTransition>
     <div
       v-if="show"
-      class="modal fixed inset-0 z-50 flex items-center justify-center p-4"
+      class="modal fixed inset-0 z-50 flex items-center justify-center p-3"
       @click.self="close"
     >
       <div
-        class="modal-content mx-auto flex max-h-[85vh] w-full max-w-2xl flex-col rounded-2xl bg-white shadow-xl dark:bg-gray-800"
+        class="modal-content mx-auto flex max-h-[80vh] w-full max-w-lg flex-col overflow-hidden rounded-xl bg-white shadow-xl dark:bg-gray-800"
       >
-        <!-- header -->
+        <!-- 头：标题单独一行 -->
         <div
-          class="flex items-center justify-between border-b border-gray-100 p-5 dark:border-gray-700"
+          class="flex shrink-0 items-center justify-between border-b border-gray-100 px-3 py-2.5 dark:border-gray-700"
         >
-          <h3 class="text-lg font-bold text-gray-900 dark:text-white">账户导入 / 导出</h3>
+          <h3 class="text-sm font-semibold text-gray-900 dark:text-gray-100">账户导入 / 导出</h3>
           <button
-            class="flex h-8 w-8 items-center justify-center rounded-full text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700"
+            class="inline-flex h-7 w-7 items-center justify-center rounded-full text-gray-400 transition hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-700 dark:hover:text-gray-200"
+            type="button"
             @click="close"
           >
-            <i class="i-lucide-x" />
+            <i class="i-lucide-x text-base" />
           </button>
         </div>
 
-        <!-- tabs -->
-        <div class="flex gap-2 border-b border-gray-100 px-5 pt-4 dark:border-gray-700">
-          <button
-            v-for="t in tabs"
-            :key="t.key"
-            :class="[
-              'rounded-t-lg px-4 py-2 text-sm font-medium transition-colors',
-              activeTab === t.key
-                ? 'bg-primary/10 text-primary'
-                : 'text-gray-500 hover:text-gray-700 dark:text-gray-400'
-            ]"
-            @click="activeTab = t.key"
-          >
-            <i class="mr-1.5" :class="t.icon" />{{ t.label }}
-          </button>
+        <!-- Tab 在标题下方 -->
+        <div class="shrink-0 border-b border-gray-100 px-3 py-2 dark:border-gray-700">
+          <div class="flex rounded-lg bg-gray-100 p-0.5 dark:bg-gray-700/80">
+            <button
+              class="inline-flex flex-1 items-center justify-center gap-1 rounded-md px-2 py-1.5 text-sm font-medium transition"
+              :class="
+                activeTab === 'export'
+                  ? 'bg-white text-blue-600 shadow-sm dark:bg-gray-800 dark:text-blue-300'
+                  : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'
+              "
+              type="button"
+              @click="activeTab = 'export'"
+            >
+              <i class="i-lucide-download" />
+              导出
+            </button>
+            <button
+              class="inline-flex flex-1 items-center justify-center gap-1 rounded-md px-2 py-1.5 text-sm font-medium transition"
+              :class="
+                activeTab === 'import'
+                  ? 'bg-white text-blue-600 shadow-sm dark:bg-gray-800 dark:text-blue-300'
+                  : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'
+              "
+              type="button"
+              @click="activeTab = 'import'"
+            >
+              <i class="i-lucide-upload" />
+              导入
+            </button>
+          </div>
         </div>
 
-        <div class="flex-1 overflow-y-auto p-5">
+        <div class="min-h-0 flex-1 overflow-y-auto p-3">
           <ExportPanel v-if="activeTab === 'export'" :selected-ids="selectedIds" />
-          <ImportPanel v-else @imported="$emit('imported')" />
+          <ImportPanel v-else @imported="emit('imported')" />
         </div>
       </div>
     </div>
@@ -49,26 +65,17 @@
 
 <script setup>
 import { ref } from 'vue'
+
 import ModalTransition from '@/components/common/modal_transition.vue'
 import ExportPanel from '@/components/accounts/migration/export_panel.vue'
 import ImportPanel from '@/components/accounts/migration/import_panel.vue'
 
-const props = defineProps({
+defineProps({
   show: { type: Boolean, default: false },
   selectedIds: { type: Array, default: () => [] }
 })
+
 const emit = defineEmits(['close', 'imported'])
-
-const tabs = [
-  { key: 'export', label: '导出', icon: 'i-lucide-download' },
-  { key: 'import', label: '导入', icon: 'i-lucide-upload' }
-]
 const activeTab = ref('export')
-
-function close() {
-  emit('close')
-}
-
-// 引用 props 以满足 lint（selectedIds 透传给 ExportPanel）
-void props.selectedIds
+const close = () => emit('close')
 </script>

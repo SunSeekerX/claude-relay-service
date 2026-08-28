@@ -390,6 +390,7 @@ import { ref, watch } from 'vue'
 
 import ModalTransition from '@/components/common/modal_transition.vue'
 import { getFrontUserUsageStatsApi, getFrontUserByIdApi } from '@/libs/http_apis'
+import { isOk, dataOf } from '@/libs/http_envelope'
 import { showToast, formatNumber, formatDate } from '@/libs/tools'
 
 const props = defineProps({
@@ -426,12 +427,12 @@ const loadUsageStats = async () => {
       getFrontUserByIdApi(props.user.id)
     ])
 
-    if (statsResponse.success) {
-      usageStats.value = statsResponse.stats
+    if (isOk(statsResponse)) {
+      usageStats.value = dataOf(statsResponse)?.stats
     }
 
-    if (userResponse.success) {
-      userDetails.value = userResponse.user
+    if (isOk(userResponse)) {
+      userDetails.value = dataOf(userResponse)?.user
     }
   } catch (error) {
     console.error('Failed to load user usage stats:', error)

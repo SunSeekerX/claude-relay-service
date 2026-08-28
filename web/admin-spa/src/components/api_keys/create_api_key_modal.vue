@@ -2,10 +2,10 @@
   <ModalTransition @after-leave="onClosed">
     <div
       v-if="visible"
-      class="modal fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4"
+      class="modal fixed inset-0 z-50 flex items-center justify-center p-3"
     >
-      <div class="modal-content mx-auto flex max-h-[90vh] w-full max-w-4xl flex-col overflow-hidden p-3 sm:p-4">
-        <div class="mb-4 flex items-center justify-between">
+      <div class="modal-content mx-auto flex max-h-[92vh] w-full max-w-5xl flex-col overflow-hidden p-2.5 sm:p-3">
+        <div class="mb-2.5 flex items-center justify-between sm:mb-3">
           <div class="flex items-center gap-2 sm:gap-3">
             <div
               class="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-blue-500 to-blue-600 sm:h-10 sm:w-10 sm:rounded-xl"
@@ -28,7 +28,7 @@
           class="flex min-h-0 flex-1 flex-col overflow-hidden"
           @submit.prevent="createApiKey"
         >
-          <div class="modal-scroll-content custom-scrollbar min-h-0 flex-1 space-y-3 overflow-y-auto sm:space-y-4">
+          <div class="modal-scroll-content custom-scrollbar min-h-0 flex-1 space-y-3 overflow-y-auto sm:space-y-3">
           <!-- 创建类型选择 -->
           <div
             class="rounded-lg border border-blue-200 bg-gradient-to-r from-blue-50 to-indigo-50 p-3 dark:border-blue-700 dark:from-blue-900/20 dark:to-indigo-900/20 sm:p-4"
@@ -115,7 +115,7 @@
             <label class="mb-2 block text-sm font-semibold text-gray-700 dark:text-gray-300"
               >标签</label
             >
-            <div class="space-y-4">
+            <div class="space-y-3">
               <!-- 已选择的标签 -->
               <div v-if="form.tags.length > 0">
                 <div class="mb-2 text-sm font-medium text-gray-600 dark:text-gray-400">
@@ -251,7 +251,7 @@
               <!-- 示例说明 -->
               <div class="rounded-lg bg-blue-100 p-2 dark:bg-blue-900/30">
                 <h5 class="mb-1 text-sm font-semibold text-blue-800 dark:text-blue-400">
-                  💡 使用示例
+                  使用示例
                 </h5>
                 <div class="space-y-0.5 text-sm text-blue-700 dark:text-blue-300">
                   <div>
@@ -550,11 +550,12 @@
                 @change="updateExpireAt"
               />
               <div v-if="form.expireDuration === 'custom'" class="mt-3">
-                <input
+                <AppDateRangePicker
                   v-model="form.customExpireDate"
-                  class="form-input w-full border-transparent dark:border-transparent dark:bg-gray-700 dark:text-gray-200"
+                  class="w-full"
+                  mode="single"
                   :min="minDateTime"
-                  type="datetime-local"
+                  :presets="false"
                   @change="updateCustomExpireAt"
                 />
               </div>
@@ -773,7 +774,10 @@
               </div>
             </div>
             <p class="mt-2 text-sm text-gray-500 dark:text-gray-400">
-              选择专属账号后，此API Key将只使用该账号，不选择则使用共享账号池
+              选择专属账号后，此 API Key 将只使用该账号；不选择则使用共享账号池。
+              绑定 OpenAI/Grok 专属后，Claude 客户端
+              <code class="font-mono">/v1/messages</code>
+              可按 model（gpt/grok）自动跨协议桥接；未绑定则只走 Claude 池。
             </p>
           </div>
 
@@ -952,8 +956,10 @@ import { ref, reactive, computed, onMounted } from 'vue'
 
 import ModalTransition from '@/components/common/modal_transition.vue'
 import CuteOptionCards from '@/components/common/cute_option_cards.vue'
+import AppDateRangePicker from '@/components/common/app_date_range_picker.vue'
 import { showToast } from '@/libs/tools'
-import { getDateTimeLocalMinValue, localDateTimeInputToISOString } from '@/libs/time'
+import { isOk, msgOf } from '@/libs/http_envelope'
+import { toStoreDateTime, localDateTimeInputToISOString } from '@/libs/time'
 import { useClientsStore } from '@/stores/clients'
 import { useApiKeysStore } from '@/stores/api_keys'
 import * as httpApis from '@/libs/http_apis'
@@ -1265,7 +1271,7 @@ const refreshAccounts = async () => {
     // 合并Claude OAuth账户和Claude Console账户
     const claudeAccounts = []
 
-    if (claudeData.success) {
+    if (isOk(claudeData)) {
       claudeData.data?.forEach((account) => {
         claudeAccounts.push({
           ...account,
@@ -1275,7 +1281,7 @@ const refreshAccounts = async () => {
       })
     }
 
-    if (claudeConsoleData.success) {
+    if (isOk(claudeConsoleData)) {
       claudeConsoleData.data?.forEach((account) => {
         claudeAccounts.push({
           ...account,
@@ -1290,7 +1296,7 @@ const refreshAccounts = async () => {
     // 合并 Gemini OAuth 和 Gemini API 账号
     const geminiAccounts = []
 
-    if (geminiData.success) {
+    if (isOk(geminiData)) {
       ;(geminiData.data || []).forEach((account) => {
         geminiAccounts.push({
           ...account,
@@ -1300,7 +1306,7 @@ const refreshAccounts = async () => {
       })
     }
 
-    if (geminiApiData.success) {
+    if (isOk(geminiApiData)) {
       ;(geminiApiData.data || []).forEach((account) => {
         geminiAccounts.push({
           ...account,
@@ -1315,7 +1321,7 @@ const refreshAccounts = async () => {
     // 合并 OpenAI 和 OpenAI-Responses 账号
     const openaiAccounts = []
 
-    if (openaiData.success) {
+    if (isOk(openaiData)) {
       ;(openaiData.data || []).forEach((account) => {
         openaiAccounts.push({
           ...account,
@@ -1325,7 +1331,7 @@ const refreshAccounts = async () => {
       })
     }
 
-    if (openaiResponsesData.success) {
+    if (isOk(openaiResponsesData)) {
       ;(openaiResponsesData.data || []).forEach((account) => {
         openaiAccounts.push({
           ...account,
@@ -1337,14 +1343,14 @@ const refreshAccounts = async () => {
 
     localAccounts.value.openai = openaiAccounts
 
-    if (bedrockData.success) {
+    if (isOk(bedrockData)) {
       localAccounts.value.bedrock = (bedrockData.data || []).map((account) => ({
         ...account,
         isDedicated: account.accountType === 'dedicated' // 保留以便向后兼容
       }))
     }
 
-    if (droidData.success) {
+    if (isOk(droidData)) {
       localAccounts.value.droid = (droidData.data || []).map((account) => ({
         ...account,
         platform: 'droid',
@@ -1352,7 +1358,7 @@ const refreshAccounts = async () => {
       }))
     }
 
-    if (grokData.success) {
+    if (isOk(grokData)) {
       localAccounts.value.grok = (grokData.data || []).map((account) => ({
         ...account,
         platform: 'grok',
@@ -1360,10 +1366,12 @@ const refreshAccounts = async () => {
       }))
     }
 
-    if (groupsData.success) {
+    if (isOk(groupsData)) {
       const allGroups = groupsData.data || []
       localAccounts.value.claudeGroups = allGroups.filter((g) => g.platform === 'claude')
-      localAccounts.value.geminiGroups = allGroups.filter((g) => g.platform === 'gemini')
+      localAccounts.value.geminiGroups = allGroups.filter(
+        (g) => g.platform === 'gemini' || g.platform === 'antigravity',
+      )
       localAccounts.value.openaiGroups = allGroups.filter((g) => g.platform === 'openai')
       localAccounts.value.droidGroups = allGroups.filter((g) => g.platform === 'droid')
       localAccounts.value.grokGroups = allGroups.filter((g) => g.platform === 'grok')
@@ -1378,9 +1386,7 @@ const refreshAccounts = async () => {
 }
 
 // 计算最小日期时间
-const minDateTime = computed(() => {
-  return getDateTimeLocalMinValue(1)
-})
+const minDateTime = computed(() => toStoreDateTime(new Date(Date.now() + 60_000)))
 
 // 更新过期时间
 const updateExpireAt = () => {
@@ -1659,12 +1665,12 @@ const createApiKey = async () => {
 
       const result = await httpApis.createApiKeyApi(data)
 
-      if (result.success) {
+      if (isOk(result)) {
         showToast('API Key 创建成功', 'success')
         pendingResult = { event: 'success', payload: result.data }
         requestClose()
       } else {
-        showToast(result.message || '创建失败', 'error')
+        showToast(msgOf(result, '创建失败'), 'error')
       }
     } else {
       // 批量创建
@@ -1677,12 +1683,12 @@ const createApiKey = async () => {
 
       const result = await httpApis.batchCreateApiKeysApi(data)
 
-      if (result.success) {
+      if (isOk(result)) {
         showToast(`成功创建 ${result.data.length} 个 API Key`, 'success')
         pendingResult = { event: 'batch-success', payload: result.data }
         requestClose()
       } else {
-        showToast(result.message || '批量创建失败', 'error')
+        showToast(msgOf(result, '批量创建失败'), 'error')
       }
     }
   } catch (error) {

@@ -178,7 +178,7 @@ export class CostCalculator {
     const isLongContextModel = typeof model === 'string' && model.includes('[1m]')
 
     logger.warn(
-      `💰 Missing detailed pricing for model ${warnKey}; using fallback pricing ` +
+      `Missing detailed pricing for model ${warnKey}; using fallback pricing ` +
         `(hasPricing=${result?.hasPricing === true}, cacheCreation=${hasDetailedCache}, longContext=${isLongContextModel})`,
     )
   }

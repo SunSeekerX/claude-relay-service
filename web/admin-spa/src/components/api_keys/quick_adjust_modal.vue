@@ -168,6 +168,7 @@ import { ref, reactive, computed, onMounted } from 'vue'
 import ModalTransition from '@/components/common/modal_transition.vue'
 import { showToast, formatDateTime } from '@/libs/tools'
 import * as httpApis from '@/libs/http_apis'
+import { isOk, msgOf } from '@/libs/http_envelope'
 
 const props = defineProps({
   apiKey: {
@@ -271,7 +272,7 @@ const saveCost = async () => {
     const result = await httpApis.quickAdjustApiKeyApi(props.apiKey.id, {
       addCostLimit: parseFloat(form.addCostLimit)
     })
-    if (result.success) {
+    if (isOk(result)) {
       currentTotalCostLimit.value = result.newTotalCostLimit
       form.addCostLimit = ''
       showToast('额度已增加', 'success')
@@ -280,7 +281,7 @@ const saveCost = async () => {
         totalCostLimit: result.newTotalCostLimit
       })
     } else {
-      showToast(result.message || '保存失败', 'error')
+      showToast(msgOf(result, '保存失败'), 'error')
     }
   } catch (error) {
     showToast('保存失败', 'error')
@@ -298,7 +299,7 @@ const saveExpiry = async () => {
       extendAmount: extendResolved.value.amount,
       extendUnit: extendResolved.value.unit
     })
-    if (result.success) {
+    if (isOk(result)) {
       currentExpiresAt.value = result.newExpiresAt
       form.extendAmount = ''
       showToast('有效期已延长', 'success')
@@ -310,7 +311,7 @@ const saveExpiry = async () => {
         activatedAt: result.activatedAt
       })
     } else {
-      showToast(result.message || '保存失败', 'error')
+      showToast(msgOf(result, '保存失败'), 'error')
     }
   } catch (error) {
     showToast('保存失败', 'error')

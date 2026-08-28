@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { ref } from 'vue'
 
 import { getOemSettingsApi, updateOemSettingsApi } from '@/libs/http_apis'
+import { isOk } from '@/libs/http_envelope'
 import { formatLocalDateTime } from '@/libs/time'
 
 export const useSettingsStore = defineStore('settings', () => {
@@ -22,7 +23,7 @@ export const useSettingsStore = defineStore('settings', () => {
   const loadOemSettings = async () => {
     loading.value = true
     const res = await getOemSettingsApi()
-    if (res.success) {
+    if (isOk(res)) {
       oemSettings.value = { ...oemSettings.value, ...res.data }
     }
     loading.value = false
@@ -32,7 +33,7 @@ export const useSettingsStore = defineStore('settings', () => {
   const saveOemSettings = async (settings) => {
     saving.value = true
     const res = await updateOemSettingsApi(settings)
-    if (res.success) {
+    if (isOk(res)) {
       oemSettings.value = { ...oemSettings.value, ...res.data }
     }
     saving.value = false

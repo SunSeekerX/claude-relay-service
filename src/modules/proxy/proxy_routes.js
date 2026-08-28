@@ -2,9 +2,18 @@ import express from 'express'
 import { logger } from '../../common/logger.js'
 import { redis } from '../../infra/redis.js'
 import { authenticateAdmin } from '../../infra/middleware_auth.js'
+import { asyncRoute } from '../../common/route_handler.js'
+import { ok, notFound } from '../../common/http_result.js'
 import { proxyPoolService } from './proxy_pool_service.js'
 import { proxyHealthService } from './proxy_health_service.js'
-import { validateProxyUrl, maskProxyUrl } from './proxy_pool_core.js'
+import { maskProxyUrl } from './proxy_pool_core.js'
+import {
+  parseCreateProxyBody,
+  parseUpdateProxyBody,
+  parseCreateProxyGroupBody,
+  parseUpdateProxyGroupBody,
+  parseProxySettingsBody,
+} from './proxy_routes_schema.js'
 // 代理池管理路由 — 代理/分组 CRUD、健康检查、质量检测、看板
 // 挂载于 /admin/proxy-pool
 
@@ -22,213 +31,163 @@ const sanitizeProxyForResponse = (proxyConfig) => ({
 const clearAccountBindings = async (kind, id) => {
   const cleared = await redis.clearProxyBindingFromAllAccounts(kind, id)
   if (cleared > 0) {
-    logger.info(`🌐 [ProxyPool] cleared ${cleared} account binding(s) on ${kind}=${id} deletion`)
+    logger.info(`[ProxyPool] cleared ${cleared} account binding(s) on ${kind}=${id} deletion`)
   }
 }
 
 // === 代理 CRUD ===
 
 // 列出全部代理（附运行时状态 + 质量 + 出口IP）
-router.get('/proxies', authenticateAdmin, async (req, res) => {
-  try {
-    const configs = proxyPoolService.getAllProxyConfigs()
-    const result = await Promise.all(
-      configs.map(async (proxyConfig) => {
-        const [quality, exitInfo] = await Promise.all([
-          redis.getProxyQualityResult(proxyConfig.id),
-          redis.getProxyExitInfo(proxyConfig.id),
-        ])
-        return {
-          ...sanitizeProxyForResponse(proxyConfig),
-          states: proxyPoolService.getProxyStatesSnapshot(proxyConfig.id),
-          quality,
-          exitInfo,
-        }
-      }),
-    )
-    res.json({ success: true, data: result })
-  } catch (error) {
-    logger.error('❌ Failed to list proxies:', error)
-    res.status(500).json({ success: false, message: error.message })
-  }
-})
+router.get(
+  '/proxies',
+  authenticateAdmin,
+  asyncRoute('Failed to list proxies', async () => {
+    const rows = await proxyPoolService.listProxiesWithRuntime()
+    return rows.map((row) => ({
+      ...sanitizeProxyForResponse(row),
+      states: row.states,
+      quality: row.quality,
+      exitInfo: row.exitInfo,
+    }))
+  }),
+)
 
 // 创建代理
-router.post('/proxies', authenticateAdmin, async (req, res) => {
-  try {
-    const { url, name, baseWeight, groupIds } = req.body || {}
-    if (!validateProxyUrl(url)) {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid proxy url (expect http/https/socks4/socks5://[user:pass@]host:port)',
-      })
-    }
-    const proxyConfig = await proxyPoolService.createProxy({
-      url,
-      name,
-      baseWeight,
-      groupIds,
-    })
-    return res.json({ success: true, data: sanitizeProxyForResponse(proxyConfig) })
-  } catch (error) {
-    logger.error('❌ Failed to create proxy:', error)
-    return res.status(500).json({ success: false, message: error.message })
-  }
-})
+router.post(
+  '/proxies',
+  authenticateAdmin,
+  asyncRoute('Failed to create proxy', async (req) => {
+    const input = parseCreateProxyBody(req.body)
+    const proxyConfig = await proxyPoolService.createProxy(input)
+    return sanitizeProxyForResponse(proxyConfig)
+  }),
+)
 
 // 更新代理
-router.put('/proxies/:id', authenticateAdmin, async (req, res) => {
-  try {
-    const proxyConfig = await proxyPoolService.updateProxy(req.params.id, req.body || {})
-    res.json({ success: true, data: sanitizeProxyForResponse(proxyConfig) })
-  } catch (error) {
-    logger.error('❌ Failed to update proxy:', error)
-    res.status(500).json({ success: false, message: error.message })
-  }
-})
+router.put(
+  '/proxies/:id',
+  authenticateAdmin,
+  asyncRoute('Failed to update proxy', async (req) => {
+    const input = parseUpdateProxyBody(req.body)
+    const proxyConfig = await proxyPoolService.updateProxy(req.params.id, input)
+    return sanitizeProxyForResponse(proxyConfig)
+  }),
+)
 
 // 删除代理
-router.delete('/proxies/:id', authenticateAdmin, async (req, res) => {
-  try {
+router.delete(
+  '/proxies/:id',
+  authenticateAdmin,
+  asyncRoute('Failed to delete proxy', async (req) => {
     await clearAccountBindings('proxy', req.params.id)
     await proxyPoolService.deleteProxy(req.params.id)
-    res.json({ success: true })
-  } catch (error) {
-    logger.error('❌ Failed to delete proxy:', error)
-    res.status(500).json({ success: false, message: error.message })
-  }
-})
+    return ok()
+  }),
+)
 
 // 立即对单个代理做健康检查
-router.post('/proxies/:id/health-check', authenticateAdmin, async (req, res) => {
-  try {
+router.post(
+  '/proxies/:id/health-check',
+  authenticateAdmin,
+  asyncRoute('Failed to health-check proxy', async (req) => {
     const proxyConfig = proxyPoolService.getProxyConfig(req.params.id)
     if (!proxyConfig) {
-      return res.status(404).json({ success: false, message: 'Proxy not found' })
+      throw notFound('Proxy not found')
     }
-    const result = await proxyHealthService.checkProxy(proxyConfig)
-    return res.json({ success: true, data: result })
-  } catch (error) {
-    logger.error('❌ Failed to health-check proxy:', error)
-    return res.status(500).json({ success: false, message: error.message })
-  }
-})
+    return proxyHealthService.checkProxy(proxyConfig)
+  }),
+)
 
 // 立即对单个代理做质量检测（5 项 + 出口IP）
-router.post('/proxies/:id/quality-check', authenticateAdmin, async (req, res) => {
-  try {
-    const result = await proxyHealthService.checkProxyQuality(req.params.id)
-    res.json({ success: true, data: result })
-  } catch (error) {
-    logger.error('❌ Failed to quality-check proxy:', error)
-    res.status(500).json({ success: false, message: error.message })
-  }
-})
+router.post(
+  '/proxies/:id/quality-check',
+  authenticateAdmin,
+  asyncRoute('Failed to quality-check proxy', async (req) => proxyHealthService.checkProxyQuality(req.params.id)),
+)
 
 // 健康检查历史
-router.get('/proxies/:id/health-history', authenticateAdmin, async (req, res) => {
-  try {
-    const history = await redis.getProxyHealthHistory(req.params.id, 50)
-    res.json({ success: true, data: history })
-  } catch (error) {
-    logger.error('❌ Failed to get proxy health history:', error)
-    res.status(500).json({ success: false, message: error.message })
-  }
-})
+router.get(
+  '/proxies/:id/health-history',
+  authenticateAdmin,
+  asyncRoute('Failed to get proxy health history', async (req) => redis.getProxyHealthHistory(req.params.id, 50)),
+)
 
 // === 分组 CRUD ===
 
-router.get('/groups', authenticateAdmin, async (req, res) => {
-  try {
-    const groups = proxyPoolService.getGroupsList().map((group) => ({
+router.get(
+  '/groups',
+  authenticateAdmin,
+  asyncRoute('Failed to list proxy groups', async () =>
+    proxyPoolService.getGroupsList().map((group) => ({
       ...group,
       memberCount: proxyPoolService.getGroupMembers(group.id).length,
-    }))
-    res.json({ success: true, data: groups })
-  } catch (error) {
-    logger.error('❌ Failed to list proxy groups:', error)
-    res.status(500).json({ success: false, message: error.message })
-  }
-})
+    })),
+  ),
+)
 
-router.post('/groups', authenticateAdmin, async (req, res) => {
-  try {
-    const group = await proxyPoolService.createGroup(req.body || {})
-    res.json({ success: true, data: group })
-  } catch (error) {
-    logger.error('❌ Failed to create proxy group:', error)
-    res.status(500).json({ success: false, message: error.message })
-  }
-})
+router.post(
+  '/groups',
+  authenticateAdmin,
+  asyncRoute('Failed to create proxy group', async (req) =>
+    proxyPoolService.createGroup(parseCreateProxyGroupBody(req.body)),
+  ),
+)
 
-router.put('/groups/:id', authenticateAdmin, async (req, res) => {
-  try {
-    const group = await proxyPoolService.updateGroup(req.params.id, req.body || {})
-    res.json({ success: true, data: group })
-  } catch (error) {
-    logger.error('❌ Failed to update proxy group:', error)
-    res.status(500).json({ success: false, message: error.message })
-  }
-})
+router.put(
+  '/groups/:id',
+  authenticateAdmin,
+  asyncRoute('Failed to update proxy group', async (req) =>
+    proxyPoolService.updateGroup(req.params.id, parseUpdateProxyGroupBody(req.body)),
+  ),
+)
 
-router.delete('/groups/:id', authenticateAdmin, async (req, res) => {
-  try {
+router.delete(
+  '/groups/:id',
+  authenticateAdmin,
+  asyncRoute('Failed to delete proxy group', async (req) => {
     await clearAccountBindings('group', req.params.id)
     await proxyPoolService.deleteGroup(req.params.id)
-    res.json({ success: true })
-  } catch (error) {
-    logger.error('❌ Failed to delete proxy group:', error)
-    res.status(500).json({ success: false, message: error.message })
-  }
-})
+    return ok()
+  }),
+)
 
 // === 概览看板 ===
 
-router.get('/overview', authenticateAdmin, async (req, res) => {
-  try {
+router.get(
+  '/overview',
+  authenticateAdmin,
+  asyncRoute('Failed to get proxy overview', async () => {
     const configs = proxyPoolService.getAllProxyConfigs()
     // 健康/不健康口径只统计已启用代理，与列表页一致（禁用代理单独归类，不计入健康统计）
     const enabledConfigs = configs.filter((proxyConfig) => proxyConfig.status === 1)
     const healthy = enabledConfigs.filter((proxyConfig) => proxyConfig.isHealthy).length
     const enabled = enabledConfigs.length
-    res.json({
-      success: true,
-      data: {
-        total: configs.length,
-        enabled,
-        healthy,
-        unhealthy: enabled - healthy,
-        groups: proxyPoolService.getGroupsList().length,
-        routeVersion: proxyPoolService.localVersion,
-      },
-    })
-  } catch (error) {
-    logger.error('❌ Failed to get proxy overview:', error)
-    res.status(500).json({ success: false, message: error.message })
-  }
-})
+    return {
+      total: configs.length,
+      enabled,
+      healthy,
+      unhealthy: enabled - healthy,
+      groups: proxyPoolService.getGroupsList().length,
+      routeVersion: proxyPoolService.localVersion,
+    }
+  }),
+)
 
 // === 全局设置（健康检查 / 熔断 / 慢启动调优参数） ===
 
-// 读取当前生效设置（env 默认已合并 Redis 覆盖）
-router.get('/settings', authenticateAdmin, async (req, res) => {
-  try {
-    res.json({ success: true, data: proxyPoolService.getSettings() })
-  } catch (error) {
-    logger.error('❌ Failed to get proxy pool settings:', error)
-    res.status(500).json({ success: false, message: error.message })
-  }
-})
+router.get(
+  '/settings',
+  authenticateAdmin,
+  asyncRoute('Failed to get proxy pool settings', async () => proxyPoolService.getSettings()),
+)
 
-// 保存设置并实时应用（核心算法 + 健康检查定时器立即生效，无需重启）
-router.put('/settings', authenticateAdmin, async (req, res) => {
-  try {
-    const effective = await proxyPoolService.applySettings(req.body || {})
+router.put(
+  '/settings',
+  authenticateAdmin,
+  asyncRoute('Failed to update proxy pool settings', async (req) => {
+    const input = parseProxySettingsBody(req.body)
+    const effective = await proxyPoolService.applySettings(input)
     proxyHealthService.reconfigure()
-    return res.json({ success: true, data: effective })
-  } catch (error) {
-    logger.error('❌ Failed to update proxy pool settings:', error)
-    // 参数校验错误带 statusCode=400；Redis 写入等服务端故障无此标记，归 500，避免误导调用方/监控
-    return res.status(error.statusCode || 500).json({ success: false, message: error.message })
-  }
-})
+    return effective
+  }),
+)

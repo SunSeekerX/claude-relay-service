@@ -537,3 +537,7 @@ export const inspectAccountImportApi = (data) =>
   request({ url: '/admin/accounts/import/inspect', method: 'POST', data })
 export const importAccountsApi = (data) =>
   request({ url: '/admin/accounts/import', method: 'POST', data })
+
+// 跨协议转换注册表
+export const getTranslatorRegistryApi = () =>
+  request({ url: '/admin/translator-registry', method: 'GET' })

@@ -13,7 +13,7 @@ export const CLIENT_DEFINITIONS = {
     name: 'Claude Code',
     displayName: 'Claude Code CLI',
     description: 'Claude Code command-line interface',
-    icon: '🤖',
+    icon: '',
     // Claude Code 仅允许访问 Claude 原生端点，禁止访问 OpenAI 兼容端点
     allowedPathPrefixes: [
       '/api/v1/messages',
@@ -42,7 +42,7 @@ export const CLIENT_DEFINITIONS = {
     name: 'Gemini CLI',
     displayName: 'Gemini Command Line Tool',
     description: 'Google Gemini API command-line interface',
-    icon: '💎',
+    icon: '',
     // Gemini CLI：/gemini 前缀 + 官方根路径 /v1beta /v1internal
     allowedPathPrefixes: ['/gemini/', '/v1beta/', '/v1internal', '/v1/models'],
   },
@@ -52,7 +52,7 @@ export const CLIENT_DEFINITIONS = {
     name: 'Codex CLI',
     displayName: 'Codex Command Line Tool',
     description: 'Cursor/Codex command-line interface',
-    icon: '🔷',
+    icon: '',
     // Codex CLI / VS Code 插件：Responses + 模型列表 + Azure + 官方路径别名
     // /openai/responses 前缀同时覆盖 /openai/responses/compact
     allowedPathPrefixes: [
@@ -75,7 +75,7 @@ export const CLIENT_DEFINITIONS = {
     name: 'Droid CLI',
     displayName: 'Factory Droid CLI',
     description: 'Factory Droid platform command-line interface',
-    icon: '🤖',
+    icon: '',
     // Droid CLI 仅允许访问 Droid 端点
     allowedPathPrefixes: ['/droid/'],
   },

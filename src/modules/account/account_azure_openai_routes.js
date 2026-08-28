@@ -1,22 +1,28 @@
 import express from 'express'
+import axios from 'axios'
+
 import * as azureOpenaiAccountService from './account_azure_openai_service.js'
 import { accountGroupService } from './account_group_service.js'
 import { apiKeyService } from '../apikey/apikey_service.js'
 import { redis } from '../../infra/redis.js'
 import { authenticateAdmin } from '../../infra/middleware_auth.js'
+import { asyncRoute } from '../../common/route_handler.js'
+import { ok, badRequest, notFound, unauthorized, fail } from '../../common/http_result.js'
 import { logger } from '../../common/logger.js'
 import { webhookNotifier } from '../webhook/webhook_notifier.js'
-import axios from 'axios'
 import { formatAccountExpiry, mapExpiryField } from '../admin/admin_utils_routes.js'
 import { stripReadonlyAccountFields } from '../../common/common_helper.js'
 import { ProxyHelper } from '../proxy/proxy_helper.js'
 import { createChatCompletionsTestPayload, extractErrorMessage } from '../../common/test_payload_helper.js'
+import { parseObjectBody } from '../../common/parse_body.js'
 
 export const router = express.Router()
 
 // 获取所有 Azure OpenAI 账户
-router.get('/azure-openai-accounts', authenticateAdmin, async (req, res) => {
-  try {
+router.get(
+  '/azure-openai-accounts',
+  authenticateAdmin,
+  asyncRoute('Failed to fetch Azure OpenAI accounts', async (req) => {
     const { platform, groupId } = req.query
     let accounts = await azureOpenaiAccountService.getAllAccounts()
 
@@ -91,23 +97,15 @@ router.get('/azure-openai-accounts', authenticateAdmin, async (req, res) => {
       }),
     )
 
-    res.json({
-      success: true,
-      data: accountsWithStats,
-    })
-  } catch (error) {
-    logger.error('Failed to fetch Azure OpenAI accounts:', error)
-    res.status(500).json({
-      success: false,
-      message: 'Failed to fetch accounts',
-      error: error.message,
-    })
-  }
-})
+    return accountsWithStats
+  }),
+)
 
 // 创建 Azure OpenAI 账户
-router.post('/azure-openai-accounts', authenticateAdmin, async (req, res) => {
-  try {
+router.post(
+  '/azure-openai-accounts',
+  authenticateAdmin,
+  asyncRoute('Failed to create Azure OpenAI account', async (req) => {
     const {
       name,
       description,
@@ -123,43 +121,28 @@ router.post('/azure-openai-accounts', authenticateAdmin, async (req, res) => {
       priority,
       isActive,
       schedulable,
-    } = req.body
+    } = parseObjectBody(req.body, '创建Azure OpenAI账户')
 
     // 验证必填字段
     if (!name) {
-      return res.status(400).json({
-        success: false,
-        message: 'Account name is required',
-      })
+      throw badRequest('Account name is required')
     }
 
     if (!azureEndpoint) {
-      return res.status(400).json({
-        success: false,
-        message: 'Azure endpoint is required',
-      })
+      throw badRequest('Azure endpoint is required')
     }
 
     if (!apiKey) {
-      return res.status(400).json({
-        success: false,
-        message: 'API key is required',
-      })
+      throw badRequest('API key is required')
     }
 
     if (!deploymentName) {
-      return res.status(400).json({
-        success: false,
-        message: 'Deployment name is required',
-      })
+      throw badRequest('Deployment name is required')
     }
 
     // 验证 Azure endpoint 格式
     if (!azureEndpoint.match(/^https:\/\/[\w-]+\.openai\.azure\.com$/)) {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid Azure OpenAI endpoint format. Expected: https://your-resource.openai.azure.com',
-      })
+      throw badRequest('Invalid Azure OpenAI endpoint format. Expected: https://your-resource.openai.azure.com')
     }
 
     // 测试连接
@@ -175,10 +158,7 @@ router.post('/azure-openai-accounts', authenticateAdmin, async (req, res) => {
       if (testError.response?.status === 404) {
         logger.warn('Azure OpenAI deployment not found, but continuing with account creation')
       } else if (testError.response?.status === 401) {
-        return res.status(400).json({
-          success: false,
-          message: 'Invalid API key or unauthorized access',
-        })
+        throw badRequest('Invalid API key or unauthorized access')
       }
     }
 
@@ -209,51 +189,33 @@ router.post('/azure-openai-accounts', authenticateAdmin, async (req, res) => {
       }
     }
 
-    res.json({
-      success: true,
-      data: account,
-      message: 'Azure OpenAI account created successfully',
-    })
-  } catch (error) {
-    logger.error('Failed to create Azure OpenAI account:', error)
-    res.status(500).json({
-      success: false,
-      message: 'Failed to create account',
-      error: error.message,
-    })
-  }
-})
+    return ok(account, 'Azure OpenAI account created successfully')
+  }),
+)
 
 // 更新 Azure OpenAI 账户
-router.put('/azure-openai-accounts/:id', authenticateAdmin, async (req, res) => {
-  try {
+router.put(
+  '/azure-openai-accounts/:id',
+  authenticateAdmin,
+  asyncRoute('Failed to update Azure OpenAI account', async (req) => {
     const { id } = req.params
-    const updates = req.body
+    const updates = parseObjectBody(req.body, '更新Azure OpenAI账户')
 
-    // ✅ 【新增】映射字段名:前端的 expiresAt -> 后端的 subscriptionExpiresAt
+    // 【新增】映射字段名:前端的 expiresAt -> 后端的 subscriptionExpiresAt
     // review#3：剥离外部传入的状态类字段，禁止伪造自动停用证据
     const mappedUpdates = stripReadonlyAccountFields(mapExpiryField(updates, 'Azure OpenAI', id))
 
     const account = await azureOpenaiAccountService.updateAccount(id, mappedUpdates)
 
-    res.json({
-      success: true,
-      data: account,
-      message: 'Azure OpenAI account updated successfully',
-    })
-  } catch (error) {
-    logger.error('Failed to update Azure OpenAI account:', error)
-    res.status(500).json({
-      success: false,
-      message: 'Failed to update account',
-      error: error.message,
-    })
-  }
-})
+    return ok(account, 'Azure OpenAI account updated successfully')
+  }),
+)
 
 // 删除 Azure OpenAI 账户
-router.delete('/azure-openai-accounts/:id', authenticateAdmin, async (req, res) => {
-  try {
+router.delete(
+  '/azure-openai-accounts/:id',
+  authenticateAdmin,
+  asyncRoute('Failed to delete Azure OpenAI account', async (req) => {
     const { id } = req.params
 
     // 自动解绑所有绑定的 API Keys
@@ -266,57 +228,39 @@ router.delete('/azure-openai-accounts/:id', authenticateAdmin, async (req, res) 
       message += `,${unboundCount} 个 API Key 已切换为共享池模式`
     }
 
-    logger.success(`🗑️ Admin deleted Azure OpenAI account: ${id}, unbound ${unboundCount} keys`)
+    logger.success(`Admin deleted Azure OpenAI account: ${id}, unbound ${unboundCount} keys`)
 
-    res.json({
-      success: true,
-      message,
-      unboundKeys: unboundCount,
-    })
-  } catch (error) {
-    logger.error('Failed to delete Azure OpenAI account:', error)
-    res.status(500).json({
-      success: false,
-      message: 'Failed to delete account',
-      error: error.message,
-    })
-  }
-})
+    return ok({ unboundKeys: unboundCount }, message)
+  }),
+)
 
 // 切换 Azure OpenAI 账户状态
-router.put('/azure-openai-accounts/:id/toggle', authenticateAdmin, async (req, res) => {
-  try {
+router.put(
+  '/azure-openai-accounts/:id/toggle',
+  authenticateAdmin,
+  asyncRoute('Failed to toggle Azure OpenAI account status', async (req) => {
     const { id } = req.params
 
     const account = await azureOpenaiAccountService.getAccount(id)
     if (!account) {
-      return res.status(404).json({
-        success: false,
-        message: 'Account not found',
-      })
+      throw notFound('Account not found')
     }
 
     const newStatus = account.isActive === 'true' ? 'false' : 'true'
     await azureOpenaiAccountService.updateAccount(id, { isActive: newStatus })
 
-    res.json({
-      success: true,
-      message: `Account ${newStatus === 'true' ? 'activated' : 'deactivated'} successfully`,
-      isActive: newStatus === 'true',
-    })
-  } catch (error) {
-    logger.error('Failed to toggle Azure OpenAI account status:', error)
-    res.status(500).json({
-      success: false,
-      message: 'Failed to toggle account status',
-      error: error.message,
-    })
-  }
-})
+    return ok(
+      { isActive: newStatus === 'true' },
+      `Account ${newStatus === 'true' ? 'activated' : 'deactivated'} successfully`,
+    )
+  }),
+)
 
 // 切换 Azure OpenAI 账户调度状态
-router.put('/azure-openai-accounts/:accountId/toggle-schedulable', authenticateAdmin, async (req, res) => {
-  try {
+router.put(
+  '/azure-openai-accounts/:accountId/toggle-schedulable',
+  authenticateAdmin,
+  asyncRoute('切换 Azure OpenAI 账户调度状态失败', async (req) => {
     const { accountId } = req.params
 
     const result = await azureOpenaiAccountService.toggleSchedulable(accountId)
@@ -338,163 +282,120 @@ router.put('/azure-openai-accounts/:accountId/toggle-schedulable', authenticateA
       }
     }
 
-    return res.json({
-      success: true,
-      schedulable: result.schedulable,
-      message: result.schedulable ? '已启用调度' : '已禁用调度',
-    })
-  } catch (error) {
-    logger.error('切换 Azure OpenAI 账户调度状态失败:', error)
-    return res.status(500).json({
-      success: false,
-      message: '切换调度状态失败',
-      error: error.message,
-    })
-  }
-})
+    return ok({ schedulable: result.schedulable }, result.schedulable ? '已启用调度' : '已禁用调度')
+  }),
+)
 
 // 健康检查单个 Azure OpenAI 账户
-router.post('/azure-openai-accounts/:id/health-check', authenticateAdmin, async (req, res) => {
-  try {
+router.post(
+  '/azure-openai-accounts/:id/health-check',
+  authenticateAdmin,
+  asyncRoute('Failed to perform health check', async (req) => {
     const { id } = req.params
-    const healthResult = await azureOpenaiAccountService.healthCheckAccount(id)
-
-    res.json({
-      success: true,
-      data: healthResult,
-    })
-  } catch (error) {
-    logger.error('Failed to perform health check:', error)
-    res.status(500).json({
-      success: false,
-      message: 'Failed to perform health check',
-      error: error.message,
-    })
-  }
-})
+    return azureOpenaiAccountService.healthCheckAccount(id)
+  }),
+)
 
 // 批量健康检查所有 Azure OpenAI 账户
-router.post('/azure-openai-accounts/health-check-all', authenticateAdmin, async (req, res) => {
-  try {
-    const healthResults = await azureOpenaiAccountService.performHealthChecks()
-
-    res.json({
-      success: true,
-      data: healthResults,
-    })
-  } catch (error) {
-    logger.error('Failed to perform batch health check:', error)
-    res.status(500).json({
-      success: false,
-      message: 'Failed to perform batch health check',
-      error: error.message,
-    })
-  }
-})
+router.post(
+  '/azure-openai-accounts/health-check-all',
+  authenticateAdmin,
+  asyncRoute('Failed to perform batch health check', async () => azureOpenaiAccountService.performHealthChecks()),
+)
 
 // 迁移 API Keys 以支持 Azure OpenAI
-router.post('/migrate-api-keys-azure', authenticateAdmin, async (req, res) => {
-  try {
+router.post(
+  '/migrate-api-keys-azure',
+  authenticateAdmin,
+  asyncRoute('Failed to migrate API keys', async () => {
     const migratedCount = await azureOpenaiAccountService.migrateApiKeysForAzureSupport()
-
-    res.json({
-      success: true,
-      message: `Successfully migrated ${migratedCount} API keys for Azure OpenAI support`,
-    })
-  } catch (error) {
-    logger.error('Failed to migrate API keys:', error)
-    res.status(500).json({
-      success: false,
-      message: 'Failed to migrate API keys',
-      error: error.message,
-    })
-  }
-})
+    return ok(undefined, `Successfully migrated ${migratedCount} API keys for Azure OpenAI support`)
+  }),
+)
 
 // 测试 Azure OpenAI 账户连通性
-router.post('/azure-openai-accounts/:accountId/test', authenticateAdmin, async (req, res) => {
-  const { accountId } = req.params
-  const startTime = Date.now()
-  try {
-    // 获取账户信息
-    const account = await azureOpenaiAccountService.getAccount(accountId)
-    if (!account) {
-      return res.status(404).json({ error: 'Account not found' })
-    }
-
-    // 获取解密后的 API Key
-    const apiKey = await azureOpenaiAccountService.getDecryptedApiKey(accountId)
-    if (!apiKey) {
-      return res.status(401).json({ error: 'API Key not found or decryption failed' })
-    }
-
-    // 构造测试请求
-
-    const deploymentName = account.deploymentName || 'gpt-4o-mini'
-    const apiVersion = account.apiVersion || '2024-02-15-preview'
-    const apiUrl = `${account.endpoint}/openai/deployments/${deploymentName}/chat/completions?api-version=${apiVersion}`
-    const payload = createChatCompletionsTestPayload(deploymentName)
-
-    const requestConfig = {
-      headers: {
-        'Content-Type': 'application/json',
-        'api-key': apiKey,
-      },
-      timeout: 30000,
-    }
-
-    // 配置代理
-    if (account.proxy) {
-      const agent = ProxyHelper.createProxyAgent(account.proxy)
-      if (agent) {
-        requestConfig.httpsAgent = agent
-        requestConfig.httpAgent = agent
+router.post(
+  '/azure-openai-accounts/:accountId/test',
+  authenticateAdmin,
+  asyncRoute('Azure OpenAI account test failed', async (req) => {
+    const { accountId } = req.params
+    const startTime = Date.now()
+    try {
+      // 获取账户信息
+      const account = await azureOpenaiAccountService.getAccount(accountId)
+      if (!account) {
+        throw notFound('Account not found')
       }
-    }
 
-    const response = await axios.post(apiUrl, payload, requestConfig)
-    const latency = Date.now() - startTime
+      // 获取解密后的 API Key
+      const apiKey = await azureOpenaiAccountService.getDecryptedApiKey(accountId)
+      if (!apiKey) {
+        throw unauthorized('API Key not found or decryption failed')
+      }
 
-    // 提取响应文本
-    let responseText = ''
-    if (response.data?.choices?.[0]?.message?.content) {
-      responseText = response.data.choices[0].message.content
-    }
+      // 构造测试请求
 
-    logger.success(`✅ Azure OpenAI account test passed: ${account.name} (${accountId}), latency: ${latency}ms`)
+      const deploymentName = account.deploymentName || 'gpt-4o-mini'
+      const apiVersion = account.apiVersion || '2024-02-15-preview'
+      const apiUrl = `${account.endpoint}/openai/deployments/${deploymentName}/chat/completions?api-version=${apiVersion}`
+      const payload = createChatCompletionsTestPayload(deploymentName)
 
-    return res.json({
-      success: true,
-      data: {
+      const requestConfig = {
+        headers: {
+          'Content-Type': 'application/json',
+          'api-key': apiKey,
+        },
+        timeout: 30000,
+      }
+
+      // 配置代理
+      if (account.proxy) {
+        const agent = ProxyHelper.createProxyAgent(account.proxy)
+        if (agent) {
+          requestConfig.httpsAgent = agent
+          requestConfig.httpAgent = agent
+        }
+      }
+
+      const response = await axios.post(apiUrl, payload, requestConfig)
+      const latency = Date.now() - startTime
+
+      // 提取响应文本
+      let responseText = ''
+      if (response.data?.choices?.[0]?.message?.content) {
+        responseText = response.data.choices[0].message.content
+      }
+
+      logger.success(`Azure OpenAI account test passed: ${account.name} (${accountId}), latency: ${latency}ms`)
+
+      return {
         accountId,
         accountName: account.name,
         model: deploymentName,
         latency,
         responseText: responseText.substring(0, 200),
-      },
-    })
-  } catch (error) {
-    const latency = Date.now() - startTime
-    logger.error(`❌ Azure OpenAI account test failed: ${accountId}`, error.message)
-
-    return res.status(500).json({
-      success: false,
-      error: 'Test failed',
-      message: extractErrorMessage(error.response?.data, error.message),
-      latency,
-    })
-  }
-})
+      }
+    } catch (error) {
+      if (error.statusCode) {
+        throw error
+      }
+      const latency = Date.now() - startTime
+      logger.error(`Azure OpenAI account test failed: ${accountId}`, error.message)
+      return fail(500, extractErrorMessage(error.response?.data, error.message), {
+        data: { latency },
+      })
+    }
+  }),
+)
 
 // 重置 Azure OpenAI 账户状态
-router.post('/:accountId/reset-status', authenticateAdmin, async (req, res) => {
-  try {
+router.post(
+  '/:accountId/reset-status',
+  authenticateAdmin,
+  asyncRoute('Failed to reset Azure OpenAI account status', async (req) => {
     const { accountId } = req.params
     const result = await azureOpenaiAccountService.resetAccountStatus(accountId)
     logger.success(`Admin reset status for Azure OpenAI account: ${accountId}`)
-    return res.json({ success: true, data: result })
-  } catch (error) {
-    logger.error('❌ Failed to reset Azure OpenAI account status:', error)
-    return res.status(500).json({ error: 'Failed to reset status', message: error.message })
-  }
-})
+    return result
+  }),
+)

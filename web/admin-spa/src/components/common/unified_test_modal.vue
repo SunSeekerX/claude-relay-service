@@ -285,6 +285,7 @@ import ModalTransition from '@/components/common/modal_transition.vue'
 import CustomDropdown from '@/components/common/custom_dropdown.vue'
 import { APP_CONFIG } from '@/libs/tools'
 import { getModelsApi } from '@/libs/http_apis'
+import { isOk } from '@/libs/http_envelope'
 import { useTestState } from '@/libs/use_test_state'
 import ModelSelector from '@/components/common/model_selector.vue'
 
@@ -327,7 +328,7 @@ const modelsLoaded = ref(false)
 
 const loadModels = async () => {
   const result = await getModelsApi()
-  if (result.success && result.data) {
+  if (isOk(result) && result.data) {
     modelsFromApi.value = result.data
     modelsLoaded.value = true
   }

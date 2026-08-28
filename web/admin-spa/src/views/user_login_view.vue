@@ -191,7 +191,7 @@ const handleLogin = async () => {
 }
 
 onMounted(() => {
-  // 初始化主题（因为该页面不在 MainLayout 内）
+  // 初始化主题（本页不在 MainLayout 内）
   themeStore.initTheme()
 })
 </script>

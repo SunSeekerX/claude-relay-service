@@ -88,7 +88,7 @@
           class="rounded-lg border border-yellow-200 bg-yellow-50 p-3 dark:border-yellow-500/40 dark:bg-yellow-950/30 sm:p-4"
         >
           <p class="text-sm text-yellow-700 dark:text-yellow-300">
-            💡 请将示例中的
+            请将示例中的
             <code class="rounded bg-yellow-100 px-1 dark:bg-yellow-900">cr_xxxxxxxxxx</code>
             替换为您的实际 API 密钥
           </p>
