@@ -39,8 +39,9 @@ router.post(
     let adminData = await redis.getSession('admin_credentials')
 
     // 如果Redis中没有管理员凭据，尝试从init.json重新加载
+    // DEC_20260902_171157 模块迁到 src/modules/admin 后回退路径要三级到仓库根 data/
     if (!adminData || Object.keys(adminData).length === 0) {
-      const initFilePath = path.join(__dirname, '../../data/init.json')
+      const initFilePath = path.join(__dirname, '../../../data/init.json')
 
       if (fs.existsSync(initFilePath)) {
         try {
@@ -171,7 +172,7 @@ router.post(
     const updatedUsername = newUsername && newUsername.trim() ? newUsername.trim() : adminData.username
 
     // 先更新 init.json（唯一真实数据源）
-    const initFilePath = path.join(__dirname, '../../data/init.json')
+    const initFilePath = path.join(__dirname, '../../../data/init.json')
     if (!fs.existsSync(initFilePath)) {
       throw new Error('init.json file is missing')
     }
