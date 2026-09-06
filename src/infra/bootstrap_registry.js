@@ -64,7 +64,7 @@ export const selfHealingActions = [
   },
   {
     id: 'logger_audit_selfheal',
-    call: 'src/utils/logger.js healAuditFile + cwd 畸形残留清理(模块加载时同步执行)',
+    call: 'src/common/logger.js healAuditFile + cwd 畸形残留清理(模块加载时同步执行)',
     mode: 'blocking',
     idempotency: '审计路径一致且无孤儿则无操作;收编按 name 去重;畸形文件删除天然幂等',
     dependsOn: '仅 config 已加载(早于 redis, 不依赖任何服务)',

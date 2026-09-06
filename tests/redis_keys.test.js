@@ -21,6 +21,11 @@ describe('RedisKeys.apiKey', () => {
     expect(RedisKeys.apiKey.idx.all).toBe('apikey:idx:all')
     expect(RedisKeys.apiKey.set.active).toBe('apikey:set:active')
     expect(RedisKeys.apiKey.set.deleted).toBe('apikey:set:deleted')
+    expect(RedisKeys.apiKey.idPrefix).toBe('apikey:')
+    expect(RedisKeys.apiKey.idx.prefix).toBe('apikey:idx:')
+    expect(RedisKeys.apiKey.set.prefix).toBe('apikey:set:')
+    expect(RedisKeys.apiKey.tagsPrefix).toBe('apikey:tags:')
+    expect(RedisKeys.apiKey.indexPrefix).toBe('apikey:index:')
   })
 })
 
@@ -133,6 +138,7 @@ describe('RedisKeys.session 映射(命名各异,逐字)', () => {
   test('逐字', () => {
     expect(RedisKeys.session.admin('s')).toBe('session:s')
     expect(RedisKeys.session.oauth('s')).toBe('oauth:s')
+    expect(RedisKeys.session.oauthPrefix).toBe('oauth:')
     expect(RedisKeys.session.sticky('h')).toBe('sticky_session:h')
     expect(RedisKeys.session.openaiMapping('h')).toBe('openai_session_account_mapping:h')
     expect(RedisKeys.session.geminiMapping('h')).toBe('gemini_session_account_mapping:h')
@@ -159,6 +165,10 @@ describe('RedisKeys.rateLimit / concurrency / userMsgQueue / lock', () => {
     expect(RedisKeys.concurrency.queueStats('k')).toBe('concurrency:queue:stats:k')
     expect(RedisKeys.concurrency.queueWaitTimes('k')).toBe('concurrency:queue:wait_times:k')
     expect(RedisKeys.concurrency.queueWaitTimesGlobal).toBe('concurrency:queue:wait_times:global')
+    expect(RedisKeys.concurrency.queuePrefix).toBe('concurrency:queue:')
+    expect(RedisKeys.concurrency.queueStatsPrefix).toBe('concurrency:queue:stats:')
+    expect(RedisKeys.concurrency.queueWaitTimesPrefix).toBe('concurrency:queue:wait_times:')
+    expect(RedisKeys.concurrency.leasePrefix).toBe('concurrency:')
   })
   test('userMsgQueue / lock', () => {
     expect(RedisKeys.userMsgQueue.lock('a')).toBe('user_msg_queue_lock:a')
@@ -177,16 +187,23 @@ describe('RedisKeys 其余分区', () => {
     expect(RedisKeys.accountGroup.members('g')).toBe('account_group_members:g')
     expect(RedisKeys.accountGroup.reverse('claude', 'a')).toBe('account_groups_reverse:claude:a')
     expect(RedisKeys.accountGroup.reverseMigrated).toBe('account_groups_reverse:migrated')
+    expect(RedisKeys.accountGroup.costPrefix).toBe('account_group:cost:')
+    expect(RedisKeys.accountGroup.costDaily('g', '2026-06-03')).toBe(
+      'account_group:cost:daily:g:2026-06-03'
+    )
     expect(RedisKeys.costRank.rank('daily')).toBe('cost_rank:daily')
     expect(RedisKeys.costRank.meta('daily')).toBe('cost_rank_meta:daily')
     expect(RedisKeys.costRank.lock('daily')).toBe('cost_rank_lock:daily')
   })
   test('requestDetail / claudeCode / upstream', () => {
     expect(RedisKeys.requestDetail.item('r')).toBe('request_detail:item:r')
+    expect(RedisKeys.requestDetail.itemPrefix).toBe('request_detail:item:')
+    expect(RedisKeys.requestDetail.dayIndexPrefix).toBe('request_detail:index:day:')
     expect(RedisKeys.requestDetail.dayIndex('2026-06-03')).toBe(
       'request_detail:index:day:2026-06-03'
     )
     expect(RedisKeys.requestDetail.querySnapshot('s')).toBe('request_detail:query_snapshot:s')
+    expect(RedisKeys.requestIdentity.stainlessHeaders('a')).toBe('fmt_claude_req:stainless_headers:a')
     expect(RedisKeys.claudeCode.headers('a')).toBe('claude_code_headers:a')
     expect(RedisKeys.claudeCode.userAgentDaily).toBe('claude_code_user_agent:daily')
     expect(RedisKeys.upstream.tempUnavailable('claude', 'a')).toBe('temp_unavailable:claude:a')
@@ -379,6 +396,7 @@ describe('补漏 builder(各 agent 报告后补充)', () => {
     expect(RedisKeys.rateLimit.account('a')).toBe('ratelimit:a')
     expect(RedisKeys.claudeCode.headersPattern).toBe('claude_code_headers:*')
     expect(RedisKeys.system.serviceRates).toBe('system:service_rates')
+    expect(RedisKeys.system.quotaCardLimits).toBe('system:quota_card_limits')
     expect(RedisKeys.system.weeklyOpusDone('2026-06-03')).toBe(
       'init:weekly_opus_cost:2026-06-03:done'
     )

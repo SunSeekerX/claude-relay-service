@@ -1,5 +1,6 @@
 import { logger } from '../common/logger.js'
 import { RedisKeys, TTL, LIMITS } from './redis_key.js'
+import { RedisLua } from './redis_lua.js'
 // ===
 // API Key 并发请求排队方法（从 src/models/redis.js 按域抽出）
 // 经 attach(redisClient) 挂到同一个 RedisClient 单例上，this 绑定与原文件一致。
@@ -30,12 +31,7 @@ export const attach = function attach(redisClient) {
       // 使用 Lua 脚本确保 INCR 和 EXPIRE 原子执行，防止进程崩溃导致计数器泄漏
       // TTL = 超时时间 + 缓冲时间（确保键不会在请求还在等待时过期）
       const ttlSeconds = Math.ceil(timeoutMs / 1000) + QUEUE_TTL_BUFFER_SECONDS
-      const script = `
-      local count = redis.call('INCR', KEYS[1])
-      redis.call('EXPIRE', KEYS[1], ARGV[1])
-      return count
-    `
-      const count = await this.client.eval(script, 1, key, String(ttlSeconds))
+      const count = await this.client.eval(RedisLua.queue.incr, 1, key, String(ttlSeconds))
       logger.database(`Incremented queue count for key ${apiKeyId}: ${count} (TTL: ${ttlSeconds}s)`)
       return parseInt(count)
     } catch (error) {
@@ -53,15 +49,7 @@ export const attach = function attach(redisClient) {
     const key = RedisKeys.concurrency.queue(apiKeyId)
     try {
       // 使用 Lua 脚本确保 DECR 和 DEL 原子执行，防止进程崩溃导致计数器残留
-      const script = `
-      local count = redis.call('DECR', KEYS[1])
-      if count <= 0 then
-        redis.call('DEL', KEYS[1])
-        return 0
-      end
-      return count
-    `
-      const count = await this.client.eval(script, 1, key)
+      const count = await this.client.eval(RedisLua.queue.decr, 1, key)
       const result = parseInt(count)
       if (result === 0) {
         logger.database(`Queue count for key ${apiKeyId} is 0, removed key`)
@@ -132,10 +120,13 @@ export const attach = function attach(redisClient) {
 
         for (const key of keys) {
           // 排除统计和等待时间相关的键
-          if (key.startsWith('concurrency:queue:stats:') || key.startsWith('concurrency:queue:wait_times:')) {
+          if (
+            key.startsWith(RedisKeys.concurrency.queueStatsPrefix) ||
+            key.startsWith(RedisKeys.concurrency.queueWaitTimesPrefix)
+          ) {
             continue
           }
-          const apiKeyId = key.replace('concurrency:queue:', '')
+          const apiKeyId = key.replace(RedisKeys.concurrency.queuePrefix, '')
           apiKeyIds.push(apiKeyId)
         }
 
@@ -178,7 +169,9 @@ export const attach = function attach(redisClient) {
 
         // 只删除排队计数器，保留统计数据
         const queueKeys = keys.filter(
-          (key) => !key.startsWith('concurrency:queue:stats:') && !key.startsWith('concurrency:queue:wait_times:'),
+          (key) =>
+            !key.startsWith(RedisKeys.concurrency.queueStatsPrefix) &&
+            !key.startsWith(RedisKeys.concurrency.queueWaitTimesPrefix),
         )
 
         if (queueKeys.length > 0) {
@@ -212,12 +205,7 @@ export const attach = function attach(redisClient) {
     try {
       // 使用 Lua 脚本确保 HINCRBY 和 EXPIRE 原子执行
       // 防止在两者之间崩溃导致统计键没有 TTL（内存泄漏）
-      const script = `
-      local count = redis.call('HINCRBY', KEYS[1], ARGV[1], 1)
-      redis.call('EXPIRE', KEYS[1], ARGV[2])
-      return count
-    `
-      const count = await this.client.eval(script, 1, key, field, String(QUEUE_STATS_TTL_SECONDS))
+      const count = await this.client.eval(RedisLua.queue.incrStats, 1, key, field, String(QUEUE_STATS_TTL_SECONDS))
       return parseInt(count)
     } catch (error) {
       logger.error(`Failed to increment queue stats ${field} for ${apiKeyId}:`, error)
@@ -265,13 +253,14 @@ export const attach = function attach(redisClient) {
     const key = RedisKeys.concurrency.queueWaitTimes(apiKeyId)
     try {
       // 使用 Lua 脚本确保原子性，同时设置 TTL 防止内存泄漏
-      const script = `
-      redis.call('LPUSH', KEYS[1], ARGV[1])
-      redis.call('LTRIM', KEYS[1], 0, ARGV[2])
-      redis.call('EXPIRE', KEYS[1], ARGV[3])
-      return 1
-    `
-      await this.client.eval(script, 1, key, waitTimeMs, WAIT_TIME_SAMPLES_PER_KEY - 1, WAIT_TIME_TTL_SECONDS)
+      await this.client.eval(
+        RedisLua.queue.recordWaitTime,
+        1,
+        key,
+        waitTimeMs,
+        WAIT_TIME_SAMPLES_PER_KEY - 1,
+        WAIT_TIME_TTL_SECONDS,
+      )
     } catch (error) {
       logger.error(`Failed to record queue wait time for ${apiKeyId}:`, error)
     }
@@ -286,13 +275,14 @@ export const attach = function attach(redisClient) {
     const key = RedisKeys.concurrency.queueWaitTimesGlobal
     try {
       // 使用 Lua 脚本确保原子性，同时设置 TTL 防止内存泄漏
-      const script = `
-      redis.call('LPUSH', KEYS[1], ARGV[1])
-      redis.call('LTRIM', KEYS[1], 0, ARGV[2])
-      redis.call('EXPIRE', KEYS[1], ARGV[3])
-      return 1
-    `
-      await this.client.eval(script, 1, key, waitTimeMs, WAIT_TIME_SAMPLES_GLOBAL - 1, WAIT_TIME_TTL_SECONDS)
+      await this.client.eval(
+        RedisLua.queue.recordWaitTime,
+        1,
+        key,
+        waitTimeMs,
+        WAIT_TIME_SAMPLES_GLOBAL - 1,
+        WAIT_TIME_TTL_SECONDS,
+      )
     } catch (error) {
       logger.error('Failed to record global queue wait time:', error)
     }
@@ -352,7 +342,7 @@ export const attach = function attach(redisClient) {
         iterations++
 
         for (const key of keys) {
-          const apiKeyId = key.replace('concurrency:queue:stats:', '')
+          const apiKeyId = key.replace(RedisKeys.concurrency.queueStatsPrefix, '')
           apiKeyIds.push(apiKeyId)
         }
 

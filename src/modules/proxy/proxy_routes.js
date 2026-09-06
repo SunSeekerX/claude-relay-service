@@ -4,18 +4,54 @@ import { redis } from '../../infra/redis.js'
 import { authenticateAdmin } from '../../infra/middleware_auth.js'
 import { asyncRoute } from '../../common/route_handler.js'
 import { ok, notFound } from '../../common/http_result.js'
+import { z, parseBody } from '../../common/parse_body.js'
 import { proxyPoolService } from './proxy_pool_service.js'
 import { proxyHealthService } from './proxy_health_service.js'
-import { maskProxyUrl } from './proxy_pool_core.js'
-import {
-  parseCreateProxyBody,
-  parseUpdateProxyBody,
-  parseCreateProxyGroupBody,
-  parseUpdateProxyGroupBody,
-  parseProxySettingsBody,
-} from './proxy_routes_schema.js'
+import { maskProxyUrl, validateProxyUrl } from './proxy_pool_core.js'
 // 代理池管理路由 — 代理/分组 CRUD、健康检查、质量检测、看板
 // 挂载于 /admin/proxy-pool
+// URL 规则与 proxy_pool_core.validateProxyUrl 同一套正则，禁止 schema 过松导致 service 抛普通 Error→500
+
+const proxyUrlSchema = z
+  .string()
+  .min(1)
+  .refine((value) => validateProxyUrl(value), {
+    message: 'expect http/https/socks4/socks5://[user:pass@]host:port',
+  })
+
+const createProxyBodySchema = z.object({
+  url: proxyUrlSchema,
+  name: z.string().optional(),
+  baseWeight: z.coerce.number().min(0).max(100).optional(),
+  groupIds: z.array(z.string()).optional(),
+})
+
+const updateProxyBodySchema = z
+  .object({
+    url: proxyUrlSchema.optional(),
+    name: z.string().optional(),
+    baseWeight: z.coerce.number().min(0).max(100).optional(),
+    groupIds: z.array(z.string()).optional(),
+    status: z.coerce.number().int().optional(),
+  })
+  .passthrough()
+
+const createProxyGroupBodySchema = z
+  .object({
+    name: z.string().min(1),
+  })
+  .passthrough()
+
+const updateProxyGroupBodySchema = z.object({}).passthrough()
+
+// settings 细节仍由 service normalizeProxyPoolSettings 校验；此处只保证是对象
+const proxySettingsBodySchema = z.record(z.any())
+
+const parseCreateProxyBody = (body) => parseBody(createProxyBodySchema, body, '创建代理')
+const parseUpdateProxyBody = (body) => parseBody(updateProxyBodySchema, body, '更新代理')
+const parseCreateProxyGroupBody = (body) => parseBody(createProxyGroupBodySchema, body, '创建代理分组')
+const parseUpdateProxyGroupBody = (body) => parseBody(updateProxyGroupBodySchema, body, '更新代理分组')
+const parseProxySettingsBody = (body) => parseBody(proxySettingsBodySchema, body, '代理池设置')
 
 export const router = express.Router()
 

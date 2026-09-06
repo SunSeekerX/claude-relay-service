@@ -97,7 +97,7 @@ export const attach = function attach(redisClient) {
 
       const keyData = dataList[i]
       if (keyData && Object.keys(keyData).length > 0) {
-        apiKeys.push({ id: key.replace('apikey:', ''), ...keyData })
+        apiKeys.push({ id: key.replace(RedisKeys.apiKey.idPrefix, ''), ...keyData })
       }
     }
     return apiKeys
@@ -107,7 +107,13 @@ export const attach = function attach(redisClient) {
     const keyIds = new Set()
     let cursor = '0'
     // 排除索引 key 的前缀
-    const excludePrefixes = [RedisKeys.apiKey.hashMap, 'apikey:idx:', 'apikey:set:', 'apikey:tags:', 'apikey:index:']
+    const excludePrefixes = [
+      RedisKeys.apiKey.hashMap,
+      RedisKeys.apiKey.idx.prefix,
+      RedisKeys.apiKey.set.prefix,
+      RedisKeys.apiKey.tagsPrefix,
+      RedisKeys.apiKey.indexPrefix,
+    ]
 
     do {
       const [newCursor, keys] = await this.client.scan(cursor, 'MATCH', RedisKeys.apiKey.allPattern, 'COUNT', 100)
@@ -122,7 +128,7 @@ export const attach = function attach(redisClient) {
         if (key.split(':').length !== 2) {
           continue
         }
-        keyIds.add(key.replace('apikey:', ''))
+        keyIds.add(key.replace(RedisKeys.apiKey.idPrefix, ''))
       }
     } while (cursor !== '0')
 

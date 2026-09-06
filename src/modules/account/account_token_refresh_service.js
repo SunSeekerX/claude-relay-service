@@ -1,6 +1,7 @@
 import { redis } from '../../infra/redis.js'
 import { logger } from '../../common/logger.js'
 import { RedisKeys } from '../../infra/redis_key.js'
+import { RedisLua } from '../../infra/redis_lua.js'
 import crypto from 'node:crypto'
 
 /**
@@ -49,16 +50,7 @@ class TokenRefreshService {
         return
       }
 
-      // Lua 脚本：只有当值匹配时才删除
-      const luaScript = `
-        if redis.call("get", KEYS[1]) == ARGV[1] then
-          return redis.call("del", KEYS[1])
-        else
-          return 0
-        end
-      `
-
-      const result = await client.eval(luaScript, 1, lockKey, lockId)
+      const result = await client.eval(RedisLua.lock.compareAndDel, 1, lockKey, lockId)
 
       if (result === 1) {
         this.lockValue.delete(lockKey)

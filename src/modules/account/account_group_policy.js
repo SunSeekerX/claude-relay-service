@@ -18,6 +18,7 @@
 
 import { redis } from '../../infra/redis.js'
 import { RedisKeys, TTL } from '../../infra/redis_key.js'
+import { RedisLua } from '../../infra/redis_lua.js'
 import { logger } from '../../common/logger.js'
 import * as timezone from '../../common/timezone.js'
 import { config } from '../../../config/config.js'
@@ -80,175 +81,6 @@ const parseHoldPayload = (raw) => {
   }
 }
 
-// KEYS[1]=hold KEYS[2]=dailyCost KEYS[3]=weeklyCost KEYS[4]=monthlyCost
-// ARGV: dLimit wLimit mLimit epsilon holdTtl day week month dTtl wTtl mTtl
-// 返回: {ok, reason, payload} 经 JSON 不方便；用数组 [status, payloadOrReason]
-// status 1=ok(无 hold 或已占), 0=reject；reject 时 [0, reason]
-const ACQUIRE_LUA = `
-local holdKey = KEYS[1]
-local dCost = KEYS[2]
-local wCost = KEYS[3]
-local mCost = KEYS[4]
-local dLimit = tonumber(ARGV[1]) or 0
-local wLimit = tonumber(ARGV[2]) or 0
-local mLimit = tonumber(ARGV[3]) or 0
-local epsilon = tonumber(ARGV[4]) or 0
-local holdTtl = tonumber(ARGV[5]) or 7200
-local day = ARGV[6]
-local week = ARGV[7]
-local month = ARGV[8]
-local dTtl = tonumber(ARGV[9]) or 2851200
-local wTtl = tonumber(ARGV[10]) or 3456000
-local mTtl = tonumber(ARGV[11]) or 6048000
-
-if redis.call('EXISTS', holdKey) == 1 then
-  return {0, 'busy'}
-end
-
-local function reserved_of(costKey, limit)
-  if limit <= 0 then
-    return 0
-  end
-  local used = tonumber(redis.call('GET', costKey) or '0') or 0
-  if used + epsilon >= limit then
-    return -1
-  end
-  local remaining = limit - used
-  if remaining <= epsilon then
-    return -1
-  end
-  return remaining
-end
-
-local dRes = reserved_of(dCost, dLimit)
-if dRes < 0 then
-  return {0, 'daily'}
-end
-local wRes = reserved_of(wCost, wLimit)
-if wRes < 0 then
-  return {0, 'weekly'}
-end
-local mRes = reserved_of(mCost, mLimit)
-if mRes < 0 then
-  return {0, 'monthly'}
-end
-
-if dRes == 0 and wRes == 0 and mRes == 0 then
-  return {1, ''}
-end
-
-if dRes > 0 then
-  redis.call('INCRBYFLOAT', dCost, dRes)
-  redis.call('EXPIRE', dCost, dTtl)
-end
-if wRes > 0 then
-  redis.call('INCRBYFLOAT', wCost, wRes)
-  redis.call('EXPIRE', wCost, wTtl)
-end
-if mRes > 0 then
-  redis.call('INCRBYFLOAT', mCost, mRes)
-  redis.call('EXPIRE', mCost, mTtl)
-end
-
-local payload = string.format('%.8f|%.8f|%.8f|%s|%s|%s', dRes, wRes, mRes, day, week, month)
-redis.call('SET', holdKey, payload, 'EX', holdTtl)
-return {1, payload}
-`
-
-// SETTLE：GETDEL hold + 按 payload 周期调账（actual - reserved）原子完成
-// KEYS[1]=hold
-// ARGV: groupId actual epsilon dTtl wTtl mTtl fallbackDay fallbackWeek fallbackMonth
-// 无 hold 时按 fallback 周期直接 +actual（失败释放后补记 / 无限额统计）
-const SETTLE_LUA = `
-local holdKey = KEYS[1]
-local groupId = ARGV[1]
-local actual = tonumber(ARGV[2]) or 0
-local epsilon = tonumber(ARGV[3]) or 0
-local dTtl = tonumber(ARGV[4]) or 2851200
-local wTtl = tonumber(ARGV[5]) or 3456000
-local mTtl = tonumber(ARGV[6]) or 6048000
-local day = ARGV[7]
-local week = ARGV[8]
-local month = ARGV[9]
-
-local dRes, wRes, mRes = 0, 0, 0
-local payload = redis.call('GETDEL', holdKey)
-if payload then
-  local parts = {}
-  for part in string.gmatch(payload, '[^|]+') do
-    parts[#parts + 1] = part
-  end
-  dRes = tonumber(parts[1]) or 0
-  wRes = tonumber(parts[2]) or 0
-  mRes = tonumber(parts[3]) or 0
-  if parts[4] then day = parts[4] end
-  if parts[5] then week = parts[5] end
-  if parts[6] then month = parts[6] end
-end
-
-local function apply_axis(axis, reserved, period, ttl)
-  local costKey = 'account_group:cost:' .. axis .. ':' .. groupId .. ':' .. period
-  local delta
-  if reserved > epsilon then
-    delta = actual - reserved
-  else
-    delta = actual
-  end
-  if delta > epsilon or delta < -epsilon then
-    redis.call('INCRBYFLOAT', costKey, delta)
-    redis.call('EXPIRE', costKey, ttl)
-  end
-end
-
-apply_axis('daily', dRes, day, dTtl)
-apply_axis('weekly', wRes, week, wTtl)
-apply_axis('monthly', mRes, month, mTtl)
-return 1
-`
-
-// RELEASE：GETDEL hold + 退回 reserved（失败路径），周期取自 payload
-// KEYS[1]=hold  ARGV: groupId epsilon dTtl wTtl mTtl
-const RELEASE_LUA = `
-local holdKey = KEYS[1]
-local groupId = ARGV[1]
-local epsilon = tonumber(ARGV[2]) or 0
-local dTtl = tonumber(ARGV[3]) or 2851200
-local wTtl = tonumber(ARGV[4]) or 3456000
-local mTtl = tonumber(ARGV[5]) or 6048000
-
-local payload = redis.call('GETDEL', holdKey)
-if not payload then
-  return 0
-end
-
-local parts = {}
-for part in string.gmatch(payload, '[^|]+') do
-  parts[#parts + 1] = part
-end
-local dRes = tonumber(parts[1]) or 0
-local wRes = tonumber(parts[2]) or 0
-local mRes = tonumber(parts[3]) or 0
-local day = parts[4]
-local week = parts[5]
-local month = parts[6]
-if not day or not week or not month then
-  return 0
-end
-
-local function refund(axis, reserved, period, ttl)
-  if reserved > epsilon then
-    local costKey = 'account_group:cost:' .. axis .. ':' .. groupId .. ':' .. period
-    redis.call('INCRBYFLOAT', costKey, -reserved)
-    redis.call('EXPIRE', costKey, ttl)
-  end
-end
-
-refund('daily', dRes, day, dTtl)
-refund('weekly', wRes, week, wTtl)
-refund('monthly', mRes, month, mTtl)
-return 1
-`
-
 const clearHoldTarget = (holdTarget, groupId) => {
   if (!holdTarget || typeof holdTarget !== 'object') {
     return
@@ -289,7 +121,7 @@ export const assertGroupRequestAllowed = async (group, context = {}) => {
 
   if (dailyLimit > 0 || weeklyLimit > 0 || monthlyLimit > 0) {
     const result = await client.eval(
-      ACQUIRE_LUA,
+      RedisLua.groupPolicy.acquire,
       4,
       holdKey,
       keys.daily,
@@ -368,7 +200,7 @@ export const releaseGroupCostHolds = async (groupId) => {
     const client = redis.getClientSafe()
     const ttl = costTtlSeconds()
     await client.eval(
-      RELEASE_LUA,
+      RedisLua.groupPolicy.release,
       1,
       RedisKeys.accountGroup.costHold(groupId),
       String(groupId),
@@ -376,6 +208,7 @@ export const releaseGroupCostHolds = async (groupId) => {
       String(ttl.daily),
       String(ttl.weekly),
       String(ttl.monthly),
+      RedisKeys.accountGroup.costPrefix,
     )
   } catch (error) {
     console.error(error)
@@ -395,7 +228,7 @@ export const recordGroupUsageCost = async (groupId, ratedCostUsd) => {
     const ttl = costTtlSeconds()
     const parts = getBusinessParts()
     await client.eval(
-      SETTLE_LUA,
+      RedisLua.groupPolicy.settle,
       1,
       RedisKeys.accountGroup.costHold(groupId),
       String(groupId),
@@ -407,6 +240,7 @@ export const recordGroupUsageCost = async (groupId, ratedCostUsd) => {
       parts.day,
       parts.week,
       parts.month,
+      RedisKeys.accountGroup.costPrefix,
     )
   } catch (error) {
     logger.error(`[group-policy] record cost failed groupId=${groupId}:`, error)

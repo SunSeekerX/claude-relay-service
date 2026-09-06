@@ -154,7 +154,7 @@ export const attach = function attach(redisClient) {
       let oldestCreatedAt = new Date()
 
       // 批量获取所有usage数据和key数据，提高性能
-      const usageKeys = allApiKeys.map((key) => RedisKeys.usage.total(key.replace('apikey:', '')))
+      const usageKeys = allApiKeys.map((key) => RedisKeys.usage.total(key.replace(RedisKeys.apiKey.idPrefix, '')))
       const pipeline = this.client.pipeline()
 
       // 添加所有usage查询

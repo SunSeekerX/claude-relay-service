@@ -1,5 +1,6 @@
 import { logger } from '../common/logger.js'
 import { RedisKeys, TTL, LIMITS } from './redis_key.js'
+import { RedisLua } from './redis_lua.js'
 // === 代理池相关方法（从 src/models/redis.js 按域抽出）===
 // 经 attach(redisClient) 挂到同一个 RedisClient 单例上。this 绑定不变：
 // 仍按 redisClient.xxx() 调用，this 指向单例，this.getClientSafe()/this.getAllIdsByIndex()
@@ -41,26 +42,6 @@ const PROXY_BINDABLE_STORES = [
     type: 'string',
   },
 ]
-
-// 单账户「比较并删除」：仅当字段值仍等于目标 id 时才 HDEL，原子完成
-// 杜绝「扫描读到旧值后、在 HDEL 前用户把该账户改绑到别的代理」导致的误删新绑定
-const HASH_CAS_DELETE_LUA =
-  "if redis.call('HGET', KEYS[1], ARGV[1]) == ARGV[2] then return redis.call('HDEL', KEYS[1], ARGV[1]) else return 0 end"
-
-// bedrock 为 JSON string：Lua+cjson 原子 compare-and-clear，仅当字段仍等于目标 id 时删字段并写回
-// pcall 保护：解析失败则不动；标准 JSON round-trip 保真（null 经 cjson.null 保留）
-const STRING_JSON_CAS_CLEAR_LUA = `
-local raw = redis.call('GET', KEYS[1])
-if not raw then return 0 end
-local ok, obj = pcall(cjson.decode, raw)
-if not ok then return 0 end
-if obj[ARGV[1]] == ARGV[2] then
-  obj[ARGV[1]] = nil
-  redis.call('SET', KEYS[1], cjson.encode(obj))
-  return 1
-end
-return 0
-`
 
 export const attach = function attach(redisClient) {
   // 全量代理配置（返回已解析的对象数组）
@@ -335,13 +316,13 @@ export const attach = function attach(redisClient) {
             // bedrock：Lua+cjson 原子 compare-and-clear，清理侧消除 GET→SET 窗口
             // 注意：bedrock 自身 updateAccount 仍是 GET→改→SET 非原子（string 存储固有缺陷），
             // 与并发 update 的完全原子需将 bedrock 迁移为 hash 存储（独立工程，见交付说明）
-            const removed = await client.eval(STRING_JSON_CAS_CLEAR_LUA, 1, accountKey, field, id)
+            const removed = await client.eval(RedisLua.proxy.stringJsonCasClear, 1, accountKey, field, id)
             if (removed) {
               cleared += 1
             }
           } else {
             // hash 平台：Lua 原子 compare-and-delete，消除 hget→hdel 之间的字段级竞态
-            const removed = await client.eval(HASH_CAS_DELETE_LUA, 1, accountKey, field, id)
+            const removed = await client.eval(RedisLua.proxy.hashCasDelete, 1, accountKey, field, id)
             if (removed) {
               cleared += 1
             }

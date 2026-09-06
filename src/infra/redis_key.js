@@ -60,11 +60,16 @@ export const RedisKeys = {
       name: 'apikey:idx:name', // ZSet(name\x00id)
       deletedAt: 'apikey:idx:deletedAt', // ZSet(回收站)
       all: 'apikey:idx:all', // Set: 所有 keyId
+      prefix: 'apikey:idx:',
     },
     set: {
       active: 'apikey:set:active', // Set
       deleted: 'apikey:set:deleted', // Set
+      prefix: 'apikey:set:',
     },
+    tagsPrefix: 'apikey:tags:',
+    indexPrefix: 'apikey:index:',
+    idPrefix: 'apikey:', // apikey:<uuid> 主数据前缀,scan 剥 id 用
     // List: 快捷调整/禁用激活 变更流水（有界 + TTL）
     changeHistory: (id) => `apikey:change_history:${id}`,
   },
@@ -225,6 +230,7 @@ export const RedisKeys = {
     adminPattern: 'session:*',
     adminCredentials: 'session:admin_credentials', // Hash: 固定管理员凭据
     oauth: (sessionId) => `oauth:${sessionId}`, // Hash: OAuth 临时会话
+    oauthPrefix: 'oauth:',
     oauthPattern: 'oauth:*',
     sticky: (sessionHash) => `sticky_session:${sessionHash}`, // String: 粘性会话
     stickyPattern: 'sticky_session:*',
@@ -268,11 +274,15 @@ export const RedisKeys = {
     consoleAccount: (accountId) => `console_account:${accountId}`, // Console 账户并发
     openaiResponsesAccount: (accountId) => `openai_responses_account:${accountId}`, // OpenAI-Responses 账户并发
     queue: (apiKeyId) => `concurrency:queue:${apiKeyId}`,
+    queuePrefix: 'concurrency:queue:',
     queuePattern: 'concurrency:queue:*',
     queueStats: (apiKeyId) => `concurrency:queue:stats:${apiKeyId}`,
+    queueStatsPrefix: 'concurrency:queue:stats:',
     queueStatsPattern: 'concurrency:queue:stats:*',
     queueWaitTimes: (apiKeyId) => `concurrency:queue:wait_times:${apiKeyId}`,
+    queueWaitTimesPrefix: 'concurrency:queue:wait_times:',
     queueWaitTimesGlobal: 'concurrency:queue:wait_times:global',
+    leasePrefix: 'concurrency:', // concurrency:<apiKeyId> 租约 ZSet 前缀
   },
 
   // === 用户消息队列(账户级串行) ===
@@ -292,6 +302,7 @@ export const RedisKeys = {
   system: {
     metricsMinute: (minute) => `system:metrics:minute:${minute}`,
     serviceRates: 'system:service_rates', // String(JSON): 服务费率配置
+    quotaCardLimits: 'system:quota_card_limits', // String(JSON): 额度卡上限
     weeklyOpusDone: (date) => `init:weekly_opus_cost:${date}:done`, // 周费用回填日级 marker
 
     metricsMinutePattern: 'system:metrics:minute:*',
@@ -313,6 +324,8 @@ export const RedisKeys = {
     costDaily: (groupId, day) => `account_group:cost:daily:${groupId}:${day}`,
     costWeekly: (groupId, week) => `account_group:cost:weekly:${groupId}:${week}`,
     costMonthly: (groupId, month) => `account_group:cost:monthly:${groupId}:${month}`,
+    // Lua settle/release 按 axis 拼 key: account_group:cost:{axis}:{groupId}:{period}
+    costPrefix: 'account_group:cost:',
     // 单分组一笔在途 hold（周期无关，payload 自带 day/week/month + 各轴预扣额，防跨日错释放）
     costHold: (groupId) => `account_group:cost_hold:${groupId}`,
   },
@@ -325,11 +338,18 @@ export const RedisKeys = {
     lock: (timeRange) => `cost_rank_lock:${timeRange}`,
   },
 
+  // === Claude 请求身份指纹 ===
+  requestIdentity: {
+    stainlessHeaders: (accountId) => `fmt_claude_req:stainless_headers:${accountId}`,
+  },
+
   // === 请求详情 ===
   requestDetail: {
     item: (requestId) => `request_detail:item:${requestId}`,
+    itemPrefix: 'request_detail:item:',
     itemPattern: 'request_detail:item:*',
     dayIndex: (day) => `request_detail:index:day:${day}`,
+    dayIndexPrefix: 'request_detail:index:day:',
     querySnapshot: (snapshotId) => `request_detail:query_snapshot:${snapshotId}`,
   },
 

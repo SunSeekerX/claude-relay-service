@@ -17,6 +17,7 @@ import * as upstreamErrorHelper from '../relay/relay_upstream_error_helper.js'
 import { config } from '../../../config/config.js'
 import { asyncRoute } from '../../common/route_handler.js'
 import { ok, badRequest } from '../../common/http_result.js'
+import { normalizeModelName } from '../../common/common_helper.js'
 export const router = express.Router()
 
 // 系统统计
@@ -489,23 +490,6 @@ router.get(
     }
 
     logger.info(`Found ${allResults.length} matching keys in total`)
-
-    // 模型名标准化函数（与redis.js保持一致）
-    const normalizeModelName = (model) => {
-      if (!model || model === 'unknown') {
-        return model
-      }
-
-      // 对于Bedrock模型，去掉区域前缀进行统一
-      if (model.includes('.anthropic.') || model.includes('.claude')) {
-        let normalized = model.replace(/^[a-z0-9-]+\./, '')
-        normalized = normalized.replace('anthropic.', '')
-        normalized = normalized.replace(/-v\d+:\d+$/, '')
-        return normalized
-      }
-
-      return model.replace(/-v\d+:\d+$|:latest$/, '')
-    }
 
     // 聚合相同模型的数据
     const modelStatsMap = new Map()

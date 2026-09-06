@@ -1,5 +1,6 @@
 import { redis } from '../../infra/redis.js'
 import { RedisKeys, LIMITS } from '../../infra/redis_key.js'
+import { RedisLua } from '../../infra/redis_lua.js'
 // 预付费余额账本（出站端口的 Redis 实现）。
 //
 // 【方案A：余额是派生值，用量账本是真相源】
@@ -22,68 +23,6 @@ const APPLIED = (keyId) => RedisKeys.payment.balanceApplied(keyId)
 const REVERSED = (keyId) => RedisKeys.payment.balanceReversed(keyId)
 const TX = (keyId) => RedisKeys.payment.balanceTx(keyId)
 const TX_MAX = LIMITS.balanceTx
-
-// 累加 + refId 幂等：已 applied 则不重复加，返回当前累计值（credit/refunded 共用）
-const ADD_IDEMPOTENT_LUA = `
-if redis.call('SISMEMBER', KEYS[2], ARGV[2]) == 1 then
-  return redis.call('GET', KEYS[1]) or '0'
-end
-redis.call('SADD', KEYS[2], ARGV[2])
-local nv = redis.call('INCRBYFLOAT', KEYS[1], ARGV[1])
-redis.call('RPUSH', KEYS[3], ARGV[3])
-redis.call('LTRIM', KEYS[3], -tonumber(ARGV[4]), -1)
-return nv
-`
-
-// 退款回收（执行时裁剪）：在 Lua 内按派生公式算【当前】余额，actual=min(请求额, 余额)，
-// 原子累加 refunded + 把 actual 按 refId 记入回收额 hash——防止"快照余额已过时、新消费吃掉余额"
-// 导致的超退；实扣记录与扣减同脚本原子，保证「额度已扣必有记录」、卡单可按实扣额续退。
-// actual<=0 时不标记 refId（余额若因再充值回升，可重试退款）。
-// 已 applied 的 refId 返回 -1（与"余额为0"区分），调用方从回收额 hash 取实扣额度续退。
-// KEYS: credit, refunded, baseline, usageCostTotal, applied, tx, reversedAmounts
-const REVERSE_LUA = `
-if redis.call('SISMEMBER', KEYS[5], ARGV[2]) == 1 then
-  return '-1'
-end
-local credit = tonumber(redis.call('GET', KEYS[1]) or '0')
-local refunded = tonumber(redis.call('GET', KEYS[2]) or '0')
-local baseline = tonumber(redis.call('GET', KEYS[3]) or '0')
-local consumed = tonumber(redis.call('GET', KEYS[4]) or '0')
-local used = consumed - baseline
-if used < 0 then used = 0 end
-local bal = credit - refunded - used
-local actual = tonumber(ARGV[1])
-if bal < actual then actual = bal end
-if actual <= 0 then
-  return '0'
-end
-redis.call('SADD', KEYS[5], ARGV[2])
-redis.call('HSET', KEYS[7], ARGV[2], tostring(actual))
-redis.call('INCRBYFLOAT', KEYS[2], actual)
-redis.call('RPUSH', KEYS[6], ARGV[3])
-redis.call('LTRIM', KEYS[6], -tonumber(ARGV[4]), -1)
-return tostring(actual)
-`
-
-// 回滚一次 reverse（渠道退款失败时补偿）：按回收额 hash 的实扣额撤销 refunded、清幂等标记与记录，
-// 订单可重试退款。金额只信账本记录：applied 在而 hash 缺失（数据异常）返回 -1 拒绝回滚，
-// 绝不按调用方传参盲撤销（多回=凭空送额度、少回=用户损失）。
-// KEYS: refunded, applied, tx, reversedAmounts；ARGV: refId, tx, txMax
-const UNREVERSE_LUA = `
-if redis.call('SISMEMBER', KEYS[2], ARGV[1]) == 0 then
-  return '0'
-end
-local amt = tonumber(redis.call('HGET', KEYS[4], ARGV[1]))
-if not amt then
-  return '-1'
-end
-redis.call('SREM', KEYS[2], ARGV[1])
-redis.call('HDEL', KEYS[4], ARGV[1])
-redis.call('INCRBYFLOAT', KEYS[1], -amt)
-redis.call('RPUSH', KEYS[3], ARGV[2])
-redis.call('LTRIM', KEYS[3], -tonumber(ARGV[3]), -1)
-return tostring(amt)
-`
 
 const round6 = (n) => Math.round(n * 1e6) / 1e6
 
@@ -122,7 +61,7 @@ class BalanceLedger {
       ...meta,
     })
     await redis.client.eval(
-      ADD_IDEMPOTENT_LUA,
+      RedisLua.payment.addIdempotent,
       3,
       CREDIT(keyId),
       APPLIED(keyId),
@@ -150,7 +89,7 @@ class BalanceLedger {
       ...meta,
     })
     const actual = await redis.client.eval(
-      REVERSE_LUA,
+      RedisLua.payment.reverse,
       7,
       CREDIT(keyId),
       REFUNDED(keyId),
@@ -184,7 +123,7 @@ class BalanceLedger {
       ...meta,
     })
     const rolled = await redis.client.eval(
-      UNREVERSE_LUA,
+      RedisLua.payment.unreverse,
       4,
       REFUNDED(keyId),
       APPLIED(keyId),

@@ -2,6 +2,7 @@ import crypto from 'node:crypto'
 import { createRequire } from 'node:module'
 import { logger } from '../common/logger.js'
 import { RedisKeys, TTL } from './redis_key.js'
+import { RedisLua } from './redis_lua.js'
 import * as timezone from '../common/timezone.js'
 
 // 懒加载 CostCalculator，打断 ESM 环：redis → cost_stats_store → CostCalculator → pricing_service → redis
@@ -19,19 +20,6 @@ const getCostCalculator = () => {
 // 经 attach(redisClient) 挂到同一个 RedisClient 单例上，this 绑定与原文件一致。
 // 含计费关键写幂等 Lua（COST_TOTAL_LUA，逐字保留）。
 // ===
-// 计费关键写幂等 Lua（见 incrementDailyCost）：去重标记 + 双累加在单脚本内原子执行，
-// 重试遇「脚本已执行但响应丢失」时去重标记命中、不会重复累加。
-// KEYS: dedupKey, costTotal, costRealTotal；ARGV: ratedAmount, realAmount, dedupTtl
-const COST_TOTAL_LUA = `
-if redis.call('EXISTS', KEYS[1]) == 1 then
-  return 0
-end
-redis.call('SET', KEYS[1], '1', 'EX', tonumber(ARGV[3]))
-redis.call('INCRBYFLOAT', KEYS[2], ARGV[1])
-redis.call('INCRBYFLOAT', KEYS[3], ARGV[2])
-return 1
-`
-
 export const attach = function attach(redisClient) {
   // 获取当日费用
   redisClient.getDailyCost = async function (keyId) {
@@ -74,7 +62,7 @@ export const attach = function attach(redisClient) {
     for (let attempt = 1; attempt <= 3; attempt++) {
       try {
         await this.client.eval(
-          COST_TOTAL_LUA,
+          RedisLua.cost.incrementTotal,
           3,
           RedisKeys.usage.costDedup(dedupId),
           totalKey,

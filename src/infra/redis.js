@@ -283,7 +283,7 @@ class RedisClient {
           const ttl = await this.client.ttl(key)
           if (ttl === -1) {
             // 没有设置过期时间的键
-            if (key.startsWith('oauth:')) {
+            if (key.startsWith(RedisKeys.session.oauthPrefix)) {
               pipeline.expire(key, TTL.oauthSession) // OAuth会话设置10分钟过期
             } else {
               pipeline.expire(key, TTL.oauthCleanupOther) // 其他设置1天过期

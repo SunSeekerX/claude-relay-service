@@ -15,9 +15,8 @@ import { CostCalculator } from '../pricing/pricing_cost_calculator.js'
 import { parseDateTimeQuery } from '../../common/date_time.js'
 import { RedisKeys, TTL } from '../../infra/redis_key.js'
 import * as requestDetailHelper from './relay_request_detail_helper.js'
-// 仅保留供外部 require 的导出前缀（注册表无对应 bare-prefix builder）
-export const REQUEST_DETAIL_ITEM_PREFIX = 'request_detail:item:'
-export const REQUEST_DETAIL_DAY_INDEX_PREFIX = 'request_detail:index:day:'
+export const REQUEST_DETAIL_ITEM_PREFIX = RedisKeys.requestDetail.itemPrefix
+export const REQUEST_DETAIL_DAY_INDEX_PREFIX = RedisKeys.requestDetail.dayIndexPrefix
 const DEFAULT_RETENTION_HOURS = 6
 const MAX_RETENTION_HOURS = 30 * 24
 const REQUEST_DETAIL_QUERY_BATCH_SIZE = 200

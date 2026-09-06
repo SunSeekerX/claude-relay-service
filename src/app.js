@@ -13,6 +13,7 @@ import packageJson from '../package.json' with { type: 'json' }
 import { logger } from './common/logger.js'
 import { redis } from './infra/redis.js'
 import { RedisKeys } from './infra/redis_key.js'
+import { RedisLua } from './infra/redis_lua.js'
 import { pricingService } from './modules/pricing/pricing_service.js'
 import { cacheMonitor } from './common/cache_monitor.js'
 import { getSafeMessage } from './common/error_sanitizer.js'
@@ -1455,9 +1456,11 @@ export class Application {
           // - concurrency:queue:wait_times:*是 List 类型
           // - concurrency:queue:*(不含stats/wait_times) 是 String 类型
           if (
-            key.startsWith('concurrency:queue:stats:') ||
-            key.startsWith('concurrency:queue:wait_times:') ||
-            (key.startsWith('concurrency:queue:') && !key.includes(':stats:') && !key.includes(':wait_times:'))
+            key.startsWith(RedisKeys.concurrency.queueStatsPrefix) ||
+            key.startsWith(RedisKeys.concurrency.queueWaitTimesPrefix) ||
+            (key.startsWith(RedisKeys.concurrency.queuePrefix) &&
+              !key.includes(':stats:') &&
+              !key.includes(':wait_times:'))
           ) {
             continue
           }
@@ -1465,37 +1468,7 @@ export class Application {
           try {
             // 使用原子 Lua 脚本：先检查类型，再执行清理
             // 返回值：0 = 正常清理无删除，1 = 清理后删除空键，-1 = 遗留键已删除
-            const result = await redis.client.eval(
-              `
-              local key = KEYS[1]
-              local now = tonumber(ARGV[1])
-
-              -- 先检查键类型，只对 Sorted Set 执行清理
-              local keyType = redis.call('TYPE', key)
-              if keyType.ok ~= 'zset' then
-                -- 非 ZSET 类型的遗留键，直接删除
-                redis.call('DEL', key)
-                return -1
-              end
-
-              -- 清理过期项
-              redis.call('ZREMRANGEBYSCORE', key, '-inf', now)
-
-              -- 获取剩余计数
-              local count = redis.call('ZCARD', key)
-
-              -- 如果计数为0，删除键
-              if count <= 0 then
-                redis.call('DEL', key)
-                return 1
-              end
-
-              return 0
-            `,
-              1,
-              key,
-              now,
-            )
+            const result = await redis.client.eval(RedisLua.concurrency.cleanupExpiredZset, 1, key, now)
             if (result === 1) {
               totalCleaned++
             } else if (result === -1) {

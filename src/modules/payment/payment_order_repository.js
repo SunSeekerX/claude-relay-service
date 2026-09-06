@@ -1,5 +1,6 @@
 import { redis } from '../../infra/redis.js'
 import { RedisKeys } from '../../infra/redis_key.js'
+import { RedisLua } from '../../infra/redis_lua.js'
 // 订单仓储：订单读写 + 索引 + 状态机原子转移（Lua CAS）。
 // 列表：按 created 索引分页；status 过滤走 orderIdxStatus（save/casStatus 同步维护，启动可 rebuild）。
 
@@ -17,24 +18,6 @@ const NUMERIC_FIELDS = ['quotaAmount', 'price', 'payAmount', 'feeRate', 'paidAmo
 
 // 管道单批条数上限（防单次 pipeline 过大）
 const PIPELINE_CHUNK = 200
-
-// 原子状态转移 + 状态二级索引 + pending 索引（同脚本，杜绝「status 已改、索引滞后」并发双入索引）
-// KEYS[1]=order hash KEYS[2]=statusIdx(expected) KEYS[3]=statusIdx(next) KEYS[4]=pendingIdx
-// ARGV[1]=expected ARGV[2]=next ARGV[3]=updatedAt ARGV[4]=createdScore ARGV[5]=orderId ARGV[6...]=extra pairs
-const CAS_LUA = `
-if redis.call('EXISTS', KEYS[1]) == 0 then return -1 end
-if redis.call('HGET', KEYS[1], 'status') ~= ARGV[1] then return 0 end
-redis.call('HSET', KEYS[1], 'status', ARGV[2], 'updatedAt', ARGV[3])
-for i = 6, #ARGV, 2 do
-  redis.call('HSET', KEYS[1], ARGV[i], ARGV[i + 1])
-end
-redis.call('ZREM', KEYS[2], ARGV[5])
-redis.call('ZADD', KEYS[3], tonumber(ARGV[4]), ARGV[5])
-if ARGV[1] == 'pending' then
-  redis.call('ZREM', KEYS[4], ARGV[5])
-end
-return 1
-`
 
 class OrderRepository {
   // withConfigSnapshot=false（默认）：剥离 providerConfigSnapshot（含渠道密钥），公开读接口绝不返回。
@@ -149,7 +132,7 @@ class OrderRepository {
       flat.push(k, v === null || v === undefined ? '' : String(v))
     }
     return redis.client.eval(
-      CAS_LUA,
+      RedisLua.payment.casStatus,
       4,
       ORDER_KEY(orderId),
       IDX_STATUS(expected),

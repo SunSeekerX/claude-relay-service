@@ -411,14 +411,6 @@ export const testAccountBalanceScriptApi = (id, platform, data) =>
     data
   })
 
-// 默认余额脚本
-export const getDefaultBalanceScriptApi = () =>
-  request({ url: '/admin/balance-scripts/default', method: 'GET' })
-export const updateDefaultBalanceScriptApi = (data) =>
-  request({ url: '/admin/balance-scripts/default', method: 'PUT', data })
-export const testDefaultBalanceScriptApi = (data) =>
-  request({ url: '/admin/balance-scripts/default/test', method: 'POST', data })
-
 // 前台用户管理
 export const getFrontUsersApi = (params) => request({ url: '/users', method: 'GET', params })
 export const getFrontUsersStatsOverviewApi = () =>

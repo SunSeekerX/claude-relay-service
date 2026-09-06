@@ -6,7 +6,39 @@
       class="settings-shell flex flex-col transition-none md:flex-row md:overflow-hidden md:gap-0"
       :style="shellStyle"
     >
-      <SettingsSideNav :model-value="activeSection" :tabs="sectionTabs" />
+      <!-- 设置侧栏：PC 竖栏固定 / 移动端顶栏横滑；样式走主题工具类 -->
+      <div class="settings-side-nav shrink-0 md:flex md:h-full md:flex-col">
+        <div class="t-side-nav-mobile flex md:hidden">
+          <router-link
+            v-for="tab in sectionTabs"
+            :key="tab.key"
+            class="t-side-nav-mobile__item"
+            :class="{ 'is-active': activeSection === tab.key }"
+            :to="{ name: 'Settings', params: { section: tab.key } }"
+          >
+            <i v-if="tab.icon" class="text-sm" :class="tab.icon" />
+            {{ tab.label }}
+          </router-link>
+        </div>
+
+        <nav
+          class="t-side-nav custom-scrollbar hidden h-full w-44 shrink-0 flex-col overflow-y-auto border-r pr-3 md:flex"
+          style="border-color: var(--divider-color)"
+        >
+          <router-link
+            v-for="tab in sectionTabs"
+            :key="tab.key"
+            class="t-side-nav__item"
+            :class="{ 'is-active': activeSection === tab.key }"
+            :to="{ name: 'Settings', params: { section: tab.key } }"
+          >
+            <span class="t-side-nav__icon">
+              <i v-if="tab.icon" :class="tab.icon" />
+            </span>
+            <span class="t-side-nav__label">{{ tab.label }}</span>
+          </router-link>
+        </nav>
+      </div>
 
       <div
         class="settings-main custom-scrollbar min-h-0 min-w-0 flex-1 px-3 sm:px-4 md:overflow-y-auto md:px-6"
@@ -58,7 +90,6 @@ import { useRoute, useRouter } from 'vue-router'
 
 import { showToast, calcViewportBottomReserve } from '@/libs/tools'
 import { useSettingsStore } from '@/stores/settings'
-import SettingsSideNav from '@/components/settings/settings_side_nav.vue'
 import BrandingSettingsSection from '@/components/settings/branding_settings_section.vue'
 import WebhookSettingsSection from '@/components/settings/webhook_settings_section.vue'
 import ClaudeSettingsSection from '@/components/settings/claude_settings_section.vue'

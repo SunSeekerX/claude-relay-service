@@ -17,9 +17,6 @@ const __dirname = path.dirname(__filename)
 
 export const router = express.Router()
 
-// 服务静态文件
-router.use('/assets', express.static(path.join(__dirname, '../../web/assets')))
-
 // 页面路由重定向到新版 admin-spa
 router.get('/', (req, res) => {
   res.redirect(301, '/admin-next/api-stats')

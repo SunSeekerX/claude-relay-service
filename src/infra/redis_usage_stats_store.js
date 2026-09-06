@@ -2,32 +2,17 @@ import { logger } from '../common/logger.js'
 import { RedisKeys, TTL, LIMITS } from './redis_key.js'
 import { normalizeKeyTokenStats, normalizeAccountTokenStats } from '../common/compat_token_stats.js'
 import { getDateInTimezone, getDateStringInTimezone, getHourInTimezone } from '../common/timezone.js'
+import { normalizeModelName } from '../common/common_helper.js'
 // ===
 // 用量统计（token/账户用量、用量记录、模型聚合、会话窗口用量；从 redis.js 按域抽出）
 // 经 attach(redisClient) 挂到同一个 RedisClient 单例上，this 绑定与原文件一致。
 // 跨域 this 调用(getAccountDailyCost/getAllIdsByIndex/scanKeys/batchDelChunked/getClient)
-// 均经同一单例解析。私有 _normalizeModelName 仅本域使用，一并迁出。
+// 均经同一单例解析。_normalizeModelName 与 common_helper.normalizeModelName 同一实现。
 // ===
 export const attach = function attach(redisClient) {
   // 使用统计相关操作（支持缓存token统计和模型信息）
-  // 标准化模型名称，用于统计聚合
   redisClient._normalizeModelName = function (model) {
-    if (!model || model === 'unknown') {
-      return model
-    }
-
-    // 对于Bedrock模型，去掉区域前缀进行统一
-    if (model.includes('.anthropic.') || model.includes('.claude')) {
-      // 匹配所有AWS区域格式：region.anthropic.model-name-v1:0 -> claude-model-name
-      // 支持所有AWS区域格式，如：us-east-1, eu-west-1, ap-southeast-1, ca-central-1等
-      let normalized = model.replace(/^[a-z0-9-]+\./, '') // 去掉任何区域前缀（更通用）
-      normalized = normalized.replace('anthropic.', '') // 去掉anthropic前缀
-      normalized = normalized.replace(/-v\d+:\d+$/, '') // 去掉版本后缀（如-v1:0, -v2:1等）
-      return normalized
-    }
-
-    // 对于其他模型，去掉常见的版本后缀
-    return model.replace(/-v\d+:\d+$|:latest$/, '')
+    return normalizeModelName(model)
   }
 
   redisClient.incrementTokenUsage = async function (
@@ -984,7 +969,7 @@ export const attach = function attach(redisClient) {
       const apiKeyKeys = await this.scanKeys(RedisKeys.apiKey.allPattern)
       const apiKeyIds = apiKeyKeys
         .filter((k) => k !== RedisKeys.apiKey.hashMap && k.split(':').length === 2)
-        .map((k) => k.replace('apikey:', ''))
+        .map((k) => k.replace(RedisKeys.apiKey.idPrefix, ''))
 
       // 2. 批量删除总体使用统计
       const usageKeys = apiKeyIds.map((id) => RedisKeys.usage.total(id))

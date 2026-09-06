@@ -2,6 +2,7 @@ import { encrypt, decrypt } from '../../common/common_helper.js'
 import { redis } from '../../infra/redis.js'
 import { logger } from '../../common/logger.js'
 import { RedisKeys, TTL } from '../../infra/redis_key.js'
+import { RedisLua } from '../../infra/redis_lua.js'
 import { registry } from './payment_registry.js'
 import crypto from 'node:crypto'
 // 支付渠道实例仓储：渠道配置（密钥）AES 加密存储 + 负载均衡选实例。
@@ -19,50 +20,6 @@ const today = () => redis.getDateStringInTimezone(new Date())
 // 新实现要求 hash {orderId: 'amount:reservedAtMs'}。若线上已有旧 string，直接 HVALS/HGETALL/HSET/HDEL 会 WRONGTYPE。
 // 这里在首次读取到旧 string 时迁成 hash：写入一个 legacy 聚合字段承接旧累计值，后续与按订单预留并存。
 const LEGACY_FIELD = '__legacy_total__'
-
-// 候选实例「当日额度(=hash 内各预留金额之和)检查 + 按策略选一 + 以 orderId 记一笔预留」原子脚本：
-// 规避并发下两个下单读到旧日额快照、同时选中并超配同一实例（dailyLimit/least_amount 不一致）。
-// 预留按 orderId 记进 hash，value=`amount:reservedAtMs`：amount 供求和，reservedAtMs 供对账判断在途/孤儿宽限。
-// 「下单失败/取消/过期」按 orderId 幂等 HDEL 释放；定时对账逐条核对订单真相、清崩溃遗留的孤儿预留。
-// KEYS[1..n]=各候选当日额度 hash，KEYS[n+1]=round_robin 计数键；
-// ARGV[1]=amount、ARGV[2]=strategy、ARGV[3]=n、ARGV[4]=orderId、ARGV[5]=reservedAtMs，其后每候选 3 项：id、dailyLimit、sortOrder。
-// 返回选中实例 id，'' 表示无合格候选。
-const SELECT_RESERVE_LUA = `
-local amount = tonumber(ARGV[1])
-local strategy = ARGV[2]
-local n = tonumber(ARGV[3])
-local orderId = ARGV[4]
-local reservedVal = ARGV[1] .. ':' .. ARGV[5]
-local eligible = {}
-for i = 1, n do
-  local base = 5 + (i - 1) * 3
-  local dailyLimit = tonumber(ARGV[base + 2])
-  local used = 0
-  local vals = redis.call('HVALS', KEYS[i])
-  for _, v in ipairs(vals) do
-    used = used + (tonumber(string.match(v, '^[^:]+')) or 0)
-  end
-  if dailyLimit <= 0 or used + amount <= dailyLimit then
-    eligible[#eligible + 1] = { idx = i, used = used, sort = tonumber(ARGV[base + 3]) }
-  end
-end
-if #eligible == 0 then return '' end
-local chosen = eligible[1]
-if strategy == 'round_robin' then
-  local rr = redis.call('INCR', KEYS[n + 1])
-  chosen = eligible[(rr % #eligible) + 1]
-else
-  for j = 2, #eligible do
-    local e = eligible[j]
-    if e.used < chosen.used or (e.used == chosen.used and e.sort < chosen.sort) then
-      chosen = e
-    end
-  end
-end
-redis.call('HSET', KEYS[chosen.idx], orderId, reservedVal)
-redis.call('EXPIRE', KEYS[chosen.idx], 259200)
-return ARGV[5 + (chosen.idx - 1) * 3 + 1]
-`
 
 class ProviderRepository {
   async _ensureDailyReservationHash(key) {
@@ -293,7 +250,7 @@ class ProviderRepository {
     for (const c of candidates) {
       argv.push(c.id, String(c.dailyLimit || 0), String(c.sortOrder || 0))
     }
-    const chosenId = await redis.client.eval(SELECT_RESERVE_LUA, keys.length, ...keys, ...argv)
+    const chosenId = await redis.client.eval(RedisLua.payment.selectReserve, keys.length, ...keys, ...argv)
     if (!chosenId) {
       return null
     }

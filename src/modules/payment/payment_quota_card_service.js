@@ -12,7 +12,7 @@ import { apiKeyService } from '../apikey/apikey_service.js'
 class QuotaCardService {
   constructor() {
     this.CARD_CODE_PREFIX = 'CC' // 卡号前缀
-    this.LIMITS_CONFIG_KEY = 'system:quota_card_limits'
+    this.LIMITS_CONFIG_KEY = RedisKeys.system.quotaCardLimits
     this.MAX_BATCH_COUNT = 1000 // 单次批量创建上限（DoS 防护，路由层与本层共用同一来源）
   }
 

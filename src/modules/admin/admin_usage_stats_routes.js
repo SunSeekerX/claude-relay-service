@@ -19,6 +19,7 @@ import { pricingService } from '../pricing/pricing_service.js'
 import { parseDateTimeQuery } from '../../common/date_time.js'
 import { asyncRoute } from '../../common/route_handler.js'
 import { badRequest, notFound } from '../../common/http_result.js'
+import { normalizeModelName } from '../../common/common_helper.js'
 
 export const router = express.Router()
 
@@ -2194,26 +2195,6 @@ router.get(
     const { period = 'all' } = req.query // all, today, monthly, 7days
 
     logger.info(`Calculating usage costs for period: ${period}`)
-
-    // 模型名标准化函数（与redis.js保持一致）
-    const normalizeModelName = (model) => {
-      if (!model || model === 'unknown') {
-        return model
-      }
-
-      // 对于Bedrock模型，去掉区域前缀进行统一
-      if (model.includes('.anthropic.') || model.includes('.claude')) {
-        // 匹配所有AWS区域格式：region.anthropic.model-name-v1:0 -> claude-model-name
-        // 支持所有AWS区域格式，如：us-east-1, eu-west-1, ap-southeast-1, ca-central-1等
-        let normalized = model.replace(/^[a-z0-9-]+\./, '') // 去掉任何区域前缀（更通用）
-        normalized = normalized.replace('anthropic.', '') // 去掉anthropic前缀
-        normalized = normalized.replace(/-v\d+:\d+$/, '') // 去掉版本后缀（如-v1:0, -v2:1等）
-        return normalized
-      }
-
-      // 对于其他模型，去掉常见的版本后缀
-      return model.replace(/-v\d+:\d+$|:latest$/, '')
-    }
 
     const totalCosts = {
       inputCost: 0,

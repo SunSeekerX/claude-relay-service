@@ -1,6 +1,7 @@
 import crypto from 'node:crypto'
 import { logger } from '../../common/logger.js'
 import { redis as redisService } from '../../infra/redis.js'
+import { RedisKeys } from '../../infra/redis_key.js'
 import * as metadataUserIdHelper from './relay_metadata_user_id_helper.js'
 /**
  * Request Identity Service
@@ -33,7 +34,6 @@ const STAINLESS_HEADER_CASE_MAP = {
   'x-stainless-runtime-version': 'X-Stainless-Runtime-Version',
 }
 const MIN_FINGERPRINT_FIELDS = 4
-const REDIS_KEY_PREFIX = 'fmt_claude_req:stainless_headers:'
 
 const formatUuidFromSeed = function formatUuidFromSeed(seed) {
   const digest = crypto.createHash('sha256').update(String(seed)).digest()
@@ -159,7 +159,7 @@ const persistFingerprint = function persistFingerprint(accountId, fingerprint) {
   }
 
   const client = getRedisClient()
-  const key = `${REDIS_KEY_PREFIX}${accountId}`
+  const key = RedisKeys.requestIdentity.stainlessHeaders(accountId)
   const serialized = JSON.stringify(fingerprint)
 
   const command = client.set(key, serialized, 'NX')

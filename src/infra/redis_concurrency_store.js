@@ -1,6 +1,7 @@
 import { logger } from '../common/logger.js'
 import { config } from '../../config/config.js'
 import { RedisKeys, TTL } from './redis_key.js'
+import { RedisLua } from './redis_lua.js'
 // ===
 // API Key / Console 账户并发控制（从 src/models/redis.js 按域抽出）
 // 经 attach(redisClient) 挂到同一个 RedisClient 单例上，this 绑定与原文件一致。
@@ -67,25 +68,7 @@ export const attach = function attach(redisClient) {
       const expireAt = now + lease * 1000
       const ttl = TTL.concurrencyLeaseMs(lease, cleanupGraceSeconds)
 
-      const luaScript = `
-        local key = KEYS[1]
-        local member = ARGV[1]
-        local expireAt = tonumber(ARGV[2])
-        local now = tonumber(ARGV[3])
-        local ttl = tonumber(ARGV[4])
-
-        redis.call('ZREMRANGEBYSCORE', key, '-inf', now)
-        redis.call('ZADD', key, expireAt, member)
-
-        if ttl > 0 then
-          redis.call('PEXPIRE', key, ttl)
-        end
-
-        local count = redis.call('ZCARD', key)
-        return count
-      `
-
-      const count = await this.client.eval(luaScript, 1, key, requestId, expireAt, now, ttl)
+      const count = await this.client.eval(RedisLua.concurrency.incr, 1, key, requestId, expireAt, now, ttl)
       logger.database(`Incremented concurrency for key ${apiKeyId}: ${count} (request ${requestId})`)
       return count
     } catch (error) {
@@ -108,29 +91,7 @@ export const attach = function attach(redisClient) {
       const expireAt = now + lease * 1000
       const ttl = TTL.concurrencyLeaseMs(lease, cleanupGraceSeconds)
 
-      const luaScript = `
-        local key = KEYS[1]
-        local member = ARGV[1]
-        local expireAt = tonumber(ARGV[2])
-        local now = tonumber(ARGV[3])
-        local ttl = tonumber(ARGV[4])
-
-        redis.call('ZREMRANGEBYSCORE', key, '-inf', now)
-
-        local exists = redis.call('ZSCORE', key, member)
-
-        if exists then
-          redis.call('ZADD', key, expireAt, member)
-          if ttl > 0 then
-            redis.call('PEXPIRE', key, ttl)
-          end
-          return 1
-        end
-
-        return 0
-      `
-
-      const refreshed = await this.client.eval(luaScript, 1, key, requestId, expireAt, now, ttl)
+      const refreshed = await this.client.eval(RedisLua.concurrency.refreshLease, 1, key, requestId, expireAt, now, ttl)
       if (refreshed === 1) {
         logger.debug(`Refreshed concurrency lease for key ${apiKeyId} (request ${requestId})`)
       }
@@ -147,27 +108,7 @@ export const attach = function attach(redisClient) {
       const key = RedisKeys.concurrency.byKey(apiKeyId)
       const now = Date.now()
 
-      const luaScript = `
-        local key = KEYS[1]
-        local member = ARGV[1]
-        local now = tonumber(ARGV[2])
-
-        if member then
-          redis.call('ZREM', key, member)
-        end
-
-        redis.call('ZREMRANGEBYSCORE', key, '-inf', now)
-
-        local count = redis.call('ZCARD', key)
-        if count <= 0 then
-          redis.call('DEL', key)
-          return 0
-        end
-
-        return count
-      `
-
-      const count = await this.client.eval(luaScript, 1, key, requestId || '', now)
+      const count = await this.client.eval(RedisLua.concurrency.decr, 1, key, requestId || '', now)
       logger.database(`Decremented concurrency for key ${apiKeyId}: ${count} (request ${requestId || 'n/a'})`)
       return count
     } catch (error) {
@@ -182,15 +123,7 @@ export const attach = function attach(redisClient) {
       const key = RedisKeys.concurrency.byKey(apiKeyId)
       const now = Date.now()
 
-      const luaScript = `
-        local key = KEYS[1]
-        local now = tonumber(ARGV[1])
-
-        redis.call('ZREMRANGEBYSCORE', key, '-inf', now)
-        return redis.call('ZCARD', key)
-      `
-
-      const count = await this.client.eval(luaScript, 1, key, now)
+      const count = await this.client.eval(RedisLua.concurrency.get, 1, key, now)
       return parseInt(count || 0)
     } catch (error) {
       logger.error('Failed to get concurrency:', error)
@@ -274,9 +207,11 @@ export const attach = function attach(redisClient) {
         // - concurrency:queue:wait_times:* 是 List 类型
         // - concurrency:queue:* (不含stats/wait_times) 是 String 类型
         if (
-          key.startsWith('concurrency:queue:stats:') ||
-          key.startsWith('concurrency:queue:wait_times:') ||
-          (key.startsWith('concurrency:queue:') && !key.includes(':stats:') && !key.includes(':wait_times:'))
+          key.startsWith(RedisKeys.concurrency.queueStatsPrefix) ||
+          key.startsWith(RedisKeys.concurrency.queueWaitTimesPrefix) ||
+          (key.startsWith(RedisKeys.concurrency.queuePrefix) &&
+            !key.includes(':stats:') &&
+            !key.includes(':wait_times:'))
         ) {
           continue
         }
@@ -289,7 +224,7 @@ export const attach = function attach(redisClient) {
         }
 
         // 提取 apiKeyId（去掉 concurrency: 前缀）
-        const apiKeyId = key.replace('concurrency:', '')
+        const apiKeyId = key.replace(RedisKeys.concurrency.leasePrefix, '')
 
         // 获取所有成员和分数（过期时间）
         const members = await client.zrangebyscore(key, now, '+inf', 'WITHSCORES')
@@ -451,7 +386,7 @@ export const attach = function attach(redisClient) {
 
       for (const key of keys) {
         // 跳过 queue 相关的键（它们有各自的清理逻辑）
-        if (key.startsWith('concurrency:queue:')) {
+        if (key.startsWith(RedisKeys.concurrency.queuePrefix)) {
           continue
         }
 
@@ -514,7 +449,7 @@ export const attach = function attach(redisClient) {
 
       for (const key of keys) {
         // 跳过 queue 相关的键（它们有各自的清理逻辑）
-        if (key.startsWith('concurrency:queue:')) {
+        if (key.startsWith(RedisKeys.concurrency.queuePrefix)) {
           continue
         }
 
