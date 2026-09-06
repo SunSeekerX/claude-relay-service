@@ -2,7 +2,7 @@ import http from 'node:http'
 import https from 'node:https'
 import { URL } from 'node:url'
 import { logger } from './logger.js'
-import { createWsFrameSniffer } from './gateway_ws_frame_sniffer.js'
+import { createWsFrameSniffer, createWsClientTextRewriter } from './gateway_ws_frame_sniffer.js'
 // 原生 HTTP Upgrade 隧道：把客户端 WebSocket 接到上游 wss/ws
 // 不引入 ws 包；鉴权与上游头由调用方构造
 // 支持：账户代理 agent、握手超时主动关闭、上游文本帧嗅探（计费）
@@ -18,7 +18,7 @@ import { createWsFrameSniffer } from './gateway_ws_frame_sniffer.js'
  * @param {number} [opts.handshakeTimeoutMs]
  * @param {(text: string) => void} [opts.onUpstreamTextMessage]
  * @param {(err?: Error|null) => void} [opts.onClose]
- * @param {() => void} [opts.onUpgrade]
+ * @param {(upRes: import('http').IncomingMessage) => void} [opts.onUpgrade]
  */
 export const proxyWebSocketUpgrade = (
   req,
@@ -32,6 +32,7 @@ export const proxyWebSocketUpgrade = (
     // true：不向下游协商 permessage-deflate 等扩展（压缩帧会导致明文嗅探失败）
     stripExtensions = true,
     onUpstreamTextMessage = null,
+    onClientToUpstreamText = null,
     onClose = null,
     onUpgrade = null,
   } = {},
@@ -145,7 +146,7 @@ export const proxyWebSocketUpgrade = (
   upstreamReq.on('upgrade', (upRes, upSocket, upHead) => {
     try {
       if (typeof onUpgrade === 'function') {
-        onUpgrade()
+        onUpgrade(upRes)
       }
     } catch (error) {
       console.error(error)
@@ -176,9 +177,6 @@ export const proxyWebSocketUpgrade = (
 
     if (upHead && upHead.length) {
       socket.write(upHead)
-    }
-    if (head && head.length) {
-      upSocket.write(head)
     }
 
     // 上游→客户端：原样转发 + 文本帧嗅探（计费）
@@ -212,14 +210,46 @@ export const proxyWebSocketUpgrade = (
       }
     })
 
-    // 客户端→上游：原样转发
-    socket.on('data', (chunk) => {
-      if (!upSocket.destroyed) {
+    // 客户端→上游：可选文本帧改写（stripExtensions 时明文可读）
+    // head 必须先进改写器，禁止直接 write 导致半帧边界错乱 / 完整帧绕过
+    // DEC_20260906_011816
+    const clientRewriter =
+      typeof onClientToUpstreamText === 'function'
+        ? createWsClientTextRewriter({
+            label: 'client-to-upstream',
+            rewriteText: onClientToUpstreamText,
+          })
+        : null
+
+    const writeClientChunkToUpstream = (chunk) => {
+      if (!chunk || !chunk.length || upSocket.destroyed) {
+        return
+      }
+      if (!clientRewriter) {
         const ok = upSocket.write(chunk)
         if (!ok) {
           socket.pause()
         }
+        return
       }
+      const frames = clientRewriter.push(chunk) || []
+      for (const frame of frames) {
+        if (!frame || !frame.length || upSocket.destroyed) {
+          continue
+        }
+        const ok = upSocket.write(frame)
+        if (!ok) {
+          socket.pause()
+        }
+      }
+    }
+
+    if (head && head.length) {
+      writeClientChunkToUpstream(head)
+    }
+
+    socket.on('data', (chunk) => {
+      writeClientChunkToUpstream(chunk)
     })
     upSocket.on('drain', () => {
       if (!socket.destroyed) {

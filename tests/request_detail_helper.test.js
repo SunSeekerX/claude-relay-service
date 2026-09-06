@@ -1,4 +1,4 @@
-import { sanitizeRequestBodySnapshot, extractRequestReasoningInfo, resolveRequestDetailReasoning, createRequestDetailMeta, finalizeRequestDetailMeta, extractOpenAICacheReadTokens, isOpenAIRelatedEndpoint, getRequestDetailCacheMetrics, calculateCacheHitRate } from '../src/modules/relay/relay_request_detail_helper.js'
+import { sanitizeRequestBodySnapshot, extractRequestReasoningInfo, resolveRequestDetailReasoning, createRequestDetailMeta, finalizeRequestDetailMeta, extractOpenAICacheReadTokens, isOpenAIRelatedEndpoint, getRequestDetailCacheMetrics, calculateCacheHitRate, shouldCaptureFailedRequestDetail, extractClientErrorSummary, buildFailedRequestDetailPayload, extractUpstreamRequestId } from '../src/modules/relay/relay_request_detail_helper.js'
 
 describe('requestDetailHelper', () => {
   afterEach(() => {
@@ -306,5 +306,106 @@ describe('requestDetailHelper', () => {
         cacheCreateTokens: 20
       })
     ).toBe(20)
+  })
+})
+
+describe('failed request detail helpers', () => {
+  test('shouldCaptureFailedRequestDetail only for authenticated relay 4xx/5xx', () => {
+    expect(
+      shouldCaptureFailedRequestDetail({
+        statusCode: 403,
+        path: '/openai/responses',
+        apiKeyId: 'k1',
+      }),
+    ).toBe(true)
+    expect(
+      shouldCaptureFailedRequestDetail({
+        statusCode: 200,
+        path: '/openai/responses',
+        apiKeyId: 'k1',
+      }),
+    ).toBe(false)
+    expect(
+      shouldCaptureFailedRequestDetail({
+        statusCode: 403,
+        path: '/admin/request-details',
+        apiKeyId: 'k1',
+      }),
+    ).toBe(false)
+    expect(
+      shouldCaptureFailedRequestDetail({
+        statusCode: 502,
+        path: '/v1/messages',
+        apiKeyId: 'k1',
+      }),
+    ).toBe(true)
+  })
+
+  test('extractClientErrorSummary reads openai-style error body', () => {
+    expect(
+      extractClientErrorSummary({
+        error: {
+          code: 'session_blocked_by_cyber_policy',
+          message: '该会话已被网络安全策略屏蔽，请开启新会话',
+          type: 'permission_error',
+        },
+      }),
+    ).toEqual({
+      errorCode: 'session_blocked_by_cyber_policy',
+      errorMessage: '该会话已被网络安全策略屏蔽，请开启新会话',
+    })
+  })
+
+  test('buildFailedRequestDetailPayload keeps status and error summary', () => {
+    const payload = buildFailedRequestDetailPayload({
+      req: {
+        requestId: 'rid1',
+        requestStartedAt: Date.now() - 100,
+        method: 'POST',
+        apiKey: { id: 'key1' },
+        body: { model: 'gpt-5.6-sol', stream: true },
+        _crsAccountId: 'acc1',
+        _crsAccountType: 'openai-responses',
+      },
+      statusCode: 403,
+      durationMs: 100,
+      responseBody: {
+        error: {
+          code: 'session_blocked_by_cyber_policy',
+          message: 'start a new session',
+        },
+      },
+      path: '/openai/responses',
+    })
+    expect(payload.statusCode).toBe(403)
+    expect(payload.errorCode).toBe('session_blocked_by_cyber_policy')
+    expect(payload.errorMessage).toContain('start a new session')
+    expect(payload.apiKeyId).toBe('key1')
+    expect(payload.accountId).toBe('acc1')
+    expect(payload.model).toBe('gpt-5.6-sol')
+    expect(payload.cost).toBe(0)
+  })
+
+
+  test('extractUpstreamRequestId reads common and configured headers', () => {
+    expect(
+      extractUpstreamRequestId({ 'x-request-id': 'abc-123', 'content-type': 'application/json' }),
+    ).toBe('abc-123')
+    expect(
+      extractUpstreamRequestId(
+        { 'x-custom-id': 'custom-1', 'x-request-id': 'abc' },
+        { headerName: 'x-custom-id' },
+      ),
+    ).toBe('custom-1')
+  })
+
+  test('createRequestDetailMeta picks upstream id from req._crsUpstreamHeaders', () => {
+    const req = {
+      requestId: 'req-1',
+      method: 'POST',
+      _crsUpstreamHeaders: { 'openai-request-id': 'up-9' },
+    }
+    const meta = createRequestDetailMeta(req, {})
+    expect(meta.upstreamRequestId).toBe('up-9')
   })
 })

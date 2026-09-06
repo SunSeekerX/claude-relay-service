@@ -102,3 +102,9 @@ export * from './relay_translator_cache_control.js'
 export * from './relay_translator_claude_responses.js'
 export * from './relay_translator_gemini_signature.js'
 export * from './relay_translator_interactions.js'
+
+export {
+  sanitizeClaudeBodyFallbacks,
+  sanitizeClaudeBodyFallbacksClone,
+  BETA_SERVER_SIDE_FALLBACK,
+} from './relay_translator_body_sanitize.js'

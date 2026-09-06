@@ -734,6 +734,13 @@ class RequestDetailService {
       typeof detail.serviceTier === 'string' && detail.serviceTier.trim()
         ? detail.serviceTier.trim().toLowerCase()
         : null
+    // 失败明细：把客户端可见错误摘要落库，列表/详情可直接看成功失败原因
+    const errorMessage =
+      typeof detail.errorMessage === 'string' && detail.errorMessage.trim()
+        ? detail.errorMessage.trim().slice(0, 500)
+        : null
+    const errorCode =
+      typeof detail.errorCode === 'string' && detail.errorCode.trim() ? detail.errorCode.trim().slice(0, 120) : null
     const normalized = {
       requestId,
       timestamp,
@@ -741,6 +748,8 @@ class RequestDetailService {
       endpoint: detail.endpoint || null,
       method: detail.method || null,
       statusCode,
+      errorMessage,
+      errorCode,
       stream: detail.stream === true,
       apiKeyId: detail.apiKeyId || null,
       accountId: detail.accountId || null,
@@ -768,6 +777,11 @@ class RequestDetailService {
       protocolBridge: detail.protocolBridge || null,
       tokenCountEstimate: detail.tokenCountEstimate === true,
       tokenCountEstimateMethod: detail.tokenCountEstimateMethod || null,
+      // DEC_20260905_194420 上游请求标识落 request detail
+      upstreamRequestId:
+        typeof detail.upstreamRequestId === 'string' && detail.upstreamRequestId.trim()
+          ? detail.upstreamRequestId.trim().slice(0, 200)
+          : null,
     }
 
     if (options.bodyPreviewEnabled && requestBodySource !== undefined) {
@@ -1139,6 +1153,9 @@ class RequestDetailService {
       record.model,
       record.endpoint,
       record.method,
+      record.errorMessage,
+      record.errorCode,
+      record.statusCode,
     ]
 
     return haystacks.some((value) =>

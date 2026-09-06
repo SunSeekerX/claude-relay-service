@@ -345,6 +345,7 @@ router.post(
       priority,
       needsImmediateRefresh, // 是否需要立即刷新
       requireRefreshSuccess, // 是否必须刷新成功才能创建
+      upstreamRequestIdHeader,
     } = parseObjectBody(req.body, '创建OpenAI账户')
 
     if (!name) {
@@ -363,6 +364,7 @@ router.post(
       proxy: proxy || null,
       isActive: true,
       schedulable: true,
+      upstreamRequestIdHeader: upstreamRequestIdHeader || '',
     }
 
     // 如果需要立即刷新且必须成功（OpenAI 手动模式）

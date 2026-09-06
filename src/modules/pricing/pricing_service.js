@@ -1049,20 +1049,32 @@ class PricingService {
       }
     }
 
-    // gpt-5.6 系列（含 sol/terra/luna）：禁止回退 gpt-5（价差 4 倍会少计费）
+    // gpt-5.6 / gpt-6-astra：禁止回退 gpt-5（价差大）
     // 优先内存表 → 内置官方价兜底
-    if (modelName.startsWith('gpt-5.6')) {
+    if (modelName.startsWith('gpt-5.6') || modelName === 'gpt-6' || modelName.startsWith('gpt-6-astra')) {
+      const lookupName = modelName === 'gpt-6' || modelName.startsWith('gpt-6-astra') ? 'gpt-6-astra' : modelName
+      if (this.pricingData[lookupName]) {
+        return this.pricingData[lookupName]
+      }
       if (this.pricingData[modelName]) {
         return this.pricingData[modelName]
       }
+      if (GPT56_SERIES_FALLBACK_PRICING[lookupName]) {
+        logger.warn(`Using bundled series fallback pricing for ${modelName} (not in pricing table)`)
+        return this.ensureCachePricing({ ...GPT56_SERIES_FALLBACK_PRICING[lookupName] })
+      }
       if (GPT56_SERIES_FALLBACK_PRICING[modelName]) {
-        logger.warn(`Using bundled gpt-5.6 series fallback pricing for ${modelName} (not in pricing table)`)
+        logger.warn(`Using bundled series fallback pricing for ${modelName} (not in pricing table)`)
         return this.ensureCachePricing({ ...GPT56_SERIES_FALLBACK_PRICING[modelName] })
       }
       // 未知 5.6 变体：回退到 gpt-5.6 base 官方价，绝不回 gpt-5
-      if (GPT56_SERIES_FALLBACK_PRICING['gpt-5.6']) {
+      if (modelName.startsWith('gpt-5.6') && GPT56_SERIES_FALLBACK_PRICING['gpt-5.6']) {
         logger.warn(`Unknown ${modelName}; using bundled gpt-5.6 base pricing (not gpt-5)`)
         return this.ensureCachePricing({ ...GPT56_SERIES_FALLBACK_PRICING['gpt-5.6'] })
+      }
+      if (GPT56_SERIES_FALLBACK_PRICING['gpt-5.6-sol']) {
+        logger.warn(`Unknown ${modelName}; using bundled gpt-5.6-sol pricing for Astra-family`)
+        return this.ensureCachePricing({ ...GPT56_SERIES_FALLBACK_PRICING['gpt-5.6-sol'] })
       }
     }
 

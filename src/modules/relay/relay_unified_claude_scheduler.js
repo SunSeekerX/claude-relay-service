@@ -391,12 +391,16 @@ class UnifiedClaudeScheduler {
       )
 
       if (availableAccounts.length === 0) {
-        // 提供更详细的错误信息
+        // 无号多为并发/预算/临时暂停等瞬态；503 可退避，避免客户端当请求错误
+        // DEC_20260905_155232
         if (effectiveModel) {
-          throw new Error(`No available Claude accounts support the requested model: ${effectiveModel}`)
-        } else {
-          throw new Error('No available Claude accounts (neither official nor console)')
+          const error = new Error(`No available Claude accounts support the requested model: ${effectiveModel}`)
+          error.statusCode = 503
+          throw error
         }
+        const error = new Error('No available Claude accounts (neither official nor console)')
+        error.statusCode = 503
+        throw error
       }
 
       // 按优先级和最后使用时间排序
@@ -1491,7 +1495,11 @@ class UnifiedClaudeScheduler {
       }
 
       if (availableAccounts.length === 0) {
-        throw new Error(`No available accounts in group ${group.name}`)
+        // 组内无号同样多为瞬态；503 可退避
+        // DEC_20260905_155232
+        const error = new Error(`No available accounts in group ${group.name}`)
+        error.statusCode = 503
+        throw error
       }
 
       // 使用现有的优先级排序逻辑
@@ -1558,7 +1566,13 @@ class UnifiedClaudeScheduler {
       const availableCcrAccounts = await this._getAvailableCcrAccounts(effectiveModel)
 
       if (availableCcrAccounts.length === 0) {
-        throw new Error(`No available CCR accounts support the requested model: ${effectiveModel || 'unspecified'}`)
+        // 无号多为瞬态；503 可退避
+        // DEC_20260905_155232
+        const error = new Error(
+          `No available CCR accounts support the requested model: ${effectiveModel || 'unspecified'}`,
+        )
+        error.statusCode = 503
+        throw error
       }
 
       // 3. 按优先级和最后使用时间排序

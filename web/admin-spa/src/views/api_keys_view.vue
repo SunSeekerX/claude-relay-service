@@ -4480,7 +4480,8 @@ const handleSaveExpiry = async ({ keyId, expiresAt, activateNow }) => {
       // 更新本地数据
       const key = apiKeys.value.find((k) => k.id === keyId)
       if (key) {
-        const updates = data.updates || {}
+        // 管理信封：updates 在 data 内
+        const updates = (data.data && data.data.updates) || data.updates || {}
         const changedFields = []
         if (activateNow && updates.expiresAt) {
           key.isActivated = true

@@ -71,6 +71,22 @@
 
         <div>
           <label class="mb-3 block text-sm font-semibold text-gray-700 dark:text-gray-300"
+            >上游请求标识响应头</label
+          >
+          <input
+            class="form-input w-full border-transparent dark:border-transparent dark:bg-gray-700 dark:text-gray-200"
+            placeholder="留空自动探测 x-request-id / openai-request-id 等"
+            type="text"
+            :value="upstreamRequestIdHeader"
+            @input="emit('update:upstreamRequestIdHeader', $event.target.value)"
+          />
+          <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+            仅字母数字与连字符，最长 64。配置后只读该头写入请求详情的上游ID。
+          </p>
+        </div>
+
+        <div>
+          <label class="mb-3 block text-sm font-semibold text-gray-700 dark:text-gray-300"
             >Provider 端点类型</label
           >
           <CustomDropdown
@@ -311,6 +327,7 @@ const props = defineProps({
   baseApi: { type: String, default: '' },
   apiKey: { type: String, default: '' },
   userAgent: { type: String, default: '' },
+  upstreamRequestIdHeader: { type: String, default: '' },
   providerEndpoint: { type: String, default: 'responses' },
   dailyQuota: { type: Number, default: 0 },
   quotaResetTime: { type: String, default: '00:00' },
@@ -332,6 +349,7 @@ const emit = defineEmits([
   'update:baseApi',
   'update:apiKey',
   'update:userAgent',
+  'update:upstreamRequestIdHeader',
   'update:providerEndpoint',
   'update:dailyQuota',
   'update:quotaResetTime',

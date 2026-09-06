@@ -205,6 +205,13 @@ export const extractRealtimeUsageFromEvent = (eventObj) => {
     return null
   }
 
+  const responseId =
+    (typeof eventObj.response?.id === 'string' && eventObj.response.id) ||
+    (typeof eventObj.id === 'string' && eventObj.type && String(eventObj.type).startsWith('response.')
+      ? eventObj.id
+      : null) ||
+    null
+
   return {
     input_tokens: inputTokens,
     output_tokens: outputTokens,
@@ -213,61 +220,355 @@ export const extractRealtimeUsageFromEvent = (eventObj) => {
     input_audio_tokens: Number(inputDetails.audio_tokens || 0) || 0,
     output_audio_tokens: Number(outputDetails.audio_tokens || 0) || 0,
     model: eventObj.response?.model || eventObj.session?.model || null,
+    service_tier:
+      (typeof eventObj.response?.service_tier === 'string' && eventObj.response.service_tier) ||
+      (typeof eventObj.service_tier === 'string' && eventObj.service_tier) ||
+      null,
+    responseId,
   }
 }
 
+const normalizeRequestServiceTier = (raw) => {
+  if (typeof raw !== 'string') {
+    return null
+  }
+  const normalized = raw.trim().toLowerCase()
+  if (!normalized || normalized === 'auto' || normalized === 'default') {
+    return null
+  }
+  return normalized
+}
+
+const extractRequestServiceTier = (eventObj) => {
+  const top =
+    (typeof eventObj.service_tier === 'string' && eventObj.service_tier) ||
+    (eventObj.response && typeof eventObj.response.service_tier === 'string' && eventObj.response.service_tier) ||
+    null
+  return normalizeRequestServiceTier(top)
+}
+
 export const createRealtimeUsageAccumulator = () => {
+  // 按单次 completed usage 分桶（turn 序号 + tier + model），禁止跨 turn 合并后一次计费
+  // DEC_20260905_194420
+  // 档位：FIFO 队列 + response.id 绑定，禁止连接级单槽错配
+  // DEC_20260906_011816
+  const entries = []
+  const pendingTierQueue = []
+  const tierByResponseId = new Map()
   const totals = {
-    input_tokens: 0,
-    output_tokens: 0,
-    cache_read_input_tokens: 0,
-    cache_creation_input_tokens: 0,
-    input_audio_tokens: 0,
-    output_audio_tokens: 0,
     eventCount: 0,
     lastModel: null,
+    lastServiceTier: null,
+    lastRequestServiceTier: null,
+    lastErrorEvent: null,
+    cyberPolicyEvent: null,
   }
 
-  const ingestText = (text) => {
-    if (!text || typeof text !== 'string') {
+  const noteCyber = (eventObj) => {
+    totals.lastErrorEvent = eventObj
+    if (totals.cyberPolicyEvent) {
       return
+    }
+    const SESSION_CODES = new Set(['session_blocked_by_cyber_policy', 'session_blocked', 'conversation_blocked'])
+    const SESSION_RE =
+      /session is blocked|start a new session|blocked by cyber|cyber-security policy|网络安全策略|开启新会话|该会话已被/i
+    const cands = [eventObj, eventObj.error, eventObj.response, eventObj.response && eventObj.response.error].filter(
+      (item) => item && typeof item === 'object',
+    )
+    for (const candidate of cands) {
+      const code = String((candidate && (candidate.code || candidate.type)) || '').toLowerCase()
+      const message = String((candidate && candidate.message) || '')
+      if (
+        (code && (SESSION_CODES.has(code) || /session_blocked/.test(code))) ||
+        (message && SESSION_RE.test(message))
+      ) {
+        totals.cyberPolicyEvent = eventObj
+        break
+      }
+    }
+  }
+
+  const exhaustedResponseIds = new Set()
+  // 队列溢出后本连接停止新关联，已入队/已绑 id 仍可 drain
+  // DEC_20260906_103722
+  let associationFrozen = false
+
+  const refreshLastRequestServiceTier = () => {
+    totals.lastRequestServiceTier = pendingTierQueue.length > 0 ? pendingTierQueue[pendingTierQueue.length - 1] : null
+  }
+
+  const rememberExhaustedResponseId = (responseId) => {
+    if (!responseId) {
+      return
+    }
+    exhaustedResponseIds.add(responseId)
+    while (exhaustedResponseIds.size > 256) {
+      const oldest = exhaustedResponseIds.values().next().value
+      exhaustedResponseIds.delete(oldest)
+    }
+  }
+
+  const extractEventResponseId = (eventObj, usageResponseId = null) => {
+    if (typeof usageResponseId === 'string' && usageResponseId) {
+      return usageResponseId
+    }
+    if (eventObj && typeof eventObj.response?.id === 'string' && eventObj.response.id) {
+      return eventObj.response.id
+    }
+    if (eventObj && typeof eventObj.id === 'string' && eventObj.type && String(eventObj.type).startsWith('response.')) {
+      return eventObj.id
+    }
+    return null
+  }
+
+  const freezeAssociation = (reason) => {
+    if (associationFrozen) {
+      return
+    }
+    associationFrozen = true
+    // 未绑定 FIFO 已与上游响应失序，清空后禁止再绑 created / 未知 id 终端
+    // 冻结前已按 response.id 绑定的仍可 drain
+    // DEC_20260906_105200
+    pendingTierQueue.length = 0
+    refreshLastRequestServiceTier()
+    logger.warn(`[CodexRealtime] freeze request-tier association: ${reason}`)
+  }
+
+  const enqueueRequestTier = (eventObj) => {
+    const tier = extractRequestServiceTier(eventObj)
+    if (associationFrozen) {
+      return
+    }
+    if (pendingTierQueue.length >= 64) {
+      // 满则丢本条并冻结后续关联，禁止腾位后再入队导致串档
+      // DEC_20260906_014853 丢最新；DEC_20260906_103722 溢出后停止关联
+      freezeAssociation('pending tier queue full')
+      return
+    }
+    pendingTierQueue.push(tier)
+    totals.lastRequestServiceTier = tier
+  }
+
+  const bindCreatedResponseId = (eventObj) => {
+    const responseId =
+      (typeof eventObj.response?.id === 'string' && eventObj.response.id) ||
+      (typeof eventObj.id === 'string' && eventObj.id) ||
+      null
+    if (associationFrozen || !responseId || pendingTierQueue.length === 0) {
+      return
+    }
+    if (tierByResponseId.has(responseId) || exhaustedResponseIds.has(responseId)) {
+      return
+    }
+    const tier = pendingTierQueue.shift()
+    refreshLastRequestServiceTier()
+    tierByResponseId.set(responseId, tier)
+    while (tierByResponseId.size > 128) {
+      const oldest = tierByResponseId.keys().next().value
+      rememberExhaustedResponseId(oldest)
+      tierByResponseId.delete(oldest)
+    }
+  }
+
+  // 终端事件只消费一次：有 id 走绑定，无 id 才 FIFO
+  // 未知 id 的 completed/done：隐式 created（绑队头到该 id）再消费
+  // DEC_20260906_014853 / DEC_20260906_103722
+  const consumeTurnTier = (eventObj, usageResponseId = null) => {
+    const responseId = extractEventResponseId(eventObj, usageResponseId)
+    const eventType = eventObj && eventObj.type
+    if (responseId) {
+      if (tierByResponseId.has(responseId)) {
+        const tier = tierByResponseId.get(responseId)
+        tierByResponseId.delete(responseId)
+        rememberExhaustedResponseId(responseId)
+        return tier
+      }
+      if (exhaustedResponseIds.has(responseId)) {
+        return null
+      }
+      // 冻结后禁止用 FIFO 给未知 id 兜底，避免被丢弃请求抢走其它档位
+      // DEC_20260906_105200
+      if (associationFrozen) {
+        return null
+      }
+      if (eventType === 'response.completed' || eventType === 'response.done') {
+        if (pendingTierQueue.length > 0) {
+          const tier = pendingTierQueue.shift()
+          refreshLastRequestServiceTier()
+          rememberExhaustedResponseId(responseId)
+          return tier
+        }
+        return null
+      }
+      // created 尚未见到：failed/error 释放队头
+      if (eventType === 'response.failed' || eventType === 'error') {
+        if (pendingTierQueue.length > 0) {
+          const tier = pendingTierQueue.shift()
+          refreshLastRequestServiceTier()
+          rememberExhaustedResponseId(responseId)
+          return tier
+        }
+      }
+      return null
+    }
+    if (associationFrozen) {
+      return null
+    }
+    if (pendingTierQueue.length > 0) {
+      const tier = pendingTierQueue.shift()
+      refreshLastRequestServiceTier()
+      return tier
+    }
+    return null
+  }
+
+  // 解析事件数组；source=upstream 才允许 usage 入账；client 只采 create 档位
+  // DEC_20260906_011816 客户端帧禁止伪造 usage 扣费
+  const ingestParsedEvents = (events, source) => {
+    const fromClient = source === 'client'
+    for (const eventObj of events) {
+      if (!eventObj || typeof eventObj !== 'object') {
+        continue
+      }
+      const eventType = eventObj.type
+      if (eventType === 'response.create') {
+        enqueueRequestTier(eventObj)
+        continue
+      }
+      // 客户端其余事件一律忽略（含假 completed / usage）
+      if (fromClient) {
+        continue
+      }
+      if (eventType === 'response.created') {
+        bindCreatedResponseId(eventObj)
+      }
+      if (eventType === 'response.failed' || eventType === 'error' || eventObj.error) {
+        noteCyber(eventObj)
+      }
+      const usage = extractRealtimeUsageFromEvent(eventObj)
+      const isTerminal =
+        eventType === 'response.completed' ||
+        eventType === 'response.done' ||
+        eventType === 'response.failed' ||
+        eventType === 'error'
+      // 终端事件只消费一次档位槽：先取档再入账，failed+usage 不会先删后偷下一请求
+      // 普通 error / 零用量 completed 同样释放队头，避免后续串档
+      // DEC_20260906_014853
+      let consumedTier = null
+      if (isTerminal) {
+        consumedTier = consumeTurnTier(eventObj, usage && usage.responseId)
+      }
+      if (!usage) {
+        continue
+      }
+      const serviceTier = usage.service_tier || consumedTier || null
+      const model = (typeof usage.model === 'string' && usage.model.trim()) || totals.lastModel || null
+      entries.push({
+        serviceTier: serviceTier || null,
+        model,
+        input_tokens: usage.input_tokens || 0,
+        output_tokens: usage.output_tokens || 0,
+        cache_read_input_tokens: usage.cache_read_input_tokens || 0,
+        cache_creation_input_tokens: usage.cache_creation_input_tokens || 0,
+        input_audio_tokens: usage.input_audio_tokens || 0,
+        output_audio_tokens: usage.output_audio_tokens || 0,
+        eventCount: 1,
+        lastModel: model,
+      })
+      totals.eventCount += 1
+      if (model) {
+        totals.lastModel = model
+      }
+      if (serviceTier) {
+        totals.lastServiceTier = serviceTier
+      }
+      refreshLastRequestServiceTier()
+    }
+  }
+
+  const parseEventsFromText = (text) => {
+    if (!text || typeof text !== 'string') {
+      return null
     }
     const trimmed = text.trim()
     if (!trimmed || (trimmed[0] !== '{' && trimmed[0] !== '[')) {
-      return
+      return null
     }
     let parsed
     try {
       parsed = JSON.parse(trimmed)
     } catch {
+      return null
+    }
+    return Array.isArray(parsed) ? parsed : [parsed]
+  }
+
+  // 兼容旧调用：默认按上游处理（单测/历史路径）
+  const ingestText = (text) => {
+    const events = parseEventsFromText(text)
+    if (!events) {
       return
     }
-    const events = Array.isArray(parsed) ? parsed : [parsed]
-    for (const eventObj of events) {
-      const usage = extractRealtimeUsageFromEvent(eventObj)
-      if (!usage) {
-        continue
-      }
-      totals.input_tokens += usage.input_tokens
-      totals.output_tokens += usage.output_tokens
-      totals.cache_read_input_tokens += usage.cache_read_input_tokens
-      totals.cache_creation_input_tokens += usage.cache_creation_input_tokens
-      totals.input_audio_tokens += usage.input_audio_tokens
-      totals.output_audio_tokens += usage.output_audio_tokens
-      totals.eventCount += 1
-      if (usage.model) {
-        totals.lastModel = usage.model
-      }
+    ingestParsedEvents(events, 'upstream')
+  }
+
+  const ingestClientText = (text) => {
+    const events = parseEventsFromText(text)
+    if (!events) {
+      return
+    }
+    ingestParsedEvents(events, 'client')
+  }
+
+  const ingestUpstreamText = (text) => {
+    const events = parseEventsFromText(text)
+    if (!events) {
+      return
+    }
+    ingestParsedEvents(events, 'upstream')
+  }
+
+  const snapshot = () => {
+    let input_tokens = 0
+    let output_tokens = 0
+    let cache_read_input_tokens = 0
+    let cache_creation_input_tokens = 0
+    let input_audio_tokens = 0
+    let output_audio_tokens = 0
+    for (const entry of entries) {
+      input_tokens += entry.input_tokens
+      output_tokens += entry.output_tokens
+      cache_read_input_tokens += entry.cache_read_input_tokens
+      cache_creation_input_tokens += entry.cache_creation_input_tokens
+      input_audio_tokens += entry.input_audio_tokens
+      output_audio_tokens += entry.output_audio_tokens
+    }
+    return {
+      input_tokens,
+      output_tokens,
+      cache_read_input_tokens,
+      cache_creation_input_tokens,
+      input_audio_tokens,
+      output_audio_tokens,
+      eventCount: totals.eventCount,
+      lastModel: totals.lastModel,
+      lastServiceTier: totals.lastServiceTier,
+      lastRequestServiceTier: totals.lastRequestServiceTier,
+      lastErrorEvent: totals.lastErrorEvent,
+      cyberPolicyEvent: totals.cyberPolicyEvent,
+      // 每条 completed usage 单独一项，结算时分别 recordUsage
+      tierUsages: entries.map((entry) => ({ ...entry })),
     }
   }
 
-  const snapshot = () => ({ ...totals })
-
   const hasTokenUsage = () =>
-    totals.input_tokens > 0 ||
-    totals.output_tokens > 0 ||
-    totals.cache_read_input_tokens > 0 ||
-    totals.cache_creation_input_tokens > 0
+    entries.some(
+      (entry) =>
+        entry.input_tokens > 0 ||
+        entry.output_tokens > 0 ||
+        entry.cache_read_input_tokens > 0 ||
+        entry.cache_creation_input_tokens > 0,
+    )
 
-  return { ingestText, snapshot, hasTokenUsage }
+  return { ingestText, ingestClientText, ingestUpstreamText, snapshot, hasTokenUsage }
 }

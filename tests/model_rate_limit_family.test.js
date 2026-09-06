@@ -6,6 +6,7 @@ describe('getRateLimitModelFamily', () => {
     expect(getRateLimitModelFamily('claude-sonnet-4-5')).toBe('sonnet')
     expect(getRateLimitModelFamily('claude-sonnet-4-6')).toBe('sonnet')
     expect(getRateLimitModelFamily('claude-fable-5')).toBe('fable')
+    expect(getRateLimitModelFamily('claude-fable-5-1')).toBe('fable')
     expect(getRateLimitModelFamily('claude-fable-5-mythos-5')).toBe('fable')
     expect(getRateLimitModelFamily('claude-3-5-haiku-20241022')).toBe('haiku')
   })

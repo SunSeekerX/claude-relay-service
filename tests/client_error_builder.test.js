@@ -1,4 +1,13 @@
-import { normalizeStatusCode, shouldExposeUpstreamMessage, extractSafeMessage, buildClientError } from '../src/common/client_error_builder.js'
+import {
+  normalizeStatusCode,
+  shouldExposeUpstreamMessage,
+  extractSafeMessage,
+  extractUpstreamErrorCode,
+  isClientActionableUpstreamError,
+  buildClientError,
+  resolveAnthropicErrorType,
+  buildAnthropicClientErrorBody,
+} from '../src/common/client_error_builder.js'
 
 describe('clientErrorBuilder 纯函数', () => {
   describe('normalizeStatusCode', () => {
@@ -49,7 +58,7 @@ describe('clientErrorBuilder 纯函数', () => {
 
     it('去 URL', () => {
       expect(extractSafeMessage('failed at https://api.upstream.com/v1/x now')).toBe(
-        'failed at [upstream] now'
+        'failed at [upstream] now',
       )
     })
 
@@ -70,12 +79,56 @@ describe('clientErrorBuilder 纯函数', () => {
     })
   })
 
+  describe('isClientActionableUpstreamError', () => {
+    it('识别 session_blocked_by_cyber_policy', () => {
+      expect(
+        isClientActionableUpstreamError(403, {
+          error: {
+            code: 'session_blocked_by_cyber_policy',
+            message:
+              '该会话已被网络安全策略屏蔽，请开启新会话 / This session is blocked by cyber-security policy, please start a new session',
+            type: 'permission_error',
+          },
+        }),
+      ).toBe(true)
+    })
+
+    it('普通 401 账户鉴权不算可自愈', () => {
+      expect(
+        isClientActionableUpstreamError(401, {
+          error: { message: 'invalid api key', type: 'authentication_error' },
+        }),
+      ).toBe(false)
+    })
+
+    it('5xx / 429 不算可自愈', () => {
+      expect(
+        isClientActionableUpstreamError(502, {
+          error: { code: 'session_blocked_by_cyber_policy', message: 'blocked' },
+        }),
+      ).toBe(false)
+      expect(
+        isClientActionableUpstreamError(429, {
+          error: { message: 'rate limited' },
+        }),
+      ).toBe(false)
+    })
+
+    it('仅靠文案也能识别', () => {
+      expect(
+        isClientActionableUpstreamError(403, {
+          error: { message: 'This session is blocked by cyber-security policy, please start a new session' },
+        }),
+      ).toBe(true)
+    })
+  })
+
   describe('buildClientError', () => {
     it('openai 协议 + 上游 401 → 502 通用 upstream_error（不透传上游原文）', () => {
       const r = buildClientError({
         statusCode: 401,
         protocol: 'openai',
-        upstreamBody: { error: { message: 'invalid api key sk-xxx' } }
+        upstreamBody: { error: { message: 'invalid api key sk-xxx' } },
       })
       expect(r.statusCode).toBe(502)
       expect(r.body.error.type).toBe('upstream_error')
@@ -108,10 +161,72 @@ describe('clientErrorBuilder 纯函数', () => {
       const r = buildClientError({
         statusCode: 400,
         protocol: 'openai',
-        upstreamBody: { error: { message: 'model not found [account/x]' } }
+        upstreamBody: { error: { message: 'model not found [account/x]' } },
       })
       expect(r.statusCode).toBe(400)
       expect(r.body.error.message).toBe('model not found')
+    })
+
+    it('session_blocked_by_cyber_policy → 保留 403 并透传具体 message（不藏成 502）', () => {
+      const message =
+        '该会话已被网络安全策略屏蔽，请开启新会话 / This session is blocked by cyber-security policy, please start a new session (trace: t123)'
+      const r = buildClientError({
+        statusCode: 403,
+        protocol: 'openai',
+        upstreamBody: {
+          error: {
+            code: 'session_blocked_by_cyber_policy',
+            message,
+            type: 'permission_error',
+          },
+        },
+      })
+      expect(r.statusCode).toBe(403)
+      expect(r.body.error.type).toBe('permission_error')
+      expect(r.body.error.code).toBe('session_blocked_by_cyber_policy')
+      expect(r.body.error.message).toContain('网络安全策略')
+      expect(r.body.error.message).toContain('start a new session')
+      expect(r.body.error.message).not.toBe('Upstream service temporarily unavailable')
+    })
+
+    it('extractUpstreamErrorCode 只放行标识符', () => {
+      expect(extractUpstreamErrorCode({ error: { code: 'session_blocked_by_cyber_policy' } })).toBe(
+        'session_blocked_by_cyber_policy',
+      )
+      expect(extractUpstreamErrorCode({ error: { code: 'bad code with space' } })).toBe('')
+    })
+  })
+
+  describe('buildAnthropicClientErrorBody', () => {
+    it('恢复 type:error 信封并保留白名单 error.type', () => {
+      const body = buildAnthropicClientErrorBody({
+        statusCode: 429,
+        upstreamBody: {
+          type: 'error',
+          error: { type: 'rate_limit_error', message: 'hit limit [account/abc]' },
+        },
+      })
+      expect(body).toEqual({
+        type: 'error',
+        error: { type: 'rate_limit_error', message: 'hit limit' },
+      })
+    })
+
+    it('未知 type 归 api_error；403 无 type 时兜底 permission_error', () => {
+      expect(
+        resolveAnthropicErrorType(500, { error: { type: 'secret_account_type', message: 'x' } }),
+      ).toBe('api_error')
+      expect(resolveAnthropicErrorType(403, { error: { message: 'nope' } })).toBe('permission_error')
+    })
+
+    it('禁止自定义 status/details 字段', () => {
+      const body = buildAnthropicClientErrorBody({
+        statusCode: 400,
+        upstreamBody: { error: { type: 'invalid_request_error', message: 'bad' } },
+      })
+      expect(body.status).toBeUndefined()
+      expect(body.details).toBeUndefined()
+      expect(body.type).toBe('error')
     })
   })
 })

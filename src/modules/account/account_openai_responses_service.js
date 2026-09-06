@@ -36,6 +36,8 @@ class OpenAIResponsesAccountService {
       baseApi = '', // 必填：API 基础地址
       apiKey = '', // 必填：API 密钥
       userAgent = '', // 可选：自定义 User-Agent，空则透传原始请求
+      // 可选：读取上游请求标识的响应头名（空=常见头自动探测）
+      upstreamRequestIdHeader = '',
       priority = 50, // 调度优先级 (1-100)
       proxy = null,
       isActive = true,
@@ -78,6 +80,8 @@ class OpenAIResponsesAccountService {
       baseApi: normalizedBaseApi,
       apiKey: this._encryptSensitiveData(apiKey),
       userAgent,
+      // DEC_20260905_194420 账户可配上游请求标识响应头名
+      upstreamRequestIdHeader: this._normalizeUpstreamRequestIdHeader(upstreamRequestIdHeader),
       priority: priority.toString(),
       proxy: proxy ? JSON.stringify(proxy) : '',
       isActive: isActive.toString(),
@@ -174,6 +178,10 @@ class OpenAIResponsesAccountService {
     // 规范化 baseApi
     if (updates.baseApi) {
       updates.baseApi = updates.baseApi.endsWith('/') ? updates.baseApi.slice(0, -1) : updates.baseApi
+    }
+
+    if (updates.upstreamRequestIdHeader !== undefined) {
+      updates.upstreamRequestIdHeader = this._normalizeUpstreamRequestIdHeader(updates.upstreamRequestIdHeader)
     }
 
     // 直接保存 subscriptionExpiresAt（如果提供）
@@ -817,6 +825,21 @@ class OpenAIResponsesAccountService {
     account.supportedModels = mapping
     account.allowedModels = allowed
     return account
+  }
+
+  // 上游请求标识头名：仅 token 字符，最长 64；空=自动探测
+  _normalizeUpstreamRequestIdHeader(value) {
+    if (value === undefined || value === null) {
+      return ''
+    }
+    const trimmed = String(value).trim()
+    if (!trimmed) {
+      return ''
+    }
+    if (trimmed.length > 64 || !/^[A-Za-z0-9-]+$/.test(trimmed)) {
+      throw new Error('upstreamRequestIdHeader must be 1-64 chars of letters, digits or hyphen')
+    }
+    return trimmed
   }
 }
 

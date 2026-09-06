@@ -10,7 +10,15 @@ import { config } from '../../../config/config.js'
 import crypto from 'node:crypto'
 import { LRUCache } from '../../common/lru_cache.js'
 import * as upstreamErrorHelper from './relay_upstream_error_helper.js'
-import { buildClientError } from '../../common/client_error_builder.js'
+import { buildClientError, extractSafeMessage, summarizeErrorForLog } from '../../common/client_error_builder.js'
+import {
+  sanitizeOpenAICapacityShedForClient,
+  createCapacityShedSseRewriteStream,
+} from './relay_openai_capacity_shed.js'
+import { applyOpenAIServiceTierAlias } from './relay_openai_compact_v2.js'
+import { applyOpenAIPublicModelAlias } from './relay_openai_model_alias.js'
+import { extractMultipartFormField, rewriteMultipartFormField } from './relay_multipart_form_field.js'
+import { normalizeCodexBootstrapBody } from './relay_codex_bootstrap_normalize.js'
 import { onClientDisconnect } from '../../common/client_disconnect.js'
 import { getMappedModelName } from '../../common/common_helper.js'
 import { CostCalculator } from '../pricing/pricing_cost_calculator.js'
@@ -98,6 +106,12 @@ class OpenAIResponsesRelayService {
       if (!fullAccount) {
         throw new Error('Account not found')
       }
+      // 失败明细采集用：finish 钩子可带上实际选中的账户
+      req._crsAccountId = fullAccount.id
+      req._crsAccountType = 'openai-responses'
+      if (req.body && typeof req.body.model === 'string') {
+        req._crsRequestedModel = req.body.model
+      }
 
       // 账户级并发槽（0=不限制）
       const maxConcurrent = Number(fullAccount.maxConcurrentTasks) || 0
@@ -130,7 +144,7 @@ class OpenAIResponsesRelayService {
         try {
           await redis.decrOpenaiResponsesAccountConcurrency(fullAccount.id || account?.id, concurrencyRequestId)
         } catch (error) {
-          console.error(error)
+          console.error(summarizeErrorForLog(error))
         }
         concurrencyAcquired = false
       }
@@ -198,15 +212,31 @@ class OpenAIResponsesRelayService {
         logger.debug(`Forwarding original User-Agent: ${req.headers['user-agent']}`)
       }
 
-      // 账户级模型映射：客户端 model → 上游 model（空映射不改）
-      let outboundBody = req.body
+      // 账户级模型映射：必须用客户端原始 model 作键；公开别名仅在未命中映射时套用
+      let outboundBody = req.body && typeof req.body === 'object' ? { ...req.body } : req.body
       const requestedModelName = req.body && typeof req.body.model === 'string' ? req.body.model : ''
-      if (requestedModelName && fullAccount.supportedModels) {
-        const mappedModel = getMappedModelName(fullAccount.supportedModels, requestedModelName)
-        if (mappedModel && mappedModel !== requestedModelName) {
-          outboundBody = { ...req.body, model: mappedModel }
-          logger.info(`OpenAI-Responses model mapping: ${requestedModelName} → ${mappedModel} (account=${account.id})`)
+      let mapped = false
+      if (outboundBody && typeof outboundBody === 'object') {
+        applyOpenAIServiceTierAlias(outboundBody)
+        const bootstrap = normalizeCodexBootstrapBody(outboundBody)
+        if (bootstrap.changed) {
+          outboundBody = bootstrap.body
+          logger.info(`Codex bootstrap normalized on openai-responses kinds=${bootstrap.kinds.join(',')}`)
         }
+        if (requestedModelName && fullAccount.supportedModels) {
+          const mappedModel = getMappedModelName(fullAccount.supportedModels, requestedModelName)
+          if (mappedModel && mappedModel !== requestedModelName) {
+            outboundBody.model = mappedModel
+            mapped = true
+            logger.info(
+              `OpenAI-Responses model mapping: ${requestedModelName} → ${mappedModel} (account=${account.id})`,
+            )
+          }
+        }
+        applyOpenAIPublicModelAlias(outboundBody, {
+          originalModel: requestedModelName || null,
+          mapped,
+        })
       }
 
       // 配置请求选项
@@ -244,6 +274,13 @@ class OpenAIResponsesRelayService {
 
       // 发送请求
       const response = await axios(requestOptions)
+
+      // DEC_20260905_194420 上游响应头挂到 req，供 request detail 落 upstreamRequestId
+      if (req && typeof req === 'object') {
+        req._crsUpstreamHeaders = response.headers || null
+        req._crsUpstreamRequestIdHeader =
+          fullAccount.upstreamRequestIdHeader || fullAccount.extra?.upstreamRequestIdHeader || null
+      }
 
       // 被动健康检查：拿到 HTTP 响应即代理传输成功（含 429/4xx/5xx，不归咎代理）
       proxyResolver.report(proxyResolution.proxyId, proxyResolution.contextKey, null)
@@ -286,7 +323,10 @@ class OpenAIResponsesRelayService {
           upstreamBody: errorData,
           retryAfterSeconds: resetsInSeconds,
         })
-        return res.status(clientError.statusCode).json(clientError.body)
+        {
+          const sanitized = sanitizeOpenAICapacityShedForClient(clientError.body)
+          return res.status(clientError.statusCode).json(sanitized.payload)
+        }
       }
 
       // 处理其他错误状态码
@@ -388,10 +428,12 @@ class OpenAIResponsesRelayService {
           })
         }
 
+        // 禁止日志打上游 error 原文
+        // DEC_20260905_155232
         logger.error('OpenAI-Responses API error', {
           status: response.status,
           statusText: response.statusText,
-          errorData,
+          message: extractSafeMessage(errorData) || 'upstream error',
         })
 
         if (response.status === 401) {
@@ -420,30 +462,21 @@ class OpenAIResponsesRelayService {
             logger.error('Failed to mark OpenAI-Responses account temporarily unavailable after 401:', markError)
           }
 
-          let unauthorizedResponse = errorData
-          if (
-            !unauthorizedResponse ||
-            typeof unauthorizedResponse !== 'object' ||
-            unauthorizedResponse.pipe ||
-            Buffer.isBuffer(unauthorizedResponse)
-          ) {
-            const fallbackMessage =
-              typeof errorData === 'string' && errorData.trim() ? errorData.trim() : 'Unauthorized'
-            unauthorizedResponse = {
-              error: {
-                message: fallbackMessage,
-                type: 'unauthorized',
-                code: 'unauthorized',
-              },
-            }
-          }
-
-          // 清理监听器
+          // 401 走 buildClientError：隐藏我方账户鉴权，禁止 errorData 原文出站
+          // DEC_20260905_155232
           detachClientDisconnect()
 
           await releaseAccountConcurrency()
 
-          return res.status(401).json(unauthorizedResponse)
+          const clientError = buildClientError({
+            statusCode: 401,
+            protocol: 'openai',
+            upstreamBody: errorData,
+          })
+          {
+            const sanitized = sanitizeOpenAICapacityShedForClient(clientError.body)
+            return res.status(clientError.statusCode).json(sanitized.payload)
+          }
         }
 
         // 处理 5xx 上游错误
@@ -484,7 +517,10 @@ class OpenAIResponsesRelayService {
           protocol: 'openai',
           upstreamBody: errorData,
         })
-        return res.status(clientError.statusCode).json(clientError.body)
+        {
+          const sanitized = sanitizeOpenAICapacityShedForClient(clientError.body)
+          return res.status(clientError.statusCode).json(sanitized.payload)
+        }
       }
 
       // 更新最后使用时间（节流）
@@ -538,13 +574,8 @@ class OpenAIResponsesRelayService {
       }
 
       // 安全地记录错误，避免循环引用
-      const errorInfo = {
-        message: error.message,
-        code: error.code,
-        status: error.response?.status,
-        statusText: error.response?.statusText,
-      }
-      logger.error('OpenAI-Responses relay error:', errorInfo)
+      // DEC_20260905_164536 禁止 message 夹带 URL/凭证
+      logger.error('OpenAI-Responses relay error:', summarizeErrorForLog(error))
 
       // 检查是否是网络错误（含 axios 请求超时 ECONNABORTED）
       if (error.code === 'ECONNREFUSED' || error.code === 'ETIMEDOUT' || error.code === 'ECONNABORTED') {
@@ -622,25 +653,17 @@ class OpenAIResponsesRelayService {
             logger.error('Failed to mark OpenAI-Responses account temporarily unavailable in catch handler:', markError)
           }
 
-          let unauthorizedResponse = errorData
-          if (
-            !unauthorizedResponse ||
-            typeof unauthorizedResponse !== 'object' ||
-            unauthorizedResponse.pipe ||
-            Buffer.isBuffer(unauthorizedResponse)
-          ) {
-            const fallbackMessage =
-              typeof errorData === 'string' && errorData.trim() ? errorData.trim() : 'Unauthorized'
-            unauthorizedResponse = {
-              error: {
-                message: fallbackMessage,
-                type: 'unauthorized',
-                code: 'unauthorized',
-              },
-            }
+          // 401 走 buildClientError：隐藏我方账户鉴权，禁止 errorData 原文出站
+          // DEC_20260905_155232
+          const clientError401 = buildClientError({
+            statusCode: 401,
+            protocol: 'openai',
+            upstreamBody: errorData,
+          })
+          {
+            const sanitized = sanitizeOpenAICapacityShedForClient(clientError401.body)
+            return res.status(clientError401.statusCode).json(sanitized.payload)
           }
-
-          return res.status(401).json(unauthorizedResponse)
         }
 
         const clientError = buildClientError({
@@ -648,17 +671,23 @@ class OpenAIResponsesRelayService {
           protocol: 'openai',
           upstreamBody: errorData,
         })
-        return res.status(clientError.statusCode).json(clientError.body)
+        {
+          const sanitized = sanitizeOpenAICapacityShedForClient(clientError.body)
+          return res.status(clientError.statusCode).json(sanitized.payload)
+        }
       }
 
-      // 其他错误
-      return res.status(500).json({
-        error: {
-          message: 'Internal server error',
-          type: 'internal_error',
-          details: error.message,
-        },
+      // 其他错误：禁止把内部 error.message 放进客户端 details
+      // DEC_20260905_162636
+      const clientError = buildClientError({
+        statusCode: 500,
+        protocol: 'openai',
+        upstreamBody: null,
       })
+      {
+        const sanitized = sanitizeOpenAICapacityShedForClient(clientError.body)
+        return res.status(clientError.statusCode).json(sanitized.payload)
+      }
     }
   }
 
@@ -762,6 +791,7 @@ class OpenAIResponsesRelayService {
     }
 
     // 监听数据流
+    const capacityShedSseRewriter = createCapacityShedSseRewriteStream()
     response.data.on('data', (chunk) => {
       try {
         const chunkStr = chunk.toString()
@@ -773,21 +803,50 @@ class OpenAIResponsesRelayService {
 
         // 转发数据给客户端
         if (!clientGone && !res.destroyed && !streamEnded) {
-          res.write(chunk)
+          try {
+            const rewritten = capacityShedSseRewriter.push(chunk)
+            if (rewritten) {
+              res.write(rewritten)
+              if (rewritten.includes('"error"') || rewritten.includes('server_error')) {
+                res._responseBody = res._responseBody || rewritten.slice(0, 2000)
+              }
+            }
+          } catch (e) {
+            console.error(e)
+            res.write(chunk)
+          }
         }
 
         // 同时解析数据以捕获 usage 信息
         buffer += chunkStr
 
-        // 处理完整的 SSE 事件
-        if (buffer.includes('\n\n')) {
-          const events = buffer.split('\n\n')
-          buffer = events.pop() || ''
-
-          for (const event of events) {
-            if (event.trim()) {
-              parseSSEForUsage(event)
-            }
+        // 处理完整的 SSE 事件（兼容 \n\n 与 \r\n\r\n）
+        // DEC_20260905_155232
+        while (true) {
+          const lfIdx = buffer.indexOf('\n\n')
+          const crlfIdx = buffer.indexOf('\r\n\r\n')
+          let idx = -1
+          let sepLen = 2
+          if (lfIdx === -1 && crlfIdx === -1) {
+            break
+          }
+          if (lfIdx === -1) {
+            idx = crlfIdx
+            sepLen = 4
+          } else if (crlfIdx === -1) {
+            idx = lfIdx
+            sepLen = 2
+          } else if (crlfIdx < lfIdx) {
+            idx = crlfIdx
+            sepLen = 4
+          } else {
+            idx = lfIdx
+            sepLen = 2
+          }
+          const event = buffer.slice(0, idx)
+          buffer = buffer.slice(idx + sepLen)
+          if (event.trim()) {
+            parseSSEForUsage(event)
           }
         }
       } catch (error) {
@@ -797,6 +856,17 @@ class OpenAIResponsesRelayService {
 
     response.data.on('end', async () => {
       streamEnded = true
+      try {
+        const rest = capacityShedSseRewriter.flush()
+        if (rest && !clientGone && !res.destroyed) {
+          res.write(rest)
+          if (rest.includes('"error"')) {
+            res._responseBody = res._responseBody || rest.slice(0, 2000)
+          }
+        }
+      } catch (e) {
+        console.error(e)
+      }
 
       // 处理剩余的 buffer
       if (buffer.trim()) {
@@ -944,7 +1014,8 @@ class OpenAIResponsesRelayService {
 
     response.data.on('error', async (error) => {
       streamEnded = true
-      logger.error('Stream error:', error)
+      // DEC_20260905_165339 禁止整包异常进日志
+      logger.error('Stream error:', summarizeErrorForLog(error))
 
       // 清理监听器与并发槽
       detachClientDisconnect()
@@ -953,7 +1024,15 @@ class OpenAIResponsesRelayService {
       if (!res.headersSent) {
         const clientError = buildClientError({ statusCode: 502, protocol: 'openai' })
         res.status(clientError.statusCode).json(clientError.body)
-      } else if (!res.destroyed) {
+      } else if (!res.destroyed && !res.writableEnded) {
+        // headers 已发：写 SSE 终端 error 帧，禁止静默断流
+        try {
+          const clientError = buildClientError({ statusCode: 502, protocol: 'openai' })
+          const sanitized = sanitizeOpenAICapacityShedForClient(clientError.body)
+          res.write(`data: ${JSON.stringify(sanitized.payload)}\n\n`)
+        } catch (e) {
+          console.error(summarizeErrorForLog(e))
+        }
         res.end()
       }
     })
@@ -1093,7 +1172,8 @@ class OpenAIResponsesRelayService {
             errorData = JSON.parse(fullResponse)
           } catch (e) {
             logger.error('Failed to parse 429 error response:', e)
-            logger.debug('Raw response:', fullResponse)
+            // DEC_20260905_162636 禁止日志打上游原文
+            logger.debug('Raw 429 response preview:', extractSafeMessage(fullResponse) || '(empty)')
           }
         }
       } else if (response.data && typeof response.data !== 'object') {
@@ -1102,7 +1182,7 @@ class OpenAIResponsesRelayService {
           errorData = JSON.parse(response.data)
         } catch (e) {
           logger.error('Failed to parse 429 error response as JSON:', e)
-          errorData = { error: { message: response.data } }
+          errorData = { error: { message: extractSafeMessage(response.data) || 'rate limited' } }
         }
       } else if (response.data && typeof response.data === 'object' && !response.data.pipe) {
         // 非流式响应，且是对象，直接使用
@@ -1186,6 +1266,12 @@ class OpenAIResponsesRelayService {
       if (!fullAccount) {
         throw new Error('Account not found')
       }
+      // 失败明细采集用：finish 钩子可带上实际选中的账户
+      req._crsAccountId = fullAccount.id
+      req._crsAccountType = 'openai-responses'
+      if (req.body && typeof req.body.model === 'string') {
+        req._crsRequestedModel = req.body.model
+      }
 
       let targetPath = '/v1/embeddings'
       if (req.path && String(req.path).includes('embeddings')) {
@@ -1206,11 +1292,32 @@ class OpenAIResponsesRelayService {
         headers['User-Agent'] = fullAccount.userAgent
       }
 
+      // embeddings 也走账户映射 + 公开别名（与主路径一致）
+      const outboundBody = req.body && typeof req.body === 'object' ? { ...req.body } : req.body
+      const requestedModelName = req.body && typeof req.body.model === 'string' ? req.body.model : ''
+      let mapped = false
+      if (outboundBody && typeof outboundBody === 'object') {
+        if (requestedModelName && fullAccount.supportedModels) {
+          const mappedModel = getMappedModelName(fullAccount.supportedModels, requestedModelName)
+          if (mappedModel && mappedModel !== requestedModelName) {
+            outboundBody.model = mappedModel
+            mapped = true
+            logger.info(
+              `OpenAI-Responses embeddings mapping: ${requestedModelName} → ${mappedModel} (account=${account.id})`,
+            )
+          }
+        }
+        applyOpenAIPublicModelAlias(outboundBody, {
+          originalModel: requestedModelName || null,
+          mapped,
+        })
+      }
+
       const proxyResolution = proxyResolver.resolveAgent(fullAccount, 'openai-responses')
       const axiosConfig = {
         method: 'POST',
         url: targetUrl,
-        data: req.body,
+        data: outboundBody,
         headers,
         timeout: config.requestTimeout || 120000,
         validateStatus: () => true,
@@ -1221,10 +1328,22 @@ class OpenAIResponsesRelayService {
       }
 
       const response = await axios(axiosConfig)
+      if (req && typeof req === 'object') {
+        req._crsUpstreamHeaders = response.headers || null
+        req._crsUpstreamRequestIdHeader =
+          fullAccount.upstreamRequestIdHeader || fullAccount.extra?.upstreamRequestIdHeader || null
+      }
       applyFilteredResponseHeaders(res, response.headers)
 
       if (response.status >= 400) {
-        return res.status(response.status).json(response.data)
+        // DEC_20260905_155232 禁止 response.data 原文出站
+        const clientError = buildClientError({
+          statusCode: response.status,
+          protocol: 'openai',
+          upstreamBody: response.data,
+        })
+        const sanitized = sanitizeOpenAICapacityShedForClient(clientError.body)
+        return res.status(clientError.statusCode).json(sanitized.payload)
       }
 
       // usage + 费用落库（embeddings 通常只有 prompt_tokens）
@@ -1232,7 +1351,11 @@ class OpenAIResponsesRelayService {
         const usage = response.data?.usage
         if (usage && apiKeyData) {
           const promptTokens = usage.prompt_tokens || usage.total_tokens || 0
-          const modelName = req.body?.model || 'text-embedding-3-small'
+          const modelName =
+            (typeof response.data?.model === 'string' && response.data.model.trim()) ||
+            (outboundBody && typeof outboundBody.model === 'string' && outboundBody.model) ||
+            req.body?.model ||
+            'text-embedding-3-small'
           if (promptTokens > 0) {
             if (req.rateLimitInfo) {
               await updateRateLimitCounters(
@@ -1263,26 +1386,27 @@ class OpenAIResponsesRelayService {
               }),
             )
             await openaiResponsesAccountService.updateAccountUsage(account.id, promptTokens).catch((error) => {
-              console.error(error)
+              console.error(summarizeErrorForLog(error))
             })
           }
         }
       } catch (error) {
-        console.error(error)
-        logger.error('[OpenAI-Responses] embeddings billing failed:', error)
+        console.error(summarizeErrorForLog(error))
+        logger.error('[OpenAI-Responses] embeddings billing failed:', summarizeErrorForLog(error))
       }
 
       return res.status(response.status).json(response.data)
     } catch (error) {
-      console.error(error)
-      logger.error('[OpenAI-Responses] embeddings failed:', error)
+      console.error(summarizeErrorForLog(error))
+      logger.error('[OpenAI-Responses] embeddings failed:', summarizeErrorForLog(error))
       if (!res.headersSent) {
-        res.status(error.statusCode || 500).json({
-          error: {
-            message: error.message || 'embeddings failed',
-            type: 'api_error',
-          },
+        // DEC_20260905_162636 禁止 error.message 原文出站
+        const clientError = buildClientError({
+          statusCode: error.statusCode || 500,
+          protocol: 'openai',
+          upstreamBody: null,
         })
+        res.status(clientError.statusCode).json(clientError.body)
       }
     }
   }
@@ -1292,6 +1416,12 @@ class OpenAIResponsesRelayService {
       const fullAccount = await openaiResponsesAccountService.getAccount(account.id)
       if (!fullAccount) {
         throw new Error('Account not found')
+      }
+      // 失败明细采集用：finish 钩子可带上实际选中的账户
+      req._crsAccountId = fullAccount.id
+      req._crsAccountType = 'openai-responses'
+      if (req.body && typeof req.body.model === 'string') {
+        req._crsRequestedModel = req.body.model
       }
 
       let targetPath = req.path || req.url || '/'
@@ -1329,7 +1459,63 @@ class OpenAIResponsesRelayService {
       const proxyResolution = proxyResolver.resolveAgent(fullAccount, 'openai-responses')
       // multipart 音频：必须透传原始 body（req.rawBody），不能发 express.json 解析后的对象
       const isMultipart = String(contentType || '').includes('multipart/form-data')
-      const requestData = isMultipart && req.rawBody ? req.rawBody : req.body
+      // DEC_20260905_194420 passthrough 保留 reasoning / reasoning_effort；multipart 也做 model 映射改写
+      let requestData = isMultipart && req.rawBody ? req.rawBody : req.body
+      if (isMultipart && Buffer.isBuffer(req.rawBody)) {
+        const multipartContentType = contentType || req.headers['content-type'] || ''
+        const requestedModelName =
+          (req.body && typeof req.body.model === 'string' && req.body.model) ||
+          extractMultipartFormField(req.rawBody, 'model', { contentType: multipartContentType }) ||
+          ''
+        let outboundModel = requestedModelName
+        if (requestedModelName && fullAccount.supportedModels) {
+          const mappedModel = getMappedModelName(fullAccount.supportedModels, requestedModelName)
+          if (mappedModel && mappedModel !== requestedModelName) {
+            outboundModel = mappedModel
+            logger.info(
+              `OpenAI-Responses multipart mapping: ${requestedModelName} → ${mappedModel} (account=${account.id})`,
+            )
+          }
+        }
+        const aliasBody = { model: outboundModel || requestedModelName }
+        applyOpenAIPublicModelAlias(aliasBody, {
+          originalModel: requestedModelName || null,
+          mapped: outboundModel !== requestedModelName,
+        })
+        if (aliasBody.model && aliasBody.model !== requestedModelName) {
+          requestData = rewriteMultipartFormField(req.rawBody, 'model', aliasBody.model, {
+            contentType: multipartContentType,
+          })
+          if (req.body && typeof req.body === 'object') {
+            req.body.model = aliasBody.model
+          }
+        }
+      } else if (!isMultipart && requestData && typeof requestData === 'object' && !Buffer.isBuffer(requestData)) {
+        requestData = { ...requestData }
+        applyOpenAIServiceTierAlias(requestData)
+        const requestedModelName = req.body && typeof req.body.model === 'string' ? req.body.model : ''
+        let mapped = false
+        if (requestedModelName && fullAccount.supportedModels) {
+          const mappedModel = getMappedModelName(fullAccount.supportedModels, requestedModelName)
+          if (mappedModel && mappedModel !== requestedModelName) {
+            requestData.model = mappedModel
+            mapped = true
+          }
+        }
+        applyOpenAIPublicModelAlias(requestData, {
+          originalModel: requestedModelName || null,
+          mapped,
+        })
+        // 显式保留 reasoning 字段（即使别名/映射路径以后再加字段剥离也不会默丢）
+        if (req.body && typeof req.body === 'object') {
+          if (Object.prototype.hasOwnProperty.call(req.body, 'reasoning')) {
+            requestData.reasoning = req.body.reasoning
+          }
+          if (Object.prototype.hasOwnProperty.call(req.body, 'reasoning_effort')) {
+            requestData.reasoning_effort = req.body.reasoning_effort
+          }
+        }
+      }
       const axiosConfig = {
         method: req.method || 'POST',
         url: targetUrl,
@@ -1347,13 +1533,25 @@ class OpenAIResponsesRelayService {
       }
 
       const response = await axios(axiosConfig)
+      if (req && typeof req === 'object') {
+        req._crsUpstreamHeaders = response.headers || null
+        req._crsUpstreamRequestIdHeader =
+          fullAccount.upstreamRequestIdHeader || fullAccount.extra?.upstreamRequestIdHeader || null
+      }
       applyFilteredResponseHeaders(res, response.headers)
       if (response.status >= 400) {
-        const data =
+        // DEC_20260905_155232 禁止 response.data 原文出站
+        const upstreamBody =
           Buffer.isBuffer(response.data) || response.data instanceof ArrayBuffer
-            ? { error: { message: 'upstream audio error', status: response.status } }
+            ? { error: { message: 'upstream audio error' } }
             : response.data
-        return res.status(response.status).json(data)
+        const clientError = buildClientError({
+          statusCode: response.status,
+          protocol: 'openai',
+          upstreamBody,
+        })
+        const sanitized = sanitizeOpenAICapacityShedForClient(clientError.body)
+        return res.status(clientError.statusCode).json(sanitized.payload)
       }
 
       if (axiosConfig.responseType === 'arraybuffer') {
@@ -1366,7 +1564,13 @@ class OpenAIResponsesRelayService {
         // - 有 input_cost_per_token → 输入按 ~4 字符/token 估，禁止把字符数当 token
         if (apiKeyData) {
           try {
-            const modelName = req.body?.model || 'tts-1'
+            const modelName =
+              (requestData &&
+                typeof requestData === 'object' &&
+                typeof requestData.model === 'string' &&
+                requestData.model) ||
+              req.body?.model ||
+              'tts-1'
             const inputText = typeof req.body?.input === 'string' ? req.body.input : ''
             const inputChars = inputText.length
             // 时长：字符语速与音频体积取较大值（mp3 ~16KB/s @128kbps）
@@ -1417,7 +1621,7 @@ class OpenAIResponsesRelayService {
               }),
             )
           } catch (error) {
-            console.error(error)
+            console.error(summarizeErrorForLog(error))
           }
         }
         return res.status(response.status).send(buf)
@@ -1460,18 +1664,22 @@ class OpenAIResponsesRelayService {
             )
           }
         } catch (error) {
-          console.error(error)
-          logger.error('[OpenAI-Responses] passthrough billing failed:', error)
+          console.error(summarizeErrorForLog(error))
+          logger.error('[OpenAI-Responses] passthrough billing failed:', summarizeErrorForLog(error))
         }
       }
       return res.status(response.status).json(response.data)
     } catch (error) {
-      console.error(error)
-      logger.error('[OpenAI-Responses] generic passthrough failed:', error)
+      console.error(summarizeErrorForLog(error))
+      logger.error('[OpenAI-Responses] generic passthrough failed:', summarizeErrorForLog(error))
       if (!res.headersSent) {
-        res.status(error.statusCode || 500).json({
-          error: { message: error.message || 'passthrough failed', type: 'api_error' },
+        // DEC_20260905_162636 禁止 error.message 原文出站
+        const clientError = buildClientError({
+          statusCode: error.statusCode || 500,
+          protocol: 'openai',
+          upstreamBody: null,
         })
+        res.status(clientError.statusCode).json(clientError.body)
       }
     }
   }

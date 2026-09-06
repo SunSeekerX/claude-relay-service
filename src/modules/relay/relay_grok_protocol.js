@@ -162,11 +162,45 @@ export const messagesToResponsesInput = (messages) => {
       continue
     }
     if (message.role === 'tool') {
-      input.push({
-        type: 'function_call_output',
-        call_id: message.tool_call_id,
-        output: typeof message.content === 'string' ? message.content : JSON.stringify(message.content ?? ''),
-      })
+      // tool 输出：文本走 function_call_output；图像进带 role 的 user message.content
+      // DEC_20260904_174000 禁止顶层裸 input_image，避免无 role/content 归属
+      if (Array.isArray(message.content)) {
+        const textParts = []
+        const imageParts = []
+        for (const part of message.content) {
+          if (!part) {
+            continue
+          }
+          if (part.type === 'text' && part.text) {
+            textParts.push(part.text)
+          } else if (typeof part === 'string') {
+            textParts.push(part)
+          } else if (part.type === 'image_url' || part.type === 'input_image') {
+            const url = part.image_url?.url || part.image_url || part.url
+            if (url) {
+              imageParts.push({ type: 'input_image', image_url: url })
+            }
+          }
+        }
+        input.push({
+          type: 'function_call_output',
+          call_id: message.tool_call_id,
+          output: textParts.join('\n') || '',
+        })
+        if (imageParts.length) {
+          input.push({
+            type: 'message',
+            role: 'user',
+            content: imageParts,
+          })
+        }
+      } else {
+        input.push({
+          type: 'function_call_output',
+          call_id: message.tool_call_id,
+          output: typeof message.content === 'string' ? message.content : JSON.stringify(message.content ?? ''),
+        })
+      }
       continue
     }
     if (message.role === 'assistant' && Array.isArray(message.tool_calls) && message.tool_calls.length) {

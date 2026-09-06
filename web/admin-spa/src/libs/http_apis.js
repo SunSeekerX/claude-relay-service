@@ -376,6 +376,12 @@ export const getQuotaCardLimitsApi = () =>
   request({ url: '/admin/quota-cards/limits', method: 'GET' })
 export const updateQuotaCardLimitsApi = (data) =>
   request({ url: '/admin/quota-cards/limits', method: 'PUT', data })
+export const getRedeemCardLocksApi = () =>
+  request({ url: '/admin/quota-cards/redeem-locks', method: 'GET' })
+export const unlockRedeemCardLockApi = (ip) =>
+  request({ url: '/admin/quota-cards/redeem-locks/unlock', method: 'POST', data: { ip } })
+export const clearAllRedeemCardLocksApi = () =>
+  request({ url: '/admin/quota-cards/redeem-locks/clear-all', method: 'POST' })
 
 // 账户余额
 export const getAccountBalanceApi = (id, params) =>

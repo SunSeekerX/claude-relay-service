@@ -409,6 +409,9 @@ export const RedisKeys = {
   // === 兑换码防爆破限流 ===
   redeemCard: {
     fail: (ip) => `redeem_card:fail:${ip}`,
+    // 失败锁 IP 索引：ZSET，score=过期时间戳(ms)；成员随过期 zremrangebyscore 清理
+    failIndex: 'redeem_card:fail_index',
+    failPattern: 'redeem_card:fail:*',
     ip: (ip, hour) => `redeem_card:ip:${ip}:${hour}`,
   },
 

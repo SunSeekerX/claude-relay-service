@@ -3,7 +3,7 @@ import { quotaCardService } from './payment_quota_card_service.js'
 import { apiKeyService } from '../apikey/apikey_service.js'
 import { authenticateAdmin } from '../../infra/middleware_auth.js'
 import { asyncRoute } from '../../common/route_handler.js'
-import { badRequest, notFound } from '../../common/http_result.js'
+import { badRequest, notFound, ok } from '../../common/http_result.js'
 import {
   parseQuotaLimitsBody,
   parseCreateQuotaCardBody,
@@ -11,6 +11,7 @@ import {
   parseRevokeRedemptionBody,
   parseExtendExpiryBody,
 } from './payment_routes_schema.js'
+import * as redeemCardLockService from './payment_redeem_card_lock_service.js'
 /**
  * 额度卡/时间卡管理路由
  */
@@ -30,6 +31,40 @@ router.put(
   asyncRoute('Failed to save quota card limits', async (req) => {
     const input = parseQuotaLimitsBody(req.body)
     return quotaCardService.saveLimitsConfig(input)
+  }),
+)
+
+// 兑换失败锁列表（IP 防爆破）
+router.get(
+  '/quota-cards/redeem-locks',
+  authenticateAdmin,
+  asyncRoute('Failed to list redeem locks', async () => redeemCardLockService.listRedeemCardFailLocks()),
+)
+
+// 清空全部兑换失败锁
+router.post(
+  '/quota-cards/redeem-locks/clear-all',
+  authenticateAdmin,
+  asyncRoute('Failed to clear redeem locks', async () => {
+    const data = await redeemCardLockService.clearAllRedeemCardFailLocks()
+    return ok(data, '已清空兑换失败锁')
+  }),
+)
+
+// 解锁单个 IP（body.ip，避免 IPv6 路径截断）
+router.post(
+  '/quota-cards/redeem-locks/unlock',
+  authenticateAdmin,
+  asyncRoute('Failed to unlock redeem lock', async (req) => {
+    const ip = typeof req.body?.ip === 'string' ? req.body.ip : ''
+    if (!ip.trim()) {
+      throw badRequest('缺少 IP')
+    }
+    const data = await redeemCardLockService.unlockRedeemCardFail(ip.trim())
+    if (!data.unlocked) {
+      throw badRequest(data.reason || '解锁失败')
+    }
+    return ok(data, '已解锁')
   }),
 )
 

@@ -2539,7 +2539,6 @@ class ClaudeAccountService {
         logger.info(
           ` Account ${accountData.name} (${accountId}) has auto-protection disabled, skipping ${errorType} marking`,
         )
-        const statusCode = errorType === 'unauthorized' ? 401 : 403
         // 详细错误历史由 relay 层 markTempUnavailable 写入，此处只跳过自动暂停
         return { success: true, skipped: true }
       }

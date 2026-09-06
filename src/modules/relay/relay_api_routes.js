@@ -1,8 +1,10 @@
 import express from 'express'
 import { claudeRelayService } from './relay_claude_relay_service.js'
+import { extractSafeMessage, buildAnthropicClientErrorBody } from '../../common/client_error_builder.js'
 import { claudeConsoleRelayService } from './relay_claude_console_relay_service.js'
 import { bedrockRelayService } from './relay_bedrock_relay_service.js'
 import { ccrRelayService } from './relay_ccr_relay_service.js'
+import { sanitizeClaudeBodyFallbacks } from './translator/relay_translator_body_sanitize.js'
 import { bedrockAccountService } from '../account/account_bedrock_service.js'
 import { unifiedClaudeScheduler } from './relay_unified_claude_scheduler.js'
 import { apiKeyService } from '../apikey/apikey_service.js'
@@ -194,6 +196,12 @@ export const handleMessagesRequest = async function handleMessagesRequest(req, r
     // Claude Code 工具 schema 归一（timeout ms、字段别名、WebFetch.prompt 等）
     req.body = normalizeClaudeCodeToolsInRequest(req.body)
 
+    // 入口兜底：按客户端 beta 条件剥 fallbacks（console/ccr/bedrock 各自还会再强制剥）
+    sanitizeClaudeBodyFallbacks(req.body, {
+      vendor: 'anthropic',
+      anthropicBetaHeader: req.headers['anthropic-beta'] || req.headers['Anthropic-Beta'] || '',
+    })
+
     // 模型限制（黑名单）校验：统一在此处处理（去除供应商前缀）
     if (
       req.apiKey.enableModelRestriction &&
@@ -378,6 +386,10 @@ export const handleMessagesRequest = async function handleMessagesRequest(req, r
           forcedAccount,
         )
         ;({ accountId, accountType } = selection)
+        // 失败明细归属：选号成功即写入，finish 钩子可带上账户
+        // DEC_20260905_155232
+        req._crsAccountId = accountId || null
+        req._crsAccountType = accountType || null
       } catch (error) {
         // 处理会话绑定账户不可用的错误
         if (error.code === 'SESSION_BINDING_ACCOUNT_UNAVAILABLE') {
@@ -390,16 +402,17 @@ export const handleMessagesRequest = async function handleMessagesRequest(req, r
           })
         }
         if (error.code === 'CLAUDE_DEDICATED_RATE_LIMITED') {
+          // 失败明细：专属限流在选号前抛错，须先写账户再响应
+          // DEC_20260905_161107
+          req._crsAccountId = error.accountId || null
+          req._crsAccountType = error.accountType || 'claude-official'
           const limitMessage = claudeRelayService._buildStandardRateLimitMessage(error.rateLimitEndAt)
-          res.status(403)
-          res.setHeader('Content-Type', 'application/json')
-          res.end(
-            JSON.stringify({
-              error: 'upstream_rate_limited',
-              message: limitMessage,
+          return res.status(429).json(
+            buildAnthropicClientErrorBody({
+              statusCode: 429,
+              fallbackMessage: limitMessage,
             }),
           )
-          return
         }
         throw error
       }
@@ -1035,6 +1048,10 @@ export const handleMessagesRequest = async function handleMessagesRequest(req, r
           forcedAccountNonStream,
         )
         ;({ accountId, accountType } = selection)
+        // 失败明细归属：选号成功即写入，finish 钩子可带上账户
+        // DEC_20260905_155232
+        req._crsAccountId = accountId || null
+        req._crsAccountType = accountType || null
       } catch (error) {
         if (error.code === 'SESSION_BINDING_ACCOUNT_UNAVAILABLE') {
           const errorMessage = await claudeRelayConfigService.getSessionBindingErrorMessage()
@@ -1046,11 +1063,17 @@ export const handleMessagesRequest = async function handleMessagesRequest(req, r
           })
         }
         if (error.code === 'CLAUDE_DEDICATED_RATE_LIMITED') {
+          // 失败明细：专属限流在选号前抛错，须先写账户再响应
+          // DEC_20260905_161107
+          req._crsAccountId = error.accountId || null
+          req._crsAccountType = error.accountType || 'claude-official'
           const limitMessage = claudeRelayService._buildStandardRateLimitMessage(error.rateLimitEndAt)
-          return res.status(403).json({
-            error: 'upstream_rate_limited',
-            message: limitMessage,
-          })
+          return res.status(429).json(
+            buildAnthropicClientErrorBody({
+              statusCode: 429,
+              fallbackMessage: limitMessage,
+            }),
+          )
         }
         throw error
       }
@@ -1204,7 +1227,13 @@ export const handleMessagesRequest = async function handleMessagesRequest(req, r
       try {
         const jsonData = JSON.parse(response.body)
 
-        logger.info('Parsed Claude API response:', JSON.stringify(jsonData, null, 2))
+        if (response.statusCode >= 400) {
+          logger.info(
+            `Parsed Claude API error response status=${response.statusCode} message=${extractSafeMessage(jsonData) || 'n/a'}`,
+          )
+        } else {
+          logger.info('Parsed Claude API response:', JSON.stringify(jsonData, null, 2))
+        }
 
         // 从Claude API响应中提取usage信息（完整的token分类体系）
         if (jsonData.usage && jsonData.usage.input_tokens !== undefined && jsonData.usage.output_tokens !== undefined) {
@@ -1295,13 +1324,33 @@ export const handleMessagesRequest = async function handleMessagesRequest(req, r
           logger.warn('No usage data found in Claude API JSON response')
         }
 
-        // 使用 Express 内建的 res.json() 发送响应（简单可靠）
-        res.json(jsonData)
+        // 错误响应：Anthropic 信封 + 白名单 type；relay 已脱敏时仍再归一一次
+        // DEC_20260905_155232
+        if (response.statusCode >= 400) {
+          res.json(
+            buildAnthropicClientErrorBody({
+              statusCode: response.statusCode,
+              upstreamBody: jsonData,
+              fallbackMessage: `Claude API error: ${response.statusCode}`,
+            }),
+          )
+        } else {
+          res.json(jsonData)
+        }
       } catch (parseError) {
         logger.warn('Failed to parse Claude API response as JSON:', parseError.message)
-        logger.info('Raw response body:', response.body)
-        // 使用 Express 内建的 res.send() 发送响应（简单可靠）
-        res.send(response.body)
+        // 禁止 logger 输出上游原文
+        if (response.statusCode >= 400) {
+          res.status(response.statusCode).json(
+            buildAnthropicClientErrorBody({
+              statusCode: response.statusCode,
+              upstreamBody: typeof response.body === 'string' ? response.body : null,
+              fallbackMessage: `Claude API error: ${response.statusCode}`,
+            }),
+          )
+        } else {
+          res.send(response.body)
+        }
       }
 
       // 如果没有记录usage，只记录警告，不进行估算
@@ -1382,8 +1431,13 @@ export const handleMessagesRequest = async function handleMessagesRequest(req, r
     // 确保在任何情况下都能返回有效的JSON响应
     if (!res.headersSent) {
       // 根据错误类型设置适当的状态码
-      let statusCode = 500
+      let statusCode = Number.isInteger(handledError.statusCode) ? handledError.statusCode : 500
       let errorType = 'Relay service error'
+      if (handledError.code === 'CLAUDE_DEDICATED_RATE_LIMITED') {
+        statusCode = 429
+      } else if (handledError.code === 'CLAUDE_DEDICATED_UNAVAILABLE') {
+        statusCode = 503
+      }
 
       if (handledError.message.includes('Connection reset') || handledError.message.includes('socket hang up')) {
         statusCode = 502

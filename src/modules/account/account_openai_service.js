@@ -32,6 +32,21 @@ const toNumberOrNull = function toNumberOrNull(value) {
   return Number.isFinite(num) ? num : null
 }
 
+// 上游请求标识头名：仅 token 字符，最长 64；空=自动探测
+const normalizeUpstreamRequestIdHeader = function normalizeUpstreamRequestIdHeader(value) {
+  if (value === undefined || value === null) {
+    return ''
+  }
+  const trimmed = String(value).trim()
+  if (!trimmed) {
+    return ''
+  }
+  if (trimmed.length > 64 || !/^[A-Za-z0-9-]+$/.test(trimmed)) {
+    throw new Error('upstreamRequestIdHeader must be 1-64 chars of letters, digits or hyphen')
+  }
+  return trimmed
+}
+
 const computeResetMeta = function computeResetMeta(updatedAt, resetAfterSeconds) {
   if (!updatedAt || resetAfterSeconds === null || resetAfterSeconds === undefined) {
     return {
@@ -471,6 +486,8 @@ export const createAccount = async function createAccount(accountData) {
     // 自动防护开关
     disableAutoProtection:
       accountData.disableAutoProtection === true || accountData.disableAutoProtection === 'true' ? 'true' : 'false',
+    // DEC_20260905_194420 账户可配上游请求标识响应头名
+    upstreamRequestIdHeader: normalizeUpstreamRequestIdHeader(accountData.upstreamRequestIdHeader),
     lastRefresh: now,
     createdAt: now,
     updatedAt: now,
@@ -580,6 +597,10 @@ export const updateAccount = async function updateAccount(accountId, updates) {
   if (updates.disableAutoProtection !== undefined) {
     updates.disableAutoProtection =
       updates.disableAutoProtection === true || updates.disableAutoProtection === 'true' ? 'true' : 'false'
+  }
+
+  if (updates.upstreamRequestIdHeader !== undefined) {
+    updates.upstreamRequestIdHeader = normalizeUpstreamRequestIdHeader(updates.upstreamRequestIdHeader)
   }
 
   // 开启 disableAutoProtection 时立即清理已有自动停用状态并恢复调度（手动停用不受影响）

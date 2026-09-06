@@ -2462,6 +2462,8 @@ class ApiKeyService {
       endpoint: requestMeta?.endpoint || usageRecord.endpoint || null,
       method: requestMeta?.method || usageRecord.method || null,
       statusCode: requestMeta?.statusCode ?? usageRecord.statusCode ?? 200,
+      errorMessage: requestMeta?.errorMessage || usageRecord.errorMessage || null,
+      errorCode: requestMeta?.errorCode || usageRecord.errorCode || null,
       stream: requestMeta?.stream === true || usageRecord.stream === true,
       durationMs: requestMeta?.durationMs ?? usageRecord.durationMs ?? null,
       firstTokenMs: requestMeta?.firstTokenMs ?? usageRecord.firstTokenMs ?? null,
@@ -2472,6 +2474,11 @@ class ApiKeyService {
       model: usageRecord.model || 'unknown',
       // 透传实际生效档位，供请求明细页展示 Fast/Flex 等
       serviceTier: usageRecord.serviceTier || null,
+      // DEC_20260905_194420 上游请求标识必须从 requestMeta 落到 detail
+      upstreamRequestId: requestMeta?.upstreamRequestId || usageRecord.upstreamRequestId || null,
+      protocolBridge: requestMeta?.protocolBridge || usageRecord.protocolBridge || null,
+      tokenCountEstimate: requestMeta?.tokenCountEstimate === true,
+      tokenCountEstimateMethod: requestMeta?.tokenCountEstimateMethod || null,
       inputTokens: usageRecord.inputTokens || 0,
       outputTokens: usageRecord.outputTokens || 0,
       cacheReadTokens: usageRecord.cacheReadTokens || 0,

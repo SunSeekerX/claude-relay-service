@@ -65,15 +65,36 @@ export class IncrementalSSEParser {
     this.buffer += chunk
     const events = []
 
-    // 查找完整的事件（以 \n\n 分隔）
-    let idx
-    while ((idx = this.buffer.indexOf('\n\n')) !== -1) {
+    // 事件边界同时认 \n\n 与 \r\n\r\n（上游可能 CRLF）
+    // DEC_20260905_155232
+    while (true) {
+      const lfIdx = this.buffer.indexOf('\n\n')
+      const crlfIdx = this.buffer.indexOf('\r\n\r\n')
+      if (lfIdx === -1 && crlfIdx === -1) {
+        break
+      }
+      let idx
+      let sepLen
+      if (lfIdx === -1) {
+        idx = crlfIdx
+        sepLen = 4
+      } else if (crlfIdx === -1) {
+        idx = lfIdx
+        sepLen = 2
+      } else if (crlfIdx < lfIdx) {
+        idx = crlfIdx
+        sepLen = 4
+      } else {
+        idx = lfIdx
+        sepLen = 2
+      }
+
       const event = this.buffer.slice(0, idx)
-      this.buffer = this.buffer.slice(idx + 2)
+      this.buffer = this.buffer.slice(idx + sepLen)
 
       if (event.trim()) {
-        // 解析事件中的每一行
-        const lines = event.split('\n')
+        // 行分隔兼容 \r\n
+        const lines = event.split(/\r?\n/)
         for (const line of lines) {
           if (line.startsWith('data: ')) {
             const jsonStr = line.slice(6)

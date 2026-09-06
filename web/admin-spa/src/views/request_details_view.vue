@@ -369,12 +369,21 @@
                   class="hover:bg-gray-50 dark:hover:bg-gray-800/70"
                 >
                   <td class="table-cell align-top">
-                    <div
-                      class="cursor-pointer font-medium text-gray-900 hover:text-blue-600 dark:text-gray-100 dark:hover:text-blue-400"
-                      title="点击复制时间"
-                      @click="copyText(formatDate(record.timestamp), '时间')"
-                    >
-                      {{ formatDate(record.timestamp) }}
+                    <div class="flex flex-wrap items-center gap-1.5">
+                      <span
+                        class="inline-flex rounded px-1.5 py-0.5 text-sm font-semibold text-white"
+                        :class="statusBadgeClass(record.statusCode)"
+                        :title="statusTitle(record)"
+                      >
+                        {{ formatStatusCode(record.statusCode) }}
+                      </span>
+                      <div
+                        class="cursor-pointer font-medium text-gray-900 hover:text-blue-600 dark:text-gray-100 dark:hover:text-blue-400"
+                        title="点击复制时间"
+                        @click="copyText(formatDate(record.timestamp), '时间')"
+                      >
+                        {{ formatDate(record.timestamp) }}
+                      </div>
                     </div>
                     <div
                       class="cursor-pointer truncate text-sm text-gray-400 hover:text-blue-500"
@@ -382,6 +391,21 @@
                       @click="copyText(record.requestId, 'Request ID')"
                     >
                       {{ shortId(record.requestId) }}
+                    </div>
+                    <div
+                      v-if="record.upstreamRequestId"
+                      class="cursor-pointer truncate text-sm text-gray-400 hover:text-blue-500"
+                      :title="`点击复制上游ID：${record.upstreamRequestId}`"
+                      @click="copyText(record.upstreamRequestId, '上游ID')"
+                    >
+                      上游 {{ shortId(record.upstreamRequestId) }}
+                    </div>
+                    <div
+                      v-if="record.errorMessage"
+                      class="mt-0.5 truncate text-sm text-red-600 dark:text-red-400"
+                      :title="record.errorMessage"
+                    >
+                      {{ record.errorMessage }}
                     </div>
                   </td>
                   <td class="table-cell align-top">
@@ -523,6 +547,13 @@
                   </p>
                 </div>
                 <div class="flex shrink-0 flex-col items-end gap-1">
+                  <span
+                    class="inline-flex rounded px-1.5 py-0.5 text-sm font-semibold text-white"
+                    :class="statusBadgeClass(record.statusCode)"
+                    :title="statusTitle(record)"
+                  >
+                    {{ formatStatusCode(record.statusCode) }}
+                  </span>
                   <p class="text-sm font-semibold text-amber-600 dark:text-amber-400">
                     {{ formatCost(record.cost) }}
                     <span
@@ -538,6 +569,13 @@
                     <template v-if="record.firstTokenMs != null">
                       · 首字 {{ formatDuration(record.firstTokenMs) }}
                     </template>
+                  </p>
+                  <p
+                    v-if="record.errorMessage"
+                    class="max-w-[12rem] truncate text-sm text-red-600 dark:text-red-400"
+                    :title="record.errorMessage"
+                  >
+                    {{ record.errorMessage }}
                   </p>
                   <button
                     class="rounded border border-gray-200 px-1.5 py-0.5 text-sm text-gray-600 dark:border-gray-600 dark:text-gray-300"
@@ -965,6 +1003,11 @@ const exportCsv = async () => {
     const headers = [
       '统计时间',
       'Request ID',
+      '上游ID',
+      '状态码',
+      '结果',
+      '错误码',
+      '错误信息',
       'API Key',
       '使用账户',
       '消费类型',
@@ -983,10 +1026,25 @@ const exportCsv = async () => {
     ]
 
     const rows = [headers.join(',')]
+    // CSV 公式注入防护：以 = + - @ 开头的单元格前加 '
+    const escapeCsvCell = (value) => {
+      let text = String(value ?? '')
+      if (/^[=+\-@]/.test(text)) {
+        text = `'${text}`
+      }
+      return `"${text.replace(/"/g, '""')}"`
+    }
     aggregated.forEach((record) => {
+      const statusCode = formatStatusCode(record.statusCode)
+      const resultLabel = Number(statusCode) >= 400 ? '失败' : '成功'
       const row = [
         formatDate(record.timestamp),
         record.requestId || '',
+        record.upstreamRequestId || '',
+        statusCode,
+        resultLabel,
+        record.errorCode || '',
+        record.errorMessage || '',
         record.apiKeyName || record.apiKeyId || '',
         record.accountName || record.accountId || '',
         record.accountTypeName || record.accountType || '',
@@ -1003,7 +1061,7 @@ const exportCsv = async () => {
         record.durationMs || 0,
         record.firstTokenMs != null ? record.firstTokenMs : ''
       ]
-      rows.push(row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(','))
+      rows.push(row.map((cell) => escapeCsvCell(cell)).join(','))
     })
 
     const blob = new Blob([rows.join('\n')], { type: 'text/csv;charset=utf-8;' })
@@ -1065,6 +1123,31 @@ const shortId = (value) => {
   if (!text) return '-'
   if (text.length <= 12) return text
   return `${text.slice(0, 6)}…${text.slice(-4)}`
+}
+
+const formatStatusCode = (statusCode) => {
+  const code = Number(statusCode)
+  if (!Number.isFinite(code) || code <= 0) return '200'
+  return String(Math.trunc(code))
+}
+
+const statusBadgeClass = (statusCode) => {
+  const code = Number(statusCode)
+  if (code >= 500) return 'bg-red-600'
+  if (code >= 400) return 'bg-amber-500'
+  if (code >= 200 && code < 300) return 'bg-green-600'
+  return 'bg-gray-500'
+}
+
+const statusTitle = (record) => {
+  const code = formatStatusCode(record?.statusCode)
+  if (record?.errorMessage) {
+    return `${code} ${record.errorMessage}`
+  }
+  if (Number(code) >= 400) {
+    return `${code} 失败`
+  }
+  return `${code} 成功`
 }
 
 const shortEndpoint = (value) => {

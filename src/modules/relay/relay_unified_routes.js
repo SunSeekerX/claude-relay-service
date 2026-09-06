@@ -2,7 +2,7 @@ import express from 'express'
 import { authenticateApiKey } from '../../infra/middleware_auth.js'
 import { logger } from '../../common/logger.js'
 import { handleChatCompletion } from './relay_openai_claude_routes.js'
-import { handleResponses, CODEX_CLI_INSTRUCTIONS } from './relay_openai_routes.js'
+import { handleResponses } from './relay_openai_routes.js'
 import { apiKeyService } from '../apikey/apikey_service.js'
 import { GeminiToOpenAIConverter } from './relay_gemini_to_openai.js'
 import { CodexToOpenAIConverter } from './relay_codex_to_openai.js'
@@ -203,8 +203,8 @@ export const routeToBackend = async function routeToBackend(req, res, requestedM
 
     // 输入转换：Chat Completions → Responses API 格式
     req.body = codexConverter.buildRequestFromOpenAI(req.body)
-    // 注入 Codex CLI 系统提示词（与 handleResponses 非 Codex CLI 适配一致）
-    req.body.instructions = CODEX_CLI_INSTRUCTIONS
+    // 不在此注入 Codex CLI instructions：openai-responses API Key 路径禁止污染 system prompt
+    // （OAuth Codex 路径由 handleResponses 按路由决定是否注入）
     req._fromUnifiedEndpoint = true
     // 修正请求路径：body 已转为 Responses 格式，路径需与之匹配
     // Express req.path 是只读 getter（派生自 req.url），需改 req.url

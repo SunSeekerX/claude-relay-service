@@ -30,7 +30,17 @@ import {
   getPricingData,
 } from '../../common/performance_optimizer.js'
 import { buildClaudeBetaHeader } from './relay_claude_beta.js'
+import { buildClaudeCliUserAgent } from './relay_claude_cli_version.js'
+import { ensureAlignedBillingHeader, syncBillingHeaderVersion } from './relay_claude_billing_header.js'
 import { prepareCacheControlForOfficialClaude } from './translator/relay_translator_cache_control.js'
+import {
+  isClientActionableUpstreamError,
+  extractSafeMessage,
+  buildAnthropicClientErrorBody,
+  buildClientError,
+  summarizeErrorForLog,
+} from '../../common/client_error_builder.js'
+import { sanitizeClaudeBodyFallbacks } from './translator/relay_translator_body_sanitize.js'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -469,10 +479,10 @@ class ClaudeRelayService {
         if (error.code === 'CLAUDE_DEDICATED_RATE_LIMITED') {
           const limitMessage = this._buildStandardRateLimitMessage(error.rateLimitEndAt)
           logger.warn(
-            `Dedicated account ${error.accountId} is rate limited for API key ${apiKeyData.name}, returning 403`,
+            `Dedicated account ${error.accountId} is rate limited for API key ${apiKeyData.name}, returning 429`,
           )
           return {
-            statusCode: 403,
+            statusCode: 429,
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               error: 'upstream_rate_limited',
@@ -607,7 +617,10 @@ class ClaudeRelayService {
       const accessToken = await claudeAccountService.getValidAccessToken(accountId)
 
       const isRealClaudeCodeRequest = this._isActualClaudeCodeRequest(requestBody, clientHeaders)
-      const processedBody = this._processRequestBody(requestBody, account, isRealClaudeCodeRequest)
+      const processedBody = this._processRequestBody(requestBody, account, isRealClaudeCodeRequest, {
+        clientBetaHeader: clientHeaders?.['anthropic-beta'] || clientHeaders?.['Anthropic-Beta'] || '',
+        clientUserAgent: clientHeaders?.['user-agent'] || clientHeaders?.['User-Agent'] || '',
+      })
       // 内存优化：存储到 bodyStore，避免闭包捕获
       const originalBodyString = JSON.stringify(processedBody)
       bodyStoreIdNonStream = ++this._bodyStoreIdCounter
@@ -668,11 +681,24 @@ class ClaudeRelayService {
             },
           )
 
-          shouldRetry = !clientDisconnected && response.statusCode === 403 && retryCount < maxRetries
+          // 客户端可自愈 403（如 session_blocked_by_cyber_policy）禁止重试
+          let actionable403 = false
+          if (response.statusCode === 403) {
+            try {
+              const peekBody =
+                typeof response.body === 'string' ? JSON.parse(response.body) : response.body || response.data || null
+              actionable403 = isClientActionableUpstreamError(403, peekBody)
+            } catch {
+              actionable403 = false
+            }
+          }
+          shouldRetry = !clientDisconnected && response.statusCode === 403 && !actionable403 && retryCount < maxRetries
           if (shouldRetry) {
             retryCount++
             logger.warn(`403 error for account ${accountId}, retry ${retryCount}/${maxRetries} after 2s`)
             await this._sleep(2000)
+          } else if (actionable403) {
+            logger.info(`Skip 403 retry for client-actionable upstream error account=${accountId}`)
           }
         } while (shouldRetry)
 
@@ -720,6 +746,13 @@ class ClaudeRelayService {
 
       response.accountId = accountId
       response.accountType = accountType
+
+      // DEC_20260905_194420 非流式：上游响应头挂 clientRequest
+      if (clientRequest && typeof clientRequest === 'object') {
+        clientRequest._crsUpstreamHeaders = response.headers || null
+        clientRequest._crsUpstreamRequestIdHeader =
+          account?.upstreamRequestIdHeader || account?.extra?.upstreamRequestIdHeader || null
+      }
 
       // 移除监听器（请求成功完成）
       detachClientDisconnect()
@@ -775,13 +808,26 @@ class ClaudeRelayService {
         // 检查是否为403状态码（禁止访问，非封禁类）
         // 注意：如果进行了重试，retryCount > 0；这里的 403 是重试后最终的结果
         else if (response.statusCode === 403) {
-          logger.error(
-            `Forbidden error (403) detected for account ${accountId}${retryCount > 0 ? `after ${retryCount} retries` : ''}, temporarily pausing`,
-          )
-          await upstreamErrorHelper.markTempUnavailable(accountId, accountType, 403, null, errorContext).catch(() => {})
-          // 清除粘性会话，让后续请求路由到其他账户
-          if (sessionHash) {
-            await unifiedClaudeScheduler.clearSessionMapping(sessionHash).catch(() => {})
+          // 会话级可自愈 403（如 session_blocked）不停号、不清粘性
+          // DEC_20260905_110000
+          let peek403 = null
+          try {
+            peek403 = typeof response.body === 'string' ? JSON.parse(response.body) : response.body || null
+          } catch {
+            peek403 = { error: { message: String(response.body || '') } }
+          }
+          if (isClientActionableUpstreamError(403, peek403)) {
+            logger.info(`Client-actionable 403 for account ${accountId}, skip temp_unavailable/sticky-clear`)
+          } else {
+            logger.error(
+              `Forbidden error (403) detected for account ${accountId}${retryCount > 0 ? ` after ${retryCount} retries` : ''}, temporarily pausing`,
+            )
+            await upstreamErrorHelper
+              .markTempUnavailable(accountId, accountType, 403, null, errorContext)
+              .catch(() => {})
+            if (sessionHash) {
+              await unifiedClaudeScheduler.clearSessionMapping(sessionHash).catch(() => {})
+            }
           }
         }
         // 检查是否为529状态码（服务过载）
@@ -1026,6 +1072,12 @@ class ClaudeRelayService {
 
       // 在响应中添加accountId，以便调用方记录账户级别统计
       response.accountId = accountId
+      // 非流式错误出口脱敏：api_routes 会原样 res.json(body)
+      // DEC_20260905_130000
+      if (response.statusCode >= 400 && response.body) {
+        const sanitized = this._sanitizeUpstreamErrorForClient(response.statusCode, response.body)
+        response.body = JSON.stringify(sanitized.clientSsePayload)
+      }
       return response
     } catch (error) {
       logger.error(`Claude relay request failed for key: ${apiKeyData.name || apiKeyData.id}:`, error.message)
@@ -1130,7 +1182,8 @@ class ClaudeRelayService {
   }
 
   // 处理请求体
-  _processRequestBody(body, account = null, isRealClaudeCodeOverride = undefined) {
+  // options.clientBetaHeader: 客户端 anthropic-beta，用于 fallbacks 条件剥离
+  _processRequestBody(body, account = null, isRealClaudeCodeOverride = undefined, options = {}) {
     if (!body) {
       return body
     }
@@ -1146,6 +1199,13 @@ class ClaudeRelayService {
     // 1P Claude：保留 cache_control.ttl/scope（官方透传）；仅超大软上限时裁剪
     // Bedrock 等不支持字段的上游在各自 relay 内 sanitize
     this._prepareOfficialCacheControl(processedBody)
+
+    // fallbacks：客户端未带 server-side-fallback beta 时剥离，避免上游 400
+    const clientBeta = options.clientBetaHeader || options.anthropicBetaHeader || ''
+    sanitizeClaudeBodyFallbacks(processedBody, {
+      vendor: 'anthropic',
+      anthropicBetaHeader: clientBeta,
+    })
 
     // 判断是否是真实的 Claude Code 请求
     // 优先使用调用方传入的值（基于 UA + system prompt 综合判断），
@@ -1212,8 +1272,10 @@ class ClaudeRelayService {
       }
     }
 
-    // 移除 x-anthropic-billing-header 系统元素，避免将客户端 billing 标识传递给上游 API
-    this._removeBillingHeaderFromSystem(processedBody)
+    // DEC_20260905_194420 全路径注入 billing 并对齐 fingerprint；最终 UA 在 prepare 再 sync 一次
+    ensureAlignedBillingHeader(processedBody, {
+      userAgent: options.clientUserAgent || '',
+    })
 
     // cache 断点：官方透传路径已在 _prepareOfficialCacheControl 处理，此处不再硬裁 4 块
 
@@ -1276,39 +1338,6 @@ class ClaudeRelayService {
       deviceId: unifiedClientId,
     })
     logger.info(`Replaced client ID with unified ID: ${body.metadata.user_id}`)
-  }
-
-  // 移除 billing header 系统提示元素
-  _removeBillingHeaderFromSystem(processedBody) {
-    if (!processedBody || !processedBody.system) {
-      return
-    }
-
-    if (typeof processedBody.system === 'string') {
-      if (processedBody.system.trim().startsWith('x-anthropic-billing-header')) {
-        logger.debug('Removed billing header from string system prompt')
-        delete processedBody.system
-      }
-      return
-    }
-
-    if (Array.isArray(processedBody.system)) {
-      const originalLength = processedBody.system.length
-      processedBody.system = processedBody.system.filter(
-        (item) =>
-          !(
-            item &&
-            item.type === 'text' &&
-            typeof item.text === 'string' &&
-            item.text.trim().startsWith('x-anthropic-billing-header')
-          ),
-      )
-      if (processedBody.system.length < originalLength) {
-        logger.debug(
-          `Removed ${originalLength - processedBody.system.length} billing header element(s) from system array`,
-        )
-      }
-    }
   }
 
   // 验证并限制max_tokens参数
@@ -1470,10 +1499,6 @@ class ClaudeRelayService {
       })
     }
 
-    // 序列化请求体，计算 content-length
-    const bodyString = JSON.stringify(requestPayload)
-    const contentLength = Buffer.byteLength(bodyString, 'utf8')
-
     // 构建最终请求头（包含认证、版本、User-Agent、Beta 等）
     // Force identity encoding to prevent upstream (Cloudflare) from returning
     // gzip-compressed responses without a Content-Encoding header, which causes
@@ -1483,7 +1508,6 @@ class ClaudeRelayService {
       host: 'api.anthropic.com',
       connection: 'keep-alive',
       'content-type': 'application/json',
-      'content-length': String(contentLength),
       'accept-encoding': 'identity',
       authorization: `Bearer ${accessToken}`,
       'anthropic-version': this.apiVersion,
@@ -1494,13 +1518,29 @@ class ClaudeRelayService {
     // 必须在 spread 后覆盖回 identity，https.request 手动解压只支持 gzip/deflate
     headers['accept-encoding'] = 'identity'
 
-    // 使用统一 User-Agent 或客户端提供的，最后使用默认值
-    const userAgent = unifiedUA || headers['user-agent'] || 'claude-cli/1.0.119 (external, cli)'
+    // 伪装路径：强制 CLI 基线/env 版本 UA，禁止被账户缓存旧 claude-cli 钉死
+    // 真实 Claude Code：保留客户端/统一 UA
+    let userAgent
+    if (!isRealClaudeCode) {
+      userAgent = buildClaudeCliUserAgent()
+    } else {
+      userAgent = unifiedUA || headers['user-agent'] || buildClaudeCliUserAgent()
+    }
     const acceptHeader = headers['accept'] || 'application/json'
     delete headers['user-agent']
     delete headers['accept']
     headers['User-Agent'] = userAgent
     headers['Accept'] = acceptHeader
+
+    // billing cc_version 与 outbound UA 同源（含 fp 重算）
+    if (requestPayload && typeof requestPayload === 'object') {
+      syncBillingHeaderVersion(requestPayload, userAgent)
+    }
+
+    // 序列化请求体，计算 content-length（须在 billing sync 之后）
+    const bodyString = JSON.stringify(requestPayload)
+    const contentLength = Buffer.byteLength(bodyString, 'utf8')
+    headers['content-length'] = String(contentLength)
 
     logger.debug(`Request User-Agent: ${headers['User-Agent']}`)
 
@@ -1743,7 +1783,7 @@ class ClaudeRelayService {
         if (error.code === 'CLAUDE_DEDICATED_RATE_LIMITED') {
           const limitMessage = this._buildStandardRateLimitMessage(error.rateLimitEndAt)
           if (!responseStream.headersSent) {
-            responseStream.status(403)
+            responseStream.status(429)
             responseStream.setHeader('Content-Type', 'application/json')
           }
           responseStream.write(
@@ -1890,7 +1930,10 @@ class ClaudeRelayService {
       const accessToken = await claudeAccountService.getValidAccessToken(accountId)
 
       const isRealClaudeCodeRequest = this._isActualClaudeCodeRequest(requestBody, clientHeaders)
-      const processedBody = this._processRequestBody(requestBody, account, isRealClaudeCodeRequest)
+      const processedBody = this._processRequestBody(requestBody, account, isRealClaudeCodeRequest, {
+        clientBetaHeader: clientHeaders?.['anthropic-beta'] || clientHeaders?.['Anthropic-Beta'] || '',
+        clientUserAgent: clientHeaders?.['user-agent'] || clientHeaders?.['User-Agent'] || '',
+      })
       // 内存优化：存储到 bodyStore，不放入 requestOptions 避免闭包捕获
       const originalBodyString = JSON.stringify(processedBody)
       const bodyStoreId = ++this._bodyStoreIdCounter
@@ -1951,7 +1994,8 @@ class ClaudeRelayService {
       if (error.message === 'Client disconnected') {
         logger.info(`Claude stream relay ended: Client disconnected`)
       } else {
-        logger.error(`Claude stream relay with usage capture failed:`, error)
+        // DEC_20260905_164536 禁止整包异常进日志
+        logger.error(`Claude stream relay with usage capture failed:`, summarizeErrorForLog(error))
       }
       throw error
     } finally {
@@ -2015,6 +2059,36 @@ class ClaudeRelayService {
     const toolNameStreamTransformer = this._createToolNameStripperStreamTransformer(streamTransformer, toolNameMap)
 
     return new Promise((resolve, reject) => {
+      // destroy() 常走 close 不走 end；settle 必须本地完成，否则 Promise 挂死泄漏并发/队列
+      // DEC_20260905_163907
+      let streamSettled = false
+      const settleStreamOk = () => {
+        if (streamSettled) {
+          return
+        }
+        streamSettled = true
+        if (isStreamWritable(responseStream)) {
+          responseStream.end()
+        }
+        if (requestOptions.bodyStoreId) {
+          this.bodyStore.delete(requestOptions.bodyStoreId)
+        }
+        resolve()
+      }
+      const settleStreamErr = (err) => {
+        if (streamSettled) {
+          return
+        }
+        streamSettled = true
+        if (isStreamWritable(responseStream)) {
+          responseStream.end()
+        }
+        if (requestOptions.bodyStoreId) {
+          this.bodyStore.delete(requestOptions.bodyStoreId)
+        }
+        reject(err)
+      }
+
       const url = new URL(this.claudeApiUrl)
       const options = {
         hostname: url.hostname,
@@ -2029,6 +2103,14 @@ class ClaudeRelayService {
       const req = https.request(options, async (res) => {
         logger.debug(`Claude stream response status: ${res.statusCode}`)
 
+        // DEC_20260905_194420 上游响应头挂到 client req，供 request detail 落 upstreamRequestId
+        const clientReq = responseStream?.req || requestOptions.clientRequest || null
+        if (clientReq && typeof clientReq === 'object') {
+          clientReq._crsUpstreamHeaders = res.headers || null
+          clientReq._crsUpstreamRequestIdHeader =
+            account?.upstreamRequestIdHeader || account?.extra?.upstreamRequestIdHeader || null
+        }
+
         // 错误响应处理
         if (res.statusCode !== 200) {
           if (res.statusCode === 429) {
@@ -2040,37 +2122,24 @@ class ClaudeRelayService {
               res.on('error', resolveBody)
             })
             const errorBody429 = Buffer.concat(bodyChunks429).toString()
+            // 历史/客户端统一脱敏
+            const sanitizedBody429 = this._sanitizeUpstreamErrorForClient(429, errorBody429).safeBodyJson
 
             // 检查是否为 "Extra usage required"的非限流 429
             if (this._isExtraUsageRequired429(res.statusCode, errorBody429)) {
               logger.info(`[Stream] "Extra usage required" 429 for account ${accountId}, skipping rate limit marking`)
               logger.error(`Claude API returned error status: 429 | Account: ${account?.name || accountId}`)
-              logger.error(`Claude API error response (Account: ${account?.name || accountId}):`, errorBody429)
+              logger.error(
+                `Claude API error response (Account: ${account?.name || accountId}): ${this._sanitizeUpstreamErrorForClient(429, errorBody429).safeMessage}`,
+              )
               if (isStreamWritable(responseStream)) {
-                let errorMessage = `Claude API error: 429`
-                try {
-                  const parsedError = JSON.parse(errorBody429)
-                  if (parsedError.error?.message) {
-                    errorMessage = parsedError.error.message
-                  } else if (parsedError.message) {
-                    errorMessage = parsedError.message
-                  }
-                } catch {
-                  // 使用默认错误消息
-                }
-                if (toolNameStreamTransformer) {
-                  responseStream.write(`data: ${JSON.stringify({ type: 'error', error: errorMessage })}\n\n`)
-                } else {
-                  responseStream.write('event: error\n')
-                  responseStream.write(
-                    `data: ${JSON.stringify({
-                      error: 'Claude API error',
-                      status: 429,
-                      details: errorBody429,
-                      timestamp: new Date().toISOString(),
-                    })}\n\n`,
-                  )
-                }
+                // 429 出口：按客户端协议分流（OpenAI 转换 vs Anthropic 原生）
+                // DEC_20260905_161107
+                this._writeStreamClientError(responseStream, {
+                  statusCode: 429,
+                  rawBody: errorBody429,
+                  streamTransformer,
+                })
                 responseStream.end()
               }
               reject(new Error(`Claude API error: 429`))
@@ -2104,7 +2173,7 @@ class ClaudeRelayService {
                       sessionId: sessionHash,
                       responseStatus: 429,
                       responseHeaders: res.headers,
-                      responseBody: errorBody429,
+                      responseBody: sanitizedBody429,
                       reason: `model_family_rate_limit:${requestModelFamily}`,
                     }),
                   )
@@ -2149,7 +2218,7 @@ class ClaudeRelayService {
                   sessionId: sessionHash,
                   responseStatus: 429,
                   responseHeaders: res.headers,
-                  responseBody: errorBody429,
+                  responseBody: sanitizedBody429,
                 })
                 upstreamErrorHelper
                   .recordErrorHistory(accountId, accountType, 429, 'rate_limit', errorContext429NoReset)
@@ -2170,7 +2239,7 @@ class ClaudeRelayService {
                   sessionId: sessionHash,
                   responseStatus: 429,
                   responseHeaders: res.headers,
-                  responseBody: errorBody429,
+                  responseBody: sanitizedBody429,
                 })
                 await upstreamErrorHelper
                   .markTempUnavailable(
@@ -2206,34 +2275,18 @@ class ClaudeRelayService {
               }
             }
 
-            // 非专属账户的真正限流：透传错误给客户端（body 已读完，无需 fall-through）
+            // 非专属账户的真正限流：脱敏后返回客户端（body 已读完）
             logger.error(`Claude API returned error status: 429 | Account: ${account?.name || accountId}`)
-            logger.error(`Claude API error response (Account: ${account?.name || accountId}):`, errorBody429)
+            logger.error(
+              `Claude API error response (Account: ${account?.name || accountId}): ${this._sanitizeUpstreamErrorForClient(429, errorBody429).safeMessage}`,
+            )
             if (isStreamWritable(responseStream)) {
-              let errorMessage = `Claude API error: 429`
-              try {
-                const parsedError = JSON.parse(errorBody429)
-                if (parsedError.error?.message) {
-                  errorMessage = parsedError.error.message
-                } else if (parsedError.message) {
-                  errorMessage = parsedError.message
-                }
-              } catch {
-                // 使用默认错误消息
-              }
-              if (toolNameStreamTransformer) {
-                responseStream.write(`data: ${JSON.stringify({ type: 'error', error: errorMessage })}\n\n`)
-              } else {
-                responseStream.write('event: error\n')
-                responseStream.write(
-                  `data: ${JSON.stringify({
-                    error: 'Claude API error',
-                    status: 429,
-                    details: errorBody429,
-                    timestamp: new Date().toISOString(),
-                  })}\n\n`,
-                )
-              }
+              // DEC_20260905_161107 按客户端协议分流
+              this._writeStreamClientError(responseStream, {
+                statusCode: 429,
+                rawBody: errorBody429,
+                streamTransformer,
+              })
               responseStream.end()
             }
             reject(new Error(`Claude API error: 429`))
@@ -2241,25 +2294,41 @@ class ClaudeRelayService {
           }
 
           // 403 重试机制（必须在设置 res.on('data')/res.on('end') 之前处理）
-          // 否则重试时旧响应的 on('end') 会与新请求产生竞态条件
+          // 先收齐 body 再决定是否重试，避免 session_blocked 等客户端可自愈 403 被重试
+          // DEC_20260904_174000 可自愈 403 禁止重试
+          let errorData = ''
+          let stream403BodyPrefetched = false
           if (res.statusCode === 403) {
+            const bodyChunks = []
+            await new Promise((resolveBody) => {
+              res.on('data', (chunk) => bodyChunks.push(chunk))
+              res.on('end', resolveBody)
+              res.on('error', resolveBody)
+              setTimeout(resolveBody, 5000)
+            })
+            errorData = Buffer.concat(bodyChunks).toString('utf8')
+            stream403BodyPrefetched = true
+            let peekBody
+            try {
+              peekBody = errorData ? JSON.parse(errorData) : null
+            } catch {
+              peekBody = { error: { message: errorData } }
+            }
+            const actionable403 = isClientActionableUpstreamError(403, peekBody)
             const canRetry =
-              this._shouldRetryOn403(accountType) && retryCount < maxRetries && !responseStream.headersSent
+              !actionable403 &&
+              this._shouldRetryOn403(accountType) &&
+              retryCount < maxRetries &&
+              !responseStream.headersSent
 
             if (canRetry) {
               logger.warn(
                 ` [Stream] 403 error for account ${accountId}, retry ${retryCount + 1}/${maxRetries} after 2s`,
               )
-              // 消费当前响应并销毁请求
-              res.resume()
               req.destroy()
-
-              // 等待 2 秒后递归重试
               await this._sleep(2000)
 
               try {
-                // 递归调用自身进行重试
-                // 从 bodyStore 获取字符串用于重试
                 if (!requestOptions.bodyStoreId || !this.bodyStore.has(requestOptions.bodyStoreId)) {
                   throw new Error('529 retry requires valid bodyStoreId')
                 }
@@ -2290,13 +2359,19 @@ class ClaudeRelayService {
               } catch (retryError) {
                 reject(retryError)
               }
-              return // 重要：提前返回，不设置后续的错误处理器
+              return
+            }
+            if (actionable403) {
+              logger.info(` [Stream] Skip 403 retry for client-actionable error account=${accountId}`)
             }
           }
 
           // errorData 必须在 handleErrorResponse 之前声明并初始化：该函数会被立即调用，
           // 其 403 分支同步读取 errorData（org-disabled 判断），声明在后会触发 TDZ ReferenceError 而吞掉账户保护
-          let errorData = ''
+          // 若上面 403 已预读 body，则保留 errorData，不再二次声明覆盖
+          if (!stream403BodyPrefetched) {
+            errorData = ''
+          }
 
           // 将错误处理逻辑封装在一个异步函数中
           const handleErrorResponse = async () => {
@@ -2335,8 +2410,8 @@ class ClaudeRelayService {
                 await unifiedClaudeScheduler.clearSessionMapping(sessionHash).catch(() => {})
               }
             } else if (res.statusCode === 403) {
-              // 403 处理：先检查是否为封禁性质的 403（组织被禁用/OAuth 被禁止）
-              // 注意：重试逻辑已在 handleErrorResponse 外部提前处理
+              // 403：封禁类 blocked；会话级可自愈跳过停号；其余 temp_unavailable
+              // DEC_20260905_110000
               if (this._isOrganizationDisabledError(res.statusCode, errorData)) {
                 logger.error(
                   ` [Stream] Organization disabled/banned error (403) detected for account ${accountId}, marking as blocked`,
@@ -2346,18 +2421,31 @@ class ClaudeRelayService {
                   .catch((markError) => {
                     logger.error(`[Stream] Failed to mark account ${accountId} as blocked:`, markError)
                   })
+                if (sessionHash) {
+                  await unifiedClaudeScheduler.clearSessionMapping(sessionHash).catch(() => {})
+                }
               } else {
-                logger.error(
-                  ` [Stream] Forbidden error (403) detected for account ${accountId}${retryCount > 0 ? `after ${retryCount} retries` : ''}, temporarily pausing`,
-                )
-                // skipHistory：响应体在 end 处收齐后补记，避免重复
-                await upstreamErrorHelper
-                  .markTempUnavailable(accountId, accountType, 403, null, errorContext, true)
-                  .catch(() => {})
-              }
-              // 清除粘性会话，让后续请求路由到其他账户
-              if (sessionHash) {
-                await unifiedClaudeScheduler.clearSessionMapping(sessionHash).catch(() => {})
+                let peek403
+                try {
+                  peek403 = errorData ? JSON.parse(errorData) : null
+                } catch {
+                  peek403 = { error: { message: String(errorData || '') } }
+                }
+                if (isClientActionableUpstreamError(403, peek403)) {
+                  logger.info(
+                    ` [Stream] Client-actionable 403 for account ${accountId}, skip temp_unavailable/sticky-clear`,
+                  )
+                } else {
+                  logger.error(
+                    ` [Stream] Forbidden error (403) detected for account ${accountId}${retryCount > 0 ? ` after ${retryCount} retries` : ''}, temporarily pausing`,
+                  )
+                  await upstreamErrorHelper
+                    .markTempUnavailable(accountId, accountType, 403, null, errorContext, true)
+                    .catch(() => {})
+                  if (sessionHash) {
+                    await unifiedClaudeScheduler.clearSessionMapping(sessionHash).catch(() => {})
+                  }
+                }
               }
             } else if (res.statusCode === 529) {
               logger.warn(`[Stream] Overload error (529) detected for account ${accountId}`)
@@ -2415,6 +2503,21 @@ class ClaudeRelayService {
               return
             }
             streamErrorRecorded = true
+            // 历史/明细仅存脱敏文案，禁止上游原文进 Redis
+            let historyBody = errorData
+            try {
+              historyBody = this._sanitizeUpstreamErrorForClient(res.statusCode, errorData).safeBodyJson
+            } catch {
+              const safe = extractSafeMessage(errorData)
+              if (safe) {
+                historyBody = JSON.stringify(
+                  buildAnthropicClientErrorBody({
+                    statusCode: res.statusCode,
+                    fallbackMessage: safe,
+                  }),
+                )
+              }
+            }
             upstreamErrorHelper
               .recordErrorHistory(
                 accountId,
@@ -2430,34 +2533,16 @@ class ClaudeRelayService {
                   sessionId: sessionHash,
                   responseStatus: res.statusCode,
                   responseHeaders: res.headers,
-                  responseBody: errorData,
+                  responseBody: historyBody,
                 }),
               )
               .catch(() => {})
           }
 
-          res.on('data', (chunk) => {
-            errorData += chunk.toString()
-          })
-
-          // close 一定会触发（正常结束或中断），作为补记兜底
-          res.on('close', () => {
-            recordStreamErrorHistoryOnce()
-          })
-
-          // error 直出：补记并 settle（与 end 分支一致地 reject），避免 promise 挂起或未捕获异常
-          res.on('error', (streamErr) => {
-            logger.error(`Claude error-stream data error | account: ${accountId}:`, streamErr)
-            recordStreamErrorHistoryOnce()
-            if (isStreamWritable(responseStream)) {
-              responseStream.end()
-            }
-            reject(streamErr)
-          })
-
-          res.on('end', async () => {
-            logger.error(`Claude API error response (Account: ${account?.name || accountId}):`, errorData)
-            // 响应体此时已收齐，优先在这里补记（close 兜底防止 end 未触发）
+          const emitPrefetchedStreamErrorAndSettle = async () => {
+            logger.error(
+              `Claude API error response (Account: ${account?.name || accountId}): ${this._sanitizeUpstreamErrorForClient(res.statusCode, errorData).safeMessage}`,
+            )
             recordStreamErrorHistoryOnce()
             if (
               this._isClaudeCodeCredentialError(errorData) &&
@@ -2500,49 +2585,52 @@ class ClaudeRelayService {
               ;(async () => {
                 try {
                   logger.error(
-                    ` [Stream] Organization disabled error (400) detected for account ${accountId}, marking as blocked`,
+                    ` [Stream] Organization disabled error detected for account ${accountId}, marking as blocked`,
                   )
                   await unifiedClaudeScheduler.markAccountBlocked(accountId, accountType, sessionHash)
                 } catch (markError) {
-                  logger.error(
-                    ` [Stream] Failed to mark account ${accountId} as blocked after organization disabled error:`,
-                    markError,
-                  )
+                  logger.error(` [Stream] Failed to mark account ${accountId} as blocked:`, markError)
                 }
               })()
             }
             if (isStreamWritable(responseStream)) {
-              // 解析 Claude API 返回的错误详情
-              let errorMessage = `Claude API error: ${res.statusCode}`
-              try {
-                const parsedError = JSON.parse(errorData)
-                if (parsedError.error?.message) {
-                  errorMessage = parsedError.error.message
-                } else if (parsedError.message) {
-                  errorMessage = parsedError.message
-                }
-              } catch {
-                // 使用默认错误消息
-              }
-
-              // 如果有 streamTransformer（如测试请求），使用前端期望的格式
-              if (toolNameStreamTransformer) {
-                responseStream.write(`data: ${JSON.stringify({ type: 'error', error: errorMessage })}\n\n`)
-              } else {
-                // 标准错误格式
-                responseStream.write('event: error\n')
-                responseStream.write(
-                  `data: ${JSON.stringify({
-                    error: 'Claude API error',
-                    status: res.statusCode,
-                    details: errorData,
-                    timestamp: new Date().toISOString(),
-                  })}\n\n`,
-                )
-              }
+              // 脱敏：按客户端协议分流（OpenAI 转换 vs Anthropic 原生）
+              // DEC_20260905_161107
+              this._writeStreamClientError(responseStream, {
+                statusCode: res.statusCode,
+                rawBody: errorData,
+                streamTransformer,
+              })
               responseStream.end()
             }
             reject(new Error(`Claude API error: ${res.statusCode}`))
+          }
+
+          // DEC_20260905_100000 403 已预读到 end：不可再等 data/end，否则请求悬挂
+          if (stream403BodyPrefetched) {
+            await emitPrefetchedStreamErrorAndSettle()
+            return
+          }
+
+          res.on('data', (chunk) => {
+            errorData += chunk.toString()
+          })
+
+          res.on('close', () => {
+            recordStreamErrorHistoryOnce()
+          })
+
+          res.on('error', (streamErr) => {
+            logger.error(`Claude error-stream data error | account: ${accountId}:`, streamErr)
+            recordStreamErrorHistoryOnce()
+            if (isStreamWritable(responseStream)) {
+              responseStream.end()
+            }
+            reject(streamErr)
+          })
+
+          res.on('end', async () => {
+            await emitPrefetchedStreamErrorAndSettle()
           })
           return
         }
@@ -2562,6 +2650,37 @@ class ClaudeRelayService {
         let currentUsageData = {} // 当前正在收集的usage数据
         let rateLimitDetected = false // 限流检测标志
         let rateLimitErrorBody = null
+        // 流处理致命错误后停止转发，避免 error 后再吐正常 chunk
+        // DEC_20260905_163148
+        let streamFatal = false
+        const stopStreamFatal = (fallbackMessage) => {
+          if (streamFatal) {
+            return
+          }
+          streamFatal = true
+          this._writeStreamClientError(responseStream, {
+            statusCode: 500,
+            rawBody: { error: { type: 'api_error', message: fallbackMessage } },
+            streamTransformer,
+          })
+          try {
+            if (typeof dataSource.destroy === 'function') {
+              dataSource.destroy()
+            }
+          } catch (e) {
+            console.error(summarizeErrorForLog(e))
+          }
+          try {
+            req.destroy()
+          } catch (e) {
+            console.error(summarizeErrorForLog(e))
+          }
+          // fatal 必须 reject：调用方才能上报代理不健康，禁止当成功
+          // DEC_20260905_164536
+          const fatalError = new Error(fallbackMessage || 'Stream processing error')
+          fatalError.code = 'STREAM_FATAL'
+          settleStreamErr(fatalError)
+        }
 
         // 监听数据块，解析SSE并寻找usage信息
         // 内存优化：在闭包创建前提取需要的值，避免闭包捕获 body 和 requestOptions
@@ -2575,22 +2694,21 @@ class ClaudeRelayService {
         if (upstreamEncoding === 'gzip') {
           dataSource = res.pipe(zlib.createGunzip())
           dataSource.on('error', (err) => {
-            logger.error('Gzip decompression error in stream:', err.message)
-            if (isStreamWritable(responseStream)) {
-              responseStream.end()
-            }
+            logger.error('Gzip decompression error in stream:', summarizeErrorForLog(err))
+            stopStreamFatal('Stream decompression error')
           })
         } else if (upstreamEncoding === 'deflate') {
           dataSource = res.pipe(zlib.createInflate())
           dataSource.on('error', (err) => {
-            logger.error('Deflate decompression error in stream:', err.message)
-            if (isStreamWritable(responseStream)) {
-              responseStream.end()
-            }
+            logger.error('Deflate decompression error in stream:', summarizeErrorForLog(err))
+            stopStreamFatal('Stream decompression error')
           })
         }
 
         dataSource.on('data', (chunk) => {
+          if (streamFatal) {
+            return
+          }
           try {
             const chunkStr = chunk.toString()
 
@@ -2701,23 +2819,23 @@ class ClaudeRelayService {
               }
             }
           } catch (error) {
-            logger.error('Error processing stream data:', error)
-            // 发送错误但不破坏流，让它自然结束
-            if (isStreamWritable(responseStream)) {
-              responseStream.write('event: error\n')
-              responseStream.write(
-                `data: ${JSON.stringify({
-                  error: 'Stream processing error',
-                  message: error.message,
-                  timestamp: new Date().toISOString(),
-                })}\n\n`,
-              )
-            }
+            logger.error('Error processing stream data:', summarizeErrorForLog(error))
+            // DEC_20260905_163907 立即 settle，不依赖 destroy→end
+            stopStreamFatal('Stream processing error')
           }
         })
 
         dataSource.on('end', async () => {
+          if (streamSettled) {
+            return
+          }
           try {
+            // 已发终端错误：不再 flush 缓冲/写正常结束
+            // DEC_20260905_163148
+            if (streamFatal) {
+              settleStreamOk()
+              return
+            }
             // 处理缓冲区中剩余的数据
             if (buffer.trim() && isStreamWritable(responseStream)) {
               if (toolNameStreamTransformer) {
@@ -2741,7 +2859,7 @@ class ClaudeRelayService {
               )
             }
           } catch (error) {
-            logger.error('Error processing stream end:', error)
+            logger.error('Error processing stream end:', summarizeErrorForLog(error))
           }
 
           // 如果还有未完成的usage数据，尝试保存
@@ -2948,7 +3066,10 @@ class ClaudeRelayService {
                 await claudeAccountService.removeAccountOverload(accountId)
               }
             } catch (overloadError) {
-              logger.error(`[Stream] Failed to check/remove overload status for account ${accountId}:`, overloadError)
+              logger.error(
+                `[Stream] Failed to check/remove overload status for account ${accountId}:`,
+                summarizeErrorForLog(overloadError),
+              )
             }
 
             // 只有真实的 Claude Code 请求才更新 headers（流式请求）
@@ -2957,21 +3078,24 @@ class ClaudeRelayService {
             }
           }
 
-          // 清理 bodyStore
-          if (requestOptions.bodyStoreId) {
-            this.bodyStore.delete(requestOptions.bodyStoreId)
+          // 清理 bodyStore 并 settle（fatal 路径可能已 settle）
+          // DEC_20260905_163907
+          if (!streamSettled) {
+            streamSettled = true
+            if (requestOptions.bodyStoreId) {
+              this.bodyStore.delete(requestOptions.bodyStoreId)
+            }
+            logger.debug('Claude stream response with usage capture completed')
+            resolve()
           }
-          logger.debug('Claude stream response with usage capture completed')
-          resolve()
         })
       })
 
       req.on('error', async (error) => {
-        logger.error(`Claude stream request error (Account: ${account?.name || accountId}):`, error.message, {
-          code: error.code,
-          errno: error.errno,
-          syscall: error.syscall,
-        })
+        logger.error(
+          `Claude stream request error (Account: ${account?.name || accountId}):`,
+          summarizeErrorForLog(error),
+        )
 
         // 根据错误类型提供更具体的错误信息
         let errorMessage = 'Upstream request failed'
@@ -2990,6 +3114,10 @@ class ClaudeRelayService {
           statusCode = 504
         }
 
+        if (streamSettled) {
+          return
+        }
+
         if (!responseStream.headersSent) {
           const existingConnection = responseStream.getHeader ? responseStream.getHeader('Connection') : null
           responseStream.writeHead(statusCode, {
@@ -2999,28 +3127,22 @@ class ClaudeRelayService {
           })
         }
 
-        if (isStreamWritable(responseStream)) {
-          // 发送 SSE 错误事件
-          responseStream.write('event: error\n')
-          responseStream.write(
-            `data: ${JSON.stringify({
-              error: errorMessage,
-              code: error.code,
-              timestamp: new Date().toISOString(),
-            })}\n\n`,
-          )
-          responseStream.end()
-        }
-        // 清理 bodyStore
-        if (requestOptions.bodyStoreId) {
-          this.bodyStore.delete(requestOptions.bodyStoreId)
-        }
-        reject(error)
+        // DEC_20260905_163907 统一走协议分流，禁止手写自定义 SSE 错误体
+        this._writeStreamClientError(responseStream, {
+          statusCode,
+          rawBody: { error: { type: 'api_error', message: errorMessage } },
+          streamTransformer,
+        })
+        settleStreamErr(error)
       })
 
       req.on('timeout', async () => {
         req.destroy()
         logger.error(`Claude stream request timeout | Account: ${account?.name || accountId}`)
+
+        if (streamSettled) {
+          return
+        }
 
         if (!responseStream.headersSent) {
           const existingConnection = responseStream.getHeader ? responseStream.getHeader('Connection') : null
@@ -3030,23 +3152,13 @@ class ClaudeRelayService {
             Connection: existingConnection || 'keep-alive',
           })
         }
-        if (isStreamWritable(responseStream)) {
-          // 发送 SSE 错误事件
-          responseStream.write('event: error\n')
-          responseStream.write(
-            `data: ${JSON.stringify({
-              error: 'Request timeout',
-              code: 'TIMEOUT',
-              timestamp: new Date().toISOString(),
-            })}\n\n`,
-          )
-          responseStream.end()
-        }
-        // 清理 bodyStore
-        if (requestOptions.bodyStoreId) {
-          this.bodyStore.delete(requestOptions.bodyStoreId)
-        }
-        reject(new Error('Request timeout'))
+        // DEC_20260905_163907 统一走协议分流
+        this._writeStreamClientError(responseStream, {
+          statusCode: 504,
+          rawBody: { error: { type: 'timeout_error', message: 'Request timeout' } },
+          streamTransformer,
+        })
+        settleStreamErr(new Error('Request timeout'))
       })
 
       // 处理客户端断开：不销毁上游，继续 drain 收 message_delta.usage 再计费
@@ -3375,19 +3487,28 @@ class ClaudeRelayService {
       // 创建流转换器，将 Claude API 格式转换为前端测试页面期望的格式
       const streamTransformer = this._createTestStreamTransformer()
 
+      // 测试走正式身份：注入 billing 并对齐默认 CLI UA
+      const testHeaders = {
+        'user-agent': buildClaudeCliUserAgent(),
+        'x-app': 'cli',
+      }
+      ensureAlignedBillingHeader(testRequestBody, {
+        userAgent: testHeaders['user-agent'],
+      })
+
       // 直接复用现有的流式请求方法
       await this._makeClaudeStreamRequestWithUsageCapture(
         testRequestBody,
         accessToken,
         proxyAgent,
-        {}, // clientHeaders - 测试不需要客户端headers
+        testHeaders,
         responseStream,
         null, // usageCallback - 测试不需要统计
         accountId,
         'claude-official', // accountType
         null, // sessionHash - 测试不需要会话
         streamTransformer, // 使用转换器将 Claude API 格式转为前端期望格式
-        {}, // requestOptions
+        { isRealClaudeCodeRequest: false }, // 伪装路径，走完整身份
         false, // isDedicatedOfficialAccount
       )
 
@@ -3468,18 +3589,27 @@ class ClaudeRelayService {
       }
 
       // 复用流式请求方法
+      // 同步测试与正式转发一致：billing + CLI UA 伪装身份
+      const testHeaders = {
+        'user-agent': buildClaudeCliUserAgent(),
+        'x-app': 'cli',
+      }
+      ensureAlignedBillingHeader(testRequestBody, {
+        userAgent: testHeaders['user-agent'],
+      })
+
       await this._makeClaudeStreamRequestWithUsageCapture(
         testRequestBody,
         accessToken,
         proxyAgent,
-        {}, // clientHeaders - 测试不需要客户端headers
+        testHeaders,
         mockResponseStream,
         null, // usageCallback - 测试不需要统计
         accountId,
         'claude-official', // accountType
         null, // sessionHash - 测试不需要会话
         null, // streamTransformer - 不需要转换，直接解析原始格式
-        {}, // requestOptions
+        { isRealClaudeCodeRequest: false },
         false, // isDedicatedOfficialAccount
       )
 
@@ -3549,6 +3679,56 @@ class ClaudeRelayService {
 
   // 判断账户是否应该在 403 错误时进行重试
   // 仅 claude-official 类型账户（OAuth 或 Setup Token 授权）需要重试
+  // 上游错误脱敏：客户端 SSE / 错误历史共用，禁止 URL/账户/凭证原文
+  // DEC_20260905_155232 Anthropic 信封 type:error + 白名单保留 error.type
+  _sanitizeUpstreamErrorForClient(statusCode, rawBody) {
+    let parsed = null
+    if (typeof rawBody === 'string' && rawBody.trim()) {
+      try {
+        parsed = JSON.parse(rawBody)
+      } catch {
+        parsed = null
+      }
+    } else if (rawBody && typeof rawBody === 'object') {
+      parsed = rawBody
+    }
+    const anthropicBody = buildAnthropicClientErrorBody({
+      statusCode,
+      upstreamBody: parsed || (typeof rawBody === 'string' ? rawBody : null),
+      fallbackMessage: `Claude API error: ${statusCode || 'unknown'}`,
+    })
+    const safeMessage = anthropicBody.error.message
+    const safeCode = anthropicBody.error.type
+    return {
+      safeMessage,
+      safeCode,
+      // 历史落库 / 非流式 body：标准 Anthropic 错误信封
+      safeBodyJson: JSON.stringify(anthropicBody),
+      // 客户端 SSE data: 同信封，禁止自定义 status/details
+      clientSsePayload: anthropicBody,
+      // OpenAI Chat Completions 流式兼容出口用
+      openaiClientBody: buildClientError({
+        statusCode,
+        protocol: 'openai',
+        upstreamBody: parsed || (typeof rawBody === 'string' ? rawBody : null),
+      }).body,
+    }
+  }
+
+  // 流式错误写客户端：有 streamTransformer = OpenAI 协议；否则 Anthropic
+  // DEC_20260905_161107 禁止把 Anthropic 信封塞给 OpenAI→Claude 转换路径
+  _writeStreamClientError(responseStream, { statusCode, rawBody, streamTransformer }) {
+    if (!isStreamWritable(responseStream)) {
+      return
+    }
+    const sanitized = this._sanitizeUpstreamErrorForClient(statusCode, rawBody)
+    if (streamTransformer) {
+      responseStream.write(`data: ${JSON.stringify(sanitized.openaiClientBody)}\n\n`)
+    } else {
+      responseStream.write(`event: error\ndata: ${JSON.stringify(sanitized.clientSsePayload)}\n\n`)
+    }
+  }
+
   _shouldRetryOn403(accountType) {
     return accountType === 'claude-official'
   }

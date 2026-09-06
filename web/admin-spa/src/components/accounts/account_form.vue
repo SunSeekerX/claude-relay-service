@@ -1550,10 +1550,29 @@
                 v-model:provider-endpoint="form.providerEndpoint"
                 v-model:quota-reset-time="form.quotaResetTime"
                 v-model:user-agent="form.userAgent"
+                v-model:upstream-request-id-header="form.upstreamRequestIdHeader"
                 :is-create="true"
                 :provider-endpoint-options="providerEndpointCreateOptions"
               />
               <input v-model.number="form.rateLimitDuration" type="hidden" value="60" />
+            </div>
+
+            <!-- OpenAI OAuth：上游请求标识（创建态） -->
+            <div v-if="form.platform === 'openai' && !isEdit" class="space-y-4">
+              <div>
+                <label class="mb-1 block text-sm font-semibold text-gray-700 dark:text-gray-300"
+                  >上游请求标识响应头</label
+                >
+                <input
+                  v-model="form.upstreamRequestIdHeader"
+                  class="form-input w-full border-transparent dark:border-transparent dark:bg-gray-700 dark:text-gray-200 dark:placeholder-gray-400"
+                  placeholder="留空自动探测 x-request-id / openai-request-id 等"
+                  type="text"
+                />
+                <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                  仅字母数字与连字符，最长 64。配置后只读该头写入请求详情的上游ID。
+                </p>
+              </div>
             </div>
 
             <!-- Gemini API 配置 -->
@@ -3256,12 +3275,33 @@
               v-model:provider-endpoint="form.providerEndpoint"
               v-model:quota-reset-time="form.quotaResetTime"
               v-model:user-agent="form.userAgent"
+              v-model:upstream-request-id-header="form.upstreamRequestIdHeader"
               :account-id="account?.id || ''"
               :external-tab="openaiExternalTab"
               :is-create="false"
               :provider-endpoint-options="providerEndpointEditOptions"
             />
             <input v-model.number="form.rateLimitDuration" type="hidden" />
+          </div>
+
+          <!-- OpenAI OAuth：编辑上游请求标识 -->
+          <div v-show="editActiveTab === 'basic'" class="space-y-4">
+            <div v-if="form.platform === 'openai'" class="space-y-4">
+              <div>
+                <label class="mb-1 block text-sm font-semibold text-gray-700 dark:text-gray-300"
+                  >上游请求标识响应头</label
+                >
+                <input
+                  v-model="form.upstreamRequestIdHeader"
+                  class="form-input w-full border-transparent dark:border-transparent dark:bg-gray-700 dark:text-gray-200"
+                  placeholder="留空自动探测 x-request-id / openai-request-id 等"
+                  type="text"
+                />
+                <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                  仅字母数字与连字符，最长 64。配置后只读该头写入请求详情的上游ID。
+                </p>
+              </div>
+            </div>
           </div>
 
           <!-- Gemini API（并入基本信息）-->
@@ -4285,6 +4325,7 @@ const form = ref({
     return []
   })(),
   userAgent: props.account?.userAgent || '',
+  upstreamRequestIdHeader: props.account?.upstreamRequestIdHeader || '',
   enableRateLimit: props.account ? props.account.rateLimitDuration > 0 : true,
   disableAutoProtection: toFormBoolean(props.account?.disableAutoProtection),
   disableTempUnavailable: toFormBoolean(props.account?.disableTempUnavailable),
@@ -5233,6 +5274,7 @@ const handleOAuthSuccess = async (tokenInfoOrList) => {
       data.openaiOauth = tokenInfo.tokens || tokenInfo
       data.accountInfo = tokenInfo.accountInfo
       data.priority = form.value.priority || 50
+      data.upstreamRequestIdHeader = form.value.upstreamRequestIdHeader || ''
     } else if (currentPlatform === 'droid') {
       const rawTokens = tokenInfo.tokens || tokenInfo || {}
 
@@ -5629,6 +5671,7 @@ const createAccount = async () => {
         email: '',
         emailVerified: false
       }
+      data.upstreamRequestIdHeader = form.value.upstreamRequestIdHeader || ''
 
       // OpenAI 手动模式必须刷新以获取完整信息（包括 ID Token）
       data.needsImmediateRefresh = true
@@ -5694,6 +5737,7 @@ const createAccount = async () => {
       data.baseApi = form.value.baseApi
       data.apiKey = form.value.apiKey
       data.userAgent = form.value.userAgent || ''
+      data.upstreamRequestIdHeader = form.value.upstreamRequestIdHeader || ''
       data.providerEndpoint = form.value.providerEndpoint || 'responses'
       data.priority = form.value.priority || 50
       data.rateLimitDuration = 60
@@ -6019,6 +6063,7 @@ const updateAccount = async () => {
     // OpenAI 账号优先级更新
     if (props.account.platform === 'openai') {
       data.priority = form.value.priority || 50
+      data.upstreamRequestIdHeader = form.value.upstreamRequestIdHeader || ''
     }
 
     // Gemini 账号优先级更新
@@ -6053,6 +6098,7 @@ const updateAccount = async () => {
         data.apiKey = form.value.apiKey
       }
       data.userAgent = form.value.userAgent || ''
+      data.upstreamRequestIdHeader = form.value.upstreamRequestIdHeader || ''
       data.providerEndpoint = form.value.providerEndpoint || 'responses'
       data.priority = form.value.priority || 50
       data.dailyQuota = form.value.dailyQuota || 0
@@ -6683,6 +6729,7 @@ watch(
           return []
         })(),
         userAgent: newAccount.userAgent || '',
+        upstreamRequestIdHeader: newAccount.upstreamRequestIdHeader || '',
         enableRateLimit:
           newAccount.rateLimitDuration && newAccount.rateLimitDuration > 0 ? true : false,
         rateLimitDuration: newAccount.rateLimitDuration || 60,

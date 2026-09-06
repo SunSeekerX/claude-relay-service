@@ -12,6 +12,8 @@ export const CLAUDE_MODELS = [
   { value: 'claude-sonnet-4-20250514', label: 'Claude Sonnet 4' },
   { value: 'claude-opus-4-1-20250805', label: 'Claude Opus 4.1' },
   { value: 'claude-opus-4-20250514', label: 'Claude Opus 4' },
+  { value: 'claude-fable-5-1', label: 'Claude Fable 5.1' },
+  { value: 'claude-fable-5', label: 'Claude Fable 5' },
   { value: 'claude-haiku-4-5-20251001', label: 'Claude Haiku 4.5' },
   { value: 'claude-3-5-haiku-20241022', label: 'Claude 3.5 Haiku' }
 ]
@@ -39,10 +41,17 @@ export const OPENAI_MODELS = [
   { value: 'gpt-5.4', label: 'GPT-5.4' },
   { value: 'gpt-5.4-pro', label: 'GPT-5.4 Pro' },
   { value: 'gpt-5.5', label: 'GPT-5.5' },
+  { value: 'gpt-5.6-sol', label: 'GPT-5.6 Sol' },
+  { value: 'gpt-5.6-terra', label: 'GPT-5.6 Terra' },
+  { value: 'gpt-5.6-luna', label: 'GPT-5.6 Luna' },
+  { value: 'gpt-6-astra', label: 'GPT-6 Astra' },
+  { value: 'gpt-6', label: 'GPT-6 (Astra)' },
   { value: 'codex-mini', label: 'Codex Mini' }
 ]
 
 export const BEDROCK_MODELS = [
+  { value: 'anthropic.claude-fable-5-1', label: 'Claude Fable 5.1' },
+  { value: 'anthropic.claude-fable-5', label: 'Claude Fable 5' },
   { value: 'us.anthropic.claude-opus-4-6-20250610-v1:0', label: 'Claude Opus 4.6' },
   { value: 'us.anthropic.claude-sonnet-4-5-20250929-v1:0', label: 'Claude Sonnet 4.5' },
   { value: 'us.anthropic.claude-sonnet-4-20250514-v1:0', label: 'Claude Sonnet 4' },

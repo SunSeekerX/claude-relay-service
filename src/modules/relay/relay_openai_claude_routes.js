@@ -244,7 +244,7 @@ export const handleChatCompletion = async function handleChatCompletion(req, res
     } catch (error) {
       if (error.code === 'CLAUDE_DEDICATED_RATE_LIMITED') {
         const limitMessage = claudeRelayService._buildStandardRateLimitMessage(error.rateLimitEndAt)
-        return res.status(403).json({
+        return res.status(429).json({
           error: 'upstream_rate_limited',
           message: limitMessage,
         })

@@ -1,5 +1,10 @@
 // Claude anthropic-beta 分账号类型精选套件（对齐 sub2api claude/constants）
 // OAuth 伪装走完整 mimic 集；API Key 不含 oauth；Haiku 精简；count_tokens 另套
+import {
+  buildClaudeCliUserAgent,
+  CLAUDE_CLI_BASELINE_VERSION,
+  getClaudeCliVersion,
+} from './relay_claude_cli_version.js'
 
 export const ClaudeBeta = {
   oauth: 'oauth-2025-04-20',
@@ -211,7 +216,9 @@ export const buildClaudeBetaHeader = (options = {}) => {
   return uniqueMerge(base, [...featureBetas, ...clientBetas]).join(',')
 }
 
-export const CLAUDE_CLI_DEFAULT_VERSION = '2.1.220'
+// 兼容旧名：实际生效版本走 getClaudeCliVersion()（含 env 覆盖）
+export const CLAUDE_CLI_DEFAULT_VERSION = getClaudeCliVersion()
+export { CLAUDE_CLI_BASELINE_VERSION, getClaudeCliVersion }
 
 export const DEFAULT_CLAUDE_CODE_HEADERS = {
   'x-stainless-retry-count': '0',
@@ -224,7 +231,7 @@ export const DEFAULT_CLAUDE_CODE_HEADERS = {
   'x-stainless-runtime-version': 'v24.3.0',
   'anthropic-dangerous-direct-browser-access': 'true',
   'x-app': 'cli',
-  'user-agent': `claude-cli/${CLAUDE_CLI_DEFAULT_VERSION} (external, cli)`,
+  'user-agent': buildClaudeCliUserAgent(),
   'accept-language': '*',
   'sec-fetch-mode': 'cors',
 }

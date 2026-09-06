@@ -10,12 +10,47 @@ import { onClientDisconnect } from '../../common/client_disconnect.js'
 import { isStreamWritable } from '../../common/stream_helper.js'
 import { filterForClaude } from './relay_header_filter.js'
 import { RedisKeys } from '../../infra/redis_key.js'
-import { sanitizeUpstreamError, sanitizeErrorMessage, isAccountDisabledError } from '../../common/error_sanitizer.js'
+import { isAccountDisabledError } from '../../common/error_sanitizer.js'
+import {
+  buildAnthropicClientErrorBody,
+  buildClientError,
+  extractSafeMessage,
+  summarizeErrorForLog,
+} from '../../common/client_error_builder.js'
 import { createClaudeTestPayload, sendStreamTestRequest } from '../../common/test_payload_helper.js'
 import crypto from 'node:crypto'
+import { sanitizeClaudeBodyFallbacks } from './translator/relay_translator_body_sanitize.js'
+import { buildClaudeCliUserAgent } from './relay_claude_cli_version.js'
+import { ensureAlignedBillingHeader } from './relay_claude_billing_header.js'
 class ClaudeConsoleRelayService {
   constructor() {
-    this.defaultUserAgent = 'claude-cli/2.0.52 (external, cli)'
+    this.defaultUserAgent = buildClaudeCliUserAgent()
+  }
+
+  // 流式错误写客户端：OpenAI 转换 vs Anthropic 信封；禁止 error.message 原文
+  // DEC_20260905_162636
+  _writeStreamClientError(
+    responseStream,
+    { statusCode = 500, rawBody = null, streamTransformer = null, fallbackMessage = 'Stream error' } = {},
+  ) {
+    if (!isStreamWritable(responseStream)) {
+      return
+    }
+    if (streamTransformer) {
+      const clientError = buildClientError({
+        statusCode,
+        protocol: 'openai',
+        upstreamBody: rawBody,
+      })
+      responseStream.write(`data: ${JSON.stringify(clientError.body)}\n\n`)
+      return
+    }
+    const anthropicBody = buildAnthropicClientErrorBody({
+      statusCode,
+      upstreamBody: rawBody,
+      fallbackMessage,
+    })
+    responseStream.write(`event: error\ndata: ${JSON.stringify(anthropicBody)}\n\n`)
   }
 
   // 转发请求到Claude Console API
@@ -150,6 +185,7 @@ class ClaudeConsoleRelayService {
         ...requestBody,
         model: mappedModel,
       }
+      sanitizeClaudeBodyFallbacks(modifiedRequestBody, { vendor: 'console' })
 
       // 模型兼容性检查已经在调度器中完成，这里不需要再检查
 
@@ -198,7 +234,10 @@ class ClaudeConsoleRelayService {
       const userAgent =
         account.userAgent || clientHeaders?.['user-agent'] || clientHeaders?.['User-Agent'] || this.defaultUserAgent
 
-      // 准备请求配置
+      // DEC_20260905_194420 Console 全路径也注入 billing 并与出站 UA 对齐
+      ensureAlignedBillingHeader(modifiedRequestBody, { userAgent })
+
+      // 准备请求配置：先 spread 再强制 User-Agent，避免客户端 ua 覆盖
       const requestConfig = {
         method: 'POST',
         url: apiEndpoint,
@@ -206,8 +245,8 @@ class ClaudeConsoleRelayService {
         headers: {
           'Content-Type': 'application/json',
           'anthropic-version': '2023-06-01',
-          'User-Agent': userAgent,
           ...filteredHeaders,
+          'User-Agent': userAgent,
         },
         timeout: config.requestTimeout || 600000,
         signal: abortController.signal,
@@ -248,6 +287,13 @@ class ClaudeConsoleRelayService {
       )
       const response = await axios(requestConfig)
 
+      // DEC_20260905_194420 上游响应头挂 clientRequest
+      if (clientRequest && typeof clientRequest === 'object') {
+        clientRequest._crsUpstreamHeaders = response.headers || null
+        clientRequest._crsUpstreamRequestIdHeader =
+          account?.upstreamRequestIdHeader || account?.extra?.upstreamRequestIdHeader || null
+      }
+
       // 请求已发送成功，立即释放队列锁（无需等待响应处理完成）
       // Claude API 限流基于请求发送时刻计算（RPM），不是请求完成时刻
       if (queueLockAcquired && queueRequestId && accountId) {
@@ -275,22 +321,11 @@ class ClaudeConsoleRelayService {
         `[DEBUG] Response data length: ${response.data ? (typeof response.data === 'string' ? response.data.length : JSON.stringify(response.data).length) : 0}`,
       )
 
-      // 对于错误响应，记录原始错误和清理后的预览
+      // 对于错误响应：日志只打脱敏文案；body 用 Anthropic 信封
+      // DEC_20260905_161107
       if (response.status < 200 || response.status >= 300) {
-        // 记录原始错误响应（包含供应商信息，用于调试）
-        const rawData = typeof response.data === 'string' ? response.data : JSON.stringify(response.data)
-        logger.error(`Upstream error response from ${account?.name || accountId}: ${rawData.substring(0, 500)}`)
-
-        // 记录清理后的数据到error
-        try {
-          const responseData = typeof response.data === 'string' ? JSON.parse(response.data) : response.data
-          const sanitizedData = sanitizeUpstreamError(responseData)
-          logger.error(`[SANITIZED] Error response to client: ${JSON.stringify(sanitizedData)}`)
-        } catch (e) {
-          const rawText = typeof response.data === 'string' ? response.data : JSON.stringify(response.data)
-          const sanitizedText = sanitizeErrorMessage(rawText)
-          logger.error(`[SANITIZED] Error response to client: ${sanitizedText}`)
-        }
+        const safeMsg = extractSafeMessage(response.data) || `Claude Console error: ${response.status}`
+        logger.error(`Upstream error from ${account?.name || accountId}: status=${response.status} message=${safeMsg}`)
       } else {
         logger.debug(
           `[DEBUG] Response data preview: ${typeof response.data === 'string' ? response.data.substring(0, 200) : JSON.stringify(response.data).substring(0, 200)}`,
@@ -328,8 +363,9 @@ class ClaudeConsoleRelayService {
         logger.error(
           `Account disabled error (400) detected for Claude Console account ${accountId}${autoProtectionDisabled ? ' (auto-protection disabled, skipping status change)' : ''}`,
         )
-        // 传入完整的错误详情到 webhook
-        const errorDetails = typeof response.data === 'string' ? response.data : JSON.stringify(response.data)
+        // webhook 只传脱敏 message，禁止上游原文
+        // DEC_20260905_162636
+        const errorDetails = extractSafeMessage(response.data) || 'account disabled'
         if (!autoProtectionDisabled) {
           await claudeConsoleAccountService.markConsoleAccountBlocked(accountId, errorDetails)
         }
@@ -405,21 +441,18 @@ class ClaudeConsoleRelayService {
       // 更新最后使用时间
       await this._updateLastUsedTime(accountId)
 
-      // 准备响应体并清理错误信息（如果是错误响应）
+      // 准备响应体：错误走 Anthropic 信封
       let responseBody
       if (response.status < 200 || response.status >= 300) {
-        // 错误响应，清理供应商信息
-        try {
-          const responseData = typeof response.data === 'string' ? JSON.parse(response.data) : response.data
-          const sanitizedData = sanitizeUpstreamError(responseData)
-          responseBody = JSON.stringify(sanitizedData)
-          logger.debug(`Sanitized error response`)
-        } catch (parseError) {
-          // 如果无法解析为JSON，尝试清理文本
-          const rawText = typeof response.data === 'string' ? response.data : JSON.stringify(response.data)
-          responseBody = sanitizeErrorMessage(rawText)
-          logger.debug(`Sanitized error text`)
-        }
+        // DEC_20260905_161107 Console 非流式错误对齐 Anthropic 信封
+        responseBody = JSON.stringify(
+          buildAnthropicClientErrorBody({
+            statusCode: response.status,
+            upstreamBody: response.data,
+            fallbackMessage: `Claude Console error: ${response.status}`,
+          }),
+        )
+        logger.debug(`Sanitized console error response to Anthropic envelope`)
       } else {
         // 成功响应，不需要清理
         responseBody = typeof response.data === 'string' ? response.data : JSON.stringify(response.data)
@@ -631,6 +664,7 @@ class ClaudeConsoleRelayService {
         ...requestBody,
         model: mappedModel,
       }
+      sanitizeClaudeBodyFallbacks(modifiedRequestBody, { vendor: 'console' })
 
       // 模型兼容性检查已经在调度器中完成，这里不需要再检查
 
@@ -681,7 +715,11 @@ class ClaudeConsoleRelayService {
       }
       // 被动健康检查：上报连接级故障（客户端断开/上游响应由 classifyBusinessTraffic 区分，不误熔断）
       proxyResolver.report(proxyResolution?.proxyId, proxyResolution?.contextKey, error)
-      logger.error(`Claude Console stream relay failed (Account: ${account?.name || accountId}):`, error)
+      // DEC_20260905_164536 禁止整包 Axios error（含 Authorization）进日志
+      logger.error(
+        `Claude Console stream relay failed (Account: ${account?.name || accountId}):`,
+        summarizeErrorForLog(error),
+      )
       throw error
     } finally {
       // 清理租约刷新定时器
@@ -739,6 +777,23 @@ class ClaudeConsoleRelayService {
   ) {
     return new Promise((resolve, reject) => {
       let aborted = false
+      // settle 提到 Promise 顶层：data/end/error/axios catch/客户端断开共用
+      // DEC_20260905_165725
+      let streamSettled = false
+      const settleStreamOk = () => {
+        if (streamSettled) {
+          return
+        }
+        streamSettled = true
+        resolve()
+      }
+      const settleStreamErr = (err) => {
+        if (streamSettled) {
+          return
+        }
+        streamSettled = true
+        reject(err)
+      }
 
       // 构建完整的API URL
       const cleanUrl = account.apiUrl.replace(/\/$/, '') // 移除末尾斜杠
@@ -754,7 +809,12 @@ class ClaudeConsoleRelayService {
       const userAgent =
         account.userAgent || clientHeaders?.['user-agent'] || clientHeaders?.['User-Agent'] || this.defaultUserAgent
 
-      // 准备请求配置
+      // DEC_20260905_194420 Console 流式也注入 billing 并与出站 UA 对齐
+      if (body && typeof body === 'object') {
+        ensureAlignedBillingHeader(body, { userAgent })
+      }
+
+      // 准备请求配置：先 spread 再强制 User-Agent
       const requestConfig = {
         method: 'POST',
         url: apiEndpoint,
@@ -762,8 +822,8 @@ class ClaudeConsoleRelayService {
         headers: {
           'Content-Type': 'application/json',
           'anthropic-version': '2023-06-01',
-          'User-Agent': userAgent,
           ...filteredHeaders,
+          'User-Agent': userAgent,
         },
         timeout: config.requestTimeout || 600000,
         responseType: 'stream',
@@ -802,6 +862,14 @@ class ClaudeConsoleRelayService {
         .then(async (response) => {
           logger.debug(`Claude Console Claude stream response status: ${response.status}`)
 
+          // DEC_20260905_194420 流式上游头挂到 responseStream.req
+          const clientReq = responseStream?.req || null
+          if (clientReq && typeof clientReq === 'object') {
+            clientReq._crsUpstreamHeaders = response.headers || null
+            clientReq._crsUpstreamRequestIdHeader =
+              account?.upstreamRequestIdHeader || account?.extra?.upstreamRequestIdHeader || null
+          }
+
           // 错误响应处理
           if (response.status !== 200) {
             logger.error(
@@ -810,18 +878,19 @@ class ClaudeConsoleRelayService {
 
             // 收集错误数据用于检测
             let errorDataForCheck = ''
-            const errorChunks = []
 
             response.data.on('data', (chunk) => {
-              errorChunks.push(chunk)
               errorDataForCheck += chunk.toString()
             })
 
             response.data.on('end', async () => {
               const autoProtectionDisabled = account.disableAutoProtection === true
-              // 记录原始错误消息到日志（方便调试，包含供应商信息）
+              // 日志只打脱敏文案，禁止上游原文
+              // DEC_20260905_161107
+              const safeStreamMsg =
+                extractSafeMessage(errorDataForCheck) || `Claude Console stream error: ${response.status}`
               logger.error(
-                ` [Stream] Upstream error response from ${account?.name || accountId}: ${errorDataForCheck.substring(0, 500)}`,
+                ` [Stream] Upstream error from ${account?.name || accountId}: status=${response.status} message=${safeStreamMsg}`,
               )
 
               // 检查是否为账户禁用错误
@@ -851,9 +920,13 @@ class ClaudeConsoleRelayService {
                 logger.error(
                   ` [Stream] Account disabled error (400) detected for Claude Console account ${accountId}${autoProtectionDisabled ? ' (auto-protection disabled, skipping status change)' : ''}`,
                 )
-                // 传入完整的错误详情到 webhook
+                // webhook 只传脱敏 message，禁止上游原文
+                // DEC_20260905_162636
                 if (!autoProtectionDisabled) {
-                  await claudeConsoleAccountService.markConsoleAccountBlocked(accountId, errorDataForCheck)
+                  await claudeConsoleAccountService.markConsoleAccountBlocked(
+                    accountId,
+                    extractSafeMessage(errorDataForCheck) || 'account disabled',
+                  )
                 }
                 // 禁止 raw errorDataForCheck 写入 message；脱敏正文已在 errorContext.errorBody
                 upstreamErrorHelper
@@ -916,32 +989,30 @@ class ClaudeConsoleRelayService {
               // 设置响应头
               if (!responseStream.headersSent) {
                 responseStream.writeHead(response.status, {
-                  'Content-Type': 'application/json',
+                  'Content-Type': 'text/event-stream',
                   'Cache-Control': 'no-cache',
                 })
               }
 
-              // 清理并发送错误响应
-              try {
-                const fullErrorData = Buffer.concat(errorChunks).toString()
-                const errorJson = JSON.parse(fullErrorData)
-                const sanitizedError = sanitizeUpstreamError(errorJson)
-
-                // 记录清理后的错误消息（发送给客户端的，完整记录）
-                logger.error(`[Stream] [SANITIZED] Error response to client: ${JSON.stringify(sanitizedError)}`)
-
-                if (isStreamWritable(responseStream)) {
-                  responseStream.write(JSON.stringify(sanitizedError))
-                  responseStream.end()
+              // 按客户端协议写错误：OpenAI 转换 vs Anthropic 信封
+              // DEC_20260905_161107
+              if (isStreamWritable(responseStream)) {
+                if (streamTransformer) {
+                  const clientError = buildClientError({
+                    statusCode: response.status,
+                    protocol: 'openai',
+                    upstreamBody: errorDataForCheck,
+                  })
+                  responseStream.write(`data: ${JSON.stringify(clientError.body)}\n\n`)
+                } else {
+                  const anthropicBody = buildAnthropicClientErrorBody({
+                    statusCode: response.status,
+                    upstreamBody: errorDataForCheck,
+                    fallbackMessage: `Claude Console error: ${response.status}`,
+                  })
+                  responseStream.write(`event: error\ndata: ${JSON.stringify(anthropicBody)}\n\n`)
                 }
-              } catch (parseError) {
-                const sanitizedText = sanitizeErrorMessage(errorDataForCheck)
-                logger.error(`[Stream] [SANITIZED] Error response to client: ${sanitizedText}`)
-
-                if (isStreamWritable(responseStream)) {
-                  responseStream.write(sanitizedText)
-                  responseStream.end()
-                }
+                responseStream.end()
               }
               resolve() // 不抛出异常，正常完成流处理
             })
@@ -993,6 +1064,9 @@ class ClaudeConsoleRelayService {
 
           let buffer = ''
           let finalUsageReported = false
+          // 流处理致命错误后停止转发
+          // DEC_20260905_163148
+          let streamFatal = false
           const collectedUsageData = {
             model: body.model || account?.defaultModel || null,
           }
@@ -1000,7 +1074,9 @@ class ClaudeConsoleRelayService {
           // 处理流数据
           response.data.on('data', (chunk) => {
             try {
-              if (aborted) {
+              // fatal 才停 drain；客户端断开仍继续解析 usage 再计费
+              // DEC_20260905_195558 对齐官方 Claude / OpenAI-Responses drain-for-usage
+              if (streamFatal) {
                 return
               }
 
@@ -1014,7 +1090,7 @@ class ClaudeConsoleRelayService {
               // 转发数据并解析usage
               if (lines.length > 0) {
                 // 检查流是否可写（客户端连接是否有效）
-                if (isStreamWritable(responseStream)) {
+                if (!aborted && isStreamWritable(responseStream)) {
                   const linesToForward = lines.join('\n') + (lines.length > 0 ? '\n' : '')
 
                   // 应用流转换器如果有
@@ -1031,10 +1107,10 @@ class ClaudeConsoleRelayService {
                   if (dataToWrite) {
                     responseStream.write(dataToWrite)
                   }
-                } else {
-                  // 客户端连接已断开，记录警告（但仍继续解析usage）
-                  logger.warn(
-                    ` [Console] Client disconnected during stream, skipping ${lines.length} lines for account: ${account?.name || accountId}`,
+                } else if (aborted || !isStreamWritable(responseStream)) {
+                  // 客户端已断：跳过写回，继续解析 usage
+                  logger.info(
+                    ` [Console] Client disconnected during stream, draining for usage (${lines.length} lines) account=${accountId}`,
                   )
                 }
 
@@ -1131,72 +1207,163 @@ class ClaudeConsoleRelayService {
             } catch (error) {
               logger.error(
                 `Error processing Claude Console stream data (Account: ${account?.name || accountId}):`,
-                error,
+                summarizeErrorForLog(error),
               )
-              if (isStreamWritable(responseStream)) {
-                // 如果有 streamTransformer（如测试请求），使用前端期望的格式
-                if (streamTransformer) {
-                  responseStream.write(`data: ${JSON.stringify({ type: 'error', error: error.message })}\n\n`)
-                } else {
-                  responseStream.write('event: error\n')
-                  responseStream.write(
-                    `data: ${JSON.stringify({
-                      error: 'Stream processing error',
-                      message: error.message,
-                      timestamp: new Date().toISOString(),
-                    })}\n\n`,
-                  )
+              // 写终端错误后 reject：外层才能记失败并上报代理不健康
+              // DEC_20260905_165339 对齐官方 Claude fatal reject
+              streamFatal = true
+              aborted = true
+              this._writeStreamClientError(responseStream, {
+                statusCode: 500,
+                streamTransformer,
+                fallbackMessage: 'Stream processing error',
+              })
+              try {
+                if (response.data && typeof response.data.destroy === 'function') {
+                  response.data.destroy()
                 }
+              } catch (e) {
+                console.error(summarizeErrorForLog(e))
               }
+              if (isStreamWritable(responseStream)) {
+                responseStream.end()
+              }
+              const fatalError = new Error('Stream processing error')
+              fatalError.code = 'STREAM_FATAL'
+              settleStreamErr(fatalError)
             }
           })
 
           response.data.on('end', () => {
             try {
-              // 处理缓冲区中剩余的数据
-              if (buffer.trim() && isStreamWritable(responseStream)) {
-                if (streamTransformer) {
-                  const transformed = streamTransformer(buffer)
-                  if (transformed) {
-                    responseStream.write(transformed)
-                  }
-                } else {
-                  responseStream.write(buffer)
+              // fatal 已 reject：只收尾，不再 settle
+              // DEC_20260905_165339
+              if (streamFatal) {
+                if (isStreamWritable(responseStream)) {
+                  responseStream.end()
                 }
+                return
               }
 
-              // 兜底逻辑：确保所有未保存的usage数据都不会丢失
+              // 处理缓冲区中剩余数据：aborted 时只解析 usage 不写回
+              // DEC_20260905_195558 drain 完再计费，禁止半截 output=0 落账
+              if (buffer.trim()) {
+                const remainingLines = buffer.split('\n')
+                if (!aborted && isStreamWritable(responseStream)) {
+                  if (streamTransformer) {
+                    const transformed = streamTransformer(buffer)
+                    if (transformed) {
+                      responseStream.write(transformed)
+                    }
+                  } else {
+                    responseStream.write(buffer)
+                  }
+                }
+                for (const line of remainingLines) {
+                  if (!line.startsWith('data:')) {
+                    continue
+                  }
+                  const jsonStr = line.slice(5).trimStart()
+                  if (!jsonStr || jsonStr === '[DONE]') {
+                    continue
+                  }
+                  try {
+                    const data = JSON.parse(jsonStr)
+                    if (data.type === 'message_start' && data.message && data.message.usage) {
+                      collectedUsageData.input_tokens = data.message.usage.input_tokens || 0
+                      collectedUsageData.cache_creation_input_tokens =
+                        data.message.usage.cache_creation_input_tokens || 0
+                      collectedUsageData.cache_read_input_tokens = data.message.usage.cache_read_input_tokens || 0
+                      collectedUsageData.model = data.message.model
+                      if (data.message.usage.cache_creation && typeof data.message.usage.cache_creation === 'object') {
+                        collectedUsageData.cache_creation = {
+                          ephemeral_5m_input_tokens: data.message.usage.cache_creation.ephemeral_5m_input_tokens || 0,
+                          ephemeral_1h_input_tokens: data.message.usage.cache_creation.ephemeral_1h_input_tokens || 0,
+                        }
+                      }
+                    }
+                    if (data.type === 'message_delta' && data.usage) {
+                      if (data.usage.output_tokens !== undefined) {
+                        collectedUsageData.output_tokens = data.usage.output_tokens || 0
+                      }
+                      if (data.usage.input_tokens !== undefined) {
+                        collectedUsageData.input_tokens = data.usage.input_tokens || 0
+                      }
+                      if (data.usage.cache_creation_input_tokens !== undefined) {
+                        collectedUsageData.cache_creation_input_tokens = data.usage.cache_creation_input_tokens || 0
+                      }
+                      if (data.usage.cache_read_input_tokens !== undefined) {
+                        collectedUsageData.cache_read_input_tokens = data.usage.cache_read_input_tokens || 0
+                      }
+                      if (data.usage.cache_creation && typeof data.usage.cache_creation === 'object') {
+                        collectedUsageData.cache_creation = {
+                          ephemeral_5m_input_tokens: data.usage.cache_creation.ephemeral_5m_input_tokens || 0,
+                          ephemeral_1h_input_tokens: data.usage.cache_creation.ephemeral_1h_input_tokens || 0,
+                        }
+                      }
+                    }
+                    if (
+                      (data.type === 'message_delta' || data.type === 'message_stop') &&
+                      !finalUsageReported &&
+                      collectedUsageData.output_tokens !== undefined
+                    ) {
+                      if (usageCallback && typeof usageCallback === 'function') {
+                        usageCallback({ ...collectedUsageData, accountId })
+                      }
+                      finalUsageReported = true
+                    }
+                  } catch {
+                    // 忽略解析错误
+                  }
+                }
+                buffer = ''
+              }
+
+              // 兜底：仅在已拿到 output_tokens（message_delta）时落账，禁止半截补 0
+              // DEC_20260905_195558
               if (!finalUsageReported) {
-                if (collectedUsageData.input_tokens !== undefined || collectedUsageData.output_tokens !== undefined) {
-                  // 补全缺失的字段
+                if (
+                  collectedUsageData.output_tokens !== undefined &&
+                  (collectedUsageData.input_tokens !== undefined ||
+                    collectedUsageData.cache_read_input_tokens !== undefined)
+                ) {
                   if (collectedUsageData.input_tokens === undefined) {
                     collectedUsageData.input_tokens = 0
                     logger.warn(
                       ' [Console] message_delta missing input_tokens, setting to 0. This may indicate incomplete usage data.',
                     )
                   }
-                  if (collectedUsageData.output_tokens === undefined) {
-                    collectedUsageData.output_tokens = 0
-                    logger.warn(
-                      ' [Console] message_delta missing output_tokens, setting to 0. This may indicate incomplete usage data.',
-                    )
-                  }
-                  // 确保有 model 字段
                   if (!collectedUsageData.model) {
                     collectedUsageData.model = body.model || account?.defaultModel || null
                   }
-                  logger.info(
-                    ` [Console] Saving incomplete usage data via fallback: ${JSON.stringify(collectedUsageData)}`,
-                  )
+                  logger.info(` [Console] Saving usage data via end fallback: ${JSON.stringify(collectedUsageData)}`)
                   if (usageCallback && typeof usageCallback === 'function') {
                     usageCallback({ ...collectedUsageData, accountId })
                   }
                   finalUsageReported = true
+                } else if (
+                  collectedUsageData.input_tokens !== undefined &&
+                  collectedUsageData.output_tokens === undefined
+                ) {
+                  // 仅 message_start、无 message_delta：不落账，避免 output=0 少计
+                  logger.warn(
+                    ` [Console] Stream end without output_tokens; skip billing to avoid undercount account=${accountId} input=${collectedUsageData.input_tokens}`,
+                  )
                 } else {
                   logger.warn(
                     ' [Console] Stream completed but no usage data was captured! This indicates a problem with SSE parsing or API response format.',
                   )
                 }
+              }
+
+              // 客户端断开：usage 已按 drain 结果处理，再 settle 释放并发
+              // DEC_20260905_165725 / DEC_20260905_195558
+              if (aborted) {
+                if (isStreamWritable(responseStream)) {
+                  responseStream.end()
+                }
+                settleStreamErr(new Error('Client disconnected'))
+                return
               }
 
               // 确保流正确结束
@@ -1218,48 +1385,50 @@ class ClaudeConsoleRelayService {
                   logger.info(
                     ` [STREAM] Response ended and flushed | socketBytesWritten: ${responseStream.socket?.bytesWritten || 'unknown'}`,
                   )
-                  resolve()
+                  settleStreamOk()
                 })
               } else {
                 // 连接已断开，记录警告
                 logger.warn(
                   ` [Console] Client disconnected before stream end, data may not have been received | account: ${account?.name || accountId}`,
                 )
-                resolve()
+                settleStreamErr(new Error('Client disconnected'))
               }
             } catch (error) {
-              logger.error('Error processing stream end:', error)
-              reject(error)
+              logger.error('Error processing stream end:', summarizeErrorForLog(error))
+              settleStreamErr(error)
             }
           })
 
           response.data.on('error', (error) => {
-            logger.error(`Claude Console stream error (Account: ${account?.name || accountId}):`, error)
+            logger.error(
+              `Claude Console stream error (Account: ${account?.name || accountId}):`,
+              summarizeErrorForLog(error),
+            )
+            // DEC_20260905_162636 协议化脱敏，禁止 error.message 原文
+            this._writeStreamClientError(responseStream, {
+              statusCode: 500,
+              streamTransformer,
+              fallbackMessage: 'Stream error',
+            })
             if (isStreamWritable(responseStream)) {
-              // 如果有 streamTransformer（如测试请求），使用前端期望的格式
-              if (streamTransformer) {
-                responseStream.write(`data: ${JSON.stringify({ type: 'error', error: error.message })}\n\n`)
-              } else {
-                responseStream.write('event: error\n')
-                responseStream.write(
-                  `data: ${JSON.stringify({
-                    error: 'Stream error',
-                    message: error.message,
-                    timestamp: new Date().toISOString(),
-                  })}\n\n`,
-                )
-              }
               responseStream.end()
             }
-            reject(error)
+            settleStreamErr(error)
           })
         })
         .catch((error) => {
           if (aborted) {
+            // 客户端已断：仍必须 settle，否则 Promise 挂死泄漏并发/租约
+            // DEC_20260905_165725
+            settleStreamErr(new Error('Client disconnected'))
             return
           }
 
-          logger.error(`Claude Console stream request error (Account: ${account?.name || accountId}):`, error.message)
+          logger.error(
+            `Claude Console stream request error (Account: ${account?.name || accountId}):`,
+            summarizeErrorForLog(error),
+          )
 
           // 检查错误状态
           if (error.response) {
@@ -1318,23 +1487,17 @@ class ClaudeConsoleRelayService {
           }
 
           if (isStreamWritable(responseStream)) {
-            // 如果有 streamTransformer（如测试请求），使用前端期望的格式
-            if (streamTransformer) {
-              responseStream.write(`data: ${JSON.stringify({ type: 'error', error: error.message })}\n\n`)
-            } else {
-              responseStream.write('event: error\n')
-              responseStream.write(
-                `data: ${JSON.stringify({
-                  error: error.message,
-                  code: error.code,
-                  timestamp: new Date().toISOString(),
-                })}\n\n`,
-              )
-            }
+            // DEC_20260905_162636 协议化脱敏，禁止 error.message 原文
+            this._writeStreamClientError(responseStream, {
+              statusCode: error.response?.status || 500,
+              rawBody: error.response?.data || null,
+              streamTransformer,
+              fallbackMessage: 'Upstream request failed',
+            })
             responseStream.end()
           }
 
-          reject(error)
+          settleStreamErr(error)
         })
 
       // 处理客户端断开连接
@@ -1442,8 +1605,11 @@ class ClaudeConsoleRelayService {
       const cleanUrl = account.apiUrl.replace(/\/$/, '')
       const apiUrl = cleanUrl.endsWith('/v1/messages') ? cleanUrl : `${cleanUrl}/v1/messages?beta=true`
       const payload = createClaudeTestPayload(model, { stream: true })
+      // 测试链路与正式转发一致：注入 billing + 对齐 UA
+      const userAgent = account.userAgent || this.defaultUserAgent
+      ensureAlignedBillingHeader(payload, { userAgent })
 
-      const extraHeaders = account.userAgent ? { 'User-Agent': account.userAgent } : {}
+      const extraHeaders = { 'User-Agent': userAgent }
       const testProxyResolution = proxyResolver.resolveAgent(account, 'claude_console')
       const requestOptions = {
         apiUrl,

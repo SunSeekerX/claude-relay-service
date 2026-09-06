@@ -590,7 +590,55 @@ export const createRequestDetailMeta = function createRequestDetailMeta(req, ove
   if (overrides.tokenCountEstimateMethod) {
     meta.tokenCountEstimateMethod = String(overrides.tokenCountEstimateMethod)
   }
+  // 上游请求标识（按账户配置头名解析；未配置时读常见头）
+  const upstreamRequestId =
+    overrides.upstreamRequestId ||
+    extractUpstreamRequestId(
+      overrides.upstreamHeaders || overrides.responseHeaders || req?._crsUpstreamHeaders || null,
+      {
+        headerName: overrides.upstreamRequestIdHeader || req?._crsUpstreamRequestIdHeader || null,
+      },
+    )
+  if (upstreamRequestId) {
+    meta.upstreamRequestId = upstreamRequestId
+  }
   return meta
+}
+
+// 从上游响应头解析 request id；headerName 非空时只读该头
+export const extractUpstreamRequestId = function extractUpstreamRequestId(headers, options = {}) {
+  if (!headers || typeof headers !== 'object') {
+    return null
+  }
+  const configured =
+    typeof options.headerName === 'string' && options.headerName.trim() ? options.headerName.trim() : ''
+  const candidates = configured
+    ? [configured]
+    : [
+        'x-request-id',
+        'request-id',
+        'x-openai-request-id',
+        'openai-request-id',
+        'cf-ray',
+        'anthropic-request-id',
+        'x-anthropic-request-id',
+      ]
+  const lowerMap = new Map()
+  for (const [key, value] of Object.entries(headers)) {
+    if (typeof key === 'string') {
+      lowerMap.set(key.toLowerCase(), value)
+    }
+  }
+  for (const name of candidates) {
+    const raw = lowerMap.get(String(name).toLowerCase())
+    if (typeof raw === 'string' && raw.trim()) {
+      return raw.trim().slice(0, 200)
+    }
+    if (Array.isArray(raw) && raw.length > 0 && typeof raw[0] === 'string' && raw[0].trim()) {
+      return raw[0].trim().slice(0, 200)
+    }
+  }
+  return null
 }
 
 export const finalizeRequestDetailMeta = function finalizeRequestDetailMeta(requestMeta = null) {
@@ -608,6 +656,261 @@ export const finalizeRequestDetailMeta = function finalizeRequestDetailMeta(requ
     ...requestMeta,
     durationMs,
     firstTokenMs,
+  }
+}
+
+// 转发 API 路径前缀（鉴权后的上游转发面）
+const RELAY_PATH_PREFIXES = [
+  '/api/',
+  '/claude/',
+  '/openai/',
+  '/gemini/',
+  '/droid/',
+  '/grok/',
+  '/azure/',
+  '/antigravity/',
+  '/gemini-cli/',
+  '/v1/',
+  '/v1beta/',
+  '/backend-api/',
+]
+
+// 是否应把失败响应写入请求明细（成功仍走 recordUsage 采集，避免双写）
+// DEC_20260904_162520 失败请求也要进请求明细并带 status/error，列表可直接看成功失败
+export const shouldCaptureFailedRequestDetail = function shouldCaptureFailedRequestDetail({
+  statusCode,
+  path,
+  apiKeyId,
+} = {}) {
+  if (!apiKeyId) {
+    return false
+  }
+  if (!Number.isInteger(statusCode) || statusCode < 400) {
+    return false
+  }
+  const requestPath = typeof path === 'string' ? path : ''
+  if (!requestPath || requestPath === '/') {
+    return false
+  }
+  // 管理面/非转发路径排除
+  if (
+    requestPath.startsWith('/admin') ||
+    requestPath.startsWith('/users') ||
+    requestPath.startsWith('/web') ||
+    requestPath.startsWith('/payment') ||
+    requestPath.startsWith('/apiStats') ||
+    requestPath === '/health' ||
+    requestPath.startsWith('/admin-next')
+  ) {
+    return false
+  }
+  if (RELAY_PATH_PREFIXES.some((prefix) => requestPath === prefix.slice(0, -1) || requestPath.startsWith(prefix))) {
+    return true
+  }
+  // 官方别名根路径：/v1/messages 等
+  if (requestPath === '/v1' || requestPath.startsWith('/v1/') || requestPath.startsWith('/v1beta')) {
+    return true
+  }
+  return false
+}
+
+// 从已返回给客户端的 error body 提取摘要（供失败明细落库）
+export const extractClientErrorSummary = function extractClientErrorSummary(responseBody) {
+  if (!responseBody) {
+    return { errorMessage: null, errorCode: null }
+  }
+  if (typeof responseBody === 'string') {
+    const trimmed = responseBody.trim()
+    if (!trimmed) {
+      return { errorMessage: null, errorCode: null }
+    }
+    // SSE: 尝试从 data: JSON 行提取 error.message/code
+    if (trimmed.includes('data: ') || trimmed.startsWith('{')) {
+      const lines = trimmed.split('\n')
+      for (const line of lines) {
+        const raw = line.startsWith('data: ') ? line.slice(6).trim() : line.trim()
+        if (!raw || raw === '[DONE]') {
+          continue
+        }
+        try {
+          const parsed = JSON.parse(raw)
+          // 支持 OpenAI {error:{message}} 与 Claude {error:string, details, status}
+          if (parsed && typeof parsed === 'object') {
+            if (typeof parsed.error === 'string' || parsed.details !== undefined) {
+              const fromClaude = extractClientErrorSummary(parsed)
+              if (fromClaude.errorMessage || fromClaude.errorCode) {
+                return fromClaude
+              }
+            }
+            const nested = parsed.error || parsed.response?.error || parsed
+            if (nested && typeof nested === 'object') {
+              const message =
+                typeof nested.message === 'string' ? nested.message : typeof nested.msg === 'string' ? nested.msg : null
+              const code =
+                typeof nested.code === 'string' ? nested.code : typeof nested.type === 'string' ? nested.type : null
+              if (message || code) {
+                return {
+                  errorMessage: message ? message.trim().slice(0, 500) : null,
+                  errorCode: code ? code.trim().slice(0, 120) : null,
+                }
+              }
+            }
+          }
+        } catch {
+          // continue
+        }
+      }
+    }
+    return { errorMessage: trimmed.slice(0, 500), errorCode: null }
+  }
+  if (typeof responseBody !== 'object') {
+    return { errorMessage: null, errorCode: null }
+  }
+
+  // Claude 流式错误形状：error 为字符串，具体内容在 details（对象或 JSON 字符串）
+  // DEC_20260905_110000 仅当 error 为 string 时走此分支，避免 error 对象被 status 盖掉
+  if (typeof responseBody.error === 'string') {
+    let nested = null
+    if (typeof responseBody.details === 'string' && responseBody.details.trim()) {
+      try {
+        nested = JSON.parse(responseBody.details)
+      } catch {
+        nested = null
+      }
+      if (!nested) {
+        // details 已是脱敏后的纯文案
+        return {
+          errorMessage: responseBody.details.trim().slice(0, 500),
+          errorCode:
+            typeof responseBody.error === 'string'
+              ? responseBody.error.trim().slice(0, 120)
+              : typeof responseBody.status === 'number'
+                ? String(responseBody.status)
+                : null,
+        }
+      }
+    } else if (responseBody.details && typeof responseBody.details === 'object') {
+      nested = responseBody.details
+    }
+    if (nested && typeof nested === 'object') {
+      const inner = nested.error && typeof nested.error === 'object' ? nested.error : nested
+      const message =
+        typeof inner.message === 'string'
+          ? inner.message
+          : typeof inner.msg === 'string'
+            ? inner.msg
+            : typeof nested.details === 'string'
+              ? nested.details
+              : null
+      const code =
+        typeof inner.code === 'string'
+          ? inner.code
+          : typeof inner.type === 'string'
+            ? inner.type
+            : typeof responseBody.error === 'string'
+              ? responseBody.error
+              : null
+      if (message || code) {
+        return {
+          errorMessage: message ? message.trim().slice(0, 500) : null,
+          errorCode: code ? String(code).trim().slice(0, 120) : null,
+        }
+      }
+    }
+  }
+
+  const err = responseBody.error
+  if (err && typeof err === 'object') {
+    const message = typeof err.message === 'string' ? err.message : typeof err.msg === 'string' ? err.msg : null
+    const code = typeof err.code === 'string' ? err.code : typeof err.type === 'string' ? err.type : null
+    return {
+      errorMessage: message ? message.trim().slice(0, 500) : null,
+      errorCode: code ? code.trim().slice(0, 120) : null,
+    }
+  }
+  // OpenAI SSE/WS：response.failed 常把 error 放在 response.error
+  const responseError =
+    responseBody.response && typeof responseBody.response === 'object' ? responseBody.response.error : null
+  if (responseError && typeof responseError === 'object') {
+    const message =
+      typeof responseError.message === 'string'
+        ? responseError.message
+        : typeof responseError.msg === 'string'
+          ? responseError.msg
+          : null
+    const code =
+      typeof responseError.code === 'string'
+        ? responseError.code
+        : typeof responseError.type === 'string'
+          ? responseError.type
+          : null
+    if (message || code) {
+      return {
+        errorMessage: message ? message.trim().slice(0, 500) : null,
+        errorCode: code ? String(code).trim().slice(0, 120) : null,
+      }
+    }
+  }
+  if (typeof responseBody.error === 'string' && responseBody.error.trim()) {
+    return {
+      errorMessage: responseBody.error.trim().slice(0, 500),
+      errorCode: typeof responseBody.status === 'number' ? String(responseBody.status) : null,
+    }
+  }
+  if (typeof responseBody.message === 'string' && responseBody.message.trim()) {
+    return {
+      errorMessage: responseBody.message.trim().slice(0, 500),
+      errorCode: typeof responseBody.code === 'string' ? responseBody.code.trim().slice(0, 120) : null,
+    }
+  }
+  return { errorMessage: null, errorCode: null }
+}
+
+// 组装失败请求明细 payload（无 token/费用，仅状态与错误摘要）
+export const buildFailedRequestDetailPayload = function buildFailedRequestDetailPayload({
+  req,
+  statusCode,
+  durationMs,
+  responseBody,
+  path,
+} = {}) {
+  const summary = extractClientErrorSummary(responseBody)
+  const body = req && req.body && typeof req.body === 'object' ? req.body : null
+  const model =
+    (body && typeof body.model === 'string' && body.model) ||
+    (req && typeof req._crsRequestedModel === 'string' && req._crsRequestedModel) ||
+    null
+  return {
+    requestId: req?.requestId || null,
+    timestamp: new Date().toISOString(),
+    requestStartedAt:
+      Number.isFinite(req?.requestStartedAt) && req.requestStartedAt > 0
+        ? new Date(req.requestStartedAt).toISOString()
+        : null,
+    endpoint: path || null,
+    method: req?.method || null,
+    statusCode: Number.isInteger(statusCode) ? statusCode : 500,
+    errorMessage: summary.errorMessage,
+    errorCode: summary.errorCode,
+    stream: Boolean(body && body.stream === true),
+    durationMs: toFiniteNumber(durationMs),
+    firstTokenMs: toFiniteNumber(req?.firstTokenMs),
+    requestBody: body || undefined,
+    apiKeyId: req?.apiKey?.id || null,
+    accountId: req?._crsAccountId || req?.account?.id || null,
+    accountType: req?._crsAccountType || req?.account?.accountType || null,
+    model: model || 'unknown',
+    // DEC_20260905_194420 失败路径也落上游请求标识
+    upstreamRequestId: extractUpstreamRequestId(req?._crsUpstreamHeaders || null, {
+      headerName: req?._crsUpstreamRequestIdHeader || null,
+    }),
+    inputTokens: 0,
+    outputTokens: 0,
+    cacheReadTokens: 0,
+    cacheCreateTokens: 0,
+    totalTokens: 0,
+    cost: 0,
+    realCost: 0,
   }
 }
 

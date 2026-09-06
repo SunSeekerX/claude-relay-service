@@ -1608,9 +1608,9 @@ router.post(
     const hour = new Date().toISOString().slice(0, 13)
 
     // 防暴力破解：检查失败锁定
-    const failKey = RedisKeys.redeemCard.fail(clientIP)
-    const failCount = parseInt((await redis.client.get(failKey)) || '0')
-    if (failCount >= 5) {
+    const { isRedeemCardFailLocked, recordRedeemCardFail, clearRedeemCardFail } =
+      await import('../payment/payment_redeem_card_lock_service.js')
+    if (await isRedeemCardFailLocked(clientIP)) {
       logger.security(`Card redemption locked for IP: ${clientIP}`)
       throw forbidden('失败次数过多，请1小时后再试')
     }
@@ -1648,7 +1648,7 @@ router.post(
       const result = await quotaCardService.redeemCard(code, apiId, null, keyData.name || 'API Stats')
 
       // 成功时清除失败计数（静默处理，不影响成功响应）
-      redis.client.del(failKey).catch((e) => console.error(e))
+      clearRedeemCardFail(clientIP).catch((e) => console.error(e))
 
       logger.api(`Card redeemed via API Stats: ${code} -> ${apiId}`)
 
@@ -1656,10 +1656,7 @@ router.post(
     } catch (error) {
       console.error(error)
       // 失败时增加失败计数（静默处理，不影响错误响应）
-      redis.client
-        .incr(failKey)
-        .then(() => redis.client.expire(failKey, TTL.redeemCardWindow))
-        .catch((e) => console.error(e))
+      recordRedeemCardFail(clientIP).catch((e) => console.error(e))
 
       logger.error('Failed to redeem card:', error)
       throw badRequest(error.message)

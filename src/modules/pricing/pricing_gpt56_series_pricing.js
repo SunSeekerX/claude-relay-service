@@ -233,3 +233,8 @@ export const GPT56_SERIES_FALLBACK_PRICING = {
     supports_service_tier: true,
   },
 }
+
+// GPT-6 Astra 暂按 gpt-5.6-sol 同价兜底（官方未单独公开价时）
+// DEC_20260905_194420 Astra 完整支持；价源补齐后可删本别名
+GPT56_SERIES_FALLBACK_PRICING['gpt-6-astra'] = GPT56_SERIES_FALLBACK_PRICING['gpt-5.6-sol']
+GPT56_SERIES_FALLBACK_PRICING['gpt-6'] = GPT56_SERIES_FALLBACK_PRICING['gpt-5.6-sol']

@@ -176,6 +176,20 @@
             <span v-else-if="limitsStatus === 'loading'" class="text-sm text-gray-400">加载中</span>
             <span v-else class="text-sm text-red-500">加载失败</span>
           </button>
+          <button
+            class="toolbar-btn"
+            type="button"
+            @click="openRedeemLocksModal"
+          >
+            <i class="i-lucide-lock-keyhole" />
+            兑换失败锁
+            <span
+              v-if="redeemLocksBadgeCount > 0"
+              class="toolbar-btn__badge is-on"
+            >
+              {{ redeemLocksBadgeCount }}
+            </span>
+          </button>
           </div>
         </div>
 
@@ -442,6 +456,20 @@
             </span>
             <span v-else-if="limitsStatus === 'loading'" class="text-sm text-gray-400">加载中</span>
             <span v-else class="text-sm text-red-500">加载失败</span>
+          </button>
+          <button
+            class="toolbar-btn"
+            type="button"
+            @click="openRedeemLocksModal"
+          >
+            <i class="i-lucide-lock-keyhole" />
+            兑换失败锁
+            <span
+              v-if="redeemLocksBadgeCount > 0"
+              class="toolbar-btn__badge is-on"
+            >
+              {{ redeemLocksBadgeCount }}
+            </span>
           </button>
           </div>
         </div>
@@ -874,6 +902,139 @@
       </div>
     </ModalTransition>
 
+    <!-- 兑换失败锁管理 -->
+    <ModalTransition>
+      <div
+        v-if="showRedeemLocksModal"
+        class="modal fixed inset-0 z-50 flex items-center justify-center p-4"
+      >
+        <div class="modal-content mx-auto flex max-h-[90vh] w-full max-w-2xl flex-col overflow-hidden p-3 sm:p-4">
+          <div class="mb-3 flex shrink-0 items-center justify-between">
+            <div class="flex items-center gap-3">
+              <div
+                class="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-red-500 to-orange-600"
+              >
+                <i class="i-lucide-lock-keyhole text-white" />
+              </div>
+              <div>
+                <h3 class="text-lg font-bold text-gray-900 dark:text-gray-100">兑换失败锁</h3>
+                <p class="text-sm text-gray-500 dark:text-gray-400">
+                  公开兑换页错码累计达 {{ redeemLocksMeta.threshold || 5 }} 次会锁 IP
+                  {{ Math.round((redeemLocksMeta.windowSeconds || 3600) / 3600) }} 小时
+                </p>
+              </div>
+            </div>
+            <button
+              class="p-1 text-gray-400 transition-colors hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300"
+              type="button"
+              @click="showRedeemLocksModal = false"
+            >
+              <i class="i-lucide-x text-xl" />
+            </button>
+          </div>
+
+          <div class="mb-3 flex shrink-0 flex-wrap items-center gap-2">
+            <button
+              class="toolbar-btn"
+              :disabled="redeemLocksLoading"
+              type="button"
+              @click="loadRedeemLocks"
+            >
+              <i
+                :class="[
+                  redeemLocksLoading ? 'i-lucide-loader-circle animate-spin' : 'i-lucide-refresh-cw',
+                  'mr-1'
+                ]"
+              />
+              刷新
+            </button>
+            <button
+              class="toolbar-btn text-red-600 dark:text-red-400"
+              :disabled="redeemLocksLoading || redeemLocks.length === 0 || redeemLocksClearing"
+              type="button"
+              @click="clearAllRedeemLocks"
+            >
+              <i
+                :class="[
+                  redeemLocksClearing ? 'i-lucide-loader-circle animate-spin' : 'i-lucide-trash-2',
+                  'mr-1'
+                ]"
+              />
+              全部解锁
+            </button>
+          </div>
+
+          <div class="min-h-0 flex-1 overflow-y-auto">
+            <p
+              v-if="redeemLocksLoading && redeemLocks.length === 0"
+              class="py-8 text-center text-sm text-gray-500"
+            >
+              加载中...
+            </p>
+            <p
+              v-else-if="!redeemLocksLoading && redeemLocks.length === 0"
+              class="py-8 text-center text-sm text-gray-500"
+            >
+              当前没有兑换失败锁
+            </p>
+            <table
+              v-else
+              class="min-w-full divide-y divide-gray-200 dark:divide-gray-700"
+            >
+              <thead class="bg-gray-50 dark:bg-gray-800">
+                <tr class="text-left text-sm text-gray-500 dark:text-gray-400">
+                  <th class="px-3 py-2">IP</th>
+                  <th class="px-3 py-2">失败次数</th>
+                  <th class="px-3 py-2">状态</th>
+                  <th class="px-3 py-2">剩余 TTL</th>
+                  <th class="px-3 py-2 text-right">操作</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-gray-100 dark:divide-gray-800">
+                <tr
+                  v-for="row in redeemLocks"
+                  :key="row.ip"
+                  class="text-sm"
+                >
+                  <td class="px-3 py-2 font-medium text-gray-900 dark:text-gray-100">
+                    {{ row.ip }}
+                  </td>
+                  <td class="px-3 py-2 text-gray-700 dark:text-gray-300">
+                    {{ row.failCount }} / {{ row.threshold || redeemLocksMeta.threshold || 5 }}
+                  </td>
+                  <td class="px-3 py-2">
+                    <span
+                      class="inline-flex rounded-full px-2 py-0.5 text-sm font-medium"
+                      :class="
+                        row.locked
+                          ? 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300'
+                          : 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300'
+                      "
+                    >
+                      {{ row.locked ? '已锁定' : '计数中' }}
+                    </span>
+                  </td>
+                  <td class="px-3 py-2 text-gray-600 dark:text-gray-400">
+                    {{ formatRedeemLockTtl(row.ttlSeconds) }}
+                  </td>
+                  <td class="px-3 py-2 text-right">
+                    <button
+                      class="rounded border border-gray-200 px-2 py-1 text-sm text-blue-600 hover:bg-gray-50 dark:border-gray-600 dark:text-blue-400 dark:hover:bg-gray-800"
+                      :disabled="redeemLocksUnlockingIp === row.ip"
+                      type="button"
+                      @click="unlockRedeemLock(row.ip)"
+                    >
+                      {{ redeemLocksUnlockingIp === row.ip ? '解锁中...' : '解锁' }}
+                    </button>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </ModalTransition>
+
     <!-- Result Modal -->
     <ModalTransition>
       <div
@@ -1056,7 +1217,7 @@ import ConfirmModal from '@/components/common/confirm_modal.vue'
 import ModalTransition from '@/components/common/modal_transition.vue'
 
 import * as httpApis from '@/libs/http_apis'
-import { isOk, msgOf } from '@/libs/http_envelope'
+import { isOk, msgOf, dataOf } from '@/libs/http_envelope'
 import { showToast, copyText, formatDate, calcViewportBottomReserve } from '@/libs/tools'
 
 const loading = ref(false)
@@ -1065,6 +1226,15 @@ const creating = ref(false)
 const showCreateModal = ref(false)
 const showLimitsModal = ref(false)
 const savingLimits = ref(false)
+const showRedeemLocksModal = ref(false)
+const redeemLocksLoading = ref(false)
+const redeemLocksClearing = ref(false)
+const redeemLocksUnlockingIp = ref('')
+const redeemLocks = ref([])
+const redeemLocksMeta = ref({ threshold: 5, windowSeconds: 3600 })
+const redeemLocksBadgeCount = computed(
+  () => redeemLocks.value.filter((row) => row.locked).length
+)
 const showResultModal = ref(false)
 const showConfirmModal = ref(false)
 const confirmModalConfig = ref({
@@ -1321,6 +1491,88 @@ const loadLimits = async () => {
 const openLimitsModal = () => {
   limitsForm.value = { ...limitsConfig.value }
   showLimitsModal.value = true
+}
+
+const formatRedeemLockTtl = (ttlSeconds) => {
+  const seconds = Number(ttlSeconds) || 0
+  if (seconds <= 0) return '-'
+  if (seconds < 60) return `${seconds}s`
+  const minutes = Math.floor(seconds / 60)
+  if (minutes < 60) return `${minutes} 分`
+  const hours = Math.floor(minutes / 60)
+  const rest = minutes % 60
+  return rest > 0 ? `${hours} 小时 ${rest} 分` : `${hours} 小时`
+}
+
+const loadRedeemLocks = async () => {
+  redeemLocksLoading.value = true
+  try {
+    const result = await httpApis.getRedeemCardLocksApi()
+    if (!isOk(result)) {
+      showToast(msgOf(result, '加载兑换失败锁失败'), 'error')
+      return
+    }
+    const payload = dataOf(result, {}) || {}
+    redeemLocks.value = Array.isArray(payload.locks) ? payload.locks : []
+    redeemLocksMeta.value = {
+      threshold: payload.threshold || 5,
+      windowSeconds: payload.windowSeconds || 3600
+    }
+  } catch (_error) {
+    showToast('加载兑换失败锁失败', 'error')
+  } finally {
+    redeemLocksLoading.value = false
+  }
+}
+
+const openRedeemLocksModal = async () => {
+  showRedeemLocksModal.value = true
+  await loadRedeemLocks()
+}
+
+const unlockRedeemLock = async (ip) => {
+  if (!ip) return
+  redeemLocksUnlockingIp.value = ip
+  try {
+    const result = await httpApis.unlockRedeemCardLockApi(ip)
+    if (!isOk(result)) {
+      showToast(msgOf(result, '解锁失败'), 'error')
+      return
+    }
+    showToast(`已解锁 ${ip}`, 'success')
+    await loadRedeemLocks()
+  } catch (_error) {
+    showToast('解锁失败', 'error')
+  } finally {
+    redeemLocksUnlockingIp.value = ''
+  }
+}
+
+const clearAllRedeemLocks = async () => {
+  if (redeemLocks.value.length === 0) return
+  const confirmed = await showConfirm(
+    '全部解锁',
+    `确定清空当前 ${redeemLocks.value.length} 条兑换失败锁吗？`,
+    '全部解锁',
+    '取消',
+    'danger'
+  )
+  if (!confirmed) return
+  redeemLocksClearing.value = true
+  try {
+    const result = await httpApis.clearAllRedeemCardLocksApi()
+    if (!isOk(result)) {
+      showToast(msgOf(result, '清空失败'), 'error')
+      return
+    }
+    const payload = dataOf(result, {}) || {}
+    showToast(`已解锁 ${payload.unlocked || 0} 条`, 'success')
+    await loadRedeemLocks()
+  } catch (_error) {
+    showToast('清空失败', 'error')
+  } finally {
+    redeemLocksClearing.value = false
+  }
 }
 
 const saveLimits = async () => {
@@ -1730,6 +1982,8 @@ onMounted(() => {
   loadLimits()
   loadCards()
   loadRedemptions()
+  // 角标：静默拉失败锁数量（失败不影响主流程）
+  loadRedeemLocks().catch(() => {})
   window.addEventListener('resize', scheduleUpdateCardHeight)
   if (typeof ResizeObserver !== 'undefined') {
     cardResizeObserver = new ResizeObserver(scheduleUpdateCardHeight)

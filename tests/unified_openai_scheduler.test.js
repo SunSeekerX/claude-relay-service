@@ -33,7 +33,16 @@ jest.mock('../src/common/common_helper.js', () => ({
       !!account &&
       (account.disableAutoProtection === true || account.disableAutoProtection === 'true')
   ),
-  sortAccountsByPriority: jest.fn((accounts) => accounts)
+  sortAccountsByPriority: jest.fn((accounts) => accounts),
+  getMappedModelName: jest.fn((mapping, requested) => {
+    if (!mapping || typeof mapping !== 'object') {
+      return requested
+    }
+    if (Object.prototype.hasOwnProperty.call(mapping, requested)) {
+      return mapping[requested]
+    }
+    return requested
+  }),
 }))
 jest.mock('../src/modules/relay/relay_upstream_error_helper.js', () => ({
   isTempUnavailable: jest.fn()
@@ -295,5 +304,26 @@ describe('UnifiedOpenAIScheduler', () => {
       const accounts = await unifiedOpenAIScheduler._getAllAvailableAccounts({}, null)
       expect(accounts.map((a) => a.accountId)).not.toContain('r1')
     })
+  })
+
+
+  test('openai-responses allowedModels accepts mapped upstream model', () => {
+    const account = {
+      allowedModels: ['gpt-6-astra'],
+      supportedModels: { 'gpt-6': 'gpt-6-astra' },
+    }
+    expect(unifiedOpenAIScheduler._isOpenAIModelSupported(account, 'openai-responses', 'gpt-6')).toBe(true)
+    expect(unifiedOpenAIScheduler._isOpenAIModelSupported(account, 'openai-responses', 'gpt-6-astra')).toBe(true)
+    expect(unifiedOpenAIScheduler._isOpenAIModelSupported(account, 'openai-responses', 'gpt-5.5')).toBe(false)
+  })
+
+
+  test('empty supportedModels json string without model is unrestricted', () => {
+    const account = {
+      supportedModels: '[]',
+      allowedModels: '[]',
+    }
+    expect(unifiedOpenAIScheduler._isOpenAIModelSupported(account, 'openai', null)).toBe(true)
+    expect(unifiedOpenAIScheduler._isOpenAIModelSupported(account, 'openai-responses', null)).toBe(true)
   })
 })

@@ -168,7 +168,7 @@ import { ref, reactive, computed, onMounted } from 'vue'
 import ModalTransition from '@/components/common/modal_transition.vue'
 import { showToast, formatDateTime } from '@/libs/tools'
 import * as httpApis from '@/libs/http_apis'
-import { isOk, msgOf } from '@/libs/http_envelope'
+import { isOk, msgOf, dataOf } from '@/libs/http_envelope'
 
 const props = defineProps({
   apiKey: {
@@ -273,12 +273,14 @@ const saveCost = async () => {
       addCostLimit: parseFloat(form.addCostLimit)
     })
     if (isOk(result)) {
-      currentTotalCostLimit.value = result.newTotalCostLimit
+      // 管理信封 data 在 result.data，禁止读顶层 newXxx
+      const payload = dataOf(result, {}) || {}
+      currentTotalCostLimit.value = payload.newTotalCostLimit
       form.addCostLimit = ''
       showToast('额度已增加', 'success')
       emit('success', {
         keyId: props.apiKey.id,
-        totalCostLimit: result.newTotalCostLimit
+        totalCostLimit: payload.newTotalCostLimit
       })
     } else {
       showToast(msgOf(result, '保存失败'), 'error')
@@ -300,15 +302,16 @@ const saveExpiry = async () => {
       extendUnit: extendResolved.value.unit
     })
     if (isOk(result)) {
-      currentExpiresAt.value = result.newExpiresAt
+      const payload = dataOf(result, {}) || {}
+      currentExpiresAt.value = payload.newExpiresAt
       form.extendAmount = ''
       showToast('有效期已延长', 'success')
       emit('success', {
         keyId: props.apiKey.id,
-        expiresAt: result.newExpiresAt,
-        isActive: result.isActive,
-        isActivated: result.isActivated,
-        activatedAt: result.activatedAt
+        expiresAt: payload.newExpiresAt,
+        isActive: payload.isActive,
+        isActivated: payload.isActivated,
+        activatedAt: payload.activatedAt
       })
     } else {
       showToast(msgOf(result, '保存失败'), 'error')

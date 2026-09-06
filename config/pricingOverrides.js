@@ -19,5 +19,7 @@ const LONG_CONTEXT_GPT56 = 1050000
 export const pricingOverrides = {
   'gpt-5.6-terra': { max_input_tokens: LONG_CONTEXT_GPT56 },
   'gpt-5.6-sol': { max_input_tokens: LONG_CONTEXT_GPT56 },
-  'gpt-5.6-luna': { max_input_tokens: LONG_CONTEXT_GPT56 }
+  'gpt-5.6-luna': { max_input_tokens: LONG_CONTEXT_GPT56 },
+  'gpt-6-astra': { max_input_tokens: LONG_CONTEXT_GPT56 },
+  'gpt-6': { max_input_tokens: LONG_CONTEXT_GPT56 }
 }

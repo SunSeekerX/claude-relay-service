@@ -18,9 +18,20 @@ import { proxyResolver } from '../proxy/proxy_resolver.js'
 import { unifiedOpenAIScheduler } from './relay_unified_openai_scheduler.js'
 import * as openaiAccountService from '../account/account_openai_service.js'
 import { apiKeyService } from '../apikey/apikey_service.js'
-import { createRequestDetailMeta } from './relay_request_detail_helper.js'
+import {
+  createRequestDetailMeta,
+  buildFailedRequestDetailPayload,
+  resolveOpenAIServiceTier,
+} from './relay_request_detail_helper.js'
+import { requestDetailService } from './relay_request_detail_service.js'
 import * as responsesWs from './relay_codex_responses_ws.js'
 import { repairResponsesToolCallsInBody } from './relay_codex_responses_ws_tool_repair.js'
+import { sanitizeOpenAICapacityShedForClient } from './relay_openai_capacity_shed.js'
+import { applyOpenAIServiceTierAlias } from './relay_openai_compact_v2.js'
+import { applyOpenAIPublicModelAlias } from './relay_openai_model_alias.js'
+import { normalizeCodexBootstrapBody } from './relay_codex_bootstrap_normalize.js'
+import { extractUpstreamErrorCode, extractSafeMessage } from '../../common/client_error_builder.js'
+import { normalizeKnownOpenAICodexModel } from './relay_openai_model_alias.js'
 
 // 与 relay_openai_routes.getCodexCompatibleModel 同语义（避免跨文件非导出依赖）
 const getCodexCompatibleModel = (requestedModel = null) => {
@@ -45,7 +56,191 @@ const createBridgeSessionState = () => ({
   topP: undefined,
   maxOutputTokens: undefined,
   reasoning: undefined,
+  serviceTier: undefined,
+  // DEC_20260905_194420 WS 多路径 cyber-policy 命中后，同连接后续 turn 直接拒绝
+  cyberPolicyBlocked: false,
+  cyberPolicyCode: null,
+  cyberPolicyMessage: null,
 })
+
+// 仅会话级 cyber/session block 才钉死连接；invalid_prompt/content_filter 等可自愈，不封锁后续 turn
+const SESSION_CYBER_BLOCK_CODES = new Set([
+  'session_blocked_by_cyber_policy',
+  'session_blocked',
+  'conversation_blocked',
+])
+const SESSION_CYBER_BLOCK_MESSAGE_RE =
+  /session is blocked|start a new session|blocked by cyber|cyber-security policy|网络安全策略|开启新会话|该会话已被/i
+
+// 透传帧出站前：仅对 JSON response.create 做公开模型别名归一，其它帧原样
+
+// 字符串字段脱敏：在真实空白上匹配，避免 JSON.stringify 后 \\t/\\n 漏 Bearer
+// DEC_20260906_011816
+const sanitizeCredentialText = (text) => {
+  if (typeof text !== 'string' || !text) {
+    return text
+  }
+  return text
+    .replace(/Bearer[ \t\r\n]+[A-Za-z0-9._-]+/gi, 'Bearer ***')
+    .replace(/\bsk-(?:proj|ant|svcacct)-[A-Za-z0-9_-]{8,}/gi, 'sk-***')
+    .replace(/\bsk-[A-Za-z0-9]{8,}/g, 'sk-***')
+    .replace(/https?:\/\/[^\s"']+/g, '[upstream]')
+    .replace(/([?&](?:key|token|auth|password|secret|api_key)=)[^&\s"']+/gi, '$1***')
+}
+
+const sanitizeDeepValue = (value, depth = 0) => {
+  if (value === null || value === undefined) {
+    return value
+  }
+  if (depth > 8) {
+    return typeof value === 'string' ? sanitizeCredentialText(value).slice(0, 4000) : value
+  }
+  if (typeof value === 'string') {
+    return sanitizeCredentialText(value)
+  }
+  if (Array.isArray(value)) {
+    return value.map((item) => sanitizeDeepValue(item, depth + 1))
+  }
+  if (typeof value === 'object') {
+    const out = {}
+    for (const key of Object.keys(value)) {
+      out[key] = sanitizeDeepValue(value[key], depth + 1)
+    }
+    return out
+  }
+  return value
+}
+
+export const sanitizeUpstreamBodyForDetail = (body) => {
+  if (body === null || body === undefined) {
+    return null
+  }
+  if (typeof body === 'string') {
+    return sanitizeCredentialText(body).slice(0, 4000)
+  }
+  try {
+    return sanitizeDeepValue(body)
+  } catch (error) {
+    console.error(error)
+    try {
+      return sanitizeCredentialText(String(body)).slice(0, 4000)
+    } catch {
+      return null
+    }
+  }
+}
+
+export const rewriteClientWsTextForUpstream = (text) => {
+  if (typeof text !== 'string' || !text.trim()) {
+    return text
+  }
+  let message
+  try {
+    message = JSON.parse(text)
+  } catch {
+    return text
+  }
+  if (!message || typeof message !== 'object') {
+    return text
+  }
+  const type = message.type || 'response.create'
+  if (type !== 'response.create' && type !== 'response.append') {
+    return text
+  }
+  // 顶层 model 或 response.model
+  if (typeof message.model === 'string') {
+    const body = { model: message.model }
+    applyOpenAIPublicModelAlias(body)
+    message.model = body.model
+  }
+  if (message.response && typeof message.response === 'object' && typeof message.response.model === 'string') {
+    const body = { model: message.response.model }
+    applyOpenAIPublicModelAlias(body)
+    message.response.model = body.model
+  }
+  if (typeof message.service_tier === 'string') {
+    applyOpenAIServiceTierAlias(message)
+  }
+  try {
+    return JSON.stringify(message)
+  } catch {
+    return text
+  }
+}
+
+export const isSessionCyberPolicyBlock = (payload) => {
+  if (!payload || typeof payload !== 'object') {
+    return false
+  }
+  // 展开嵌套：response.failed 常把 error 放在 response.error
+  const candidates = [payload, payload.error, payload.response, payload.response?.error].filter(
+    (item) => item && typeof item === 'object',
+  )
+
+  for (const candidate of candidates) {
+    const code = String(extractUpstreamErrorCode(candidate) || '').toLowerCase()
+    if (code && SESSION_CYBER_BLOCK_CODES.has(code)) {
+      return true
+    }
+    if (code && /session_blocked/.test(code)) {
+      return true
+    }
+    const message = extractSafeMessage(candidate) || ''
+    if (message && SESSION_CYBER_BLOCK_MESSAGE_RE.test(message)) {
+      return true
+    }
+  }
+  return false
+}
+
+// 从上游 error / response.failed 事件识别会话级 cyber policy，写入会话态
+const noteCyberPolicyFromUpstream = (state, payload, pathLabel = 'ws') => {
+  if (!state || !payload || typeof payload !== 'object') {
+    return false
+  }
+  const candidates = [payload, payload.error, payload.response, payload.response?.error].filter(
+    (item) => item && typeof item === 'object',
+  )
+
+  for (const candidate of candidates) {
+    if (!isSessionCyberPolicyBlock(candidate)) {
+      continue
+    }
+    // 从命中候选提取真正 code/message（嵌套 response.error 优先）
+    const nestedCandidates = [candidate.response?.error, candidate.error, candidate].filter(
+      (item) => item && typeof item === 'object',
+    )
+    let code = ''
+    let message = ''
+    for (const nested of nestedCandidates) {
+      const nestedCode = extractUpstreamErrorCode(nested)
+      const nestedMessage = extractSafeMessage(nested)
+      if (nestedCode && SESSION_CYBER_BLOCK_CODES.has(nestedCode.toLowerCase())) {
+        code = nestedCode
+        message = nestedMessage || message
+        break
+      }
+      if (nestedCode && /session_blocked/i.test(nestedCode)) {
+        code = nestedCode
+        message = nestedMessage || message
+        break
+      }
+      if (nestedMessage && SESSION_CYBER_BLOCK_MESSAGE_RE.test(nestedMessage)) {
+        code = nestedCode || code
+        message = nestedMessage
+        break
+      }
+    }
+    code = code || 'session_blocked_by_cyber_policy'
+    message = message || 'Session blocked by cyber policy; start a new session'
+    state.cyberPolicyBlocked = true
+    state.cyberPolicyCode = code
+    state.cyberPolicyMessage = message
+    logger.warn(`[ResponsesWS-bridge] cyber policy recorded path=${pathLabel} code=${code} message=${message}`)
+    return true
+  }
+  return false
+}
 
 const extractUsageFromCompleted = (eventData) => {
   const usage = eventData?.response?.usage
@@ -60,11 +255,14 @@ const extractUsageFromCompleted = (eventData) => {
     0
   const cacheCreate = usage.cache_creation_input_tokens || 0
   const actualInput = Math.max(0, Number(totalInput) - Number(cacheRead) || 0)
+  const responseTier =
+    (typeof eventData?.response?.service_tier === 'string' && eventData.response.service_tier) || null
   return {
     input_tokens: actualInput,
     output_tokens: usage.output_tokens || usage.completion_tokens || 0,
     cache_read_input_tokens: Number(cacheRead) || 0,
     cache_creation_input_tokens: Number(cacheCreate) || 0,
+    service_tier: responseTier,
     raw: usage,
   }
 }
@@ -84,7 +282,10 @@ export const buildHttpResponsesBodyFromWsMessage = (message, state) => {
     if (!model) {
       throw Object.assign(new Error('missing model in response.create'), { statusCode: 400 })
     }
-    state.model = model
+    // 公开别名归一写入 state，保证 create/append 出站一致；选号用同一归一名
+    const canonicalModel = normalizeKnownOpenAICodexModel(model) || model
+    state.model = canonicalModel
+    state.clientModel = model
 
     if (source.instructions !== undefined) {
       state.instructions = source.instructions
@@ -110,15 +311,23 @@ export const buildHttpResponsesBodyFromWsMessage = (message, state) => {
     if (source.reasoning !== undefined) {
       state.reasoning = source.reasoning
     }
+    if (source.service_tier !== undefined) {
+      state.serviceTier = source.service_tier
+    }
 
     const inputDelta = Array.isArray(source.input) ? source.input : []
     const previousId = source.previous_response_id || null
 
     const body = {
-      model: getCodexCompatibleModel(model) || model,
+      model: getCodexCompatibleModel(canonicalModel) || canonicalModel,
       stream: true,
       store: false,
     }
+    if (source.service_tier !== undefined) {
+      body.service_tier = source.service_tier
+    }
+    applyOpenAIServiceTierAlias(body)
+    applyOpenAIPublicModelAlias(body)
 
     // v2 续写：有 previous_response_id 时只发本轮 delta input，禁止把历史整包重放
     if (previousId) {
@@ -165,8 +374,20 @@ export const buildHttpResponsesBodyFromWsMessage = (message, state) => {
     if (state.reasoning !== undefined) {
       body.reasoning = state.reasoning
     }
+    if (state.serviceTier !== undefined && state.serviceTier !== null) {
+      body.service_tier = state.serviceTier
+      applyOpenAIServiceTierAlias(body)
+    }
 
-    return repairResponsesToolCallsInBody(body)
+    // 先 bootstrap 再 tool repair：repair 会丢无 call_id 的 function_call_output
+    // DEC_20260904_174000 bootstrap 必须先于 repair，否则 delegation/automation 被丢弃
+    const bootstrap = normalizeCodexBootstrapBody(body)
+    if (bootstrap.changed) {
+      logger.info(`Codex bootstrap normalized on WS bridge kinds=${bootstrap.kinds.join(',')}`)
+    }
+    const repaired = repairResponsesToolCallsInBody(bootstrap.body)
+    applyOpenAIPublicModelAlias(repaired)
+    return repaired
   }
 
   if (type === 'response.append') {
@@ -199,7 +420,16 @@ export const buildHttpResponsesBodyFromWsMessage = (message, state) => {
     if (state.toolChoice !== null && state.toolChoice !== undefined) {
       body.tool_choice = state.toolChoice
     }
-    return repairResponsesToolCallsInBody(body)
+    if (state.serviceTier !== null && state.serviceTier !== undefined) {
+      body.service_tier = state.serviceTier
+    }
+    applyOpenAIServiceTierAlias(body)
+    applyOpenAIPublicModelAlias(body)
+    const bootstrapAppend = normalizeCodexBootstrapBody(body)
+    if (bootstrapAppend.changed) {
+      logger.info(`Codex bootstrap normalized on WS append kinds=${bootstrapAppend.kinds.join(',')}`)
+    }
+    return repairResponsesToolCallsInBody(bootstrapAppend.body)
   }
 
   throw Object.assign(new Error(`unsupported websocket message type: ${type}`), { statusCode: 400 })
@@ -289,6 +519,37 @@ const runOneTurn = async ({
         error: { message: error.message || 'upstream request failed', type: 'api_error' },
       }),
     )
+    if (apiKeyData?.id) {
+      try {
+        if (reqMeta && typeof reqMeta === 'object') {
+          reqMeta._crsAccountId = accountId || reqMeta._crsAccountId || null
+          reqMeta._crsAccountType = accountType || reqMeta._crsAccountType || 'openai'
+          // 建连失败：清掉上一轮上游头，避免失败详情误挂旧 upstreamRequestId
+          reqMeta._crsUpstreamHeaders = null
+          reqMeta._crsUpstreamRequestIdHeader = null
+          if (!reqMeta.apiKey) {
+            reqMeta.apiKey = apiKeyData
+          }
+        }
+        const failedPayload = buildFailedRequestDetailPayload({
+          req: reqMeta,
+          statusCode: 502,
+          durationMs: null,
+          responseBody: sanitizeUpstreamBodyForDetail({
+            error: { message: error.message || 'upstream request failed', type: 'api_error' },
+          }),
+          path: '/openai/v1/responses#ws-bridge',
+        })
+        failedPayload.apiKeyId = apiKeyData.id
+        failedPayload.accountId = accountId || failedPayload.accountId
+        failedPayload.accountType = accountType || 'openai'
+        failedPayload.model = body?.model || failedPayload.model || 'unknown'
+        failedPayload.stream = true
+        await requestDetailService.captureRequestDetail(failedPayload)
+      } catch (captureError) {
+        console.error(captureError)
+      }
+    }
     return { ok: false }
   }
 
@@ -310,6 +571,13 @@ const runOneTurn = async ({
     contextAbortSignal.addEventListener('abort', destroyUpstream, { once: true })
   }
 
+  // DEC_20260905_194420 bridge 成功/失败都挂上游头到 reqMeta
+  if (reqMeta && typeof reqMeta === 'object') {
+    reqMeta._crsUpstreamHeaders = upstream.headers || null
+    reqMeta._crsUpstreamRequestIdHeader =
+      account?.upstreamRequestIdHeader || account?.extra?.upstreamRequestIdHeader || null
+  }
+
   if (upstream.status >= 400) {
     // 读错误体
     const chunks = []
@@ -325,8 +593,46 @@ const runOneTurn = async ({
     } catch {
       errBody = { error: { message: errBody || `upstream ${upstream.status}` } }
     }
+    // 出站 capacity 码改写（内部仍可看原始 errBody）
+    const sanitizedErr = sanitizeOpenAICapacityShedForClient(errBody)
+    const clientErrBody = sanitizedErr.payload
+    noteCyberPolicyFromUpstream(state, clientErrBody, 'http_error')
+    noteCyberPolicyFromUpstream(state, errBody, 'http_error_raw')
     proxyResolver.report(proxyResolution.proxyId, proxyResolution.contextKey, new Error(`status ${upstream.status}`))
-    sendText(JSON.stringify({ type: 'error', error: errBody.error || errBody, status: upstream.status }))
+    sendText(
+      JSON.stringify({
+        type: 'error',
+        error: clientErrBody.error || clientErrBody,
+        status: upstream.status,
+      }),
+    )
+    if (apiKeyData?.id) {
+      try {
+        if (reqMeta && typeof reqMeta === 'object') {
+          reqMeta._crsAccountId = accountId || reqMeta._crsAccountId || null
+          reqMeta._crsAccountType = accountType || reqMeta._crsAccountType || 'openai'
+          if (!reqMeta.apiKey) {
+            reqMeta.apiKey = apiKeyData
+          }
+        }
+        const failedPayload = buildFailedRequestDetailPayload({
+          req: reqMeta,
+          statusCode: Number(upstream.status) || 502,
+          durationMs: null,
+          responseBody: sanitizeUpstreamBodyForDetail(errBody),
+          path: '/openai/v1/responses#ws-bridge',
+        })
+        failedPayload.apiKeyId = apiKeyData.id
+        failedPayload.accountId = accountId || failedPayload.accountId
+        failedPayload.accountType = accountType || 'openai'
+        failedPayload.model = body?.model || failedPayload.model || 'unknown'
+        failedPayload.stream = true
+        await requestDetailService.captureRequestDetail(failedPayload)
+      } catch (error) {
+        console.error(error)
+        logger.error(`[ResponsesWS-bridge] http error detail capture: ${error.message}`)
+      }
+    }
     return { ok: false, status: upstream.status }
   }
 
@@ -334,6 +640,12 @@ const runOneTurn = async ({
   let usagePayload = null
   let actualModel = body.model
   let completedId = null
+  // DEC_20260904_174000 半截流：无 terminal 不得 ok=true
+  let sawResponseCreated = false
+  let sawTerminal = false
+  let terminalFailed = false
+  let streamError = null
+  let lastFailEvent = null
 
   await new Promise((resolve, reject) => {
     upstream.data.on('data', (chunk) => {
@@ -351,9 +663,31 @@ const runOneTurn = async ({
             continue
           }
           const eventData = event.data
+          const eventType = eventData.type
+
+          if (eventType === 'response.created') {
+            sawResponseCreated = true
+          }
+          if (
+            eventType === 'response.completed' ||
+            eventType === 'response.failed' ||
+            eventType === 'response.done' ||
+            eventType === 'error'
+          ) {
+            sawTerminal = true
+            if (eventType === 'response.failed' || eventType === 'error') {
+              terminalFailed = true
+              lastFailEvent = eventData
+              noteCyberPolicyFromUpstream(state, eventData, `sse_${eventType}`)
+            }
+          }
+
+          // capacity shed 出站改写
+          const sanitizedEvent = sanitizeOpenAICapacityShedForClient(eventData)
+          const clientEvent = sanitizedEvent.payload
 
           // 回写客户端：WS 文本帧 = 事件 JSON（官方 WS 语义）
-          sendText(JSON.stringify(eventData))
+          sendText(JSON.stringify(clientEvent))
 
           if (eventData.type === 'response.completed' && eventData.response) {
             actualModel = eventData.response.model || actualModel
@@ -376,38 +710,115 @@ const runOneTurn = async ({
     upstream.data.on('end', resolve)
     upstream.data.on('error', (error) => {
       console.error(error)
+      streamError = error
       reject(error)
     })
   }).catch((error) => {
+    streamError = error
     sendText(
       JSON.stringify({
         type: 'error',
-        error: { message: error.message || 'stream error', type: 'api_error' },
+        error: { message: error.message || 'stream error', type: 'api_error', code: 'upstream_stream_error' },
       }),
     )
   })
 
+  // 上游正常 end 但无 terminal：补失败帧，禁止假成功
+  if (!streamError && sawResponseCreated && !sawTerminal) {
+    terminalFailed = true
+    sendText(
+      JSON.stringify({
+        type: 'error',
+        error: {
+          message: 'Upstream closed before response completed',
+          type: 'api_error',
+          code: 'upstream_incomplete',
+        },
+      }),
+    )
+  }
+
   proxyResolver.report(proxyResolution.proxyId, proxyResolution.contextKey, null)
 
-  if (usagePayload && apiKeyData?.id) {
+  const success = !streamError && !terminalFailed && Boolean(usagePayload || completedId || sawTerminal)
+  if (success && usagePayload && apiKeyData?.id) {
     try {
+      const effectiveTier = resolveOpenAIServiceTier(
+        usagePayload.service_tier,
+        body?.service_tier || state?.serviceTier || null,
+      )
       await apiKeyService.recordUsage(
         apiKeyData.id,
         usagePayload,
         actualModel,
         accountId,
         'openai',
-        null,
+        effectiveTier,
         createRequestDetailMeta(reqMeta || {}, {
           stream: true,
           statusCode: 200,
           billingUsage: usagePayload,
-          requestBody: { wsBridge: true, model: actualModel },
+          requestBody: { wsBridge: true, model: actualModel, serviceTier: effectiveTier },
         }),
       )
     } catch (error) {
       console.error(error)
       logger.error(`[ResponsesWS-bridge] billing failed: ${error.message}`)
+    }
+  }
+
+  if (!success) {
+    // DEC_20260905_194420 WS bridge 失败也落 request detail（含上游 ID）
+    if (apiKeyData?.id) {
+      try {
+        if (reqMeta && typeof reqMeta === 'object') {
+          reqMeta._crsAccountId = accountId || reqMeta._crsAccountId || null
+          reqMeta._crsAccountType = accountType || reqMeta._crsAccountType || 'openai'
+          if (!reqMeta.apiKey) {
+            reqMeta.apiKey = apiKeyData
+          }
+        }
+        const failedPayload = buildFailedRequestDetailPayload({
+          req: reqMeta,
+          statusCode: Number(upstream?.status) >= 400 ? Number(upstream.status) : 502,
+          durationMs: null,
+          responseBody: sanitizeUpstreamBodyForDetail(lastFailEvent) || null,
+          path: '/openai/v1/responses#ws-bridge',
+        })
+        failedPayload.apiKeyId = apiKeyData.id
+        failedPayload.accountId = accountId || failedPayload.accountId
+        failedPayload.accountType = accountType || 'openai'
+        failedPayload.model = actualModel || body?.model || failedPayload.model || 'unknown'
+        failedPayload.stream = true
+        if (state?.cyberPolicyCode) {
+          failedPayload.errorCode = state.cyberPolicyCode
+        }
+        if (state?.cyberPolicyMessage) {
+          failedPayload.errorMessage = state.cyberPolicyMessage
+        } else if (!failedPayload.errorMessage) {
+          const rawMsg = streamError?.message || ''
+          const safeMsg =
+            typeof rawMsg === 'string' && rawMsg
+              ? String(sanitizeUpstreamBodyForDetail(rawMsg) || '').slice(0, 500)
+              : ''
+          failedPayload.errorMessage =
+            safeMsg ||
+            (terminalFailed && lastFailEvent ? 'upstream_response_failed' : null) ||
+            (terminalFailed ? 'upstream_incomplete' : 'stream_failed')
+        }
+        await requestDetailService.captureRequestDetail(failedPayload)
+      } catch (error) {
+        console.error(error)
+        logger.error(`[ResponsesWS-bridge] failed detail capture: ${error.message}`)
+      }
+    }
+    return {
+      ok: false,
+      incomplete: Boolean(sawResponseCreated && !sawTerminal),
+      usagePayload,
+      actualModel,
+      responseId: completedId,
+      error: streamError?.message || (terminalFailed ? 'upstream_incomplete' : 'stream_failed'),
     }
   }
 
@@ -504,7 +915,22 @@ export const handleResponsesWebSocketHttpBridge = async (
           }
 
           try {
-            // 先解析 body 拿到 model，再按 model 选号（白名单分组）
+            // DEC_20260905_194420 同连接已命中 cyber policy 时，后续 turn 直接拒绝，避免反复打上游
+            if (state.cyberPolicyBlocked) {
+              endpoint.sendText(
+                JSON.stringify({
+                  type: 'error',
+                  error: {
+                    message: state.cyberPolicyMessage || 'Session blocked by cyber policy; start a new session',
+                    type: 'permission_error',
+                    code: state.cyberPolicyCode || 'session_blocked_by_cyber_policy',
+                  },
+                }),
+              )
+              return
+            }
+
+            // 选号传原始 modelHint；公开别名由调度白名单候选覆盖
             const modelHint = message?.model || message?.response?.model || state.model || null
             await ensureAccount(modelHint)
 
@@ -613,6 +1039,7 @@ export const handleResponsesWebSocketLazyPassthrough = async (
     releaseAuth = async () => {},
     sessionId = null,
     onUpstreamTextMessage = null,
+    onClientTextMessage = null,
     onUpgrade = null,
     onClose = null,
   } = {},
@@ -723,6 +1150,12 @@ export const handleResponsesWebSocketLazyPassthrough = async (
         upstreamReq.destroy(new Error('upstream websocket handshake timeout'))
       })
       upstreamReq.on('upgrade', (upRes, sock) => {
+        // 101 响应头挂到 req，供 request detail 上游 ID
+        if (req && typeof req === 'object' && upRes?.headers) {
+          req._crsUpstreamHeaders = upRes.headers
+          req._crsUpstreamRequestIdHeader =
+            account?.upstreamRequestIdHeader || account?.extra?.upstreamRequestIdHeader || null
+        }
         resolve(sock)
       })
       upstreamReq.on('error', reject)
@@ -773,7 +1206,14 @@ export const handleResponsesWebSocketLazyPassthrough = async (
       // 已连上游 WSS：转发
       if (upstreamSocket && !upstreamSocket.destroyed) {
         try {
-          upstreamSocket.write(encodeWsClientText(text))
+          if (typeof onClientTextMessage === 'function') {
+            try {
+              onClientTextMessage(text)
+            } catch (e) {
+              console.error(e)
+            }
+          }
+          upstreamSocket.write(encodeWsClientText(rewriteClientWsTextForUpstream(text)))
         } catch (error) {
           console.error(error)
           settleClose(error)
@@ -806,6 +1246,7 @@ export const handleResponsesWebSocketLazyPassthrough = async (
       if (!model) {
         return
       }
+      // 选号传原始 model；白名单候选含公开别名，避免破坏账户映射键
       connecting = true
       ;(async () => {
         const selected = await unifiedOpenAIScheduler.selectAccountForApiKey(apiKeyData, sessionHash, model)
@@ -848,6 +1289,19 @@ export const handleResponsesWebSocketLazyPassthrough = async (
             bridgeBusy = bridgeBusy
               .then(async () => {
                 if (closed || connectionAbort.signal.aborted) {
+                  return
+                }
+                if (state.cyberPolicyBlocked) {
+                  endpoint.sendText(
+                    JSON.stringify({
+                      type: 'error',
+                      error: {
+                        message: state.cyberPolicyMessage || 'Session blocked by cyber policy; start a new session',
+                        type: 'permission_error',
+                        code: state.cyberPolicyCode || 'session_blocked_by_cyber_policy',
+                      },
+                    }),
+                  )
                   return
                 }
                 const message = JSON.parse(frameText)
@@ -935,6 +1389,35 @@ export const handleResponsesWebSocketLazyPassthrough = async (
         const upSniffer = createWsFrameSniffer({
           label: 'lazy-up-decode',
           onTextMessage: (upText) => {
+            // 跟踪 turn 终端事件：response.created 后无 terminal 就关 = 半截失败
+            try {
+              const parsed = JSON.parse(upText)
+              const eventType = parsed && parsed.type
+              if (eventType === 'response.created') {
+                endpoint._crsTurnStarted = true
+                endpoint._crsTurnTerminal = false
+              } else if (
+                eventType === 'response.completed' ||
+                eventType === 'response.failed' ||
+                eventType === 'response.done' ||
+                eventType === 'error'
+              ) {
+                endpoint._crsTurnTerminal = true
+              }
+            } catch {
+              // 非 JSON 忽略
+            }
+
+            let clientText = upText
+            try {
+              const sanitized = sanitizeOpenAICapacityShedForClient(upText)
+              if (sanitized.changed) {
+                clientText = sanitized.payload
+              }
+            } catch (e) {
+              console.error(e)
+            }
+
             if (typeof onUpstreamTextMessage === 'function') {
               try {
                 onUpstreamTextMessage(upText)
@@ -942,7 +1425,7 @@ export const handleResponsesWebSocketLazyPassthrough = async (
                 console.error(e)
               }
             }
-            endpoint.sendText(upText)
+            endpoint.sendText(clientText)
           },
           onPing: (payload) => {
             // 本服务作为上游 WS 客户端，必须回 masked Pong，否则上游心跳超时断连
@@ -961,27 +1444,69 @@ export const handleResponsesWebSocketLazyPassthrough = async (
         })
         upstreamSocket.on('error', (err) => {
           console.error(err)
-          settleClose(err)
+          // 先发终端 error frame 再 settleClose，避免 closed 抢先导致无说明断连
+          // DEC_20260905_155232
+          try {
+            if (endpoint._crsTurnStarted && !endpoint._crsTurnTerminal && !closed) {
+              endpoint.sendText(
+                JSON.stringify({
+                  type: 'error',
+                  error: {
+                    message: 'Upstream socket error',
+                    type: 'api_error',
+                    code: 'upstream_error',
+                  },
+                }),
+              )
+              endpoint._crsTurnTerminal = true
+            }
+          } catch (e) {
+            console.error(e)
+          }
           try {
             endpoint.close(1011, 'upstream error')
           } catch (e) {
             console.error(e)
           }
+          settleClose(err)
         })
         upstreamSocket.on('close', () => {
-          settleClose()
+          // active turn 无 terminal：对客户端报失败，禁止假成功 1000
+          // DEC_20260904_170000 对齐 sub2api close-before-terminal
           try {
-            endpoint.close(1000, 'upstream closed')
+            if (endpoint._crsTurnStarted && !endpoint._crsTurnTerminal && !closed) {
+              endpoint.sendText(
+                JSON.stringify({
+                  type: 'error',
+                  error: {
+                    message: 'Upstream closed before response completed',
+                    type: 'api_error',
+                    code: 'upstream_incomplete',
+                  },
+                }),
+              )
+              endpoint.close(1011, 'upstream incomplete')
+            } else {
+              endpoint.close(1000, 'upstream closed')
+            }
           } catch (e) {
             console.error(e)
           }
+          settleClose()
         })
 
         const queued = pendingTexts.splice(0, pendingTexts.length)
         pendingBytes = 0
         for (const pending of queued) {
           try {
-            upstreamSocket.write(encodeWsClientText(pending))
+            if (typeof onClientTextMessage === 'function') {
+              try {
+                onClientTextMessage(pending)
+              } catch (e) {
+                console.error(e)
+              }
+            }
+            upstreamSocket.write(encodeWsClientText(rewriteClientWsTextForUpstream(pending)))
           } catch (e) {
             console.error(e)
           }

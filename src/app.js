@@ -70,6 +70,7 @@ import * as codexResponsesWsBridge from './modules/relay/relay_codex_responses_w
 import { responsesWsSessionPool } from './modules/relay/relay_codex_responses_ws_pool.js'
 import { env } from '../config/env.js'
 import { initTranslatorRegistry } from './modules/relay/translator/relay_translator_index.js'
+import { extractMultipartFormField } from './modules/relay/relay_multipart_form_field.js'
 
 const pkgVersion = packageJson.version
 
@@ -295,8 +296,15 @@ export class Application {
           req.rawBody = req.body
           const ct = String(req.headers['content-type'] || '')
           if (isAudioMultipart) {
-            // multipart 原样透传：body 不解析，避免破坏 boundary
-            req.body = { _multipartRaw: true }
+            // multipart 原样透传 rawBody；同时抽出 model 供选号/映射（boundary 取自 Content-Type）
+            const modelFromForm = extractMultipartFormField(req.body, 'model', {
+              contentType: ct || req.headers['content-type'] || '',
+            })
+            req.rawBody = req.body
+            req.body = {
+              _multipartRaw: true,
+              ...(modelFromForm ? { model: modelFromForm } : {}),
+            }
             return next()
           }
           if (ct.includes('application/json') && Buffer.isBuffer(req.body)) {
@@ -797,36 +805,77 @@ export class Application {
                 const snap = usageAcc.snapshot()
                 const durationMs = Math.max(0, Date.now() - startedAt)
                 const model = snap.lastModel || 'gpt-5'
-                let usagePayload = null
-                if (usageAcc.hasTokenUsage()) {
-                  const cacheRead = Math.max(0, Number(snap.cache_read_input_tokens) || 0)
-                  const cacheCreate = Math.max(0, Number(snap.cache_creation_input_tokens) || 0)
-                  const totalInput = Math.max(0, Number(snap.input_tokens) || 0)
-                  usagePayload = {
-                    input_tokens: Math.max(0, totalInput - cacheRead),
-                    output_tokens: Math.max(0, Number(snap.output_tokens) || 0),
-                    cache_read_input_tokens: cacheRead,
-                    cache_creation_input_tokens: cacheCreate,
+                const cyberEvent = snap.cyberPolicyEvent || snap.lastErrorEvent
+                if (
+                  cyberEvent &&
+                  typeof codexResponsesWsBridge.isSessionCyberPolicyBlock === 'function' &&
+                  codexResponsesWsBridge.isSessionCyberPolicyBlock(cyberEvent)
+                ) {
+                  logger.warn(
+                    `[ResponsesWS] cyber policy hit on lazy-passthrough key=${apiKeyData.id} account=${lazyAccountId}`,
+                  )
+                  req._crsCyberPolicyBlocked = true
+                }
+                const tierUsages = Array.isArray(snap.tierUsages) && snap.tierUsages.length > 0 ? snap.tierUsages : null
+                if (tierUsages) {
+                  for (const tierUsage of tierUsages) {
+                    const cacheRead = Math.max(0, Number(tierUsage.cache_read_input_tokens) || 0)
+                    const cacheCreate = Math.max(0, Number(tierUsage.cache_creation_input_tokens) || 0)
+                    const totalInput = Math.max(0, Number(tierUsage.input_tokens) || 0)
+                    const usagePayload = {
+                      input_tokens: Math.max(0, totalInput - cacheRead),
+                      output_tokens: Math.max(0, Number(tierUsage.output_tokens) || 0),
+                      cache_read_input_tokens: cacheRead,
+                      cache_creation_input_tokens: cacheCreate,
+                    }
+                    if (
+                      usagePayload.input_tokens <= 0 &&
+                      usagePayload.output_tokens <= 0 &&
+                      usagePayload.cache_read_input_tokens <= 0 &&
+                      usagePayload.cache_creation_input_tokens <= 0
+                    ) {
+                      continue
+                    }
+                    await apiKeyService.recordUsage(
+                      apiKeyData.id,
+                      usagePayload,
+                      tierUsage.lastModel || model,
+                      lazyAccountId,
+                      'openai',
+                      tierUsage.serviceTier || null,
+                      createRequestDetailMeta(req, {
+                        stream: true,
+                        statusCode: 101,
+                        billingUsage: usagePayload,
+                        requestBody: {
+                          path: pathname,
+                          durationMs,
+                          wsKind,
+                          lazy: true,
+                          serviceTier: tierUsage.serviceTier || null,
+                        },
+                      }),
+                    )
                   }
                 } else if (durationMs >= 1000) {
-                  usagePayload = { input_tokens: 0, output_tokens: 0, request_count: 1 }
+                  const usagePayload = { input_tokens: 0, output_tokens: 0, request_count: 1 }
+                  await apiKeyService.recordUsage(
+                    apiKeyData.id,
+                    usagePayload,
+                    model,
+                    lazyAccountId,
+                    'openai',
+                    null,
+                    createRequestDetailMeta(req, {
+                      stream: true,
+                      statusCode: 101,
+                      billingUsage: usagePayload,
+                      requestBody: { path: pathname, durationMs, wsKind, lazy: true },
+                    }),
+                  )
                 } else {
                   return
                 }
-                await apiKeyService.recordUsage(
-                  apiKeyData.id,
-                  usagePayload,
-                  model,
-                  lazyAccountId,
-                  'openai',
-                  null,
-                  createRequestDetailMeta(req, {
-                    stream: true,
-                    statusCode: 101,
-                    billingUsage: usagePayload,
-                    requestBody: { path: pathname, durationMs, wsKind, lazy: true },
-                  }),
-                )
               } catch (e) {
                 console.error(e)
               }
@@ -844,7 +893,23 @@ export class Application {
               sessionId,
               onUpstreamTextMessage: (text) => {
                 try {
-                  usageAcc.ingestText(text)
+                  // 仅上游帧可入账 usage
+                  if (typeof usageAcc.ingestUpstreamText === 'function') {
+                    usageAcc.ingestUpstreamText(text)
+                  } else {
+                    usageAcc.ingestText(text)
+                  }
+                } catch (e) {
+                  console.error(e)
+                }
+              },
+              onClientTextMessage: (text) => {
+                try {
+                  // 客户端只采 response.create 档位，禁止伪造 usage
+                  // DEC_20260906_011816
+                  if (typeof usageAcc.ingestClientText === 'function') {
+                    usageAcc.ingestClientText(text)
+                  }
                 } catch (e) {
                   console.error(e)
                 }
@@ -1007,28 +1072,95 @@ export class Application {
               url.searchParams.get('model') ||
               (isResponsesWs ? 'gpt-5' : 'gpt-realtime')
 
-            let usagePayload = null
-            if (usageAcc.hasTokenUsage()) {
-              // 对齐 Responses：input_tokens 含 cache 时先扣减，避免双重计费
-              const cacheRead = Math.max(0, Number(snap.cache_read_input_tokens) || 0)
-              const cacheCreate = Math.max(0, Number(snap.cache_creation_input_tokens) || 0)
-              const totalInput = Math.max(0, Number(snap.input_tokens) || 0)
-              const actualInput = Math.max(0, totalInput - cacheRead)
-              usagePayload = {
-                input_tokens: actualInput,
-                output_tokens: Math.max(0, Number(snap.output_tokens) || 0),
-                cache_read_input_tokens: cacheRead,
-                cache_creation_input_tokens: cacheCreate,
+            const cyberEvent = snap.cyberPolicyEvent || snap.lastErrorEvent
+            if (
+              isResponsesWs &&
+              cyberEvent &&
+              typeof codexResponsesWsBridge.isSessionCyberPolicyBlock === 'function' &&
+              codexResponsesWsBridge.isSessionCyberPolicyBlock(cyberEvent)
+            ) {
+              logger.warn(`[${wsKind}] cyber policy hit on passthrough key=${apiKeyData.id} account=${accountId}`)
+              req._crsCyberPolicyBlocked = true
+            }
+
+            const tierUsages = Array.isArray(snap.tierUsages) && snap.tierUsages.length > 0 ? snap.tierUsages : null
+            let billedInputTokens = 0
+            let billedOutputTokens = 0
+            let billedCacheReadTokens = 0
+            let billedEvents = 0
+            if (tierUsages) {
+              for (const tierUsage of tierUsages) {
+                const cacheRead = Math.max(0, Number(tierUsage.cache_read_input_tokens) || 0)
+                const cacheCreate = Math.max(0, Number(tierUsage.cache_creation_input_tokens) || 0)
+                const totalInput = Math.max(0, Number(tierUsage.input_tokens) || 0)
+                const usagePayload = {
+                  input_tokens: Math.max(0, totalInput - cacheRead),
+                  output_tokens: Math.max(0, Number(tierUsage.output_tokens) || 0),
+                  cache_read_input_tokens: cacheRead,
+                  cache_creation_input_tokens: cacheCreate,
+                }
+                if (
+                  usagePayload.input_tokens <= 0 &&
+                  usagePayload.output_tokens <= 0 &&
+                  usagePayload.cache_read_input_tokens <= 0 &&
+                  usagePayload.cache_creation_input_tokens <= 0
+                ) {
+                  continue
+                }
+                billedInputTokens += usagePayload.input_tokens
+                billedOutputTokens += usagePayload.output_tokens
+                billedCacheReadTokens += usagePayload.cache_read_input_tokens
+                billedEvents += Number(tierUsage.eventCount) || 0
+                await apiKeyService.recordUsage(
+                  apiKeyData.id,
+                  usagePayload,
+                  tierUsage.lastModel || model,
+                  accountId,
+                  'openai',
+                  tierUsage.serviceTier || null,
+                  createRequestDetailMeta(req, {
+                    stream: true,
+                    statusCode: 101,
+                    billingUsage: usagePayload,
+                    requestBody: {
+                      callId: callId || null,
+                      path: pathname,
+                      durationMs,
+                      usageEvents: tierUsage.eventCount || snap.eventCount,
+                      wsKind,
+                      serviceTier: tierUsage.serviceTier || null,
+                    },
+                  }),
+                )
               }
             } else if (durationSec >= 1) {
               // 无 token usage 时按时长兜底（仅已成功升级的会话）
-              usagePayload = {
+              const usagePayload = {
                 input_tokens: 0,
                 output_tokens: 0,
                 audio_input_seconds: isResponsesWs ? 0 : durationSec,
-                // Responses WS 时长记 request_count，避免误走 audio 价
                 ...(isResponsesWs ? { request_count: 1 } : {}),
               }
+              await apiKeyService.recordUsage(
+                apiKeyData.id,
+                usagePayload,
+                model,
+                accountId,
+                'openai',
+                null,
+                createRequestDetailMeta(req, {
+                  stream: true,
+                  statusCode: 101,
+                  billingUsage: usagePayload,
+                  requestBody: {
+                    callId: callId || null,
+                    path: pathname,
+                    durationMs,
+                    usageEvents: snap.eventCount,
+                    wsKind,
+                  },
+                }),
+              )
             } else {
               logger.info(
                 `[${wsKind}] skip billing (no usage, short session) key=${apiKeyData.id} callId=${callId || '-'} durationMs=${durationMs}`,
@@ -1036,30 +1168,9 @@ export class Application {
               return
             }
 
-            await apiKeyService.recordUsage(
-              apiKeyData.id,
-              usagePayload,
-              model,
-              accountId,
-              'openai',
-              null,
-              createRequestDetailMeta(req, {
-                stream: true,
-                statusCode: 101,
-                billingUsage: usagePayload,
-                requestBody: {
-                  callId: callId || null,
-                  path: pathname,
-                  durationMs,
-                  usageEvents: snap.eventCount,
-                  wsKind,
-                },
-              }),
-            )
-
             try {
               if (typeof openaiAccountService.updateAccountUsage === 'function') {
-                const tokenTotal = (usagePayload.input_tokens || 0) + (usagePayload.output_tokens || 0)
+                const tokenTotal = billedInputTokens + billedOutputTokens
                 if (tokenTotal > 0) {
                   await openaiAccountService.updateAccountUsage(accountId, tokenTotal)
                 }
@@ -1069,7 +1180,7 @@ export class Application {
             }
 
             logger.info(
-              `[${wsKind}] billed key=${apiKeyData.id} account=${accountId} model=${model} events=${snap.eventCount} durationMs=${durationMs} tokensIn=${usagePayload.input_tokens || 0} tokensOut=${usagePayload.output_tokens || 0} cacheRead=${usagePayload.cache_read_input_tokens || 0}`,
+              `[${wsKind}] billed key=${apiKeyData.id} account=${accountId} model=${model} events=${billedEvents || snap.eventCount} durationMs=${durationMs} tokensIn=${billedInputTokens} tokensOut=${billedOutputTokens} cacheRead=${billedCacheReadTokens}`,
             )
           } catch (billError) {
             console.error(billError)
@@ -1117,13 +1228,61 @@ export class Application {
           handshakeTimeoutMs: 30000,
           // 禁止协商压缩扩展：压缩帧 RSV1 会导致 usage 嗅探失败并误按时长计费
           stripExtensions: true,
-          onUpgrade: () => {
+          onUpgrade: (upRes) => {
             upgradedOk = true
+            // 原生 WS 101 响应头挂 req，供 request detail 上游 ID
+            if (req && typeof req === 'object' && upRes && upRes.headers) {
+              req._crsUpstreamHeaders = upRes.headers
+              req._crsUpstreamRequestIdHeader =
+                account?.upstreamRequestIdHeader || account?.extra?.upstreamRequestIdHeader || null
+            }
           },
           onUpstreamTextMessage: (text) => {
-            usageAcc.ingestText(text)
+            try {
+              if (typeof usageAcc.ingestUpstreamText === 'function') {
+                usageAcc.ingestUpstreamText(text)
+              } else {
+                usageAcc.ingestText(text)
+              }
+            } catch (e) {
+              console.error(e)
+            }
+          },
+          onClientToUpstreamText: (text) => {
+            try {
+              // 客户端只采 response.create 档位，禁止伪造 usage
+              // DEC_20260906_011816
+              if (typeof usageAcc.ingestClientText === 'function') {
+                usageAcc.ingestClientText(text)
+              }
+            } catch (e) {
+              console.error(e)
+            }
+            try {
+              if (typeof codexResponsesWsBridge.rewriteClientWsTextForUpstream === 'function') {
+                return codexResponsesWsBridge.rewriteClientWsTextForUpstream(text)
+              }
+            } catch (e) {
+              console.error(e)
+            }
+            return text
           },
           onClose: (err) => {
+            // DEC_20260905_194420 passthrough 路径补记会话级 cyber policy
+            try {
+              const snap = usageAcc.snapshot()
+              const cyberEvent = snap.cyberPolicyEvent || snap.lastErrorEvent
+              if (
+                cyberEvent &&
+                typeof codexResponsesWsBridge.isSessionCyberPolicyBlock === 'function' &&
+                codexResponsesWsBridge.isSessionCyberPolicyBlock(cyberEvent)
+              ) {
+                logger.warn(`[${wsKind}] cyber policy hit on passthrough key=${apiKeyData.id} account=${accountId}`)
+                req._crsCyberPolicyBlocked = true
+              }
+            } catch (e) {
+              console.error(e)
+            }
             releaseOnce(err).catch((e) => console.error(e))
           },
         })

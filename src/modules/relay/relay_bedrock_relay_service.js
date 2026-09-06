@@ -13,6 +13,7 @@ import { config } from '../../../config/config.js'
 import * as upstreamErrorHelper from './relay_upstream_error_helper.js'
 import { proxyResolver } from '../proxy/proxy_resolver.js'
 import { env } from '../../../config/env.js'
+import { sanitizeClaudeBodyFallbacks } from './translator/relay_translator_body_sanitize.js'
 
 const require = createRequire(import.meta.url)
 let _userMessageQueueService = null
@@ -219,7 +220,7 @@ class BedrockRelayService {
       proxyReport = { proxyId, contextKey }
 
       // 转换请求格式为Bedrock格式
-      const bedrockPayload = this._convertToBedrockFormat(requestBody)
+      const bedrockPayload = this._convertToBedrockFormat(requestBody, modelId)
 
       const command = new InvokeModelCommand({
         modelId,
@@ -369,7 +370,7 @@ class BedrockRelayService {
       proxyReport = { proxyId, contextKey }
 
       // 转换请求格式为Bedrock格式
-      const bedrockPayload = this._convertToBedrockFormat(requestBody)
+      const bedrockPayload = this._convertToBedrockFormat(requestBody, modelId)
 
       const command = new InvokeModelWithResponseStreamCommand({
         modelId,
@@ -612,6 +613,11 @@ class BedrockRelayService {
       'claude-sonnet-4-5': 'us.anthropic.claude-sonnet-4-5-20250929-v1:0',
       'claude-sonnet-4-5-20250929': 'us.anthropic.claude-sonnet-4-5-20250929-v1:0',
 
+      // Claude Fable 5.1 / 5 — 官方 Bedrock ID 无 us. 前缀、无 -v1:0
+      // DEC_20260905_155232 对齐 sub2api anthropic.claude-fable-5[-1]
+      'claude-fable-5-1': 'anthropic.claude-fable-5-1',
+      'claude-fable-5': 'anthropic.claude-fable-5',
+
       // Claude 4.5 Haiku
       'claude-haiku-4-5': 'us.anthropic.claude-haiku-4-5-20251001-v1:0',
       'claude-haiku-4-5-20251001': 'us.anthropic.claude-haiku-4-5-20251001-v1:0',
@@ -716,7 +722,7 @@ class BedrockRelayService {
   }
 
   // 转换Claude格式请求到Bedrock格式
-  _convertToBedrockFormat(requestBody) {
+  _convertToBedrockFormat(requestBody, modelId = null) {
     // 透传客户端的 max_tokens，仅在未指定时使用默认值作为回退
     const maxTokens = requestBody.max_tokens || this.maxOutputTokens
 
@@ -758,16 +764,25 @@ class BedrockRelayService {
       bedrockPayload.tool_choice = requestBody.tool_choice
     }
 
-    // Extended thinking 支持
-    // Bedrock 只支持 "enabled" / "disabled"，不支持 "adaptive"
-    // adaptive 模式不要求 budget_tokens，但 Bedrock enabled 必须有
+    // Extended thinking：按模型族分支（对齐 sub2api sanitizeBedrockThinking）
+    // DEC_20260905_155232 Fable 仅 adaptive 且禁止 budget_tokens；其它 adaptive->enabled 并补 budget
     if (requestBody.thinking) {
       bedrockPayload.thinking = { ...requestBody.thinking }
-      if (bedrockPayload.thinking.type === 'adaptive') {
+      const bedrockModelId = String(modelId || requestBody.model || '')
+      const isFable = /claude-fable-5/i.test(bedrockModelId)
+      const thinkingType = String(bedrockPayload.thinking.type || '').toLowerCase()
+      if (isFable) {
+        if (thinkingType === 'enabled' || thinkingType === 'adaptive') {
+          bedrockPayload.thinking.type = 'adaptive'
+          delete bedrockPayload.thinking.budget_tokens
+        }
+      } else if (thinkingType === 'adaptive') {
         bedrockPayload.thinking.type = 'enabled'
         if (!bedrockPayload.thinking.budget_tokens) {
           bedrockPayload.thinking.budget_tokens = maxTokens - 1
         }
+      } else if (thinkingType === 'enabled' && !bedrockPayload.thinking.budget_tokens) {
+        bedrockPayload.thinking.budget_tokens = maxTokens - 1
       }
     }
 
@@ -775,6 +790,9 @@ class BedrockRelayService {
     if (requestBody.metadata) {
       bedrockPayload.metadata = requestBody.metadata
     }
+
+    // Bedrock 不接受 fallbacks / interface_geo 等 CC 专有字段
+    sanitizeClaudeBodyFallbacks(bedrockPayload, { vendor: 'bedrock' })
 
     // Sanitize cache_control for Bedrock compatibility (strip unsupported fields like "scope")
     this._sanitizeCacheControl(bedrockPayload)

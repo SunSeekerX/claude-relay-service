@@ -10,9 +10,41 @@ import * as upstreamErrorHelper from './relay_upstream_error_helper.js'
 import { proxyResolver } from '../proxy/proxy_resolver.js'
 import { RedisKeys } from '../../infra/redis_key.js'
 import { redis } from '../../infra/redis.js'
+import { sanitizeClaudeBodyFallbacks } from './translator/relay_translator_body_sanitize.js'
+import {
+  buildAnthropicClientErrorBody,
+  buildClientError,
+  extractSafeMessage,
+} from '../../common/client_error_builder.js'
 class CcrRelayService {
   constructor() {
     this.defaultUserAgent = 'claude-relay-service/1.0.0'
+  }
+
+  // 流式错误写客户端：OpenAI 转换 vs Anthropic 信封
+  // DEC_20260905_162636
+  _writeStreamClientError(
+    responseStream,
+    { statusCode = 500, rawBody = null, streamTransformer = null, fallbackMessage = 'Stream error' } = {},
+  ) {
+    if (!isStreamWritable(responseStream)) {
+      return
+    }
+    if (streamTransformer && typeof streamTransformer === 'function') {
+      const clientError = buildClientError({
+        statusCode,
+        protocol: 'openai',
+        upstreamBody: rawBody,
+      })
+      responseStream.write(`data: ${JSON.stringify(clientError.body)}\n\n`)
+      return
+    }
+    const anthropicBody = buildAnthropicClientErrorBody({
+      statusCode,
+      upstreamBody: rawBody,
+      fallbackMessage,
+    })
+    responseStream.write(`event: error\ndata: ${JSON.stringify(anthropicBody)}\n\n`)
   }
 
   // 转发请求到CCR API
@@ -115,6 +147,7 @@ class CcrRelayService {
         ...requestBody,
         model: mappedModel,
       }
+      sanitizeClaudeBodyFallbacks(modifiedRequestBody, { vendor: 'ccr' })
 
       // 创建代理agent（保留 proxyId/contextKey 供被动健康检查上报）
       proxyResolution = proxyResolver.resolveAgent(account, 'ccr')
@@ -310,8 +343,24 @@ class CcrRelayService {
       // 被动健康检查：拿到 HTTP 响应即代理传输成功（含 4xx/5xx，不归咎代理）
       proxyResolver.report(proxyResolution.proxyId, proxyResolution.contextKey, null)
 
-      const responseBody = typeof response.data === 'string' ? response.data : JSON.stringify(response.data)
-      logger.debug(`[DEBUG] Final response body to return: ${responseBody}`)
+      // 错误 body 走 Anthropic 信封；成功原样
+      // DEC_20260905_161107
+      let responseBody
+      if (response.status < 200 || response.status >= 300) {
+        responseBody = JSON.stringify(
+          buildAnthropicClientErrorBody({
+            statusCode: response.status,
+            upstreamBody: response.data,
+            fallbackMessage: `CCR error: ${response.status}`,
+          }),
+        )
+        logger.error(
+          `CCR upstream error account=${account?.name || accountId} status=${response.status} message=${extractSafeMessage(response.data) || '(n/a)'}`,
+        )
+      } else {
+        responseBody = typeof response.data === 'string' ? response.data : JSON.stringify(response.data)
+        logger.debug(`[DEBUG] Final response body to return: ${responseBody.substring(0, 200)}`)
+      }
 
       return {
         statusCode: response.status,
@@ -473,6 +522,7 @@ class CcrRelayService {
         ...requestBody,
         model: mappedModel,
       }
+      sanitizeClaudeBodyFallbacks(modifiedRequestBody, { vendor: 'ccr' })
 
       // 创建代理agent
       // 创建代理agent（保留 proxyId/contextKey 供被动健康检查上报）
@@ -685,7 +735,7 @@ class CcrRelayService {
             if (!responseStream.headersSent) {
               const existingConnection = responseStream.getHeader ? responseStream.getHeader('Connection') : null
               const errorHeaders = {
-                'Content-Type': response.headers['content-type'] || 'application/json',
+                'Content-Type': 'text/event-stream',
                 'Cache-Control': 'no-cache',
                 Connection: existingConnection || 'keep-alive',
               }
@@ -695,7 +745,8 @@ class CcrRelayService {
               responseStream.writeHead(response.status, errorHeaders)
             }
 
-            // 直接透传错误数据，不进行包装；同时累积错误体用于历史记录（上限 64KB 防内存膨胀）
+            // 错误不透传原文：累积后写 Anthropic/OpenAI 信封
+            // DEC_20260905_161107
             let ccrErrorBody = ''
             let ccrErrorRecorded = false
             // 保证补记：无论 end 还是 close（含上游中断）都记一条带“已收到响应体”的历史，避免中断时整条丢失
@@ -730,9 +781,6 @@ class CcrRelayService {
               if (ccrErrorBody.length < 65536) {
                 ccrErrorBody += chunk.toString()
               }
-              if (isStreamWritable(responseStream)) {
-                responseStream.write(chunk)
-              }
             })
 
             // close 一定会触发（正常结束或中断），作为补记兜底
@@ -743,15 +791,37 @@ class CcrRelayService {
             response.data.on('end', () => {
               recordCcrErrorHistoryOnce()
               if (isStreamWritable(responseStream)) {
+                if (streamTransformer && typeof streamTransformer === 'function') {
+                  const clientError = buildClientError({
+                    statusCode: response.status,
+                    protocol: 'openai',
+                    upstreamBody: ccrErrorBody,
+                  })
+                  responseStream.write(`data: ${JSON.stringify(clientError.body)}\n\n`)
+                } else {
+                  const anthropicBody = buildAnthropicClientErrorBody({
+                    statusCode: response.status,
+                    upstreamBody: ccrErrorBody,
+                    fallbackMessage: `CCR error: ${response.status}`,
+                  })
+                  responseStream.write(`event: error\ndata: ${JSON.stringify(anthropicBody)}\n\n`)
+                }
                 responseStream.end()
               }
               resolve() // 不抛出异常，正常完成流处理
             })
 
-            // error 直出：同样补记（避免整条丢失），并兜底处理未挂载 error 监听导致的未捕获异常
+            // error 直出：补记 + 终端错误帧，禁止空断流
+            // DEC_20260905_162636
             response.data.on('error', (err) => {
               logger.error(`CCR error-stream data error | account: ${accountId}:`, err)
               recordCcrErrorHistoryOnce()
+              this._writeStreamClientError(responseStream, {
+                statusCode: response.status || 500,
+                rawBody: ccrErrorBody || null,
+                streamTransformer,
+                fallbackMessage: 'Upstream stream error',
+              })
               if (isStreamWritable(responseStream)) {
                 responseStream.end()
               }
@@ -880,6 +950,12 @@ class CcrRelayService {
 
           response.data.on('error', (err) => {
             logger.error('Stream data error:', err)
+            // DEC_20260905_162636 200 流中断也要终端错误帧
+            this._writeStreamClientError(responseStream, {
+              statusCode: 500,
+              streamTransformer,
+              fallbackMessage: 'Upstream stream interrupted',
+            })
             if (isStreamWritable(responseStream)) {
               responseStream.end()
             }

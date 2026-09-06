@@ -7,7 +7,13 @@ import { logger } from '../../common/logger.js'
 import * as upstreamErrorHelper from './relay_upstream_error_helper.js'
 import { RedisKeys, TTL } from '../../infra/redis_key.js'
 import { config as appConfig } from '../../../config/config.js'
-import { isSchedulable, isAutoProtectionDisabled, sortAccountsByPriority } from '../../common/common_helper.js'
+import {
+  isSchedulable,
+  isAutoProtectionDisabled,
+  sortAccountsByPriority,
+  getMappedModelName,
+} from '../../common/common_helper.js'
+import { collectOpenAIModelSelectCandidates } from './relay_openai_model_alias.js'
 class UnifiedOpenAIScheduler {
   // 辅助方法：检查账户是否被限流（兼容字符串和对象格式）
   _isRateLimited(rateLimitStatus) {
@@ -133,35 +139,129 @@ class UnifiedOpenAIScheduler {
   // - openai-responses：allowedModels 白名单（空=全开）+ supportedModels 仅做改名不限制
   // - openai：supportedModels 数组白名单（未配置/空=全支持）
   _isOpenAIModelSupported(account, accountType, requestedModel) {
+    // 统一解析 Redis/JSON 字符串后再判空，避免 "[]".length===2 被当成有限制
+    const parseMaybeJsonList = (raw) => {
+      if (raw === undefined || raw === null) {
+        return null
+      }
+      if (Array.isArray(raw)) {
+        return raw
+      }
+      if (typeof raw === 'string') {
+        const trimmed = raw.trim()
+        if (!trimmed) {
+          return []
+        }
+        try {
+          return JSON.parse(trimmed)
+        } catch {
+          return [trimmed]
+        }
+      }
+      if (typeof raw === 'object') {
+        return raw
+      }
+      return null
+    }
+
     // 无 requestedModel（如 WS 握手）：不能验证白名单，有限制的账户一律不选，
     // 避免事后才发现模型不支持。仅「未配置/空名单=全支持」的账户可入选。
     if (!requestedModel) {
       if (accountType === 'openai-responses') {
-        const allowed = Array.isArray(account.allowedModels) ? account.allowedModels : []
+        const allowedRaw = parseMaybeJsonList(account.allowedModels)
+        if (allowedRaw === null) {
+          return true
+        }
+        const allowed = Array.isArray(allowedRaw)
+          ? allowedRaw.filter((item) => typeof item === 'string' && item.trim())
+          : Object.keys(allowedRaw || {})
         return allowed.length === 0
       }
       if (accountType === 'openai') {
-        return !account.supportedModels || account.supportedModels.length === 0
+        const supportedRaw = parseMaybeJsonList(account.supportedModels)
+        if (supportedRaw === null) {
+          return true
+        }
+        if (Array.isArray(supportedRaw)) {
+          return supportedRaw.filter((item) => typeof item === 'string' && item.trim()).length === 0
+        }
+        if (typeof supportedRaw === 'object') {
+          return Object.keys(supportedRaw).length === 0
+        }
+        return true
       }
       return true
     }
 
     if (accountType === 'openai-responses') {
-      const allowed = Array.isArray(account.allowedModels) ? account.allowedModels : []
+      const allowedRaw = parseMaybeJsonList(account.allowedModels)
+      const allowed = Array.isArray(allowedRaw)
+        ? (allowedRaw || []).filter((item) => typeof item === 'string' && item.trim())
+        : allowedRaw && typeof allowedRaw === 'object'
+          ? Object.keys(allowedRaw)
+          : []
       if (allowed.length === 0) {
         return true
       }
-      const lower = String(requestedModel).toLowerCase()
-      return allowed.some((m) => String(m).toLowerCase() === lower)
+      // 候选：原始请求名 + 公开别名 + 账户映射目标
+      const candidates = new Set(collectOpenAIModelSelectCandidates(requestedModel))
+      const mapped = getMappedModelName(account.supportedModels, requestedModel)
+      if (mapped) {
+        candidates.add(String(mapped))
+      }
+      for (const candidate of candidates) {
+        const lower = String(candidate).toLowerCase()
+        if (allowed.some((m) => String(m).toLowerCase() === lower)) {
+          return true
+        }
+      }
+      return false
     }
 
     if (accountType !== 'openai') {
       return true
     }
-    if (!account.supportedModels || account.supportedModels.length === 0) {
+    // Redis 可能存 JSON 字符串；解析后再判白名单
+    let supportedModels = parseMaybeJsonList(account.supportedModels)
+    if (supportedModels === null) {
       return true
     }
-    return account.supportedModels.includes(requestedModel)
+    if (typeof supportedModels === 'string') {
+      const trimmed = supportedModels.trim()
+      if (!trimmed) {
+        return true
+      }
+      try {
+        supportedModels = JSON.parse(trimmed)
+      } catch {
+        supportedModels = [trimmed]
+      }
+    }
+    if (!supportedModels || (Array.isArray(supportedModels) && supportedModels.length === 0)) {
+      return true
+    }
+    if (
+      supportedModels &&
+      typeof supportedModels === 'object' &&
+      !Array.isArray(supportedModels) &&
+      Object.keys(supportedModels).length === 0
+    ) {
+      return true
+    }
+    const list = Array.isArray(supportedModels)
+      ? supportedModels.filter((item) => typeof item === 'string' && item.trim())
+      : Object.keys(supportedModels || {}).filter((item) => typeof item === 'string' && item.trim())
+    if (list.length === 0) {
+      return true
+    }
+    const candidates = collectOpenAIModelSelectCandidates(requestedModel)
+    for (const candidate of candidates) {
+      const lower = String(candidate).toLowerCase()
+      if (list.some((m) => String(m).toLowerCase() === lower)) {
+        return true
+      }
+    }
+    return false
   }
 
   // [人工决策-2026-06-03 14:51:27] OpenAI OAuth token 失效统一处理(单一实现：共享池/dedicated/_isAccountAvailable 都调它,
@@ -480,10 +580,9 @@ class UnifiedOpenAIScheduler {
           continue
         }
 
-        // 检查模型支持（仅在明确设置了supportedModels且不为空时才检查）
-        // 如果没有设置supportedModels或为空数组，则支持所有模型
-        if (requestedModel && account.supportedModels && account.supportedModels.length > 0) {
-          const modelSupported = account.supportedModels.includes(requestedModel)
+        // 检查模型支持（与 _isOpenAIModelSupported 对齐，含公开别名与 Redis 字符串解析）
+        if (requestedModel) {
+          const modelSupported = this._isOpenAIModelSupported(account, 'openai', requestedModel)
           if (!modelSupported) {
             logger.debug(`Skipping OpenAI account ${account.name} - doesn't support model ${requestedModel}`)
             continue

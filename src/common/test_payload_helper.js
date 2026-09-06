@@ -2,6 +2,7 @@ import crypto from 'node:crypto'
 import { mapToErrorCode } from './error_sanitizer.js'
 import axios from 'axios'
 import { logger } from './logger.js'
+import { buildClaudeCliUserAgent } from '../modules/relay/relay_claude_cli_version.js'
 // 将原始错误信息映射为安全的标准错误码消息
 export const sanitizeErrorMsg = (msg) => {
   const mapped = mapToErrorCode({ message: msg }, { logOriginal: false })
@@ -146,9 +147,11 @@ export const sendStreamTestRequest = async function sendStreamTestRequest(option
     headers: {
       'Content-Type': 'application/json',
       'anthropic-version': '2023-06-01',
-      'User-Agent': 'claude-cli/2.0.52 (external, cli)',
-      ...(authorization ? { authorization } : {}),
+      // 先 extraHeaders，再强制默认 CLI UA，避免被覆盖
       ...extraHeaders,
+      'User-Agent':
+        (extraHeaders && (extraHeaders['User-Agent'] || extraHeaders['user-agent'])) || buildClaudeCliUserAgent(),
+      ...(authorization ? { authorization } : {}),
     },
     timeout,
     responseType: 'stream',

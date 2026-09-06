@@ -26,6 +26,18 @@
                 {{ detail.statusCode || 200 }}
               </span>
               <span
+                v-if="detail && Number(detail.statusCode) >= 400"
+                class="text-sm font-medium text-red-600 dark:text-red-400"
+              >
+                失败
+              </span>
+              <span
+                v-else-if="detail"
+                class="text-sm font-medium text-green-600 dark:text-green-400"
+              >
+                成功
+              </span>
+              <span
                 v-if="detail"
                 class="text-sm text-gray-500 dark:text-gray-400"
               >
@@ -38,6 +50,9 @@
             </div>
             <p class="mt-0.5 truncate text-sm text-gray-500 dark:text-gray-400">
               {{ requestId || '-' }}
+              <template v-if="detail?.upstreamRequestId">
+                · 上游 {{ detail.upstreamRequestId }}
+              </template>
               <template v-if="detail?.timestamp">
                 · {{ formatDate(detail.timestamp) }}
               </template>
@@ -70,6 +85,32 @@
                 <dd class="min-w-0 break-all text-gray-900 dark:text-gray-100">
                   <span class="font-medium">{{ detail.method || 'POST' }}</span>
                   {{ detail.endpoint || '-' }}
+                </dd>
+              </div>
+              <div
+                v-if="detail.upstreamRequestId"
+                class="grid grid-cols-[5.5rem_1fr] gap-x-2 py-1.5 sm:grid-cols-[6rem_1fr]"
+              >
+                <dt class="text-gray-500 dark:text-gray-400">上游ID</dt>
+                <dd
+                  class="min-w-0 cursor-pointer break-all text-gray-900 hover:text-blue-600 dark:text-gray-100 dark:hover:text-blue-400"
+                  title="点击复制上游请求标识"
+                  @click="copyText(detail.upstreamRequestId, '已复制上游ID')"
+                >
+                  {{ detail.upstreamRequestId }}
+                </dd>
+              </div>
+              <div
+                v-if="detail.errorMessage || detail.errorCode || Number(detail.statusCode) >= 400"
+                class="grid grid-cols-[5.5rem_1fr] gap-x-2 py-1.5 sm:grid-cols-[6rem_1fr]"
+              >
+                <dt class="text-gray-500 dark:text-gray-400">错误</dt>
+                <dd class="min-w-0 break-words text-red-600 dark:text-red-400">
+                  <span
+                    v-if="detail.errorCode"
+                    class="mr-1 rounded bg-red-100 px-1.5 py-0.5 text-sm font-medium text-red-700 dark:bg-red-900/40 dark:text-red-300"
+                  >{{ detail.errorCode }}</span>
+                  {{ detail.errorMessage || '请求失败' }}
                 </dd>
               </div>
               <div class="grid grid-cols-[5.5rem_1fr] gap-x-2 py-1.5 sm:grid-cols-[6rem_1fr]">
@@ -289,7 +330,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import ModalTransition from '@/components/common/modal_transition.vue'
 import { getRequestDetailApi } from '@/libs/http_apis'
 import { isOk, msgOf } from '@/libs/http_envelope'
-import { showToast, formatNumber } from '@/libs/tools'
+import { showToast, formatNumber, copyText } from '@/libs/tools'
 import { formatLocalDateTime } from '@/libs/time'
 
 const props = defineProps({

@@ -222,9 +222,11 @@ describe('openai responses payload toggles', () => {
     await openaiRoutes.handleResponses(req, createRes())
 
     expect(req.body.model).toBe('gpt-5')
-    expect(req.body.instructions).toBe(openaiRoutes.CODEX_CLI_INSTRUCTIONS)
+    // API Key 标准路径：adaptation 只剥字段，不注入 Codex instructions；保留 service_tier
+    // DEC_20260904_170000 / DEC_20260905_155232
+    expect(req.body.instructions).toBeUndefined()
     expect(req.body.temperature).toBeUndefined()
-    expect(req.body.service_tier).toBeUndefined()
+    expect(req.body.service_tier).toBe('priority')
     expect(unifiedOpenAIScheduler.selectAccountForApiKey).toHaveBeenCalledWith(
       req.apiKey,
       createHash('session-b'),
@@ -456,10 +458,11 @@ describe('openai responses payload toggles', () => {
 
     expect(req._serviceTier).toBe('priority')
     expect(apiKeyService.recordUsage).toHaveBeenCalled()
-    expect(apiKeyService.recordUsage.mock.calls[0][8]).toBe('priority')
+    // recordUsage 重载：args[5] = serviceTier
+    expect(apiKeyService.recordUsage.mock.calls[0][5]).toBe('priority')
   })
 
-  test('records null service_tier after Codex adaptation removes it for openai accounts', async () => {
+  test('records retained service_tier after Codex adaptation for openai accounts', async () => {
     unifiedOpenAIScheduler.selectAccountForApiKey.mockResolvedValue({
       accountId: 'openai-1',
       accountType: 'openai'
@@ -495,10 +498,13 @@ describe('openai responses payload toggles', () => {
 
     await openaiRoutes.handleResponses(req, createRes())
 
-    expect(req.body.service_tier).toBeUndefined()
-    expect(req._serviceTier).toBeNull()
+    // adaptation 保留 service_tier；出站档写入 _serviceTier 并参与计费
+    // DEC_20260905_155232
+    // recordUsage 重载：args[5] = serviceTier
+    expect(req.body.service_tier).toBe('priority')
+    expect(req._serviceTier).toBe('priority')
     expect(apiKeyService.recordUsage).toHaveBeenCalled()
-    expect(apiKeyService.recordUsage.mock.calls[0][8]).toBeNull()
+    expect(apiKeyService.recordUsage.mock.calls[0][5]).toBe('priority')
   })
 
   test('captures the post-rule service_tier before relaying openai-responses requests', async () => {
@@ -545,6 +551,8 @@ describe('openai responses payload toggles', () => {
 
     expect(req.body.model).toBe('o1-mini')
     expect(req.body.prompt_cache_key).toBe('compact-key')
-    expect(req.body.instructions).toBe(openaiRoutes.CODEX_CLI_INSTRUCTIONS)
+    // compact 不注入 Codex instructions（仅 OAuth 非 compact 路径可注入）
+    // DEC_20260905_155232
+    expect(req.body.instructions).toBeUndefined()
   })
 })

@@ -1756,6 +1756,34 @@ export const requestLogger = (req, res, next) => {
         req.firstTokenAt = Date.now()
         req.firstTokenMs = Math.max(0, req.firstTokenAt - start)
       }
+      // 流式失败摘要：截获含 error 的 SSE；优先保留带 message/details 的更完整片段
+      // DEC_20260905_100000 避免只截到 event: error 头
+      try {
+        const text = typeof chunk === 'string' ? chunk : Buffer.isBuffer(chunk) ? chunk.toString('utf8') : ''
+        if (
+          text &&
+          (text.includes('"error"') ||
+            text.includes('event: error') ||
+            text.includes('server_is_overloaded') ||
+            text.includes('session_blocked') ||
+            text.includes('permission_error') ||
+            text.includes('"message"'))
+        ) {
+          const prev = res._responseBody
+          const prevText = typeof prev === 'string' ? prev : prev ? JSON.stringify(prev) : ''
+          const richer = text.includes('"message"') || text.includes('details') || text.includes('data: ')
+          const prevThin =
+            !prevText ||
+            prevText === 'event: error\n' ||
+            prevText.trim() === 'event: error' ||
+            (!prevText.includes('"message"') && !prevText.includes('details'))
+          if (!prevText || (richer && prevThin) || text.length > prevText.length) {
+            res._responseBody = text.length > 2000 ? text.slice(0, 2000) : text
+          }
+        }
+      } catch (e) {
+        console.error(e)
+      }
       return originalWrite(chunk, encoding, callback)
     }
   }
@@ -1830,6 +1858,36 @@ export const requestLogger = (req, res, next) => {
 
     if (duration > 5000) {
       logger.warn(`Slow request: ${duration}ms ${req.method} ${pathOnly}`)
+    }
+
+    // 失败转发请求写入请求明细（成功路径仍由 recordUsage 采集，这里只补 4xx/5xx）
+    // DEC_20260904_162520 失败也要可见 status/error，避免列表只见成功
+    if (req.apiKey?.id && Number.isInteger(status) && status >= 400) {
+      import('../modules/relay/relay_request_detail_helper.js')
+        .then((requestDetailHelper) => {
+          if (
+            !requestDetailHelper.shouldCaptureFailedRequestDetail({
+              statusCode: status,
+              path: pathOnly,
+              apiKeyId: req.apiKey.id,
+            })
+          ) {
+            return null
+          }
+          const detail = requestDetailHelper.buildFailedRequestDetailPayload({
+            req,
+            statusCode: status,
+            durationMs: duration,
+            responseBody: res._responseBody,
+            path: pathOnly,
+          })
+          return import('../modules/relay/relay_request_detail_service.js').then(({ requestDetailService }) =>
+            requestDetailService.captureRequestDetail(detail),
+          )
+        })
+        .catch((error) => {
+          console.error(error)
+        })
     }
   })
 

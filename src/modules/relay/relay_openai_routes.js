@@ -30,10 +30,23 @@ import {
 import * as codexModelsManifest from './relay_codex_models_manifest.js'
 import * as codexRealtime from './relay_codex_realtime.js'
 import {
+  sanitizeOpenAICapacityShedForClient,
+  createCapacityShedSseRewriteStream,
+} from './relay_openai_capacity_shed.js'
+import {
+  applyOpenAIServiceTierAlias,
+  hasCompactionTrigger,
+  normalizeCompactionTriggerBody,
+  ensureRemoteCompactionV2BetaHeader,
+} from './relay_openai_compact_v2.js'
+import { normalizeCodexBootstrapBody } from './relay_codex_bootstrap_normalize.js'
+import { applyOpenAIPublicModelAlias } from './relay_openai_model_alias.js'
+import {
   isNonProtocolUpstreamBody,
   handleNonProtocolUpstream,
   extractBodyPreview,
 } from './relay_upstream_protocol_guard.js'
+import { buildClientError, extractSafeMessage, summarizeErrorForLog } from '../../common/client_error_builder.js'
 export const openaiRoutes = express.Router()
 // Codex CLI 系统提示词（非 Codex CLI 客户端请求时注入，统一端点也使用）
 export const CODEX_CLI_INSTRUCTIONS =
@@ -141,9 +154,10 @@ const normalizeGpt5ModelForCodex = function normalizeGpt5ModelForCodex(body = {}
   return compatibleModel
 }
 
-const applyCodexCliAdaptation = function applyCodexCliAdaptation(body = {}) {
+const applyCodexCliAdaptation = function applyCodexCliAdaptation(body = {}, options = {}) {
   // 仅剥 OAuth Codex 后端不接受/会干扰的采样与安全字段
   // 保留 text（json_schema/verbosity）与 service_tier（priority/flex 计费档）
+  // DEC_20260904_170000 instructions 仅 OAuth Codex 注入；API Key 永不注入
   const fieldsToRemove = [
     'temperature',
     'top_p',
@@ -159,7 +173,13 @@ const applyCodexCliAdaptation = function applyCodexCliAdaptation(body = {}) {
     delete body[field]
   })
 
-  body.instructions = CODEX_CLI_INSTRUCTIONS
+  const injectInstructions = options.injectInstructions === true
+  if (injectInstructions) {
+    body.instructions = CODEX_CLI_INSTRUCTIONS
+  }
+
+  applyOpenAIServiceTierAlias(body)
+  // 公开别名不在选号前改写 body.model，避免覆盖账户映射键；出站阶段再归一
 }
 
 const applyRateLimitTracking = async function applyRateLimitTracking(
@@ -340,17 +360,30 @@ export const handleResponses = async (req, res) => {
     const compactRoute = isCompactResponsesRoute(req)
     const shouldUseToggleControlledFlow = standardResponsesRoute && !compactRoute
 
+    // OAuth Codex（chatgpt backend-api）才允许注入 CLI instructions；openai-responses API Key 永不注入
+    const requestPath = `${req.baseUrl || ''}${req.originalUrl || ''}${req.path || ''}`
+    const isOauthCodexRoute = requestPath.includes('/backend-api/codex')
+    const compactV2 = hasCompactionTrigger(req.body)
+    if (compactV2) {
+      normalizeCompactionTriggerBody(req.body)
+      req._crsCompactV2 = true
+      logger.info('Detected Responses compact v2 (compaction_trigger)')
+    }
+
     if (shouldUseToggleControlledFlow) {
       const shouldApplyCodexAdaptation = apiKeyData.enableOpenAIResponsesCodexAdaptation === true && !isCodexCLI
       const shouldApplyPayloadRules = apiKeyData.enableOpenAIResponsesPayloadRules === true
 
       if (shouldApplyCodexAdaptation) {
         normalizeGpt5ModelForCodex(req.body)
-        applyCodexCliAdaptation(req.body)
-        logger.info('Standard Responses request applied Codex CLI adaptation')
+        // API Key 标准 responses：只剥字段 + tier 别名，不注入 Codex system prompt
+        applyCodexCliAdaptation(req.body, { injectInstructions: false })
+        logger.info('Standard Responses request applied Codex CLI adaptation (no instructions inject)')
       } else if (isCodexCLI) {
+        applyOpenAIServiceTierAlias(req.body)
         logger.info('Codex CLI request detected, forwarding current payload')
       } else {
+        applyOpenAIServiceTierAlias(req.body)
         logger.info('Standard Responses request is passing through without Codex adaptation')
       }
 
@@ -362,17 +395,33 @@ export const handleResponses = async (req, res) => {
       normalizeGpt5ModelForCodex(req.body)
 
       if (!isCodexCLI && !req._fromUnifiedEndpoint) {
-        applyCodexCliAdaptation(req.body)
-        logger.info('Non-Codex CLI request detected, applying Codex CLI adaptation')
+        const injectInstructions =
+          isOauthCodexRoute && !compactRoute && !isCodexSearchRoute(req) && !isCodexRealtimeRoute(req)
+        applyCodexCliAdaptation(req.body, { injectInstructions })
+        logger.info(
+          `Non-Codex CLI request adaptation injectInstructions=${injectInstructions} oauthRoute=${isOauthCodexRoute}`,
+        )
       } else {
+        applyOpenAIServiceTierAlias(req.body)
         logger.info('Codex CLI request detected, forwarding as-is')
       }
     }
 
-    // 计费档取「出站实际值」而非客户端原始值：必须在所有改包之后读。
-    // applyCodexCliAdaptation 会删掉 service_tier，出站不带该字段则上游按基础档处理，
-    // 此时若按客户端原始的 fast 收费就是多收（对齐"上游怎么收、我们怎么计"）
+    // 计费档取「出站实际值」：改包后读；fast 已归一 priority
+    // （旧注释写 adaptation 会删 service_tier 已过时，现保留 tier）
     req._serviceTier = req.body?.service_tier || null
+
+    // Codex delegation / automation bootstrap：无 call_id 启动引导 → user message
+    // DEC_20260904_173000 对齐 sub2api，HTTP Responses 出站前归一
+    if (req.body && typeof req.body === 'object' && !Buffer.isBuffer(req.body)) {
+      const bootstrap = normalizeCodexBootstrapBody(req.body)
+      if (bootstrap.changed) {
+        req.body = bootstrap.body
+        logger.info(`Codex bootstrap normalized kinds=${bootstrap.kinds.join(',')} path=${req.originalUrl || req.path}`)
+      }
+      // 保留客户端原始 model 供选号/映射；出站前再 applyOpenAIPublicModelAlias
+      req._crsClientModel = typeof req.body.model === 'string' && req.body.model.trim() ? req.body.model.trim() : null
+    }
 
     // 从最终请求体中提取模型、会话 ID 和流式标志
     // 官方 Codex 头是 session-id / thread-id；兼容历史 session_id / x-session-id
@@ -390,7 +439,9 @@ export const handleResponses = async (req, res) => {
     sessionHash = sessionId ? crypto.createHash('sha256').update(sessionId).digest('hex') : null
 
     const requestedModel = req.body?.model || null
-    const schedulerModel = getCodexCompatibleModel(requestedModel)
+    // 选号用客户端原始 model，避免公开别名归一破坏账户映射键（gpt-6 → deployment-x）
+    // 公开别名由调度白名单候选 + 出站 applyOpenAIPublicModelAlias 处理
+    const schedulerModel = getCodexCompatibleModel(requestedModel) || requestedModel
     const searchRoute = isCodexSearchRoute(req)
     const realtimeRoute = isCodexRealtimeRoute(req)
     // responses 默认流式；search/realtime 官方为非 SSE
@@ -406,6 +457,13 @@ export const handleResponses = async (req, res) => {
       sessionId,
       schedulerModel,
     ))
+
+    // 失败明细采集：OAuth/Responses 选号后挂账户上下文
+    req._crsAccountId = accountId || account?.id || null
+    req._crsAccountType = accountType || null
+    if (req.body && typeof req.body.model === 'string') {
+      req._crsRequestedModel = req.body.model
+    }
 
     // Codex search / realtime 是 ChatGPT OAuth 协议面，openai-responses（第三方 JSON API）不能承接
     if (accountType === 'openai-responses') {
@@ -423,7 +481,8 @@ export const handleResponses = async (req, res) => {
       return await openaiResponsesRelayService.handleRequest(req, res, account, apiKeyData)
     }
 
-    if (schedulerModel !== requestedModel) {
+    // OAuth Codex：仅做 gpt-5-* → gpt-5 兼容缩名；公开别名在出站阶段再套
+    if (schedulerModel !== requestedModel && req.body && typeof req.body === 'object' && !Buffer.isBuffer(req.body)) {
       logger.info(
         `Standard Responses request normalized model ${requestedModel} -> ${schedulerModel} for OpenAI Codex backend`,
       )
@@ -454,6 +513,12 @@ export const handleResponses = async (req, res) => {
       }
     }
 
+    // compact v2：仅 compaction_trigger 路径补 remote_compaction_v2；legacy compact 不注入
+    // DEC_20260905_155232
+    if (req._crsCompactV2) {
+      Object.assign(headers, ensureRemoteCompactionV2BetaHeader(headers))
+    }
+
     headers['authorization'] = `Bearer ${accessToken}`
     headers['chatgpt-account-id'] =
       headers['chatgpt-account-id'] || account.accountId || account.chatgptUserId || accountId
@@ -480,6 +545,13 @@ export const handleResponses = async (req, res) => {
       } else if (req.body && Object.prototype.hasOwnProperty.call(req.body, 'store')) {
         delete req.body['store']
       }
+    }
+
+    // 选号后出站：公开别名归一（不覆盖账户映射；oauth 路径无映射）
+    if (req.body && typeof req.body === 'object' && !Buffer.isBuffer(req.body)) {
+      applyOpenAIPublicModelAlias(req.body, {
+        originalModel: req._crsClientModel || requestedModel || null,
+      })
     }
 
     // 创建代理 agent（保留 proxyId/contextKey 供被动健康检查上报）
@@ -574,6 +646,13 @@ export const handleResponses = async (req, res) => {
     // 被动健康检查：拿到 HTTP 响应即代理传输成功（含 429/4xx/5xx，不归咎代理）
     proxyResolver.report(proxyResolution.proxyId, proxyResolution.contextKey, null)
 
+    // DEC_20260905_194420 上游响应头挂 req，request detail 可落 upstreamRequestId
+    if (req && typeof req === 'object') {
+      req._crsUpstreamHeaders = upstream.headers || null
+      req._crsUpstreamRequestIdHeader =
+        account?.upstreamRequestIdHeader || account?.extra?.upstreamRequestIdHeader || null
+    }
+
     const codexUsageSnapshot = extractCodexUsageHeaders(upstream.headers)
     if (codexUsageSnapshot) {
       try {
@@ -648,7 +727,9 @@ export const handleResponses = async (req, res) => {
             errorData = JSON.parse(fullResponse)
           } catch (e) {
             logger.error('Failed to parse 429 error response:', e)
-            logger.debug('Raw response:', fullResponse)
+            // 禁止日志打上游原文
+            // DEC_20260905_162636
+            logger.debug('Raw 429 response preview:', extractSafeMessage(fullResponse) || '(empty)')
           }
         } else {
           // 非流式响应直接使用data
@@ -690,25 +771,27 @@ export const handleResponses = async (req, res) => {
         )
         .catch(() => {})
 
-      // 返回错误响应给客户端
-      const errorResponse = errorData || {
-        error: {
-          type: 'usage_limit_reached',
-          message: 'The usage limit has been reached',
-          resets_in_seconds: resetsInSeconds,
-        },
-      }
-
-      if (isStream) {
-        // 流式响应也需要设置正确的状态码
-        res.status(429)
-        res.setHeader('Content-Type', 'text/event-stream')
-        res.setHeader('Cache-Control', 'no-cache')
-        res.setHeader('Connection', 'keep-alive')
-        res.write(`data: ${JSON.stringify(errorResponse)}\n\n`)
-        res.end()
-      } else {
-        res.status(429).json(errorResponse)
+      // 返回错误响应给客户端：buildClientError 脱敏，禁止 errorData 原文
+      // DEC_20260905_161107
+      const clientError = buildClientError({
+        statusCode: 429,
+        protocol: 'openai',
+        upstreamBody: errorData,
+        retryAfterSeconds: resetsInSeconds,
+      })
+      {
+        const sanitized = sanitizeOpenAICapacityShedForClient(clientError.body)
+        const clientErrorBody = sanitized.payload
+        if (isStream) {
+          res.status(clientError.statusCode)
+          res.setHeader('Content-Type', 'text/event-stream')
+          res.setHeader('Cache-Control', 'no-cache')
+          res.setHeader('Connection', 'keep-alive')
+          res.write(`data: ${JSON.stringify(clientErrorBody)}\n\n`)
+          res.end()
+        } else {
+          res.status(clientError.statusCode).json(clientErrorBody)
+        }
       }
 
       return
@@ -734,8 +817,8 @@ export const handleResponses = async (req, res) => {
             errorData = JSON.parse(fullResponse)
           } catch (parseError) {
             logger.error(`Failed to parse ${unauthorizedStatus} error response:`, parseError)
-            logger.debug(`Raw ${unauthorizedStatus} response:`, fullResponse)
-            errorData = { error: { message: fullResponse || 'Unauthorized' } }
+            logger.debug(`Raw ${unauthorizedStatus} response preview:`, extractSafeMessage(fullResponse) || '(empty)')
+            errorData = { error: { message: 'Unauthorized' } }
           }
         } else {
           errorData = upstream.data
@@ -748,12 +831,7 @@ export const handleResponses = async (req, res) => {
       const extraHint = unauthorizedStatus === 402 ? '，可能欠费' : ''
       let reason = `OpenAI账号认证失败（${statusLabel}${extraHint}）`
       if (errorData) {
-        const messageCandidate =
-          errorData.error && typeof errorData.error.message === 'string' && errorData.error.message.trim()
-            ? errorData.error.message.trim()
-            : typeof errorData.message === 'string' && errorData.message.trim()
-              ? errorData.message.trim()
-              : null
+        const messageCandidate = extractSafeMessage(errorData)
         if (messageCandidate) {
           reason = `OpenAI账号认证失败（${statusLabel}${extraHint}）：${messageCandidate}`
         }
@@ -786,19 +864,17 @@ export const handleResponses = async (req, res) => {
         )
         .catch(() => {})
 
-      let errorResponse = errorData
-      if (!errorResponse || typeof errorResponse !== 'object' || Buffer.isBuffer(errorResponse)) {
-        const fallbackMessage = typeof errorData === 'string' && errorData.trim() ? errorData.trim() : 'Unauthorized'
-        errorResponse = {
-          error: {
-            message: fallbackMessage,
-            type: 'unauthorized',
-            code: 'unauthorized',
-          },
-        }
+      // 401/402 出站：buildClientError 脱敏，禁止 errorData 原文
+      // DEC_20260905_161107
+      const clientError = buildClientError({
+        statusCode: unauthorizedStatus,
+        protocol: 'openai',
+        upstreamBody: errorData,
+      })
+      {
+        const sanitizedAuth = sanitizeOpenAICapacityShedForClient(clientError.body)
+        res.status(clientError.statusCode).json(sanitizedAuth.payload)
       }
-
-      res.status(unauthorizedStatus).json(errorResponse)
       return
     } else if (upstream.status === 200 || upstream.status === 201) {
       // 请求成功，检查并移除限流状态
@@ -975,7 +1051,12 @@ export const handleResponses = async (req, res) => {
 
         // 返回响应（search/realtime 已在上方 early-return）
         detachUpstreamAbort()
-        res.json(responseData)
+        if (responseData && typeof responseData === 'object') {
+          const sanitized = sanitizeOpenAICapacityShedForClient(responseData)
+          res.json(sanitized.payload)
+        } else {
+          res.json(responseData)
+        }
         return
       } catch (error) {
         detachUpstreamAbort()
@@ -1023,11 +1104,25 @@ export const handleResponses = async (req, res) => {
       }
     }
 
+    const capacityShedSseRewriter = createCapacityShedSseRewriteStream()
+
     upstream.data.on('data', (chunk) => {
       try {
         // 客户端已断则只解析 usage，不再写回
         if (!streamClientGone && !res.destroyed && !res.writableEnded) {
-          res.write(chunk)
+          // capacity shed：跨 chunk 缓冲按完整 SSE 事件改写
+          try {
+            const rewritten = capacityShedSseRewriter.push(chunk)
+            if (rewritten) {
+              res.write(rewritten)
+              if (rewritten.includes('"error"') || rewritten.includes('server_error')) {
+                res._responseBody = res._responseBody || rewritten.slice(0, 2000)
+              }
+            }
+          } catch (e) {
+            console.error(e)
+            res.write(chunk)
+          }
         }
 
         // 使用增量解析器处理数据
@@ -1043,6 +1138,15 @@ export const handleResponses = async (req, res) => {
     })
 
     upstream.data.on('end', async () => {
+      try {
+        const rest = capacityShedSseRewriter.flush()
+        if (rest && !streamClientGone && !res.destroyed && !res.writableEnded) {
+          res.write(rest)
+        }
+      } catch (e) {
+        console.error(e)
+      }
+
       // 处理剩余的 buffer
       const remaining = sseParser.getRemaining()
       if (remaining.trim()) {
@@ -1149,10 +1253,28 @@ export const handleResponses = async (req, res) => {
 
     upstream.data.on('error', (err) => {
       detachUpstreamAbort()
-      logger.error('Upstream stream error:', err)
+      logger.error('Upstream stream error:', summarizeErrorForLog(err))
       if (!res.headersSent && !streamClientGone) {
-        res.status(502).json({ error: { message: 'Upstream stream error' } })
+        const clientError = buildClientError({
+          statusCode: 502,
+          protocol: 'openai',
+          upstreamBody: null,
+        })
+        res.status(clientError.statusCode).json(clientError.body)
       } else if (!res.destroyed && !res.writableEnded && !streamClientGone) {
+        // headers 已发：写 SSE 终端 error 帧，禁止静默断流
+        // DEC_20260905_163148
+        try {
+          const clientError = buildClientError({
+            statusCode: 502,
+            protocol: 'openai',
+            upstreamBody: null,
+          })
+          const sanitized = sanitizeOpenAICapacityShedForClient(clientError.body)
+          res.write(`data: ${JSON.stringify(sanitized.payload)}\n\n`)
+        } catch (e) {
+          console.error(summarizeErrorForLog(e))
+        }
         res.end()
       }
     })
@@ -1183,7 +1305,7 @@ export const handleResponses = async (req, res) => {
       }
       return
     }
-    logger.error('Proxy to ChatGPT codex/responses failed:', error)
+    logger.error('Proxy to ChatGPT codex/responses failed:', summarizeErrorForLog(error))
     // 被动健康检查：上报连接级故障（classifyBusinessTraffic 区分传输错误 vs 上游响应，不误熔断）
     proxyResolver.report(proxyResolution?.proxyId, proxyResolution?.contextKey, error)
     // 优先使用主动设置的 statusCode，然后是上游响应的状态码，最后默认 500
@@ -1195,21 +1317,21 @@ export const handleResponses = async (req, res) => {
       let reason = `OpenAI账号认证失败（${statusLabel}${extraHint}）`
       const errorData = error.response?.data
       if (errorData) {
-        if (typeof errorData === 'string' && errorData.trim()) {
-          reason = `OpenAI账号认证失败（${statusLabel}${extraHint}）：${errorData.trim()}`
-        } else if (errorData.error && typeof errorData.error.message === 'string' && errorData.error.message.trim()) {
-          reason = `OpenAI账号认证失败（${statusLabel}${extraHint}）：${errorData.error.message.trim()}`
-        } else if (typeof errorData.message === 'string' && errorData.message.trim()) {
-          reason = `OpenAI账号认证失败（${statusLabel}${extraHint}）：${errorData.message.trim()}`
+        const safe = extractSafeMessage(errorData)
+        if (safe) {
+          reason = `OpenAI账号认证失败（${statusLabel}${extraHint}）：${safe}`
         }
-      } else if (error.message) {
-        reason = `OpenAI账号认证失败（${statusLabel}${extraHint}）：${error.message}`
+      } else {
+        const safeMsg = extractSafeMessage(error.message) || ''
+        if (safeMsg) {
+          reason = `OpenAI账号认证失败（${statusLabel}${extraHint}）：${safeMsg}`
+        }
       }
 
       try {
         await unifiedOpenAIScheduler.markAccountUnauthorized(accountId, accountType || 'openai', sessionHash, reason)
       } catch (markError) {
-        logger.error('Failed to mark OpenAI account unauthorized in catch handler:', markError)
+        logger.error('Failed to mark OpenAI account unauthorized in catch handler:', summarizeErrorForLog(markError))
       }
     }
 
@@ -1398,24 +1520,23 @@ const handleImages = async function handleImages(req, res) {
           )
           .catch(() => {})
 
-        const errorResponse = errorData || {
-          error: {
-            type: 'usage_limit_reached',
-            message: 'The usage limit has been reached',
-            resets_in_seconds: resetsInSeconds,
-          },
+        const errorResponse = buildClientError({
+          statusCode: 429,
+          protocol: 'openai',
+          upstreamBody: errorData,
+          retryAfterSeconds: resetsInSeconds,
+        })
+        {
+          const sanitized = sanitizeOpenAICapacityShedForClient(errorResponse.body)
+          return res.status(errorResponse.statusCode).json(sanitized.payload)
         }
-        return res.status(429).json(errorResponse)
       }
 
       if (upstream.status === 401 || upstream.status === 402) {
         const statusLabel = upstream.status === 401 ? '401错误' : '402错误'
         const extraHint = upstream.status === 402 ? '，可能欠费' : ''
         let reason = `OpenAI账号认证失败（${statusLabel}${extraHint}）`
-        const messageCandidate =
-          errorData && errorData.error && typeof errorData.error.message === 'string'
-            ? errorData.error.message.trim()
-            : null
+        const messageCandidate = extractSafeMessage(errorData)
         if (messageCandidate) {
           reason = `${reason}：${messageCandidate}`
         }
@@ -1446,24 +1567,31 @@ const handleImages = async function handleImages(req, res) {
           )
           .catch(() => {})
 
-        return res.status(upstream.status).json(
-          errorData || {
-            error: { message: 'Authentication failed', type: 'unauthorized', code: 'unauthorized' },
-          },
-        )
+        // DEC_20260905_161107 图片桥 401/402 禁止 errorData 原文出站
+        const clientError = buildClientError({
+          statusCode: upstream.status,
+          protocol: 'openai',
+          upstreamBody: errorData,
+        })
+        {
+          const sanitized = sanitizeOpenAICapacityShedForClient(clientError.body)
+          return res.status(clientError.statusCode).json(sanitized.payload)
+        }
       }
 
-      logger.error(`Images upstream error ${upstream.status}: ${rawBody.slice(0, 500)}`)
-      return res.status(upstream.status).json(
-        errorData && errorData.error
-          ? errorData
-          : {
-              error: {
-                message: getSafeMessage(rawBody || `upstream error ${upstream.status}`),
-                type: 'upstream_error',
-              },
-            },
+      logger.error(
+        `Images upstream error ${upstream.status}: ${extractSafeMessage(errorData) || extractSafeMessage(rawBody) || '(no message)'}`,
       )
+      // DEC_20260905_162636 非 429/401/402 也走 buildClientError，禁止 errorData 原文
+      {
+        const clientError = buildClientError({
+          statusCode: upstream.status,
+          protocol: 'openai',
+          upstreamBody: errorData || rawBody,
+        })
+        const sanitized = sanitizeOpenAICapacityShedForClient(clientError.body)
+        return res.status(clientError.statusCode).json(sanitized.payload)
+      }
     }
 
     // 请求成功，检查并移除限流状态
@@ -1615,7 +1743,8 @@ const handleImages = async function handleImages(req, res) {
       'OpenAI images stream',
     )
   } catch (error) {
-    logger.error('handleImages error:', error)
+    // DEC_20260905_165339 禁止整包异常进日志
+    logger.error('handleImages error:', summarizeErrorForLog(error))
     const status = error.statusCode || error.response?.status || 500
 
     if ((status === 401 || status === 402) && accountId) {
@@ -1629,14 +1758,17 @@ const handleImages = async function handleImages(req, res) {
           `OpenAI账号认证失败（${statusLabel}${extraHint}）`,
         )
       } catch (markError) {
-        logger.error('Failed to mark OpenAI account unauthorized (images bridge):', markError)
+        logger.error('Failed to mark OpenAI account unauthorized (images bridge):', summarizeErrorForLog(markError))
       }
     }
 
     if (!res.headersSent) {
-      res.status(status).json({
-        error: { message: getSafeMessage(error), type: 'api_error' },
+      const clientError = buildClientError({
+        statusCode: status,
+        protocol: 'openai',
+        upstreamBody: error.response?.data || null,
       })
+      res.status(clientError.statusCode).json(clientError.body)
     }
   }
 }
@@ -1702,8 +1834,8 @@ export const handleModels = async (req, res) => {
     )
     return res.json(codexModelsManifest.buildOpenAIModelsList(openAIModelIds))
   } catch (error) {
-    logger.error('Failed to get OpenAI/Codex models:', error)
-    console.error(error)
+    logger.error('Failed to get OpenAI/Codex models:', summarizeErrorForLog(error))
+    console.error(summarizeErrorForLog(error))
     return res.status(500).json({
       error: {
         message: 'Failed to retrieve models',
@@ -1758,15 +1890,16 @@ const handleEmbeddings = async function handleEmbeddings(req, res) {
     // openai-responses：透传到账户 baseApi/embeddings
     return await openaiResponsesRelayService.handleEmbeddingsRequest(req, res, account, apiKeyData, accessToken)
   } catch (error) {
-    console.error(error)
-    logger.error('Failed embeddings request:', error)
+    console.error(summarizeErrorForLog(error))
+    logger.error('Failed embeddings request:', summarizeErrorForLog(error))
     if (!res.headersSent) {
-      res.status(error.statusCode || 500).json({
-        error: {
-          message: error.message || 'embeddings failed',
-          type: 'api_error',
-        },
+      // DEC_20260905_162636 禁止 error.message 原文出站
+      const clientError = buildClientError({
+        statusCode: error.statusCode || 500,
+        protocol: 'openai',
+        upstreamBody: null,
       })
+      res.status(clientError.statusCode).json(clientError.body)
     }
   }
 }
@@ -1804,12 +1937,16 @@ const handleOpenAIAudioPassthrough = async function handleOpenAIAudioPassthrough
     }
     return await openaiResponsesRelayService.handleGenericPassthrough(req, res, account, apiKeyData, accessToken)
   } catch (error) {
-    console.error(error)
-    logger.error('Failed audio passthrough:', error)
+    console.error(summarizeErrorForLog(error))
+    logger.error('Failed audio passthrough:', summarizeErrorForLog(error))
     if (!res.headersSent) {
-      res.status(error.statusCode || 500).json({
-        error: { message: error.message || 'audio failed', type: 'api_error' },
+      // DEC_20260905_162636 禁止 error.message 原文出站
+      const clientError = buildClientError({
+        statusCode: error.statusCode || 500,
+        protocol: 'openai',
+        upstreamBody: null,
       })
+      res.status(clientError.statusCode).json(clientError.body)
     }
   }
 }
@@ -1852,11 +1989,15 @@ openaiRoutes.post(['/moderations', '/v1/moderations'], authenticateApiKey, async
     }
     return await openaiResponsesRelayService.handleGenericPassthrough(req, res, account, apiKeyData, accessToken)
   } catch (error) {
-    console.error(error)
+    console.error(summarizeErrorForLog(error))
     if (!res.headersSent) {
-      res.status(error.statusCode || 500).json({
-        error: { message: error.message || 'moderations failed', type: 'api_error' },
+      // DEC_20260905_162636 禁止 error.message 原文出站
+      const clientError = buildClientError({
+        statusCode: error.statusCode || 500,
+        protocol: 'openai',
+        upstreamBody: null,
       })
+      res.status(clientError.statusCode).json(clientError.body)
     }
   }
 })
