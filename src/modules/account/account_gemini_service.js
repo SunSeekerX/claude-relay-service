@@ -703,6 +703,33 @@ export const deleteAccount = async function deleteAccount(accountId) {
   return true
 }
 
+const buildRateLimitInfoFromAccount = function buildRateLimitInfoFromAccount(account) {
+  if (!account) {
+    return null
+  }
+  if (account.rateLimitStatus === 'limited' && account.rateLimitedAt) {
+    const rateLimitedAt = new Date(account.rateLimitedAt)
+    const now = new Date()
+    const minutesSinceRateLimit = Math.floor((now - rateLimitedAt) / (1000 * 60))
+    const minutesRemaining = Math.max(0, 60 - minutesSinceRateLimit)
+    const rateLimitEndAt = new Date(rateLimitedAt.getTime() + 60 * 60 * 1000).toISOString()
+    return {
+      isRateLimited: minutesRemaining > 0,
+      rateLimitedAt: account.rateLimitedAt,
+      minutesSinceRateLimit,
+      minutesRemaining,
+      rateLimitEndAt,
+    }
+  }
+  return {
+    isRateLimited: false,
+    rateLimitedAt: null,
+    minutesSinceRateLimit: 0,
+    minutesRemaining: 0,
+    rateLimitEndAt: null,
+  }
+}
+
 // 获取所有账户
 export const getAllAccounts = async function getAllAccounts() {
   const _client = redisClient.getClientSafe()
@@ -718,8 +745,7 @@ export const getAllAccounts = async function getAllAccounts() {
   for (let i = 0; i < keys.length; i++) {
     const accountData = dataList[i]
     if (accountData && Object.keys(accountData).length > 0) {
-      // 获取限流状态信息
-      const rateLimitInfo = await getAccountRateLimitInfo(accountData.id)
+      const rateLimitInfo = buildRateLimitInfoFromAccount(accountData)
 
       // 解析代理配置
       if (accountData.proxy) {
@@ -1091,35 +1117,7 @@ export const setAccountRateLimited = async function setAccountRateLimited(accoun
 export const getAccountRateLimitInfo = async function getAccountRateLimitInfo(accountId) {
   try {
     const account = await getAccount(accountId)
-    if (!account) {
-      return null
-    }
-
-    if (account.rateLimitStatus === 'limited' && account.rateLimitedAt) {
-      const rateLimitedAt = new Date(account.rateLimitedAt)
-      const now = new Date()
-      const minutesSinceRateLimit = Math.floor((now - rateLimitedAt) / (1000 * 60))
-
-      // Gemini 限流持续时间为 1 小时
-      const minutesRemaining = Math.max(0, 60 - minutesSinceRateLimit)
-      const rateLimitEndAt = new Date(rateLimitedAt.getTime() + 60 * 60 * 1000).toISOString()
-
-      return {
-        isRateLimited: minutesRemaining > 0,
-        rateLimitedAt: account.rateLimitedAt,
-        minutesSinceRateLimit,
-        minutesRemaining,
-        rateLimitEndAt,
-      }
-    }
-
-    return {
-      isRateLimited: false,
-      rateLimitedAt: null,
-      minutesSinceRateLimit: 0,
-      minutesRemaining: 0,
-      rateLimitEndAt: null,
-    }
+    return buildRateLimitInfoFromAccount(account)
   } catch (error) {
     logger.error(`Failed to get rate limit info for Gemini account: ${accountId}`, error)
     return null

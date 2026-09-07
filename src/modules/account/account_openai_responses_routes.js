@@ -53,25 +53,10 @@ router.get(
     const accountIds = accounts.map((a) => a.id)
 
     // 并行获取：轻量 API Keys + 分组信息 + daily cost + 清理限流状态
-    const [allApiKeys, allGroupInfosMap, dailyCostMap] = await Promise.all([
-      apiKeyService.getAllApiKeysLite(),
+    const [allGroupInfosMap, dailyCostMap] = await Promise.all([
       accountGroupService.batchGetAccountGroupsByIndex(accountIds, 'openai'),
       redis.batchGetAccountDailyCost(accountIds),
-      // 批量清理限流状态
-      Promise.all(accountIds.map((id) => openaiResponsesAccountService.checkAndClearRateLimit(id))),
     ])
-
-    // 单次遍历构建绑定数映射（只算直连，不算 group）
-    const bindingCountMap = new Map()
-    for (const key of allApiKeys) {
-      const binding = key.openaiAccountId
-      if (!binding) {
-        continue
-      }
-      // 处理 responses: 前缀
-      const accountId = binding.startsWith('responses:') ? binding.substring(10) : binding
-      bindingCountMap.set(accountId, (bindingCountMap.get(accountId) || 0) + 1)
-    }
 
     // 批量获取使用统计（不含 daily cost，已单独获取）
     const client = redis.getClientSafe()
@@ -126,7 +111,8 @@ router.get(
       }
 
       const groupInfos = allGroupInfosMap.get(account.id) || []
-      const boundCount = bindingCountMap.get(account.id) || 0
+      // DEC_20260907_115439 列表不扫全库 Key；绑定数由 SPA binding-counts 覆盖
+      const boundCount = 0
       const dailyCost = dailyCostMap.get(account.id) || 0
 
       const formattedAccount = formatAccountExpiry(account)

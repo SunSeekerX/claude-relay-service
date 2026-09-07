@@ -6,6 +6,11 @@ import { LRUCache } from '../../common/lru_cache.js'
 import * as upstreamErrorHelper from '../relay/relay_upstream_error_helper.js'
 import { RedisKeys } from '../../infra/redis_key.js'
 import { webhookNotifier } from '../webhook/webhook_notifier.js'
+import {
+  applyClearedRateLimitFields,
+  copyRateLimitFields,
+  clearExpiredRateLimitHash,
+} from './account_rate_limit_clear.js'
 class GeminiApiAccountService {
   constructor() {
     // 加密相关常量
@@ -201,110 +206,78 @@ class GeminiApiAccountService {
     return { success: true }
   }
 
-  // 获取所有账户
-  async getAllAccounts(includeInactive = false) {
-    const client = redis.getClientSafe()
-    const accountIds = await client.smembers(RedisKeys.accounts.sharedGeminiApi)
-    const accounts = []
-
-    for (const accountId of accountIds) {
-      const account = await this.getAccount(accountId)
-      if (account) {
-        // 过滤非活跃账户
-        if (includeInactive || account.isActive === 'true') {
-          // 隐藏敏感信息
-          account.apiKey = '***'
-
-          // 获取限流状态信息
-          const rateLimitInfo = this._getRateLimitInfo(account)
-
-          // 格式化 rateLimitStatus 为对象
-          account.rateLimitStatus = rateLimitInfo.isRateLimited
-            ? {
-                isRateLimited: true,
-                rateLimitedAt: account.rateLimitedAt || null,
-                minutesRemaining: rateLimitInfo.remainingMinutes || 0,
-              }
-            : {
-                isRateLimited: false,
-                rateLimitedAt: null,
-                minutesRemaining: 0,
-              }
-
-          // 转换 schedulable 字段为布尔值
-          account.schedulable = account.schedulable !== 'false'
-          // 转换 isActive 字段为布尔值
-          account.isActive = account.isActive === 'true'
-
-          account.platform = account.platform || 'gemini-api'
-
-          accounts.push(account)
-        }
+  // 列表展示：不解密 apiKey，限流用已取 hash 计算
+  _toListAccount(accountData) {
+    const account = { ...accountData }
+    account.apiKey = '***'
+    if (account.proxy) {
+      try {
+        account.proxy = JSON.parse(account.proxy)
+      } catch {
+        account.proxy = null
       }
     }
+    if (account.supportedModels) {
+      try {
+        account.supportedModels = JSON.parse(account.supportedModels)
+      } catch {
+        account.supportedModels = []
+      }
+    }
+    const rateLimitInfo = this._getRateLimitInfo(account)
+    account.rateLimitStatus = rateLimitInfo.isRateLimited
+      ? {
+          isRateLimited: true,
+          rateLimitedAt: account.rateLimitedAt || null,
+          minutesRemaining: rateLimitInfo.remainingMinutes || 0,
+        }
+      : {
+          isRateLimited: false,
+          rateLimitedAt: null,
+          minutesRemaining: 0,
+        }
+    account.schedulable = account.schedulable !== 'false'
+    account.isActive = account.isActive === 'true'
+    account.platform = account.platform || 'gemini-api'
+    return account
+  }
 
-    // 直接从 Redis 获取所有账户（包括非共享账户）
+  // DEC_20260906_230856 列表只走索引 pipeline，禁止共享池逐条 getAccount
+  async getAllAccounts(includeInactive = false) {
     const allAccountIds = await redis.getAllIdsByIndex(
       RedisKeys.accounts.geminiApiIndex,
       RedisKeys.accounts.geminiApiPattern,
       /^gemini_api_account:(.+)$/,
     )
+    if (allAccountIds.length === 0) {
+      return []
+    }
+
     const keys = allAccountIds.map((id) => RedisKeys.accounts.geminiApi(id))
     const dataList = await redis.batchHgetallChunked(keys)
+    const accounts = []
+
     for (let i = 0; i < allAccountIds.length; i++) {
-      const accountId = allAccountIds[i]
-      if (!accountIds.includes(accountId)) {
-        const accountData = dataList[i]
-        if (accountData && accountData.id) {
-          // 过滤非活跃账户
-          if (includeInactive || accountData.isActive === 'true') {
-            // 隐藏敏感信息
-            accountData.apiKey = '***'
-
-            // 解析 JSON 字段
-            if (accountData.proxy) {
-              try {
-                accountData.proxy = JSON.parse(accountData.proxy)
-              } catch (e) {
-                accountData.proxy = null
-              }
-            }
-
-            if (accountData.supportedModels) {
-              try {
-                accountData.supportedModels = JSON.parse(accountData.supportedModels)
-              } catch (e) {
-                accountData.supportedModels = []
-              }
-            }
-
-            // 获取限流状态信息
-            const rateLimitInfo = this._getRateLimitInfo(accountData)
-
-            // 格式化 rateLimitStatus 为对象
-            accountData.rateLimitStatus = rateLimitInfo.isRateLimited
-              ? {
-                  isRateLimited: true,
-                  rateLimitedAt: accountData.rateLimitedAt || null,
-                  minutesRemaining: rateLimitInfo.remainingMinutes || 0,
-                }
-              : {
-                  isRateLimited: false,
-                  rateLimitedAt: null,
-                  minutesRemaining: 0,
-                }
-
-            // 转换 schedulable 字段为布尔值
-            accountData.schedulable = accountData.schedulable !== 'false'
-            // 转换 isActive 字段为布尔值
-            accountData.isActive = accountData.isActive === 'true'
-
-            accountData.platform = accountData.platform || 'gemini-api'
-
-            accounts.push(accountData)
+      const accountData = dataList[i]
+      if (!accountData || !accountData.id) {
+        continue
+      }
+      if (!includeInactive && accountData.isActive !== 'true') {
+        continue
+      }
+      if (accountData.rateLimitStatus === 'limited') {
+        const expiredInSnap = !this._getRateLimitInfo(accountData).isRateLimited
+        const cleared = await this.checkAndClearRateLimit(accountData.id)
+        if (cleared) {
+          applyClearedRateLimitFields(accountData)
+        } else if (expiredInSnap) {
+          const fresh = await this.getAccount(accountData.id)
+          if (fresh) {
+            copyRateLimitFields(accountData, fresh)
           }
         }
       }
+      accounts.push(this._toListAccount(accountData))
     }
 
     return accounts
@@ -410,32 +383,7 @@ class GeminiApiAccountService {
 
   // 检查并清除过期的限流状态
   async checkAndClearRateLimit(accountId) {
-    const account = await this.getAccount(accountId)
-    if (!account || account.rateLimitStatus !== 'limited') {
-      return false
-    }
-
-    const now = new Date()
-    let shouldClear
-
-    // 优先使用 rateLimitResetAt 字段
-    if (account.rateLimitResetAt) {
-      const resetAt = new Date(account.rateLimitResetAt)
-      shouldClear = now >= resetAt
-    } else {
-      // 如果没有 rateLimitResetAt，使用旧的逻辑
-      const rateLimitedAt = new Date(account.rateLimitedAt)
-      const rateLimitDuration = parseInt(account.rateLimitDuration) || 60
-      shouldClear = now - rateLimitedAt > rateLimitDuration * 60000
-    }
-
-    if (shouldClear) {
-      // 限流已过期，清除状态
-      await this.setAccountRateLimited(accountId, false)
-      return true
-    }
-
-    return false
+    return clearExpiredRateLimitHash(RedisKeys.accounts.geminiApi(accountId))
   }
 
   // 切换调度状态

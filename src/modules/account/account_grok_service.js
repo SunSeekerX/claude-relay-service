@@ -7,6 +7,11 @@ import * as upstreamErrorHelper from '../relay/relay_upstream_error_helper.js'
 import { createEncryptor } from '../../common/common_helper.js'
 import { RedisKeys, TTL } from '../../infra/redis_key.js'
 import { tokenRefreshService } from './account_token_refresh_service.js'
+import {
+  applyClearedRateLimitFields,
+  copyRateLimitFields,
+  clearExpiredRateLimitHash,
+} from './account_rate_limit_clear.js'
 import * as xaiHelper from '../../common/xai_helper.js'
 import * as grokSsoHelper from '../../common/grok_sso_helper.js'
 import { proxyResolver } from '../proxy/proxy_resolver.js'
@@ -655,9 +660,37 @@ class GrokAccountService {
       if (!includeInactive && accountData.isActive !== 'true') {
         continue
       }
+      if (accountData.rateLimitStatus === 'limited') {
+        const expiredInSnap = !this._getRateLimitInfo(accountData).isRateLimited
+        const cleared = await this.checkAndClearRateLimit(accountData.id)
+        if (cleared) {
+          applyClearedRateLimitFields(accountData)
+        } else if (expiredInSnap) {
+          const fresh = await this.getAccount(accountData.id, { decryptSecrets: false })
+          if (fresh) {
+            copyRateLimitFields(accountData, fresh)
+          }
+        }
+      }
       accounts.push(this._maskForList(this._hydrateListAccount(accountData)))
     }
     return accounts
+  }
+
+  _getRateLimitInfo(accountData) {
+    if (accountData.rateLimitStatus !== 'limited') {
+      return { isRateLimited: false }
+    }
+    const now = new Date()
+    if (accountData.rateLimitResetAt) {
+      const resetAt = new Date(accountData.rateLimitResetAt)
+      const remainingMinutes = Math.max(0, Math.ceil((resetAt - now) / 60000))
+      return { isRateLimited: remainingMinutes > 0, remainingMinutes }
+    }
+    const rateLimitedAt = new Date(accountData.rateLimitedAt)
+    const rateLimitDuration = parseInt(accountData.rateLimitDuration, 10) || 60
+    const remainingMinutes = Math.max(0, rateLimitDuration - Math.floor((now - rateLimitedAt) / 60000))
+    return { isRateLimited: remainingMinutes > 0, remainingMinutes }
   }
 
   _hydrateListAccount(accountData) {
@@ -838,30 +871,7 @@ class GrokAccountService {
   }
 
   async checkAndClearRateLimit(accountId) {
-    const account = await this.getAccount(accountId, { decryptSecrets: false })
-    if (!account || account.rateLimitStatus !== 'limited') {
-      return false
-    }
-    const now = new Date()
-    let shouldClear = false
-    if (account.rateLimitResetAt) {
-      shouldClear = now >= new Date(account.rateLimitResetAt)
-    } else if (account.rateLimitedAt) {
-      const duration = parseInt(account.rateLimitDuration, 10) || 60
-      shouldClear = now - new Date(account.rateLimitedAt) > duration * 60000
-    }
-    if (!shouldClear) {
-      return false
-    }
-    await this.updateAccount(accountId, {
-      rateLimitedAt: '',
-      rateLimitStatus: '',
-      rateLimitResetAt: '',
-      status: 'active',
-      schedulable: 'true',
-      errorMessage: '',
-    })
-    return true
+    return clearExpiredRateLimitHash(RedisKeys.accounts.grok(accountId))
   }
 
   async toggleSchedulable(accountId) {

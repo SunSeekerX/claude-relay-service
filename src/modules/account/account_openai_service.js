@@ -675,6 +675,39 @@ export const deleteAccount = async function deleteAccount(accountId) {
   return true
 }
 
+const buildRateLimitInfoFromAccount = function buildRateLimitInfoFromAccount(account) {
+  if (!account) {
+    return null
+  }
+  const status = account.rateLimitStatus || 'normal'
+  const rateLimitedAt = account.rateLimitedAt || null
+  const rateLimitResetAt = account.rateLimitResetAt || null
+  if (status === 'limited') {
+    const now = Date.now()
+    let remainingTime = 0
+    if (rateLimitResetAt) {
+      remainingTime = Math.max(0, new Date(rateLimitResetAt).getTime() - now)
+    } else if (rateLimitedAt) {
+      remainingTime = Math.max(0, new Date(rateLimitedAt).getTime() + 60 * 60 * 1000 - now)
+    }
+    const minutesRemaining = remainingTime > 0 ? Math.ceil(remainingTime / (60 * 1000)) : 0
+    return {
+      status,
+      isRateLimited: minutesRemaining > 0,
+      rateLimitedAt,
+      rateLimitResetAt,
+      minutesRemaining,
+    }
+  }
+  return {
+    status,
+    isRateLimited: false,
+    rateLimitedAt,
+    rateLimitResetAt,
+    minutesRemaining: 0,
+  }
+}
+
 // 获取所有账户
 export const getAllAccounts = async function getAllAccounts() {
   const _client = redisClient.getClientSafe()
@@ -718,8 +751,7 @@ export const getAllAccounts = async function getAllAccounts() {
       // 时间戳改由 codexUsage.updatedAt 暴露
       delete accountData.codexUsageUpdatedAt
 
-      // 获取限流状态信息
-      const rateLimitInfo = await getAccountRateLimitInfo(accountData.id)
+      const rateLimitInfo = buildRateLimitInfoFromAccount(accountData)
 
       // 解析代理配置
       if (accountData.proxy) {
@@ -1110,45 +1142,7 @@ export const toggleSchedulable = async function toggleSchedulable(accountId) {
 // 获取账户限流信息
 export const getAccountRateLimitInfo = async function getAccountRateLimitInfo(accountId) {
   const account = await getAccount(accountId)
-  if (!account) {
-    return null
-  }
-
-  const status = account.rateLimitStatus || 'normal'
-  const rateLimitedAt = account.rateLimitedAt || null
-  const rateLimitResetAt = account.rateLimitResetAt || null
-
-  if (status === 'limited') {
-    const now = Date.now()
-    let remainingTime = 0
-
-    if (rateLimitResetAt) {
-      const resetAt = new Date(rateLimitResetAt).getTime()
-      remainingTime = Math.max(0, resetAt - now)
-    } else if (rateLimitedAt) {
-      const limitedAt = new Date(rateLimitedAt).getTime()
-      const limitDuration = 60 * 60 * 1000 // 默认1小时
-      remainingTime = Math.max(0, limitedAt + limitDuration - now)
-    }
-
-    const minutesRemaining = remainingTime > 0 ? Math.ceil(remainingTime / (60 * 1000)) : 0
-
-    return {
-      status,
-      isRateLimited: minutesRemaining > 0,
-      rateLimitedAt,
-      rateLimitResetAt,
-      minutesRemaining,
-    }
-  }
-
-  return {
-    status,
-    isRateLimited: false,
-    rateLimitedAt,
-    rateLimitResetAt,
-    minutesRemaining: 0,
-  }
+  return buildRateLimitInfoFromAccount(account)
 }
 
 // 更新账户使用统计（tokens参数可选，默认为0，仅更新最后使用时间）

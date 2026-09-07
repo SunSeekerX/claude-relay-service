@@ -2331,7 +2331,20 @@ const accountGroups = ref([])
 const groupFilter = ref('all')
 // [人工决策-2026-06-02 20:07:49] 用户确认新增独立的分组类型筛选维度：先按分组所属平台筛、再选具体分组
 const groupTypeFilter = ref('all')
-const platformFilter = ref('all')
+// DEC_20260906_230856 账户页默认只拉当前平台，切筛选再请求
+const PLATFORM_FILTER_STORAGE_KEY = 'accountsPlatformFilter'
+const readStoredPlatformFilter = () => {
+  try {
+    const value = localStorage.getItem(PLATFORM_FILTER_STORAGE_KEY)
+    if (value) {
+      return value
+    }
+  } catch {
+    // 忽略存储错误
+  }
+  return 'claude'
+}
+const platformFilter = ref(readStoredPlatformFilter())
 const statusFilter = ref('all') // 状态过滤 (normal/rateLimited/other/all)
 const searchKeyword = ref('')
 const PAGE_SIZE_STORAGE_KEY = 'accountsPageSize'
@@ -3709,6 +3722,11 @@ const clearCache = () => {
 // 按平台筛选账户
 const filterByPlatform = () => {
   currentPage.value = 1
+  try {
+    localStorage.setItem(PLATFORM_FILTER_STORAGE_KEY, platformFilter.value)
+  } catch {
+    // 忽略存储错误
+  }
   loadAccounts()
 }
 

@@ -2,7 +2,6 @@ import crypto from 'node:crypto'
 import axios from 'axios'
 import { redis } from '../../infra/redis.js'
 import { logger } from '../../common/logger.js'
-import { maskToken } from '../../common/token_mask.js'
 import { ProxyHelper } from '../proxy/proxy_helper.js'
 import { createEncryptor, isTruthy } from '../../common/common_helper.js'
 import * as upstreamErrorHelper from '../relay/relay_upstream_error_helper.js'
@@ -772,7 +771,7 @@ class DroidAccountService {
       endpointType: this._sanitizeEndpointType(account.endpointType),
       // 不解密完整 token，只返回掩码
       refreshToken: account.refreshToken ? '***ENCRYPTED***' : '',
-      accessToken: account.accessToken ? maskToken(this._decryptSensitiveData(account.accessToken)) : '',
+      accessToken: account.accessToken ? '***ENCRYPTED***' : '',
 
       // 前端显示订阅过期时间（业务字段）
       expiresAt: account.subscriptionExpiresAt || null,

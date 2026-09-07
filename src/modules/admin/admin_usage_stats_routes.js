@@ -23,6 +23,53 @@ import { normalizeModelName } from '../../common/common_helper.js'
 
 export const router = express.Router()
 
+const slimTrendToTopApiKeys = async function slimTrendToTopApiKeys(trendData, apiKeyTotals, limit = 10) {
+  const ranked = Array.from(apiKeyTotals.entries()).sort((a, b) => b[1] - a[1])
+  if (ranked.length === 0) {
+    return { topApiKeys: [], totalApiKeys: 0 }
+  }
+
+  const client = redis.getClientSafe()
+  const pipeline = client.pipeline()
+  for (const [id] of ranked) {
+    pipeline.hmget(RedisKeys.apiKey.byId(id), 'name', 'isDeleted')
+  }
+  const results = await pipeline.exec()
+  const names = new Map()
+  const liveIds = []
+  for (let i = 0; i < ranked.length; i++) {
+    const [err, values] = results[i]
+    if (err || !values) {
+      continue
+    }
+    const [name, isDeleted] = values
+    if (name === null && isDeleted === null) {
+      continue
+    }
+    if (isDeleted === 'true') {
+      continue
+    }
+    const id = ranked[i][0]
+    names.set(id, name || id)
+    liveIds.push(id)
+  }
+
+  const topApiKeys = liveIds.slice(0, limit)
+  for (const point of trendData) {
+    const slim = {}
+    for (const id of topApiKeys) {
+      const row = point.apiKeys[id]
+      if (!row) {
+        continue
+      }
+      slim[id] = { ...row, name: names.get(id) || row.name || id }
+    }
+    point.apiKeys = slim
+  }
+
+  return { topApiKeys, totalApiKeys: liveIds.length }
+}
+
 // 辅助函数：通过索引获取数据，回退到 SCAN
 // keyPattern 支持占位符：{id}、{keyId}+{model}、{accountId}+{model}
 const getUsageDataByIndex = async function getUsageDataByIndex(indexKey, keyPattern, scanPattern) {
@@ -1743,11 +1790,7 @@ router.get(
 
     const trendData = []
 
-    // 获取所有API Keys（只需要 id 和 name，过滤已删除的）
-    const apiKeyIds = await redis.scanApiKeyIds()
-    const apiKeyBasicData = await redis.batchGetApiKeys(apiKeyIds)
-    const apiKeyMap = new Map(apiKeyBasicData.filter((key) => !key.isDeleted).map((key) => [key.id, key]))
-
+    // DEC_20260906_230856 趋势不预载全量 API Key，聚合后再只取前 10 个名字
     if (granularity === 'hour') {
       // 小时粒度统计
       let endTime, startTime
@@ -1758,6 +1801,11 @@ router.get(
       } else {
         endTime = new Date()
         startTime = new Date(endTime.getTime() - 24 * 60 * 60 * 1000)
+      }
+
+      const timeDiff = endTime - startTime
+      if (timeDiff > 24 * 60 * 60 * 1000) {
+        throw badRequest('小时粒度查询时间范围不能超过24小时')
       }
 
       // 收集所有小时的元数据和涉及的日期
@@ -1861,7 +1909,7 @@ router.get(
 
           const apiKeyId = match[1]
           const data = usageDataMap.get(key)
-          if (!data || !apiKeyMap.has(apiKeyId)) {
+          if (!data) {
             continue
           }
 
@@ -1871,7 +1919,7 @@ router.get(
           const cacheReadTokens = parseInt(data.cacheReadTokens) || 0
 
           apiKeyDataMap.set(apiKeyId, {
-            name: apiKeyMap.get(apiKeyId).name,
+            name: '',
             tokens: inputTokens + outputTokens + cacheCreateTokens + cacheReadTokens,
             requests: parseInt(data.requests) || 0,
             inputTokens,
@@ -2050,7 +2098,7 @@ router.get(
 
           const apiKeyId = match[1]
           const data = usageDataMap.get(key)
-          if (!data || !apiKeyMap.has(apiKeyId)) {
+          if (!data) {
             continue
           }
 
@@ -2060,7 +2108,7 @@ router.get(
           const cacheReadTokens = parseInt(data.cacheReadTokens) || 0
 
           apiKeyDataMap.set(apiKeyId, {
-            name: apiKeyMap.get(apiKeyId).name,
+            name: '',
             tokens: inputTokens + outputTokens + cacheCreateTokens + cacheReadTokens,
             requests: parseInt(data.requests) || 0,
             inputTokens,
@@ -2172,17 +2220,12 @@ router.get(
       }
     }
 
-    // 获取前10个使用量最多的API Key
-    const topApiKeys = Array.from(apiKeyTotals.entries())
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 10)
-      .map(([apiKeyId]) => apiKeyId)
-
+    const slim = await slimTrendToTopApiKeys(trendData, apiKeyTotals, 10)
     return {
       data: trendData,
       granularity,
-      topApiKeys,
-      totalApiKeys: apiKeyTotals.size,
+      topApiKeys: slim.topApiKeys,
+      totalApiKeys: slim.totalApiKeys,
     }
   }),
 )

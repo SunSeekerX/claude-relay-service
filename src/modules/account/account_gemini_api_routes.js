@@ -46,26 +46,10 @@ router.get(
 
     const accountIds = accounts.map((a) => a.id)
 
-    // 并行获取：轻量 API Keys + 分组信息 + daily cost + 清除限流状态
-    const [allApiKeys, allGroupInfosMap, dailyCostMap] = await Promise.all([
-      apiKeyService.getAllApiKeysLite(),
+    const [allGroupInfosMap, dailyCostMap] = await Promise.all([
       accountGroupService.batchGetAccountGroupsByIndex(accountIds, 'gemini'),
       redis.batchGetAccountDailyCost(accountIds),
-      // 批量清除限流状态
-      Promise.all(accountIds.map((id) => geminiApiAccountService.checkAndClearRateLimit(id))),
     ])
-
-    // 单次遍历构建绑定数映射（只算直连，不算 group）
-    const bindingCountMap = new Map()
-    for (const key of allApiKeys) {
-      const binding = key.geminiAccountId
-      if (!binding) {
-        continue
-      }
-      // 处理 api: 前缀
-      const accountId = binding.startsWith('api:') ? binding.substring(4) : binding
-      bindingCountMap.set(accountId, (bindingCountMap.get(accountId) || 0) + 1)
-    }
 
     // 批量获取使用统计
     const client = redis.getClientSafe()
@@ -120,7 +104,8 @@ router.get(
         monthly: { requests: 0, tokens: 0, allTokens: 0 },
       }
       const dailyCost = dailyCostMap.get(account.id) || 0
-      const boundCount = bindingCountMap.get(account.id) || 0
+      // DEC_20260907_115439 列表不扫全库 Key；绑定数由 SPA binding-counts 覆盖
+      const boundCount = 0
 
       // 计算 averages（rpm/tpm）
       const createdAt = account.createdAt ? new Date(account.createdAt) : new Date()

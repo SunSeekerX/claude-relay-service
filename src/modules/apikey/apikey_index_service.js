@@ -125,7 +125,7 @@ class ApiKeyIndexService {
 
     try {
       const client = this.redis.getClientSafe()
-      const keyIds = await this.redis.scanApiKeyIds()
+      const keyIds = await this.redis.scanApiKeyIdsFromHashes()
 
       let rebuilt = 0
       const BATCH_SIZE = 100
@@ -239,7 +239,7 @@ class ApiKeyIndexService {
       } while (cursor !== '0')
 
       // 2. 扫描所有 API Key
-      const keyIds = await this.redis.scanApiKeyIds()
+      const keyIds = await this.redis.scanApiKeyIdsFromHashes()
       this.buildProgress = { current: 0, total: keyIds.length }
 
       logger.info(`发现 ${keyIds.length} 个 API Key，开始建立索引...`)
@@ -331,7 +331,7 @@ class ApiKeyIndexService {
         client.zrange(K.LAST_USED_AT, 0, -1, 'WITHSCORES'),
         client.zrange(K.NAME, 0, -1),
         client.zrange(K.DELETED_AT, 0, -1, 'WITHSCORES'),
-        this.redis.scanApiKeyIds(),
+        this.redis.scanApiKeyIdsFromHashes(),
       ])
 
     const all = new Set(allMembers)

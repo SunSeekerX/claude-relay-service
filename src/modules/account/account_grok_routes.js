@@ -106,19 +106,6 @@ router.get(
     }
 
     const accountIds = accounts.map((account) => account.id)
-    await Promise.all(accountIds.map((id) => grokAccountService.checkAndClearRateLimit(id)))
-
-    // 重新拉一次清限流后的列表（轻量：仅列表字段）
-    accounts = await grokAccountService.getAllAccounts(true)
-    if (groupId) {
-      const group = await accountGroupService.getGroup(groupId)
-      if (group && group.platform === 'grok') {
-        const members = await accountGroupService.getGroupMembers(groupId)
-        accounts = accounts.filter((account) => members.includes(account.id))
-      } else {
-        accounts = []
-      }
-    }
 
     const [allApiKeys, allGroupInfosMap, dailyCostMap] = await Promise.all([
       apiKeyService.getAllApiKeysLite(),

@@ -877,11 +877,21 @@ router.post(
 
     const stats = {}
 
-    // 并行计算每个 Key 的统计数据
+    // DEC_20260906_230856 batch-stats 一次收集 usage key，禁止 100 路并行 SCAN
+    const allUsageKeys = await collectUsageKeysForKeyIds(keyIds, timeRange, startDate, endDate)
+    const keysByKeyId = new Map(keyIds.map((id) => [id, []]))
+    for (const key of allUsageKeys) {
+      const usageKeyId = extractUsageKeyId(key)
+      const list = keysByKeyId.get(usageKeyId)
+      if (list) {
+        list.push(key)
+      }
+    }
+
     await Promise.all(
       keyIds.map(async (keyId) => {
         try {
-          stats[keyId] = await calculateKeyStats(keyId, timeRange, startDate, endDate)
+          stats[keyId] = await calculateKeyStats(keyId, timeRange, startDate, endDate, keysByKeyId.get(keyId) || [])
         } catch (error) {
           logger.error(`Failed to calculate stats for key ${keyId}:`, error)
           stats[keyId] = {
@@ -912,62 +922,128 @@ router.post(
   }),
 )
 
+const extractUsageKeyId = function extractUsageKeyId(key) {
+  const match = key.match(/^usage:([^:]+):model:/)
+  return match ? match[1] : null
+}
+
+// DEC_20260906_230856 batch-stats 一次收集 usage key 再按本页 id 过滤
+const collectUsageKeysForKeyIds = async function collectUsageKeysForKeyIds(keyIds, timeRange, startDate, endDate) {
+  const keyIdSet = new Set(keyIds)
+  const client = redis.getClientSafe()
+  const tzDate = redis.getDateInTimezone()
+  const today = redis.getDateStringInTimezone()
+  const filterKeys = (keys) => keys.filter((key) => keyIdSet.has(extractUsageKeyId(key)))
+
+  const fromDailyDates = async (dateStrs) => {
+    const collected = []
+    for (const dateStr of dateStrs) {
+      const members = await client.smembers(RedisKeys.usage.keymodelDailyIndex(dateStr))
+      if (members && members.length > 0) {
+        for (const member of members) {
+          const sep = member.indexOf(':')
+          if (sep <= 0) {
+            continue
+          }
+          const keyId = member.slice(0, sep)
+          if (!keyIdSet.has(keyId)) {
+            continue
+          }
+          const model = member.slice(sep + 1)
+          collected.push(RedisKeys.usage.keyModelDaily(keyId, model, dateStr))
+        }
+        continue
+      }
+      const scanned = await redis.scanKeys(`usage:*:model:daily:*:${dateStr}`)
+      collected.push(...filterKeys(scanned))
+    }
+    return collected
+  }
+
+  if (timeRange === 'custom' && startDate && endDate) {
+    const dates = []
+    const start = new Date(startDate)
+    const end = new Date(endDate)
+    for (let day = new Date(start); day <= end; day.setDate(day.getDate() + 1)) {
+      dates.push(redis.getDateStringInTimezone(day))
+    }
+    return fromDailyDates(dates)
+  }
+  if (timeRange === 'today') {
+    return fromDailyDates([today])
+  }
+  if (timeRange === '7days') {
+    const dates = []
+    for (let i = 0; i < 7; i++) {
+      const day = new Date(tzDate)
+      day.setDate(day.getDate() - i)
+      dates.push(redis.getDateStringInTimezone(day))
+    }
+    return fromDailyDates(dates)
+  }
+  if (timeRange === 'monthly') {
+    const currentMonth = `${tzDate.getUTCFullYear()}-${String(tzDate.getUTCMonth() + 1).padStart(2, '0')}`
+    const scanned = await redis.scanKeys(`usage:*:model:monthly:*:${currentMonth}`)
+    return filterKeys(scanned)
+  }
+  const scanned = await redis.scanKeys('usage:*:model:alltime:*')
+  return filterKeys(scanned)
+}
+
 /**
  * 计算单个 Key 的统计数据
  * @param {string} keyId - API Key ID
  * @param {string} timeRange - 时间范围
  * @param {string} startDate - 开始日期 (custom 模式)
  * @param {string} endDate - 结束日期 (custom 模式)
+ * @param {string[]|undefined} preloadedUsageKeys - 已收集的 usage key，传入则不再 SCAN
  * @returns {Object} 统计数据
  */
-const calculateKeyStats = async function calculateKeyStats(keyId, timeRange, startDate, endDate) {
+const calculateKeyStats = async function calculateKeyStats(keyId, timeRange, startDate, endDate, preloadedUsageKeys) {
   const client = redis.getClientSafe()
   const tzDate = redis.getDateInTimezone()
   const today = redis.getDateStringInTimezone()
 
-  // 构建搜索模式
-  const searchPatterns = []
-
-  if (timeRange === 'custom' && startDate && endDate) {
-    // 自定义日期范围
-    const start = new Date(startDate)
-    const end = new Date(endDate)
-    for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-      const dateStr = redis.getDateStringInTimezone(d)
-      searchPatterns.push(`usage:${keyId}:model:daily:*:${dateStr}`)
-    }
-  } else if (timeRange === 'today') {
-    searchPatterns.push(`usage:${keyId}:model:daily:*:${today}`)
-  } else if (timeRange === '7days') {
-    // 最近7天
-    for (let i = 0; i < 7; i++) {
-      const d = new Date(tzDate)
-      d.setDate(d.getDate() - i)
-      const dateStr = redis.getDateStringInTimezone(d)
-      searchPatterns.push(`usage:${keyId}:model:daily:*:${dateStr}`)
-    }
-  } else if (timeRange === 'monthly') {
-    // 当月
-    const currentMonth = `${tzDate.getUTCFullYear()}-${String(tzDate.getUTCMonth() + 1).padStart(2, '0')}`
-    searchPatterns.push(`usage:${keyId}:model:monthly:*:${currentMonth}`)
+  let uniqueKeys
+  if (preloadedUsageKeys) {
+    uniqueKeys = [...new Set(preloadedUsageKeys)]
   } else {
-    // all - 使用 alltime key（无 TTL，数据完整），避免 daily/monthly 键过期导致数据丢失
-    searchPatterns.push(RedisKeys.usage.keyAlltimePattern(keyId))
-  }
+    const searchPatterns = []
 
-  // 使用 SCAN 收集所有匹配的 keys
-  const allKeys = []
-  for (const pattern of searchPatterns) {
-    let cursor = '0'
-    do {
-      const [newCursor, keys] = await client.scan(cursor, 'MATCH', pattern, 'COUNT', 100)
-      cursor = newCursor
-      allKeys.push(...keys)
-    } while (cursor !== '0')
-  }
+    if (timeRange === 'custom' && startDate && endDate) {
+      const start = new Date(startDate)
+      const end = new Date(endDate)
+      for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+        const dateStr = redis.getDateStringInTimezone(d)
+        searchPatterns.push(`usage:${keyId}:model:daily:*:${dateStr}`)
+      }
+    } else if (timeRange === 'today') {
+      searchPatterns.push(`usage:${keyId}:model:daily:*:${today}`)
+    } else if (timeRange === '7days') {
+      for (let i = 0; i < 7; i++) {
+        const d = new Date(tzDate)
+        d.setDate(d.getDate() - i)
+        const dateStr = redis.getDateStringInTimezone(d)
+        searchPatterns.push(`usage:${keyId}:model:daily:*:${dateStr}`)
+      }
+    } else if (timeRange === 'monthly') {
+      const currentMonth = `${tzDate.getUTCFullYear()}-${String(tzDate.getUTCMonth() + 1).padStart(2, '0')}`
+      searchPatterns.push(`usage:${keyId}:model:monthly:*:${currentMonth}`)
+    } else {
+      searchPatterns.push(RedisKeys.usage.keyAlltimePattern(keyId))
+    }
 
-  // 去重
-  const uniqueKeys = [...new Set(allKeys)]
+    const allKeys = []
+    for (const pattern of searchPatterns) {
+      let cursor = '0'
+      do {
+        const [newCursor, keys] = await client.scan(cursor, 'MATCH', pattern, 'COUNT', 100)
+        cursor = newCursor
+        allKeys.push(...keys)
+      } while (cursor !== '0')
+    }
+    uniqueKeys = [...new Set(allKeys)]
+  }
 
   // 获取实时限制数据（窗口数据不受时间范围筛选影响，始终获取当前窗口状态）
   let dailyCost = 0

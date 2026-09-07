@@ -520,4 +520,56 @@ refund('monthly', mRes, month, mTtl)
 return 1
 `,
   },
+
+  // === 账户限流 ===
+  account: {
+    // KEYS[1]=account hash
+    // ARGV[1]=nowIso ARGV[2]=nowMs
+    // 仅当 rateLimitStatus=limited 且已过期时清空限流字段;否则不写
+    clearExpiredRateLimit: `
+if redis.call('EXISTS', KEYS[1]) == 0 then return 0 end
+if redis.call('HGET', KEYS[1], 'rateLimitStatus') ~= 'limited' then return 0 end
+local expired = 0
+local resetAt = redis.call('HGET', KEYS[1], 'rateLimitResetAt')
+if resetAt and resetAt ~= '' then
+  if ARGV[1] >= resetAt then expired = 1 end
+else
+  local limitedAt = redis.call('HGET', KEYS[1], 'rateLimitedAt')
+  if limitedAt and limitedAt ~= '' then
+    local y, mo, d, h, mi, sec = string.match(limitedAt, '^(%d+)%-(%d+)%-(%d+)T(%d+):(%d+):(%d+)')
+    if y then
+      y = tonumber(y)
+      mo = tonumber(mo)
+      d = tonumber(d)
+      h = tonumber(h)
+      mi = tonumber(mi)
+      sec = tonumber(sec)
+      if mo <= 2 then
+        y = y - 1
+        mo = mo + 9
+      else
+        mo = mo - 3
+      end
+      local era = math.floor(y / 400)
+      local yoe = y - era * 400
+      local doy = math.floor((153 * mo + 2) / 5) + d - 1
+      local doe = yoe * 365 + math.floor(yoe / 4) - math.floor(yoe / 100) + doy
+      local limitedMs = (era * 146097 + doe - 719468) * 86400
+      limitedMs = (limitedMs + h * 3600 + mi * 60 + sec) * 1000
+      local duration = tonumber(redis.call('HGET', KEYS[1], 'rateLimitDuration') or '60') or 60
+      if tonumber(ARGV[2]) - limitedMs > duration * 60000 then expired = 1 end
+    end
+  end
+end
+if expired ~= 1 then return 0 end
+redis.call('HSET', KEYS[1],
+  'rateLimitedAt', '',
+  'rateLimitStatus', '',
+  'rateLimitResetAt', '',
+  'status', 'active',
+  'schedulable', 'true',
+  'errorMessage', '')
+return 1
+`,
+  },
 }

@@ -6,6 +6,11 @@ import { LRUCache } from '../../common/lru_cache.js'
 import * as upstreamErrorHelper from '../relay/relay_upstream_error_helper.js'
 import { RedisKeys } from '../../infra/redis_key.js'
 import { webhookNotifier } from '../webhook/webhook_notifier.js'
+import {
+  applyClearedRateLimitFields,
+  copyRateLimitFields,
+  clearExpiredRateLimitHash,
+} from './account_rate_limit_clear.js'
 class OpenAIResponsesAccountService {
   constructor() {
     // 加密相关常量
@@ -284,17 +289,28 @@ class OpenAIResponsesAccountService {
     const results = await pipeline.exec()
 
     const accounts = []
-    results.forEach(([err, accountData]) => {
+    for (const [err, accountData] of results) {
       if (err || !accountData || !accountData.id) {
-        return
+        continue
       }
 
-      // 过滤非活跃账户
       if (!includeInactive && accountData.isActive !== 'true') {
-        return
+        continue
       }
 
-      // 隐藏敏感信息
+      if (accountData.rateLimitStatus === 'limited') {
+        const expiredInSnap = !this._getRateLimitInfo(accountData).isRateLimited
+        const cleared = await this.checkAndClearRateLimit(accountData.id)
+        if (cleared) {
+          applyClearedRateLimitFields(accountData)
+        } else if (expiredInSnap) {
+          const fresh = await this.getAccount(accountData.id)
+          if (fresh) {
+            copyRateLimitFields(accountData, fresh)
+          }
+        }
+      }
+
       accountData.apiKey = '***'
 
       // 解析 JSON 字段
@@ -311,13 +327,12 @@ class OpenAIResponsesAccountService {
       this.hydrateModelFields(accountData)
       accountData.maxConcurrentTasks = parseInt(accountData.maxConcurrentTasks, 10) || 0
 
-      // 获取限流状态信息
-      const rateLimitInfo = this._getRateLimitInfo(accountData)
-      accountData.rateLimitStatus = rateLimitInfo.isRateLimited
+      const displayRateLimit = this._getRateLimitInfo(accountData)
+      accountData.rateLimitStatus = displayRateLimit.isRateLimited
         ? {
             isRateLimited: true,
             rateLimitedAt: accountData.rateLimitedAt || null,
-            minutesRemaining: rateLimitInfo.remainingMinutes || 0,
+            minutesRemaining: displayRateLimit.remainingMinutes || 0,
           }
         : {
             isRateLimited: false,
@@ -325,14 +340,13 @@ class OpenAIResponsesAccountService {
             minutesRemaining: 0,
           }
 
-      // 转换字段类型
       accountData.schedulable = accountData.schedulable !== 'false'
       accountData.isActive = accountData.isActive === 'true'
       accountData.expiresAt = accountData.subscriptionExpiresAt || null
       accountData.platform = accountData.platform || 'openai-responses'
 
       accounts.push(accountData)
-    })
+    }
 
     return accounts
   }
@@ -418,41 +432,7 @@ class OpenAIResponsesAccountService {
 
   // 检查并清除过期的限流状态
   async checkAndClearRateLimit(accountId) {
-    const account = await this.getAccount(accountId)
-    if (!account || account.rateLimitStatus !== 'limited') {
-      return false
-    }
-
-    const now = new Date()
-    let shouldClear
-
-    // 优先使用 rateLimitResetAt 字段
-    if (account.rateLimitResetAt) {
-      const resetAt = new Date(account.rateLimitResetAt)
-      shouldClear = now >= resetAt
-    } else {
-      // 如果没有 rateLimitResetAt，使用旧的逻辑
-      const rateLimitedAt = new Date(account.rateLimitedAt)
-      const rateLimitDuration = parseInt(account.rateLimitDuration) || 60
-      shouldClear = now - rateLimitedAt > rateLimitDuration * 60000
-    }
-
-    if (shouldClear) {
-      // 限流已过期，清除状态
-      await this.updateAccount(accountId, {
-        rateLimitedAt: '',
-        rateLimitStatus: '',
-        rateLimitResetAt: '',
-        status: 'active',
-        schedulable: 'true', // 恢复调度
-        errorMessage: '',
-      })
-
-      logger.info(`Rate limit cleared for account ${account.name}`)
-      return true
-    }
-
-    return false
+    return clearExpiredRateLimitHash(RedisKeys.accounts.openaiResponses(accountId))
   }
 
   // 切换调度状态

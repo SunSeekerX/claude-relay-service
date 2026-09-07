@@ -103,10 +103,11 @@ export const attach = function attach(redisClient) {
     return apiKeys
   }
 
-  redisClient.scanApiKeyIds = async function () {
+  // 以 hash 为权威：SCAN apikey:<uuid>。索引重建和漂移检测必须走这条，
+  // 不能读 idx:all，否则索引缺项时检测集会一起缺、永远自愈不了。
+  redisClient.scanApiKeyIdsFromHashes = async function () {
     const keyIds = new Set()
     let cursor = '0'
-    // 排除索引 key 的前缀
     const excludePrefixes = [
       RedisKeys.apiKey.hashMap,
       RedisKeys.apiKey.idx.prefix,
@@ -120,11 +121,9 @@ export const attach = function attach(redisClient) {
       cursor = newCursor
 
       for (const key of keys) {
-        // 只接受 apikey:<uuid> 形态，排除索引 key
         if (excludePrefixes.some((prefix) => key.startsWith(prefix))) {
           continue
         }
-        // 确保是 apikey:<id> 格式（只有一个冒号）
         if (key.split(':').length !== 2) {
           continue
         }
@@ -133,6 +132,22 @@ export const attach = function attach(redisClient) {
     } while (cursor !== '0')
 
     return [...keyIds]
+  }
+
+  redisClient.scanApiKeyIds = async function () {
+    try {
+      const isIndexReady = await this._checkIndexReady()
+      if (isIndexReady) {
+        const indexedKeyIds = await this.client.smembers(RedisKeys.apiKey.idx.all)
+        if (indexedKeyIds && indexedKeyIds.length > 0) {
+          return indexedKeyIds
+        }
+      }
+    } catch {
+      // 索引未就绪时回退 hash SCAN
+    }
+
+    return this.scanApiKeyIdsFromHashes()
   }
 
   // 从全局标签集合（tags:all，由 key 派生维护 + rebuild 重造）删除标签——用于删除/重命名时清理旧标签的派生残留。
@@ -424,7 +439,7 @@ export const attach = function attach(redisClient) {
     }
 
     // 降级：使用 SCAN 获取所有 apikey:* 的 ID 列表（避免阻塞）
-    const keyIds = await this.scanApiKeyIds()
+    const keyIds = await this.scanApiKeyIdsFromHashes()
 
     // 2. 使用 Pipeline 批量获取基础数据
     const apiKeys = await this.batchGetApiKeys(keyIds)
