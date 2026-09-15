@@ -1,7 +1,6 @@
 # Claude Relay Service 项目规则
 
-- 本文件与 AGENTS.md 是本仓两份规则入口；任务开始先读 AGENTS.md。技术细则在本文按章节收口，仅对当前任务相关链路应用，不因通用 Skills 触发额外流程。
-- 规则仅在用户明确要求时修改；本次授权不扩展为其他任务的文档维护权限。
+- 本文件定义本仓的通用工程规范、项目技术约束、迁移规则和人工决策。
 
 ## 通用工程规范
 
@@ -18,8 +17,8 @@
 
 ## 架构与安全
 
-- 新增路由只做参数和响应，格式转换放 handler/转换服务，Redis 经统一入口访问；key、TTL 和容量只在 src/infra/redis_key.js 定义。
-- OAuth token、refreshToken 和 credentials AES 加密；API Key 仅存 SHA-256 哈希；请求必须完成认证、权限、客户端限制和模型黑名单检查；断连必须释放资源和并发计数；日志用 src/common/token_mask.js 脱敏。
+- 新增路由只做参数和响应，格式转换放 handler/转换服务，Redis 经统一入口访问；key、TTL 和容量只在 src/constants/redisKeys.js 定义。
+- OAuth token、refreshToken 和 credentials AES 加密；API Key 仅存 SHA-256 哈希；请求必须完成认证、权限、客户端限制和模型黑名单检查；断连必须释放资源和并发计数；日志用 tokenMask.js 脱敏。
 - 代码风格：无分号、单引号、100 字符行宽、尾逗号 none、箭头函数参数带括号、严格相等；UnoCSS 不配 prettier-plugin-tailwindcss。
 - 前端为 Vue 3 + Pinia + UnoCSS；组件支持 dark:，主题经 useThemeStore()，图标用离线 Iconify class。
 
@@ -31,10 +30,10 @@
 
 ## 迁移
 
-- 单实例停机发布；新功能不引入双读双写。历史兼容统一在 src/common/compat_index.js 登记下线条件。
+- 单实例停机发布；新功能不引入双读双写。历史兼容统一在 src/compat/ 登记下线条件。
 - src/app.js initialize() 的迁移和自愈调用顺序不可调整。
-- src/infra/migration_registry.js 只登记幂等可重入且失败会抛错的 marker 迁移，up 不保证恰好一次；版本门控仍由 runVersionGated 管理。
-- src/infra/bootstrap_registry.js 只登记每次启动可重跑的自愈，调用点保留在 app.js；重或危险操作使用人工执行的 scripts/migrate-*.js。
+- src/migrations/registry.js 只登记幂等可重入且失败会抛错的 marker 迁移，up 不保证恰好一次；版本门控仍由 runVersionGated 管理。
+- src/bootstrap/registry.js 只登记每次启动可重跑的自愈，调用点保留在 app.js；重或危险操作使用人工执行的 scripts/migrate-*.js。
 - 运行态缓存和限流允许从空重建；旧字段在切换后自然过期或一次性清理。
 
 ## 账户调度
@@ -42,8 +41,8 @@
 - disableAutoProtection=true 只跳过上游错误类自动暂停；isActive、schedulable、dailyQuota、模型、订阅和并发仍是硬门。dailyQuota 不得受该开关影响。
 - _isAccountAvailable(accountId, accountType, requestedModel) 是每个调度器硬门的唯一权威；专属、分组和会话复检必须委托它。共享池可内联，但硬门必须逐项一致。
 - 选号阶段统一处理 token：过期无 refreshToken 拒绝；可刷新则刷新，失败拒绝。新增账户类型或选号路径不得重抄判定。
-- 状态字段只能由调度、限流和自动保护写入；外部账户更新经 src/common/common_helper.js 的 stripReadonlyAccountFields 剥离状态字段，droid key 同理。
-- 上游错误返回客户端前经 src/common/client_error_builder.js 归一化、按协议包装并脱敏。
+- 状态字段只能由调度、限流和自动保护写入；外部账户更新经 commonHelper.stripReadonlyAccountFields 剥离状态字段，droid key 同理。
+- 上游错误返回客户端前经 utils/clientErrorBuilder.js 归一化、按协议包装并脱敏。
 
 ## 本仓前端 UI
 

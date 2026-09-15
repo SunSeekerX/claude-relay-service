@@ -13,6 +13,7 @@ import { createEncryptor } from '../../common/common_helper.js'
 import { internalToLiteLLM, modelNameBasename } from './pricing_model_pricing_convert.js'
 import { modelService } from './pricing_model_service.js'
 import { GROK_MEDIA_FALLBACK_PRICING, resolveGrokMediaUnitPrices } from './pricing_grok_media_pricing.js'
+import { grokMediaPricingOverlayService } from './pricing_grok_media_overlay_service.js'
 import { createRequire } from 'node:module'
 
 const require = createRequire(import.meta.url)
@@ -621,6 +622,12 @@ class PricingService {
       // 设置文件监听器
       this.setupFileWatcher()
 
+      // 预热 Grok 媒体价覆盖层，供同步计费路径读取
+      await grokMediaPricingOverlayService.warmCache().catch((error) => {
+        logger.warn('Failed to warm Grok media pricing overlay')
+        console.error(error)
+      })
+
       logger.success('Pricing service initialized successfully')
     } catch (error) {
       logger.error('Failed to initialize pricing service:', error)
@@ -1031,13 +1038,18 @@ class PricingService {
     }
     if (baseName && baseName !== modelName && GROK_MEDIA_FALLBACK_PRICING[baseName]) {
       logger.debug(`Using bundled Grok media fallback pricing for basename ${baseName}`)
-      return this.ensureCachePricing({ ...GROK_MEDIA_FALLBACK_PRICING[baseName] })
+      const overlayPricing =
+        grokMediaPricingOverlayService.getEffectiveModelPricingSync(baseName) || GROK_MEDIA_FALLBACK_PRICING[baseName]
+      return this.ensureCachePricing({ ...overlayPricing })
     }
 
     // Grok Imagine 媒体：LiteLLM 种子未收录时的官方价兜底（内部模型优先已在上方处理）
+    // DEC_20260912_232856 媒体价优先读 Redis 覆盖层，再回落内置兜底
     if (GROK_MEDIA_FALLBACK_PRICING[modelName]) {
       logger.debug(`Using bundled Grok media fallback pricing for ${modelName}`)
-      return this.ensureCachePricing({ ...GROK_MEDIA_FALLBACK_PRICING[modelName] })
+      const overlayPricing =
+        grokMediaPricingOverlayService.getEffectiveModelPricingSync(modelName) || GROK_MEDIA_FALLBACK_PRICING[modelName]
+      return this.ensureCachePricing({ ...overlayPricing })
     }
 
     // 特殊处理：gpt-5.5 回退到 gpt-5
@@ -1571,10 +1583,11 @@ class PricingService {
   getEffectivePricingData() {
     const seed = this.pricingData && typeof this.pricingData === 'object' ? this.pricingData : {}
     const effective = { ...seed }
-    // 种子未收录的 Grok 媒体默认模型：补进生效价表，管理端可见、可导入内部
+    // 种子未收录的 Grok 媒体默认模型：补进生效价表（含 Redis 覆盖层）
     for (const [name, pricing] of Object.entries(GROK_MEDIA_FALLBACK_PRICING)) {
       if (!effective[name]) {
-        effective[name] = { ...pricing }
+        const overlayPricing = grokMediaPricingOverlayService.getEffectiveModelPricingSync(name) || pricing
+        effective[name] = { ...overlayPricing }
       }
     }
     // gpt-5.6 系列内置官方价：种子缺失时补进生效表（管理端详情/计费一致）

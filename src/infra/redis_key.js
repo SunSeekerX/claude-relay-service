@@ -302,6 +302,8 @@ export const RedisKeys = {
   system: {
     metricsMinute: (minute) => `system:metrics:minute:${minute}`,
     serviceRates: 'system:service_rates', // String(JSON): 服务费率配置
+    grokMediaPricing: 'system:grok_media_pricing', // String(JSON): Grok 媒体单价覆盖层
+    grokMediaPricingChangedChannel: 'system:grok_media_pricing:changed', // Pub/Sub: 覆盖层变更失效广播
     quotaCardLimits: 'system:quota_card_limits', // String(JSON): 额度卡上限
     weeklyOpusDone: (date) => `init:weekly_opus_cost:${date}:done`, // 周费用回填日级 marker
 

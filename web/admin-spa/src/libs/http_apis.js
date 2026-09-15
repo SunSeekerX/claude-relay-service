@@ -461,6 +461,14 @@ export const getAdminServiceRatesApi = (config) =>
 export const updateAdminServiceRatesApi = (data, config) =>
   request({ url: '/admin/service-rates', method: 'PUT', data, ...config })
 
+// Grok 媒体计费覆盖层
+export const getGrokMediaPricingApi = (config) =>
+  request({ url: '/admin/grok-media-pricing', method: 'GET', ...config })
+export const updateGrokMediaPricingApi = (data, config) =>
+  request({ url: '/admin/grok-media-pricing', method: 'PUT', data, ...config })
+export const resetGrokMediaPricingApi = (data = {}, config) =>
+  request({ url: '/admin/grok-media-pricing/reset', method: 'POST', data, ...config })
+
 // 系统
 export const checkUpdatesApi = () => request({ url: '/admin/check-updates', method: 'GET' })
 export const getClaudeCodeVersionApi = () =>

@@ -154,6 +154,131 @@ export const normalizeKnownBaseUrlPath = (raw) => {
   return parsed.toString().replace(/\/+$/, '')
 }
 
+const ipv4Octets = (host) => {
+  const matched = String(host || '').match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/)
+  if (!matched) {
+    return null
+  }
+  const octets = matched.slice(1).map(Number)
+  if (octets.some((part) => part > 255)) {
+    return null
+  }
+  return octets
+}
+
+const expandIPv6 = (host) => {
+  let raw = String(host || '')
+    .toLowerCase()
+    .replace(/^\[|\]$/g, '')
+  if (!raw.includes(':')) {
+    return null
+  }
+  // zone id
+  raw = raw.split('%')[0]
+  if (raw.startsWith('::ffff:')) {
+    const mapped = raw.slice('::ffff:'.length)
+    if (ipv4Octets(mapped)) {
+      return ['mapped-v4', mapped]
+    }
+  }
+  // 尾部内嵌点分 IPv4
+  const dotted = raw.match(/^(.*:)(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/)
+  if (dotted) {
+    const v4 = ipv4Octets(dotted[2])
+    if (!v4) {
+      return null
+    }
+    raw = `${dotted[1]}${((v4[0] << 8) | v4[1]).toString(16)}:${((v4[2] << 8) | v4[3]).toString(16)}`
+  }
+  const sides = raw.split('::')
+  if (sides.length > 2) {
+    return null
+  }
+  const head = sides[0] ? sides[0].split(':') : []
+  const tail = sides.length === 2 && sides[1] ? sides[1].split(':') : []
+  if (head.concat(tail).some((part) => part && !/^[0-9a-f]{1,4}$/.test(part))) {
+    return null
+  }
+  const missing = 8 - (head.length + tail.length)
+  if (missing < 0 || (sides.length === 1 && missing !== 0)) {
+    return null
+  }
+  const groups = [...head, ...Array(Math.max(0, missing)).fill('0'), ...tail].map((part) => parseInt(part || '0', 16))
+  if (groups.length !== 8 || groups.some((value) => Number.isNaN(value))) {
+    return null
+  }
+  return groups
+}
+
+const isBlockedIPv4 = (octets) => {
+  if (!Array.isArray(octets) || octets.length !== 4) {
+    return false
+  }
+  const [a, b] = octets
+  if (a === 0 || a === 10 || a === 127 || (a === 169 && b === 254)) {
+    return true
+  }
+  if (a === 192 && b === 168) {
+    return true
+  }
+  if (a === 172 && b >= 16 && b <= 31) {
+    return true
+  }
+  if (a === 100 && b >= 64 && b <= 127) {
+    return true
+  }
+  return false
+}
+
+const ipv4FromIPv6Tail = (groups) => [groups[6] >> 8, groups[6] & 0xff, groups[7] >> 8, groups[7] & 0xff]
+
+// DEC_20260912_232856 补 IPv4-mapped/compatible 等私网绕过
+const isBlockedHost = (host) => {
+  const normalized = String(host || '')
+    .trim()
+    .toLowerCase()
+    .replace(/\.+$/, '')
+  if (!normalized) {
+    return true
+  }
+  if (normalized === 'localhost' || normalized.endsWith('.localhost')) {
+    return true
+  }
+
+  const v4 = ipv4Octets(normalized)
+  if (v4) {
+    return isBlockedIPv4(v4)
+  }
+
+  const v6 = expandIPv6(normalized)
+  if (Array.isArray(v6) && v6[0] === 'mapped-v4') {
+    return isBlockedHost(v6[1])
+  }
+  if (Array.isArray(v6)) {
+    if (v6.every((part) => part === 0)) {
+      return true
+    }
+    if (v6.slice(0, 7).every((part) => part === 0) && v6[7] === 1) {
+      return true
+    }
+    if ((v6[0] & 0xfe00) === 0xfc00) {
+      return true
+    }
+    if (v6[0] === 0xfe80) {
+      return true
+    }
+    const isMappedV4 = v6.slice(0, 5).every((part) => part === 0) && v6[5] === 0xffff
+    const isNat64 = v6[0] === 0x0064 && v6[1] === 0xff9b
+    const isCompatV4 = v6.slice(0, 6).every((part) => part === 0)
+    if (isMappedV4 || isNat64 || isCompatV4) {
+      return isBlockedIPv4(ipv4FromIPv6Tail(v6))
+    }
+    return false
+  }
+
+  return false
+}
+
 const validateHttpsUrl = (raw, { allowedHosts = null, allowPrivate = false } = {}) => {
   let parsed
   try {
@@ -167,20 +292,8 @@ const validateHttpsUrl = (raw, { allowedHosts = null, allowPrivate = false } = {
   if (!parsed.hostname) {
     throw new Error('invalid URL host')
   }
-  if (!allowPrivate) {
-    const host = parsed.hostname.toLowerCase()
-    if (
-      host === 'localhost' ||
-      host.endsWith('.localhost') ||
-      host === '127.0.0.1' ||
-      host === '0.0.0.0' ||
-      host === '::1' ||
-      host.startsWith('10.') ||
-      host.startsWith('192.168.') ||
-      /^172\.(1[6-9]|2\d|3[0-1])\./.test(host)
-    ) {
-      throw new Error('private hosts are not allowed')
-    }
+  if (!allowPrivate && isBlockedHost(parsed.hostname)) {
+    throw new Error('private hosts are not allowed')
   }
   if (allowedHosts && !hostMatches(parsed.hostname, allowedHosts)) {
     throw new Error('URL host is not in allowlist')

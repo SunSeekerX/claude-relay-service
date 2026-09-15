@@ -54,6 +54,9 @@ export const stripSsePingFrames = (chunkText) => {
   return `${kept.join('\n\n')}\n\n`
 }
 
+// 校验工具名：必须是非空字符串
+const isValidToolName = (name) => typeof name === 'string' && name.trim().length > 0
+
 export const isChatBridgeEligible = (body) => {
   if (!body || typeof body !== 'object') {
     return { ok: false, reason: 'invalid_body' }
@@ -72,12 +75,12 @@ export const isChatBridgeEligible = (body) => {
       if (!tool || typeof tool !== 'object') {
         return { ok: false, reason: 'invalid_tool' }
       }
-      // 允许 function 工具 + 官方 web_search/x_search 类型
+      // DEC_20260913_155429 支持 Chat function 形态与 Responses 顶层 name 形态
       if (tool.type === 'function') {
-        if (!tool.function?.name) {
-          return { ok: false, reason: 'invalid_tool_function' }
+        if (isValidToolName(tool.function?.name) || isValidToolName(tool.name)) {
+          continue
         }
-        continue
+        return { ok: false, reason: 'invalid_tool_function' }
       }
       if (tool.type === 'web_search' || tool.type === 'x_search') {
         continue
@@ -91,7 +94,8 @@ export const isChatBridgeEligible = (body) => {
         return { ok: false, reason: 'unsupported_tool_choice' }
       }
     } else if (typeof body.tool_choice === 'object') {
-      if (body.tool_choice.type !== 'function' || !body.tool_choice.function?.name) {
+      const choiceName = body.tool_choice.function?.name || body.tool_choice.name
+      if (body.tool_choice.type !== 'function' || !isValidToolName(choiceName)) {
         return { ok: false, reason: 'unsupported_tool_choice' }
       }
     } else {
@@ -113,7 +117,7 @@ export const isChatBridgeEligible = (body) => {
         return { ok: false, reason: 'invalid_tool_calls' }
       }
       for (const call of message.tool_calls) {
-        if (!call?.id || call.type !== 'function' || !call.function?.name) {
+        if (!call?.id || call.type !== 'function' || !isValidToolName(call.function?.name)) {
           return { ok: false, reason: 'invalid_tool_calls' }
         }
       }
@@ -123,22 +127,62 @@ export const isChatBridgeEligible = (body) => {
 }
 
 // tool protocol：规范化 chat tools → responses tools
+// DEC_20260912_232856 保持 chat→responses 桥接，补全 tools 顶层 name 避免 422
 export const normalizeToolsForResponses = (tools) => {
   if (!Array.isArray(tools)) {
     return tools
   }
-  return tools.map((tool) => {
-    if (tool.type === 'function' && tool.function) {
-      return {
+  const normalized = []
+  for (const tool of tools) {
+    if (!tool || typeof tool !== 'object') {
+      continue
+    }
+
+    // 已是 Responses 形态（顶层 name）
+    if (tool.type === 'function' && isValidToolName(tool.name) && !tool.function) {
+      normalized.push({
         type: 'function',
-        name: tool.function.name,
+        name: tool.name.trim(),
+        description: tool.description,
+        parameters: tool.parameters,
+        strict: tool.strict,
+      })
+      continue
+    }
+
+    // Chat Completions 形态：{ type:'function', function:{ name } }
+    if (tool.type === 'function' && isValidToolName(tool.function?.name)) {
+      normalized.push({
+        type: 'function',
+        name: String(tool.function.name).trim(),
         description: tool.function.description,
         parameters: tool.function.parameters,
         strict: tool.function.strict,
-      }
+      })
+      continue
     }
-    return tool
-  })
+
+    // 缺 type 但带 function.name
+    if (!tool.type && isValidToolName(tool.function?.name)) {
+      normalized.push({
+        type: 'function',
+        name: String(tool.function.name).trim(),
+        description: tool.function.description,
+        parameters: tool.function.parameters,
+        strict: tool.function.strict,
+      })
+      continue
+    }
+
+    // 官方内置搜索工具原样保留
+    if (tool.type === 'web_search' || tool.type === 'x_search') {
+      normalized.push({ ...tool })
+      continue
+    }
+
+    // 缺 name 的 function 工具直接丢弃，避免上游 422 missing field name
+  }
+  return normalized
 }
 
 const normalizeToolChoiceForResponses = (toolChoice) => {
@@ -286,7 +330,10 @@ export const chatToResponsesBody = (body) => {
     mapped.max_output_tokens = body.max_completion_tokens
   }
   if (body.tools) {
-    mapped.tools = normalizeToolsForResponses(body.tools)
+    const tools = normalizeToolsForResponses(body.tools)
+    if (Array.isArray(tools) && tools.length > 0) {
+      mapped.tools = tools
+    }
   }
   if (body.tool_choice !== undefined) {
     mapped.tool_choice = normalizeToolChoiceForResponses(body.tool_choice)

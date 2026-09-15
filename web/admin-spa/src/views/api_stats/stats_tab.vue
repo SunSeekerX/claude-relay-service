@@ -7,7 +7,15 @@
         class="rounded-xl border border-red-500/30 bg-red-500/20 p-3 text-sm text-red-800 backdrop-blur-sm dark:border-red-500/20 dark:bg-red-500/10 dark:text-red-200 md:p-4 md:text-base"
       >
         <i class="i-lucide-triangle-alert mr-2" />
-        {{ error }}
+        <template v-if="errorKeyMatch">
+          API Key "<span
+            class="cursor-pointer font-semibold hover:underline"
+            title="点击复制"
+            @click="copyText(errorKeyMatch.name)"
+            >{{ errorKeyMatch.name }}<i class="i-lucide-copy ml-1 text-xs opacity-70" /></span
+          >" {{ errorKeyMatch.suffix }}
+        </template>
+        <template v-else>{{ error }}</template>
       </div>
     </div>
 
@@ -162,6 +170,7 @@ import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useApiStatsStore } from '@/stores/api_stats'
 import { getPublicApiKeyUsageRecordsApi } from '@/libs/http_apis'
+import { copyText } from '@/libs/tools'
 import ApiKeyUsageRecordsDialog from '@/components/api_keys/api_key_usage_records_dialog.vue'
 import ApiKeyInput from '@/components/api_stats/api_key_input.vue'
 import StatsOverview from '@/components/api_stats/stats_overview.vue'
@@ -176,6 +185,25 @@ const apiStatsStore = useApiStatsStore()
 const { apiKey, apiId, loading, error, statsPeriod, statsData, multiKeyMode } =
   storeToRefs(apiStatsStore)
 const { switchPeriod } = apiStatsStore
+
+const errorKeyMatch = computed(() => {
+  const text = error.value
+  if (typeof text !== 'string' || !text.startsWith('API Key "')) {
+    return null
+  }
+  // 从末尾找分隔 `" `，避免 key 名含引号时贪婪匹配拆错
+  const rest = text.slice('API Key "'.length)
+  const splitAt = rest.lastIndexOf('" ')
+  if (splitAt <= 0) {
+    return null
+  }
+  const name = rest.slice(0, splitAt)
+  const suffix = rest.slice(splitAt + 2)
+  if (!name || !suffix) {
+    return null
+  }
+  return { name, suffix }
+})
 
 const showTestModal = ref(false)
 const showTestMenu = ref(false)

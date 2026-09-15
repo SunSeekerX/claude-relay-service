@@ -12,6 +12,7 @@ import { logger } from '../../common/logger.js'
 import { onClientDisconnect } from '../../common/client_disconnect.js'
 import { config } from '../../../config/config.js'
 import { getRateLimitModelFamily } from './relay_model_helper.js'
+import { resolveRateLimitReset } from './relay_anthropic_rate_limit_header_helper.js'
 import { claudeCodeHeadersService } from './relay_claude_code_headers_service.js'
 import { redis } from '../../infra/redis.js'
 import { ClaudeCodeValidator } from '../../common/validator_client_claude_code_validator.js'
@@ -247,6 +248,24 @@ class ClaudeRelayService {
       return false
     }
     return message.toLowerCase().includes('extra usage')
+  }
+
+  // 解析一次 429 应使用的限流 reset。DEC_20260912_232856 按被拒绝窗口取 reset
+  _resolveRateLimitReset(headers, modelFamily, tag = '') {
+    const resolution = resolveRateLimitReset(headers, modelFamily, {
+      maxFallbackSeconds: parseInt(config.claude?.maxModelRateLimitFallbackSeconds, 10) || undefined,
+    })
+
+    if (resolution.resetTimestamp) {
+      const prefix = tag ? `${tag} ` : ''
+      logger.info(
+        `⏱️ ${prefix}Rate limit reset resolved to ${new Date(resolution.resetTimestamp * 1000).toISOString()} ` +
+          `(window: ${resolution.windowKey || 'unified-reset fallback'}, scope: ${resolution.scope}, ` +
+          `authoritative: ${resolution.authoritative}${resolution.clamped ? ', clamped' : ''})`,
+      )
+    }
+
+    return resolution
   }
 
   _toPascalCaseToolName(name) {
@@ -862,10 +881,16 @@ class ClaudeRelayService {
               ` [Non-Stream] "Extra usage required" 429 for account ${accountId}, skipping rate limit marking`,
             )
           } else {
-            const resetHeader = response.headers ? response.headers['anthropic-ratelimit-unified-reset'] : null
-            const parsedResetTimestamp = resetHeader ? parseInt(resetHeader, 10) : NaN
+            const rateLimitReset = this._resolveRateLimitReset(response.headers, requestModelFamily, '[Non-Stream]')
+            const parsedResetTimestamp = rateLimitReset.resetTimestamp ?? NaN
 
-            if (requestModelFamily && !Number.isNaN(parsedResetTimestamp)) {
+            // DEC_20260913_155429 仅权威 model scope 记模型级限流
+            if (
+              rateLimitReset.authoritative &&
+              rateLimitReset.scope === 'model' &&
+              requestModelFamily &&
+              !Number.isNaN(parsedResetTimestamp)
+            ) {
               // 模型级限额：只停用该模型家族，不改写为账号级限流
               await claudeAccountService.markAccountModelRateLimited(
                 accountId,
@@ -904,14 +929,16 @@ class ClaudeRelayService {
                   accountId,
                 }
               }
-            } else {
+            } else if (
+              rateLimitReset.authoritative &&
+              rateLimitReset.scope === 'account' &&
+              !Number.isNaN(parsedResetTimestamp)
+            ) {
               isRateLimited = true
-              if (!Number.isNaN(parsedResetTimestamp)) {
-                rateLimitResetTimestamp = parsedResetTimestamp
-                logger.info(
-                  `Extracted rate limit reset timestamp: ${rateLimitResetTimestamp} (${new Date(rateLimitResetTimestamp * 1000).toISOString()})`,
-                )
-              }
+              rateLimitResetTimestamp = parsedResetTimestamp
+              logger.info(
+                `Extracted rate limit reset timestamp: ${rateLimitResetTimestamp} (${new Date(rateLimitResetTimestamp * 1000).toISOString()})`,
+              )
               // 仅在拿到权威 reset 头时构建专属限流提示；无 reset 头的 429 大概率不是真实限流，
               // 直接透传上游错误，避免被改写为 403 "upstream_rate_limited"误导客户端
               if (isDedicatedOfficialAccount && rateLimitResetTimestamp) {
@@ -919,6 +946,14 @@ class ClaudeRelayService {
                   rateLimitResetTimestamp || account?.rateLimitEndAt,
                 )
               }
+            } else {
+              // 非权威 fallback / 无 rejected 窗口：不标记限流
+              logger.warn(
+                `Non-authoritative 429 for account ${accountId}, skip rate-limit marking (scope=${rateLimitReset.scope}, authoritative=${rateLimitReset.authoritative})`,
+              )
+              upstreamErrorHelper
+                .recordErrorHistory(accountId, accountType, 429, 'rate_limit', errorContext)
+                .catch((error) => console.error(error))
             }
           }
         } else {
@@ -2147,41 +2182,45 @@ class ClaudeRelayService {
             }
 
             // 真正的限流处理
-            const resetHeader = res.headers ? res.headers['anthropic-ratelimit-unified-reset'] : null
-            const parsedResetTimestamp = resetHeader ? parseInt(resetHeader, 10) : NaN
+            const rateLimitReset = this._resolveRateLimitReset(res.headers, requestModelFamily, '[Stream]')
+            const parsedResetTimestamp = rateLimitReset.resetTimestamp ?? NaN
 
-            if (requestModelFamily) {
-              if (!Number.isNaN(parsedResetTimestamp)) {
-                // 模型级限额：只停用该模型家族，不改写为账号级限流
-                await claudeAccountService.markAccountModelRateLimited(
+            // DEC_20260913_155429 仅权威 model scope 记模型级；账号级窗口走下方账号限流分支
+            if (
+              rateLimitReset.authoritative &&
+              rateLimitReset.scope === 'model' &&
+              requestModelFamily &&
+              !Number.isNaN(parsedResetTimestamp)
+            ) {
+              // 模型级限额：只停用该模型家族，不改写为账号级限流
+              await claudeAccountService.markAccountModelRateLimited(
+                accountId,
+                requestModelFamily,
+                parsedResetTimestamp,
+              )
+              upstreamErrorHelper
+                .recordErrorHistory(
                   accountId,
-                  requestModelFamily,
-                  parsedResetTimestamp,
+                  accountType,
+                  429,
+                  'rate_limit',
+                  upstreamErrorHelper.buildErrorContext({
+                    url: this.claudeApiUrl,
+                    method: 'POST',
+                    requestHeaders: clientHeaders,
+                    requestBody: body,
+                    model: body?.model,
+                    sessionId: sessionHash,
+                    responseStatus: 429,
+                    responseHeaders: res.headers,
+                    responseBody: sanitizedBody429,
+                    reason: `model_family_rate_limit:${requestModelFamily}`,
+                  }),
                 )
-                upstreamErrorHelper
-                  .recordErrorHistory(
-                    accountId,
-                    accountType,
-                    429,
-                    'rate_limit',
-                    upstreamErrorHelper.buildErrorContext({
-                      url: this.claudeApiUrl,
-                      method: 'POST',
-                      requestHeaders: clientHeaders,
-                      requestBody: body,
-                      model: body?.model,
-                      sessionId: sessionHash,
-                      responseStatus: 429,
-                      responseHeaders: res.headers,
-                      responseBody: sanitizedBody429,
-                      reason: `model_family_rate_limit:${requestModelFamily}`,
-                    }),
-                  )
-                  .catch((error) => console.error(error))
-                logger.warn(
-                  ` [Stream] Account ${accountId} hit ${requestModelFamily} limit, resets at ${new Date(parsedResetTimestamp * 1000).toISOString()}`,
-                )
-              }
+                .catch((error) => console.error(error))
+              logger.warn(
+                ` [Stream] Account ${accountId} hit ${requestModelFamily} limit, resets at ${new Date(parsedResetTimestamp * 1000).toISOString()}`,
+              )
 
               if (isOpusModelRequest && isDedicatedOfficialAccount) {
                 const limitMessage = this._buildOpusLimitMessage(parsedResetTimestamp)
@@ -2199,30 +2238,17 @@ class ClaudeRelayService {
                 resolve()
                 return
               }
-            } else {
-              const rateLimitResetTimestamp = Number.isNaN(parsedResetTimestamp) ? null : parsedResetTimestamp
+            } else if (
+              rateLimitReset.authoritative &&
+              rateLimitReset.scope === 'account' &&
+              !Number.isNaN(parsedResetTimestamp)
+            ) {
+              const rateLimitResetTimestamp = parsedResetTimestamp
               const isAgentViewAuxiliaryRequest = this._isAgentViewAuxiliaryRequest(body, clientHeaders)
               if (isAgentViewAuxiliaryRequest) {
                 logger.warn(
                   ` [Stream] Agent View auxiliary request hit 429 for account ${accountId}; skipping account-level rate-limit marking`,
                 )
-              } else if (!rateLimitResetTimestamp) {
-                // 无权威 reset 头的 429 大概率不是真实限流，不标记账号、不进入冷却，直接透传错误
-                logger.warn(`[Stream] 429 without reset header for account ${accountId}, skipping rate limit marking`)
-                const errorContext429NoReset = upstreamErrorHelper.buildErrorContext({
-                  url: this.claudeApiUrl,
-                  method: 'POST',
-                  requestHeaders: clientHeaders,
-                  requestBody: body,
-                  model: body?.model,
-                  sessionId: sessionHash,
-                  responseStatus: 429,
-                  responseHeaders: res.headers,
-                  responseBody: sanitizedBody429,
-                })
-                upstreamErrorHelper
-                  .recordErrorHistory(accountId, accountType, 429, 'rate_limit', errorContext429NoReset)
-                  .catch((error) => console.error(error))
               } else {
                 await unifiedClaudeScheduler.markAccountRateLimited(
                   accountId,
@@ -2273,6 +2299,24 @@ class ClaudeRelayService {
                 resolve()
                 return
               }
+            } else {
+              // 非权威 fallback：不标记限流，仍记错误历史（与非流式一致）
+              logger.warn(`[Stream] Non-authoritative 429 for account ${accountId}, skip rate-limit marking`)
+              const errorContext429NonAuth = upstreamErrorHelper.buildErrorContext({
+                url: this.claudeApiUrl,
+                method: 'POST',
+                requestHeaders: clientHeaders,
+                requestBody: body,
+                model: body?.model,
+                sessionId: sessionHash,
+                responseStatus: 429,
+                responseHeaders: res.headers,
+                responseBody: sanitizedBody429,
+                reason: 'non_authoritative_rate_limit',
+              })
+              upstreamErrorHelper
+                .recordErrorHistory(accountId, accountType, 429, 'rate_limit', errorContext429NonAuth)
+                .catch((error) => console.error(error))
             }
 
             // 非专属账户的真正限流：脱敏后返回客户端（body 已读完）
@@ -2952,10 +2996,16 @@ class ClaudeRelayService {
 
           // 处理限流状态
           if (rateLimitDetected || res.statusCode === 429) {
-            const resetHeader = res.headers ? res.headers['anthropic-ratelimit-unified-reset'] : null
-            const parsedResetTimestamp = resetHeader ? parseInt(resetHeader, 10) : NaN
+            const rateLimitReset = this._resolveRateLimitReset(res.headers, requestModelFamily, '[Stream-End]')
+            const parsedResetTimestamp = rateLimitReset.resetTimestamp ?? NaN
 
-            if (requestModelFamily && !Number.isNaN(parsedResetTimestamp)) {
+            // DEC_20260913_155429 仅权威 model scope 记模型级；账号级窗口走账号限流
+            if (
+              rateLimitReset.authoritative &&
+              rateLimitReset.scope === 'model' &&
+              requestModelFamily &&
+              !Number.isNaN(parsedResetTimestamp)
+            ) {
               // 模型级限额：只停用该模型家族，不改写为账号级限流
               await claudeAccountService.markAccountModelRateLimited(
                 accountId,
@@ -3017,7 +3067,11 @@ class ClaudeRelayService {
                   errorContext429StreamNoReset,
                 )
                 .catch((error) => console.error(error))
-            } else {
+            } else if (
+              rateLimitReset.authoritative &&
+              rateLimitReset.scope === 'account' &&
+              !Number.isNaN(parsedResetTimestamp)
+            ) {
               logger.info(
                 `Extracted rate limit reset timestamp from stream: ${parsedResetTimestamp} (${new Date(parsedResetTimestamp * 1000).toISOString()})`,
               )
@@ -3048,6 +3102,31 @@ class ClaudeRelayService {
                   errorContext429Stream,
                 )
                 .catch(() => {})
+            } else {
+              // 非权威 fallback：不标记限流，但仍记错误历史（与非流式一致）
+              logger.warn(` [Stream] Non-authoritative rate limit at stream end for account ${accountId}, skip marking`)
+              const historyStatusNonAuth = rateLimitDetected ? 429 : res.statusCode
+              const errorContext429StreamNonAuth = upstreamErrorHelper.buildErrorContext({
+                url: this.claudeApiUrl,
+                method: 'POST',
+                requestHeaders: clientHeaders,
+                requestBody: body,
+                model: body?.model,
+                sessionId: sessionHash,
+                responseStatus: historyStatusNonAuth,
+                responseHeaders: res.headers,
+                responseBody: rateLimitErrorBody,
+                reason: 'non_authoritative_rate_limit',
+              })
+              upstreamErrorHelper
+                .recordErrorHistory(
+                  accountId,
+                  accountType,
+                  historyStatusNonAuth,
+                  'rate_limit',
+                  errorContext429StreamNonAuth,
+                )
+                .catch((error) => console.error(error))
             }
           } else if (res.statusCode === 200) {
             // 请求成功，清除401和500错误计数

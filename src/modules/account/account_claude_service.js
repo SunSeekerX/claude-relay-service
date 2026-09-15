@@ -1392,6 +1392,21 @@ class ClaudeAccountService {
     return Number.isFinite(num) ? num : null
   }
 
+  // 利用率百分比钳制到 0-100；非法返回 null
+  _toUtilizationPercentOrNull(value) {
+    const num = this._toNumberOrNull(value)
+    if (num === null) {
+      return null
+    }
+    if (num < 0) {
+      return 0
+    }
+    if (num > 100) {
+      return 100
+    }
+    return num
+  }
+
   // 清理错误账户
   async cleanupErrorAccounts() {
     try {
@@ -2137,50 +2152,96 @@ class ClaudeAccountService {
     }
   }
 
+  // 从上游 limits[] 提取按模型限定的周窗口（如 Fable）
+  // DEC_20260912_232856 模型级周额度从 weekly_scoped 解析，不依赖顶层 seven_day_sonnet
+  _extractWeeklyScopedModels(limits) {
+    if (!Array.isArray(limits)) {
+      return []
+    }
+
+    const result = []
+    for (const limit of limits) {
+      if (!limit || limit.kind !== 'weekly_scoped') {
+        continue
+      }
+      const modelName = limit.scope?.model?.display_name
+      if (!modelName) {
+        continue
+      }
+      result.push({
+        modelName: String(modelName),
+        utilization: this._toUtilizationPercentOrNull(limit.percent),
+        resetsAt: limit.resets_at || null,
+        severity: limit.severity || null,
+        isActive: limit.is_active === true,
+      })
+    }
+    return result
+  }
+
   // 构建 Claude Usage 快照（从 Redis 数据）
   buildClaudeUsageSnapshot(accountData) {
     const updatedAt = accountData.claudeUsageUpdatedAt
 
-    const fiveHourUtilization = this._toNumberOrNull(accountData.claudeFiveHourUtilization)
+    const fiveHourUtilization = this._toUtilizationPercentOrNull(accountData.claudeFiveHourUtilization)
     const fiveHourResetsAt = accountData.claudeFiveHourResetsAt
-    const sevenDayUtilization = this._toNumberOrNull(accountData.claudeSevenDayUtilization)
+    const sevenDayUtilization = this._toUtilizationPercentOrNull(accountData.claudeSevenDayUtilization)
     const sevenDayResetsAt = accountData.claudeSevenDayResetsAt
-    const sevenDayOpusUtilization = this._toNumberOrNull(accountData.claudeSevenDayOpusUtilization)
+    const sevenDayOpusUtilization = this._toUtilizationPercentOrNull(accountData.claudeSevenDayOpusUtilization)
     const sevenDayOpusResetsAt = accountData.claudeSevenDayOpusResetsAt
+
+    let scopedModels = []
+    if (accountData.claudeWeeklyScopedModels) {
+      try {
+        const parsed = JSON.parse(accountData.claudeWeeklyScopedModels)
+        if (Array.isArray(parsed)) {
+          scopedModels = parsed
+        }
+      } catch {
+        scopedModels = []
+      }
+    }
 
     const hasFiveHourData = fiveHourUtilization !== null || fiveHourResetsAt
     const hasSevenDayData = sevenDayUtilization !== null || sevenDayResetsAt
     const hasSevenDayOpusData = sevenDayOpusUtilization !== null || sevenDayOpusResetsAt
 
-    if (!updatedAt && !hasFiveHourData && !hasSevenDayData && !hasSevenDayOpusData) {
+    if (!updatedAt && !hasFiveHourData && !hasSevenDayData && !hasSevenDayOpusData && scopedModels.length === 0) {
       return null
     }
 
     const now = Date.now()
+    const remainingFrom = (resetsAt) =>
+      resetsAt ? Math.max(0, Math.floor((new Date(resetsAt).getTime() - now) / 1000)) : null
 
     return {
       updatedAt,
       fiveHour: {
         utilization: fiveHourUtilization,
         resetsAt: fiveHourResetsAt,
-        remainingSeconds: fiveHourResetsAt
-          ? Math.max(0, Math.floor((new Date(fiveHourResetsAt).getTime() - now) / 1000))
-          : null,
+        remainingSeconds: remainingFrom(fiveHourResetsAt),
       },
       sevenDay: {
         utilization: sevenDayUtilization,
         resetsAt: sevenDayResetsAt,
-        remainingSeconds: sevenDayResetsAt
-          ? Math.max(0, Math.floor((new Date(sevenDayResetsAt).getTime() - now) / 1000))
-          : null,
+        remainingSeconds: remainingFrom(sevenDayResetsAt),
       },
       sevenDayOpus: {
         utilization: sevenDayOpusUtilization,
         resetsAt: sevenDayOpusResetsAt,
-        remainingSeconds: sevenDayOpusResetsAt
-          ? Math.max(0, Math.floor((new Date(sevenDayOpusResetsAt).getTime() - now) / 1000))
-          : null,
+        remainingSeconds: remainingFrom(sevenDayOpusResetsAt),
       },
+      // Redis 可能存 [null] 脏数据，先过滤非对象，避免快照构建抛错导致用量条全消失
+      sevenDayScopedModels: scopedModels
+        .filter((item) => item && typeof item === 'object')
+        .map((item) => ({
+          modelName: item.modelName,
+          utilization: this._toUtilizationPercentOrNull(item.utilization),
+          resetsAt: item.resetsAt || null,
+          severity: item.severity || null,
+          isActive: item.isActive === true,
+          remainingSeconds: remainingFrom(item.resetsAt),
+        })),
     }
   }
 
@@ -2212,7 +2273,7 @@ class ClaudeAccountService {
       }
     }
 
-    // 7天Opus窗口
+    // 7天Opus窗口（上游字段名仍是 seven_day_sonnet）
     if (usageData.seven_day_sonnet) {
       if (usageData.seven_day_sonnet.utilization !== undefined) {
         updates.claudeSevenDayOpusUtilization = String(usageData.seven_day_sonnet.utilization)
@@ -2222,10 +2283,19 @@ class ClaudeAccountService {
       }
     }
 
-    if (Object.keys(updates).length === 0) {
+    const hasLimitsField = Object.prototype.hasOwnProperty.call(usageData, 'limits')
+    const scopedModels = hasLimitsField ? this._extractWeeklyScopedModels(usageData.limits) : null
+
+    // 上游什么都没回传时保持原样，不 bump updatedAt
+    if (Object.keys(updates).length === 0 && !hasLimitsField) {
       return
     }
 
+    // DEC_20260913_005550 仅当响应显式带 limits 时才写 scoped；缺字段时保留旧快照
+    // limits 显式为空数组时仍写 []，用于清掉上游已不再返回的僵尸条
+    if (hasLimitsField) {
+      updates.claudeWeeklyScopedModels = JSON.stringify(scopedModels)
+    }
     updates.claudeUsageUpdatedAt = new Date().toISOString()
 
     const accountData = await redis.getClaudeAccount(accountId)

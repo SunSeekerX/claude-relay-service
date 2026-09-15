@@ -22,6 +22,7 @@ import { router as testModelConfigRoutes } from '../relay/relay_test_model_confi
 import { router as syncRoutes } from './admin_sync_routes.js'
 import { router as accountsMigrationRoutes } from '../account/account_migration_routes.js'
 import { router as serviceRatesRoutes } from '../payment/payment_service_rates_routes.js'
+import { router as grokMediaPricingRoutes } from '../pricing/pricing_grok_media_overlay_routes.js'
 import { router as quotaCardsRoutes } from '../payment/payment_quota_cards_routes.js'
 import { router as errorHistoryRoutes } from '../relay/relay_error_history_routes.js'
 import { router as requestDetailsRoutes } from '../relay/relay_request_details_routes.js'
@@ -56,6 +57,7 @@ router.use('/', testModelConfigRoutes)
 router.use('/', syncRoutes)
 router.use('/', accountsMigrationRoutes)
 router.use('/', serviceRatesRoutes)
+router.use('/', grokMediaPricingRoutes)
 router.use('/', quotaCardsRoutes)
 router.use('/', errorHistoryRoutes)
 router.use('/', requestDetailsRoutes)

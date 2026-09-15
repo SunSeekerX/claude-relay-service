@@ -783,20 +783,14 @@
                       </AppTooltip>
                     </span>
                     <span
-                      v-if="
-                        account.opusRateLimitStatus && account.opusRateLimitStatus.isRateLimited
-                      "
-                      class="inline-flex items-center rounded-full bg-purple-100 px-3 py-1 text-sm font-semibold text-purple-800"
+                      v-for="family in getLimitedModelFamilies(account)"
+                      :key="family.key"
+                      class="inline-flex items-center rounded-full bg-purple-100 px-3 py-1 text-sm font-semibold text-purple-800 dark:bg-purple-500/20 dark:text-purple-300"
                     >
                       <i class="i-lucide-hourglass mr-1" />
-                      Opus限流
-                      <span
-                        v-if="
-                          Number.isFinite(account.opusRateLimitStatus.minutesRemaining) &&
-                          account.opusRateLimitStatus.minutesRemaining > 0
-                        "
-                      >
-                        ({{ formatRateLimitTime(account.opusRateLimitStatus.minutesRemaining) }})
+                      {{ family.label }}限流
+                      <span v-if="family.minutesRemaining > 0">
+                        ({{ formatRateLimitTime(family.minutesRemaining) }})
                       </span>
                     </span>
                     <span
@@ -945,13 +939,51 @@
                           重置剩余 {{ formatClaudeRemaining(account.claudeUsage.sevenDay) }}
                         </div>
                       </div>
-                      <!-- 7天Opus窗口 -->
-                      <div class="rounded-lg bg-gray-50 p-2 dark:bg-gray-700/70">
+                      <!-- 按模型限定的周窗口（上游 limits[] 中的 weekly_scoped，如 Fable） -->
+                      <div
+                        v-for="(scoped, scopedIndex) in getScopedModelUsage(account)"
+                        :key="`${scoped.modelName}-${scopedIndex}`"
+                        class="rounded-lg bg-gray-50 p-2 dark:bg-gray-700/70"
+                      >
                         <div class="flex items-center gap-2">
                           <span
                             class="inline-flex min-w-[32px] justify-center rounded-full bg-purple-100 px-2 py-0.5 text-sm font-medium text-purple-600 dark:bg-purple-500/20 dark:text-purple-300"
                           >
-                            sonnet
+                            {{ scoped.modelName }}
+                          </span>
+                          <div class="flex-1">
+                            <div class="flex items-center gap-2">
+                              <div class="h-2 flex-1 rounded-full bg-gray-200 dark:bg-gray-600">
+                                <div
+                                  :class="[
+                                    'h-2 rounded-full transition-all duration-300',
+                                    getClaudeUsageBarClass(scoped)
+                                  ]"
+                                  :style="{ width: getClaudeUsageWidth(scoped) }"
+                                />
+                              </div>
+                              <span
+                                class="w-12 text-right text-sm font-semibold text-gray-800 dark:text-gray-100"
+                              >
+                                {{ formatClaudeUsagePercent(scoped) }}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                        <div class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                          重置剩余 {{ formatClaudeRemaining(scoped) }}
+                        </div>
+                      </div>
+                      <!-- 顶层具名窗口 seven_day_sonnet：有数据则显示，与同名 scoped 去重 -->
+                      <div
+                        v-if="hasLegacySevenDayModelWindow(account)"
+                        class="rounded-lg bg-gray-50 p-2 dark:bg-gray-700/70"
+                      >
+                        <div class="flex items-center gap-2">
+                          <span
+                            class="inline-flex min-w-[32px] justify-center rounded-full bg-purple-100 px-2 py-0.5 text-sm font-medium text-purple-600 dark:bg-purple-500/20 dark:text-purple-300"
+                          >
+                            {{ LEGACY_SEVEN_DAY_MODEL_LABEL }}
                           </span>
                           <div class="flex-1">
                             <div class="flex items-center gap-2">
@@ -1134,13 +1166,16 @@
                     </div>
                   </div>
                   <div v-else-if="account.platform === 'openai'" class="space-y-2">
-                    <div v-if="account.codexUsage" class="space-y-2">
-                      <div class="rounded-lg bg-gray-50 p-2 dark:bg-gray-700/70">
+                    <div v-if="hasAnyCodexWindow(account.codexUsage)" class="space-y-2">
+                      <div
+                        v-if="hasCodexWindow(account.codexUsage.primary)"
+                        class="rounded-lg bg-gray-50 p-2 dark:bg-gray-700/70"
+                      >
                         <div class="flex items-center gap-2">
                           <span
                             class="inline-flex min-w-[32px] justify-center rounded-full bg-indigo-100 px-2 py-0.5 text-sm font-medium text-indigo-600 dark:bg-indigo-500/20 dark:text-indigo-300"
                           >
-                            {{ getCodexWindowLabel('primary') }}
+                            {{ getCodexWindowLabel(account.codexUsage.primary, 'primary') }}
                           </span>
                           <div class="flex-1">
                             <div class="flex items-center gap-2">
@@ -1167,12 +1202,15 @@
                           重置剩余 {{ formatCodexRemaining(account.codexUsage.primary) }}
                         </div>
                       </div>
-                      <div class="rounded-lg bg-gray-50 p-2 dark:bg-gray-700/70">
+                      <div
+                        v-if="hasCodexWindow(account.codexUsage.secondary)"
+                        class="rounded-lg bg-gray-50 p-2 dark:bg-gray-700/70"
+                      >
                         <div class="flex items-center gap-2">
                           <span
                             class="inline-flex min-w-[32px] justify-center rounded-full bg-blue-100 px-2 py-0.5 text-sm font-medium text-blue-600 dark:bg-blue-500/20 dark:text-blue-300"
                           >
-                            {{ getCodexWindowLabel('secondary') }}
+                            {{ getCodexWindowLabel(account.codexUsage.secondary, 'secondary') }}
                           </span>
                           <div class="flex-1">
                             <div class="flex items-center gap-2">
@@ -1201,7 +1239,7 @@
                       </div>
                     </div>
                     <div v-else class="text-sm text-gray-400">
-                      <span class="text-sm">N/A</span>
+                      <span class="text-sm">暂无统计</span>
                     </div>
                   </div>
                   <div v-else class="text-sm text-gray-400">
@@ -1630,13 +1668,51 @@
                     重置剩余 {{ formatClaudeRemaining(account.claudeUsage.sevenDay) }}
                   </div>
                 </div>
-                <!-- 7天Opus窗口 -->
-                <div class="rounded-lg bg-gray-50 p-2 dark:bg-gray-700/70">
+                <!-- 按模型限定的周窗口（上游 limits[] 中的 weekly_scoped，如 Fable） -->
+                <div
+                  v-for="(scoped, scopedIndex) in getScopedModelUsage(account)"
+                  :key="`${scoped.modelName}-${scopedIndex}`"
+                  class="rounded-lg bg-gray-50 p-2 dark:bg-gray-700/70"
+                >
                   <div class="flex items-center gap-2">
                     <span
                       class="inline-flex min-w-[32px] justify-center rounded-full bg-purple-100 px-2 py-0.5 text-sm font-medium text-purple-600 dark:bg-purple-500/20 dark:text-purple-300"
                     >
-                      Opus
+                      {{ scoped.modelName }}
+                    </span>
+                    <div class="flex-1">
+                      <div class="flex items-center gap-2">
+                        <div class="h-2 flex-1 rounded-full bg-gray-200 dark:bg-gray-600">
+                          <div
+                            :class="[
+                              'h-2 rounded-full transition-all duration-300',
+                              getClaudeUsageBarClass(scoped)
+                            ]"
+                            :style="{ width: getClaudeUsageWidth(scoped) }"
+                          />
+                        </div>
+                        <span
+                          class="w-12 text-right text-sm font-semibold text-gray-800 dark:text-gray-100"
+                        >
+                          {{ formatClaudeUsagePercent(scoped) }}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                    重置剩余 {{ formatClaudeRemaining(scoped) }}
+                  </div>
+                </div>
+                <!-- 顶层具名窗口 seven_day_sonnet：有数据则显示，与同名 scoped 去重 -->
+                <div
+                  v-if="hasLegacySevenDayModelWindow(account)"
+                  class="rounded-lg bg-gray-50 p-2 dark:bg-gray-700/70"
+                >
+                  <div class="flex items-center gap-2">
+                    <span
+                      class="inline-flex min-w-[32px] justify-center rounded-full bg-purple-100 px-2 py-0.5 text-sm font-medium text-purple-600 dark:bg-purple-500/20 dark:text-purple-300"
+                    >
+                      {{ LEGACY_SEVEN_DAY_MODEL_LABEL }}
                     </span>
                     <div class="flex-1">
                       <div class="flex items-center gap-2">
@@ -1719,13 +1795,16 @@
               <div v-else class="text-sm text-gray-400">暂无统计</div>
             </div>
             <div v-else-if="account.platform === 'openai'" class="space-y-2">
-              <div v-if="account.codexUsage" class="space-y-2">
-                <div class="rounded-lg bg-gray-50 p-2 dark:bg-gray-700">
+              <div v-if="hasAnyCodexWindow(account.codexUsage)" class="space-y-2">
+                <div
+                  v-if="hasCodexWindow(account.codexUsage.primary)"
+                  class="rounded-lg bg-gray-50 p-2 dark:bg-gray-700"
+                >
                   <div class="flex items-center gap-2">
                     <span
                       class="inline-flex min-w-[32px] justify-center rounded-full bg-indigo-100 px-2 py-0.5 text-sm font-medium text-indigo-600 dark:bg-indigo-500/20 dark:text-indigo-300"
                     >
-                      {{ getCodexWindowLabel('primary') }}
+                      {{ getCodexWindowLabel(account.codexUsage.primary, 'primary') }}
                     </span>
                     <div class="flex-1">
                       <div class="flex items-center gap-2">
@@ -1752,12 +1831,15 @@
                     重置剩余 {{ formatCodexRemaining(account.codexUsage.primary) }}
                   </div>
                 </div>
-                <div class="rounded-lg bg-gray-50 p-2 dark:bg-gray-700">
+                <div
+                  v-if="hasCodexWindow(account.codexUsage.secondary)"
+                  class="rounded-lg bg-gray-50 p-2 dark:bg-gray-700"
+                >
                   <div class="flex items-center gap-2">
                     <span
                       class="inline-flex min-w-[32px] justify-center rounded-full bg-blue-100 px-2 py-0.5 text-sm font-medium text-blue-600 dark:bg-blue-500/20 dark:text-blue-300"
                     >
-                      {{ getCodexWindowLabel('secondary') }}
+                      {{ getCodexWindowLabel(account.codexUsage.secondary, 'secondary') }}
                     </span>
                     <div class="flex-1">
                       <div class="flex items-center gap-2">
@@ -1785,7 +1867,9 @@
                   </div>
                 </div>
               </div>
-              <div v-if="!account.codexUsage" class="text-sm text-gray-400">暂无统计</div>
+              <div v-if="!hasAnyCodexWindow(account.codexUsage)" class="text-sm text-gray-400">
+                暂无统计
+              </div>
             </div>
 
             <!-- 最后使用时间 -->
@@ -4643,6 +4727,53 @@ const dedupeRoutingReasons = (reasons) => {
   return Array.from(new Set(normalized))
 }
 
+// DEC_20260912_232856 限流徽章展示 Opus/Haiku/Fable；Sonnet 仍参与调度但不进噪音徽章
+const MODEL_RATE_LIMIT_FAMILIES = [
+  { key: 'opus', label: 'Opus' },
+  { key: 'haiku', label: 'Haiku' },
+  { key: 'fable', label: 'Fable' }
+]
+
+const getLimitedModelFamilies = (account) => {
+  if (!account) return []
+
+  const legacy = {
+    opus: account.opusRateLimitStatus,
+    fable: account.fableRateLimitStatus
+  }
+
+  return MODEL_RATE_LIMIT_FAMILIES.map(({ key, label }) => {
+    const status = account.modelRateLimitStatus?.[key] || legacy[key]
+    if (!status?.isRateLimited) return null
+
+    const minutesRemaining = Number.isFinite(status.minutesRemaining)
+      ? Math.max(0, Math.ceil(status.minutesRemaining))
+      : 0
+
+    return { key, label, minutesRemaining, resetAt: status.resetAt || null }
+  }).filter(Boolean)
+}
+
+const getScopedModelUsage = (account) => {
+  const scoped = account?.claudeUsage?.sevenDayScopedModels
+  if (!Array.isArray(scoped)) {
+    return []
+  }
+  return scoped.filter((item) => item?.modelName && item.utilization !== null && item.utilization !== undefined)
+}
+
+const LEGACY_SEVEN_DAY_MODEL_LABEL = 'Sonnet'
+
+const hasLegacySevenDayModelWindow = (account) => {
+  const window = account?.claudeUsage?.sevenDayOpus
+  if (!window || window.utilization === null || window.utilization === undefined) {
+    return false
+  }
+  return !getScopedModelUsage(account).some(
+    (item) => item.modelName === LEGACY_SEVEN_DAY_MODEL_LABEL
+  )
+}
+
 const isAccountExpiredForRouting = (account) => {
   if (!account || !account.expiresAt) return false
   if (account.platform !== 'claude-console' && account.platform !== 'bedrock') return false
@@ -4677,7 +4808,7 @@ const isAccountRoutingBlocked = (account) => {
     return true
   }
 
-  if (account.opusRateLimitStatus?.isRateLimited) {
+  if (getLimitedModelFamilies(account).length > 0) {
     return true
   }
 
@@ -4755,14 +4886,11 @@ const getRoutingBlockReasons = (account) => {
     reasons.push(tempReason)
   }
 
-  if (account.opusRateLimitStatus?.isRateLimited) {
-    const opusMinutes = Number.isFinite(account.opusRateLimitStatus.minutesRemaining)
-      ? Math.max(0, Math.ceil(account.opusRateLimitStatus.minutesRemaining))
-      : 0
+  for (const family of getLimitedModelFamilies(account)) {
     reasons.push(
-      opusMinutes > 0
-        ? `Opus 模型限流中（约 ${formatRateLimitTime(opusMinutes)} 后恢复）`
-        : 'Opus 模型限流中'
+      family.minutesRemaining > 0
+        ? `${family.label} 模型限流中（约 ${formatRateLimitTime(family.minutesRemaining)} 后恢复）`
+        : `${family.label} 模型限流中`
     )
   }
 
@@ -4944,7 +5072,11 @@ const formatClaudeUsagePercent = (window) => {
   if (!window || window.utilization === null || window.utilization === undefined) {
     return '-'
   }
-  return `${window.utilization}%`
+  const util = Number(window.utilization)
+  if (!Number.isFinite(util)) {
+    return '-'
+  }
+  return `${Math.min(100, Math.max(0, util))}%`
 }
 
 // 获取 Claude 使用率宽度
@@ -4952,12 +5084,17 @@ const getClaudeUsageWidth = (window) => {
   if (!window || window.utilization === null || window.utilization === undefined) {
     return '0%'
   }
-  return `${window.utilization}%`
+  const util = Number(window.utilization)
+  if (!Number.isFinite(util)) {
+    return '0%'
+  }
+  return `${Math.min(100, Math.max(0, util))}%`
 }
 
 // 获取 Claude 使用率进度条颜色
 const getClaudeUsageBarClass = (window) => {
-  const util = window?.utilization || 0
+  const raw = Number(window?.utilization)
+  const util = Number.isFinite(raw) ? Math.min(100, Math.max(0, raw)) : 0
   if (util < 60) {
     return 'bg-gradient-to-r from-blue-500 to-indigo-600'
   }
@@ -5066,13 +5203,48 @@ const getCodexUsageWidth = (usageItem) => {
   return `${percent}%`
 }
 
-// 时间窗口标签
-const getCodexWindowLabel = (type) => {
-  if (type === 'secondary') {
-    return '周限'
+// 时间窗口标签：按 windowMinutes 推导，不能按槽位硬编码
+// DEC_20260912_232856 Codex 窗口标签按 windowMinutes 推导
+const formatCodexWindowMinutes = (minutes) => {
+  if (!Number.isFinite(minutes) || minutes <= 0) {
+    return ''
   }
-  return '5h'
+  if (minutes % 10080 === 0) {
+    const weeks = minutes / 10080
+    return weeks === 1 ? '周限' : `${weeks}周`
+  }
+  if (minutes % 1440 === 0) {
+    return `${minutes / 1440}天`
+  }
+  if (minutes % 60 === 0) {
+    return `${minutes / 60}h`
+  }
+  return `${minutes}m`
 }
+
+const getCodexWindowLabel = (usageItem, fallbackType) => {
+  const label = formatCodexWindowMinutes(usageItem?.windowMinutes)
+  if (label) {
+    return label
+  }
+  return fallbackType === 'secondary' ? '周限' : '5h'
+}
+
+const hasCodexWindow = (usageItem) => {
+  if (!usageItem) {
+    return false
+  }
+  if (Number.isFinite(usageItem.windowMinutes) && usageItem.windowMinutes > 0) {
+    return true
+  }
+  return (
+    (Number.isFinite(usageItem.usedPercent) && usageItem.usedPercent > 0) ||
+    (Number.isFinite(usageItem.resetAfterSeconds) && usageItem.resetAfterSeconds > 0)
+  )
+}
+
+const hasAnyCodexWindow = (codexUsage) =>
+  !!codexUsage && (hasCodexWindow(codexUsage.primary) || hasCodexWindow(codexUsage.secondary))
 
 // 格式化剩余时间
 const formatCodexRemaining = (usageItem) => {

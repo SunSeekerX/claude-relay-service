@@ -66,6 +66,10 @@
             v-if="visitedSections.serviceRates"
             v-show="activeSection === 'serviceRates'"
           />
+          <GrokMediaPricingSection
+            v-if="visitedSections.grokMediaPricing"
+            v-show="activeSection === 'grokMediaPricing'"
+          />
           <ModelPricingSection
             v-if="visitedSections.modelPricing"
             v-show="activeSection === 'modelPricing'"
@@ -94,6 +98,7 @@ import BrandingSettingsSection from '@/components/settings/branding_settings_sec
 import WebhookSettingsSection from '@/components/settings/webhook_settings_section.vue'
 import ClaudeSettingsSection from '@/components/settings/claude_settings_section.vue'
 import ServiceRatesSettingsSection from '@/components/settings/service_rates_settings_section.vue'
+import GrokMediaPricingSection from '@/components/settings/grok_media_pricing_section.vue'
 import TestModelsSettingsSection from '@/components/settings/test_models_settings_section.vue'
 import ModelPricingSection from '@/components/settings/model_pricing_section.vue'
 import TranslatorRegistrySection from '@/components/settings/translator_registry_section.vue'
@@ -111,6 +116,7 @@ const sectionTabs = [
   { key: 'webhook', label: '通知设置', icon: 'i-lucide-bell', hint: 'Webhook 推送与通知渠道' },
   { key: 'claude', label: '转发配置', icon: 'i-lucide-bot', hint: '客户端限制、会话绑定、请求明细与错误收集' },
   { key: 'serviceRates', label: '服务倍率', icon: 'i-lucide-scale', hint: '各服务计费倍率' },
+  { key: 'grokMediaPricing', label: 'Grok 媒体', icon: 'i-lucide-image', hint: 'Grok 图片/视频按张按秒单价' },
   { key: 'modelPricing', label: '模型价格', icon: 'i-lucide-coins', hint: '模型单价与价格表' },
   { key: 'testModels', label: '测试模型', icon: 'i-lucide-flask-conical', hint: '连通性测试默认模型' },
   { key: 'protocol', label: '协议转换', icon: 'i-lucide-git-branch', hint: '跨协议转换注册表与桥接说明' }

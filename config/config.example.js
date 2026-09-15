@@ -56,6 +56,11 @@ export const config = {
     betaHeader:
       env.CLAUDE_BETA_HEADER ||
       'claude-code-20250219,oauth-2025-04-20,interleaved-thinking-2025-05-14,fine-grained-tool-streaming-2025-05-14',
+    // 模型级限流兜底时长上限（秒）。仅当上游未回传 rejected 窗口时钳制 unified-reset。
+    maxModelRateLimitFallbackSeconds: (() => {
+      const parsed = parseInt(env.CLAUDE_MAX_MODEL_RATE_LIMIT_FALLBACK_SECONDS, 10)
+      return Number.isFinite(parsed) && parsed > 0 ? parsed : 3600
+    })(),
     overloadHandling: {
       enabled: (() => {
         const minutes = parseInt(env.CLAUDE_OVERLOAD_HANDLING_MINUTES) || 0
