@@ -1,3 +1,5 @@
+import { IncrementalSSEParser } from './relay_sse_parser.js'
+
 // OpenAI/Codex 容量降载错误码出站改写
 // DEC_20260905_100000 对齐 sub2api：code 或文案命中均改写；SSE 支持 \n\n 与 \r\n\r\n
 // 内部限流/换号仍看原始 payload，本函数只改「写给客户端」的副本
@@ -201,29 +203,16 @@ export const sanitizeOpenAICapacityShedSseDataLine = (line) => {
   }
   // 兼容 data: 与 data:（可能带 \r）
   const normalized = line.endsWith('\r') ? line.slice(0, -1) : line
-  if (!normalized.startsWith('data: ')) {
+  if (!normalized.startsWith('data:')) {
     return { line, changed: false }
   }
-  const data = normalized.slice(6)
+  const data = normalized.slice(5).trimStart()
   const { payload, changed } = sanitizeOpenAICapacityShedForClient(data)
   if (!changed) {
     return { line, changed: false }
   }
   const suffix = line.endsWith('\r') ? '\r' : ''
   return { line: `data: ${payload}${suffix}`, changed: true }
-}
-
-const hasEventBoundary = (text) => text.includes('\n\n') || text.includes('\r\n\r\n')
-
-const splitSseEvents = (text) => {
-  // 优先按 \r\n\r\n，再按 \n\n；混合时统一处理
-  if (text.includes('\r\n\r\n')) {
-    // 若同时有 \n\n，先把 \r\n\r\n 切，残留再按 \n\n
-    const parts = text.split('\r\n\r\n')
-    return { parts, joiner: '\r\n\r\n' }
-  }
-  const parts = text.split('\n\n')
-  return { parts, joiner: '\n\n' }
 }
 
 const splitSseLines = (block) => {
@@ -244,7 +233,7 @@ const joinSseLines = (lines, block) => {
 // 流式 SSE 出站改写器：跨 TCP chunk 缓冲；同时认 \n\n 与 \r\n\r\n
 // DEC_20260905_100000
 export const createCapacityShedSseRewriteStream = () => {
-  let buffer = ''
+  const parser = new IncrementalSSEParser()
 
   const rewriteEventBlock = (block) => {
     if (
@@ -261,26 +250,10 @@ export const createCapacityShedSseRewriteStream = () => {
 
   return {
     push(chunk) {
-      const text = typeof chunk === 'string' ? chunk : chunk.toString('utf8')
-      buffer += text
-      if (!hasEventBoundary(buffer)) {
-        return ''
-      }
-      const { parts, joiner } = splitSseEvents(buffer)
-      buffer = parts.pop() || ''
-      const out = []
-      for (const part of parts) {
-        out.push(rewriteEventBlock(part))
-      }
-      return out.length ? `${out.join(joiner)}${joiner}` : ''
+      return parser.feedFrames(chunk).map(rewriteEventBlock).join('')
     },
     flush() {
-      if (!buffer) {
-        return ''
-      }
-      const rest = rewriteEventBlock(buffer)
-      buffer = ''
-      return rest
+      return parser.finishFrames().map(rewriteEventBlock).join('')
     },
   }
 }

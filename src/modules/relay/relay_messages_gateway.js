@@ -10,6 +10,8 @@ import * as claudeResponses from './translator/relay_translator_claude_responses
 import { grokRelayService } from './relay_grok_relay_service.js'
 import { sessionHelper } from './relay_session_helper.js'
 import { handleResponses } from './relay_openai_routes.js'
+import { IncrementalSSEParser } from './relay_sse_parser.js'
+import { getResponsesTerminalType } from './relay_responses_stream_state.js'
 
 const hasOpenaiDedicatedBinding = (apiKey) => {
   const binding = apiKey?.openaiAccountId
@@ -133,6 +135,9 @@ const relayClaudeMessagesViaOpenAIResponses = async (req, res, _apiKey) => {
             })
           }
           const claudeMessage = claudeResponses.convertResponsesResultToClaudeMessage(data)
+          if (claudeMessage.type === 'error') {
+            originalStatus(502)
+          }
           return originalJson(claudeMessage)
         } catch (error) {
           console.error(error)
@@ -155,7 +160,7 @@ const relayClaudeMessagesViaOpenAIResponses = async (req, res, _apiKey) => {
     const originalWrite = res.write.bind(res)
     const originalEnd = res.end.bind(res)
     const originalJson = res.json.bind(res)
-    let buffer = ''
+    const parser = new IncrementalSSEParser()
     let headersPrepared = false
     let bridgeFailed = false
 
@@ -186,6 +191,33 @@ const relayClaudeMessagesViaOpenAIResponses = async (req, res, _apiKey) => {
       })
     }
 
+    const renderEvents = (events) =>
+      events.map((item) => `event: ${item.event}\ndata: ${JSON.stringify(item.data)}\n\n`).join('')
+    const convertEvents = (events) => {
+      let output = ''
+      for (const item of events) {
+        if (item.type === 'invalid') {
+          req._crsBridgeFailure = {
+            errorCode: 'protocol_conversion_failed',
+            errorMessage: 'Invalid JSON in an upstream SSE event',
+          }
+          output += renderEvents(claudeResponses.finishClaudeFromResponsesStream(state))
+        } else if (item.type === 'data') {
+          const converted = claudeResponses.convertResponsesStreamEventToClaude(item.data, state)
+          const terminalType = getResponsesTerminalType(item.data)
+          const upstreamFailed = terminalType && !['response.completed', 'response.done'].includes(terminalType)
+          if (converted.some((entry) => entry.event === 'error') && !upstreamFailed) {
+            req._crsBridgeFailure = {
+              errorCode: 'protocol_conversion_failed',
+              errorMessage: 'Unable to convert upstream Responses events',
+            }
+          }
+          output += renderEvents(converted)
+        }
+      }
+      return output
+    }
+
     res.write = (chunk, encoding, callback) => {
       if (bridgeFailed) {
         return originalWrite(chunk, encoding, callback)
@@ -195,49 +227,7 @@ const relayClaudeMessagesViaOpenAIResponses = async (req, res, _apiKey) => {
         return originalWrite(chunk, encoding, callback)
       }
       ensureAnthropicHeaders()
-      const str = typeof chunk === 'string' ? chunk : chunk.toString()
-      buffer += str.replace(/\r\n/g, '\n')
-      let output = ''
-      let index
-      while ((index = buffer.indexOf('\n\n')) !== -1) {
-        const block = buffer.slice(0, index)
-        buffer = buffer.slice(index + 2)
-        const lines = block.split('\n')
-        for (const line of lines) {
-          if (!line.startsWith('data: ')) {
-            continue
-          }
-          const payload = line.slice(6).trim()
-          if (!payload || payload === '[DONE]') {
-            continue
-          }
-          try {
-            const eventData = JSON.parse(payload)
-            if (eventData.type === 'error' || eventData.error) {
-              output += `event: error\n`
-              output += `data: ${JSON.stringify({
-                type: 'error',
-                error: {
-                  type: eventData.error?.type || 'api_error',
-                  message: eventData.error?.message || eventData.message || 'stream error',
-                },
-              })}\n\n`
-              continue
-            }
-            const events = claudeResponses.convertResponsesStreamEventToClaude(eventData, state)
-            for (const item of events) {
-              const eventName = item.event || item.data?.type
-              const data = item.data || item
-              if (eventName) {
-                output += `event: ${eventName}\n`
-              }
-              output += `data: ${JSON.stringify(data)}\n\n`
-            }
-          } catch (error) {
-            // ignore
-          }
-        }
-      }
+      const output = convertEvents(parser.feed(chunk))
       if (output) {
         return originalWrite(output, encoding, callback)
       }
@@ -252,10 +242,12 @@ const relayClaudeMessagesViaOpenAIResponses = async (req, res, _apiKey) => {
         if (chunk) {
           res.write(chunk, encoding)
         }
-        if (!bridgeFailed && headersPrepared && !state.stopped) {
-          const stop = `event: message_stop\ndata: ${JSON.stringify({ type: 'message_stop' })}\n\n`
-          originalWrite(stop)
-          state.stopped = true
+        if (!bridgeFailed && headersPrepared) {
+          const output =
+            convertEvents(parser.finish()) + renderEvents(claudeResponses.finishClaudeFromResponsesStream(state))
+          if (output) {
+            originalWrite(output)
+          }
         }
       } finally {
         restore()

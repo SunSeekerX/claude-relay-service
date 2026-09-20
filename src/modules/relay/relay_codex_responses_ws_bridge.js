@@ -650,7 +650,7 @@ const runOneTurn = async ({
   await new Promise((resolve, reject) => {
     upstream.data.on('data', (chunk) => {
       try {
-        const events = parser.feed(chunk.toString('utf8'))
+        const events = parser.feed(chunk)
         for (const event of events || []) {
           if (!event) {
             continue

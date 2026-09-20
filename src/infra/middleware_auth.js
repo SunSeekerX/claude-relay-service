@@ -1894,7 +1894,7 @@ export const requestLogger = (req, res, next) => {
 
     // 失败转发请求写入请求明细（成功路径仍由 recordUsage 采集，这里只补 4xx/5xx）
     // DEC_20260904_162520 失败也要可见 status/error，避免列表只见成功
-    if (req.apiKey?.id && Number.isInteger(status) && status >= 400) {
+    if (!req._crsUsageDetailHandled && req.apiKey?.id && Number.isInteger(status) && status >= 400) {
       import('../modules/relay/relay_request_detail_helper.js')
         .then((requestDetailHelper) => {
           if (

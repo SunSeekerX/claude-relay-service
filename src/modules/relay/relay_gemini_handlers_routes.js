@@ -254,42 +254,6 @@ const isReadableStream = function isReadableStream(value) {
 }
 
 /**
- * 清理 contents 中 functionResponse 不被标准 Gemini API 支持的字段
- * 标准 Gemini API (generativelanguage.googleapis.com) 的 functionResponse 只支持 name 和 response 字段，不支持 id 字段
- * 注意：此函数仅用于 API Key 账户，OAuth 账户使用的 Cloud Code Assist API 可能支持额外字段
- */
-const sanitizeFunctionResponsesForApiKey = function sanitizeFunctionResponsesForApiKey(contents) {
-  if (!contents || !Array.isArray(contents)) {
-    return contents
-  }
-
-  return contents.map((content) => {
-    if (!content.parts || !Array.isArray(content.parts)) {
-      return content
-    }
-
-    const sanitizedParts = content.parts.map((part) => {
-      if (part.functionResponse) {
-        // 只保留标准 Gemini API 支持的字段：name 和 response
-        const { name, response } = part.functionResponse
-        return {
-          functionResponse: {
-            name,
-            response,
-          },
-        }
-      }
-      return part
-    })
-
-    return {
-      ...content,
-      parts: sanitizedParts,
-    }
-  })
-}
-
-/**
  * 读取可读流内容为字符串
  */
 const readStreamToString = async function readStreamToString(stream) {
@@ -2373,9 +2337,6 @@ export const handleStandardGenerateContent = async function handleStandardGenera
         })
       }
 
-      // API Key 账户：清理 functionResponse 中标准 Gemini API 不支持的字段（如 id）
-      actualRequestData.contents = sanitizeFunctionResponsesForApiKey(actualRequestData.contents)
-
       logger.info(`Standard Gemini API generateContent request (${version}) - API Key Account`, {
         model,
         accountId: actualAccountId,
@@ -2656,9 +2617,6 @@ export const handleStandardStreamGenerateContent = async function handleStandard
           },
         })
       }
-
-      // API Key 账户：清理 functionResponse 中标准 Gemini API 不支持的字段（如 id）
-      actualRequestData.contents = sanitizeFunctionResponsesForApiKey(actualRequestData.contents)
 
       logger.info(`Standard Gemini API streamGenerateContent request (${version}) - API Key Account`, {
         model,

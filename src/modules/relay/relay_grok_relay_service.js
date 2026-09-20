@@ -6,10 +6,23 @@ import { RedisKeys } from '../../infra/redis_key.js'
 import { grokAccountService } from '../account/account_grok_service.js'
 import { grokScheduler } from './relay_grok_scheduler.js'
 import { apiKeyService } from '../apikey/apikey_service.js'
-import { buildTokenUsagePayload } from './relay_request_detail_helper.js'
+import {
+  buildTokenUsagePayload,
+  normalizeOpenAITokenUsage,
+  createRequestDetailMeta,
+} from './relay_request_detail_helper.js'
 import { CodexToOpenAIConverter } from './relay_codex_to_openai.js'
 import { onClientDisconnect } from '../../common/client_disconnect.js'
-import { buildClientError } from '../../common/client_error_builder.js'
+import {
+  buildClientError,
+  buildAnthropicClientErrorBody,
+  summarizeErrorForLog,
+  extractSafeMessage,
+  extractUpstreamErrorCode,
+} from '../../common/client_error_builder.js'
+import { IncrementalSSEParser, parseSSEEvent } from './relay_sse_parser.js'
+import { ResponsesStreamState, isResponsesRateLimitError } from './relay_responses_stream_state.js'
+import { requestDetailService } from './relay_request_detail_service.js'
 import * as upstreamErrorHelper from './relay_upstream_error_helper.js'
 import { proxyResolver } from '../proxy/proxy_resolver.js'
 import * as xaiHelper from '../../common/xai_helper.js'
@@ -56,31 +69,17 @@ class GrokRelayService {
     req._grokMessagesBridge = true
     req._grokMessagesOriginalModel = originalBody?.model || responsesBody.model
 
-    if (!wantStream) {
-      const originalJson = res.json.bind(res)
-      res.json = (data) => {
-        try {
-          const claudeMessage = claudeResponses.convertResponsesResultToClaudeMessage(data)
-          return originalJson(claudeMessage)
-        } catch (error) {
-          console.error(error)
-          return originalJson(data)
-        }
-      }
-      try {
-        return await this._relay(req, res, apiKeyData, sessionHash, 'responses')
-      } finally {
-        res.json = originalJson
-        req.body = originalBody
-        delete req._grokMessagesBridge
-        delete req._grokMessagesOriginalModel
-      }
-    }
-
-    // 真流式：_relay → _handleStreamResponse 认 reverseBridgeToClaudeMessages
+    const originalJson = res.json.bind(res)
+    res.json = (data) =>
+      originalJson(
+        res.statusCode >= 400 || data?.error
+          ? buildAnthropicClientErrorBody({ statusCode: res.statusCode, upstreamBody: data })
+          : data,
+      )
     try {
       return await this._relay(req, res, apiKeyData, sessionHash, 'responses')
     } finally {
+      res.json = originalJson
       req.body = originalBody
       delete req._grokMessagesBridge
       delete req._grokMessagesOriginalModel
@@ -547,8 +546,12 @@ class GrokRelayService {
         }
       }
 
+      req._crsAccountId = account.id
+      req._crsAccountType = 'grok'
+      req._crsRequestedModel = req._grokMessagesOriginalModel ?? requestedModel
+      req._crsUpstreamHeaders = response.headers
       if (isStream || (response.data && typeof response.data.pipe === 'function')) {
-        return this._handleStreamResponse(
+        return await this._handleStreamResponse(
           response,
           res,
           account,
@@ -561,11 +564,13 @@ class GrokRelayService {
             originalChatModel,
             originalClaudeModel: req._grokMessagesOriginalModel,
             endpointKind,
+            effectiveEndpointKind,
+            sessionHash,
           },
         )
       }
 
-      return this._handleNormalResponse(
+      return await this._handleNormalResponse(
         response,
         res,
         account,
@@ -829,6 +834,7 @@ class GrokRelayService {
 
   async _handleNormalResponse(response, res, account, apiKeyData, requestedModel, req, options = {}) {
     let { data } = response
+    let conversionFailed = false
     // compact 响应改写
     if (options.isCompact) {
       data = grokProtocol.convertGrokResponseToOpenAICompact(data)
@@ -839,8 +845,9 @@ class GrokRelayService {
         const converter = new CodexToOpenAIConverter()
         data = converter.convertResponse(data, options.originalChatModel || requestedModel)
       } catch (error) {
-        console.error(error)
-        logger.warn(`[GrokRelay] reverse bridge failed: ${error.message}`)
+        conversionFailed = true
+        logger.error('Grok Chat response conversion failed', summarizeErrorForLog(error))
+        data = buildClientError({ statusCode: 502, protocol: 'openai' }).body
       }
     }
     // Responses → Claude Messages 回桥
@@ -848,35 +855,52 @@ class GrokRelayService {
       try {
         data = claudeResponses.convertResponsesResultToClaudeMessage(data)
       } catch (error) {
-        console.error(error)
-        logger.warn(`[GrokRelay] claude messages reverse bridge failed: ${error.message}`)
+        conversionFailed = true
+        logger.error('Grok Claude response conversion failed', summarizeErrorForLog(error))
+        data = buildAnthropicClientErrorBody({ statusCode: 502 })
       }
     }
 
-    const usage = data?.usage || response.data?.usage || null
-    const mediaBilling = this._buildMediaBillingUsage(data, req, options.endpointKind)
+    const failed = data?.type === 'error' || Boolean(data?.error)
+    const statusCode =
+      failed && response.status < 400 ? (isResponsesRateLimitError(data.error) ? 429 : 502) : response.status
+    const failure = failed
+      ? {
+          errorCode: conversionFailed
+            ? 'protocol_conversion_failed'
+            : extractUpstreamErrorCode(response.data) || extractUpstreamErrorCode(data) || 'response_failed',
+          errorMessage: conversionFailed ? extractSafeMessage(data) : extractSafeMessage(response.data),
+        }
+      : {}
+    const usage = response.data?.usage ?? null
+    const mediaBilling = this._buildMediaBillingUsage(response.data, req, options.endpointKind)
     // 媒体：即使上游不回 usage，也要按张数/秒落账
     if (apiKeyData?.id && (usage || mediaBilling)) {
       // Grok/xAI 官方：chat 用 completion_tokens_details.reasoning_tokens，
       // responses 用 output_tokens_details.reasoning_tokens，均为 output 子集，不可再加一遍
       const usagePayload = buildTokenUsagePayload({
-        inputTokens: usage?.prompt_tokens || usage?.input_tokens || 0,
-        outputTokens: usage?.completion_tokens || usage?.output_tokens || 0,
-        cacheCreateTokens: usage?.cache_creation_input_tokens || 0,
-        cacheReadTokens: usage?.cache_read_input_tokens || usage?.prompt_tokens_details?.cached_tokens || 0,
+        ...normalizeOpenAITokenUsage(usage ?? {}),
         rawUsage: usage || {},
         extras: mediaBilling || null,
       })
       const billModel = this._resolveBillingModel(data?.model, requestedModel, options.endpointKind)
+      req._crsUsageDetailHandled = true
       await apiKeyService
-        .recordUsage(apiKeyData.id, usagePayload, billModel, account.id, 'grok')
+        .recordUsage(
+          apiKeyData.id,
+          usagePayload,
+          billModel,
+          account.id,
+          'grok',
+          createRequestDetailMeta(req, { ...failure, statusCode, stream: false }),
+        )
         .catch((e) => console.error(e))
     }
 
     if (response.headers['content-type']) {
       res.setHeader('Content-Type', 'application/json')
     }
-    return res.status(response.status).json(data)
+    return res.status(statusCode).json(data)
   }
 
   async _handleStreamResponse(response, res, account, apiKeyData, requestedModel, req, options = {}) {
@@ -896,9 +920,14 @@ class GrokRelayService {
     }
     applyFilteredResponseHeaders(res, response.headers)
 
-    let usageData = null
-    let actualModel = requestedModel
-    let buffer = ''
+    const parser = new IncrementalSSEParser()
+    const upstreamState = new ResponsesStreamState({
+      model: requestedModel,
+      protocol: options.effectiveEndpointKind === 'chat' ? 'chat' : 'responses',
+    })
+    let transportError = null
+    let bridgeError = null
+    let chatDoneSent = false
     let clientGone = Boolean(req?._crsClientGone)
     const converter = reverseBridge ? new CodexToOpenAIConverter() : null
     const streamState = reverseBridge ? converter.createStreamState() : null
@@ -918,107 +947,156 @@ class GrokRelayService {
       }
     }
 
-    response.data.on('data', (chunk) => {
+    const processFrame = (frame) => {
       if (req?._crsClientGone) {
         clientGone = true
       }
-      const text = chunk.toString()
-      const filtered = grokProtocol.stripSsePingFrames(text)
-      if (!filtered) {
+      const parsedEvent = parseSSEEvent(frame)
+      if (parsedEvent.name === 'ping' || parsedEvent.data?.type === 'ping') {
         return
       }
-
-      if (!clientGone && !reverseBridge && !reverseClaude) {
-        res.write(Buffer.from(filtered))
+      if (parsedEvent.type === 'invalid') {
+        throw new Error('Invalid JSON in an upstream SSE event')
       }
-
-      buffer += filtered
-      const lines = buffer.split('\n')
-      buffer = lines.pop() || ''
-      for (const line of lines) {
-        if (!line.startsWith('data: ')) {
-          continue
-        }
-        const payload = line.slice(6).trim()
-        if (!payload || payload === '[DONE]') {
-          if (!clientGone && reverseBridge && payload === '[DONE]') {
-            res.write('data: [DONE]\n\n')
-          }
-          continue
-        }
-        try {
-          const parsed = JSON.parse(payload)
-          if (parsed.model) {
-            actualModel = parsed.model
-          }
-          if (parsed.usage) {
-            usageData = parsed.usage
-          }
-          if (parsed.response?.usage) {
-            usageData = parsed.response.usage
-          }
-          if (parsed.type === 'response.completed' && parsed.response?.usage) {
-            usageData = parsed.response.usage
-          }
-          if (!clientGone && reverseBridge) {
+      if (upstreamState.terminalType) {
+        return
+      }
+      if (parsedEvent.type === 'done') {
+        upstreamState.sawDone = true
+      } else if (parsedEvent.type === 'data') {
+        upstreamState.observe(parsedEvent.data)
+      }
+      if (clientGone || res.destroyed || bridgeError) {
+        return
+      }
+      if (!reverseBridge && !reverseClaude) {
+        res.write(frame)
+      } else if (parsedEvent.type === 'data') {
+        if (reverseBridge) {
+          try {
             const chunks = converter.convertStreamChunk(
-              parsed,
-              options.originalChatModel || requestedModel,
+              parsedEvent.data,
+              options.originalChatModel ?? requestedModel,
               streamState,
             )
             for (const out of chunks) {
+              chatDoneSent ||= out.includes('data: [DONE]')
               res.write(out)
             }
+          } catch (error) {
+            bridgeError = new Error('Unable to convert upstream Responses events')
+            logger.error('Grok Chat stream conversion failed', summarizeErrorForLog(error))
+            const clientError = buildClientError({ statusCode: 502, protocol: 'openai' })
+            res.write(`data: ${JSON.stringify(clientError.body)}\n\n`)
           }
-          if (!clientGone && reverseClaude) {
-            const events = claudeResponses.convertResponsesStreamEventToClaude(parsed, claudeState)
-            writeClaudeEvents(events)
+        } else {
+          const events = claudeResponses.convertResponsesStreamEventToClaude(parsedEvent.data, claudeState)
+          const upstreamFailed =
+            upstreamState.terminalType && !['response.completed', 'response.done'].includes(upstreamState.terminalType)
+          if (events.some((item) => item.event === 'error') && !upstreamFailed) {
+            bridgeError = new Error('Unable to convert upstream Responses events')
           }
-        } catch {
-          // ignore partial JSON
+          writeClaudeEvents(events)
         }
       }
-    })
-
-    // 只等上游结束（勿绑 res.close，否则客户端断开会提前停读、漏 usage）
-    await new Promise((resolve) => {
-      response.data.on('end', resolve)
-      response.data.on('error', (error) => {
-        console.error(error)
-        resolve()
-      })
-    })
-
-    if (!clientGone && !res.writableEnded) {
-      if (reverseBridge) {
-        res.write('data: [DONE]\n\n')
-      }
-      // Claude Messages 双终点：若未收到 completed，补 message_stop
-      if (reverseClaude && claudeState && !claudeState.stopped) {
-        writeClaudeEvents([{ event: 'message_stop', data: { type: 'message_stop' } }])
-        claudeState.stopped = true
-      }
-      res.end()
     }
 
-    const mediaBilling = this._buildMediaBillingUsage(null, req, options.endpointKind)
-    if (apiKeyData?.id && (usageData || mediaBilling)) {
-      const usagePayload = buildTokenUsagePayload({
-        inputTokens: usageData?.prompt_tokens || usageData?.input_tokens || 0,
-        outputTokens: usageData?.completion_tokens || usageData?.output_tokens || 0,
-        cacheCreateTokens: usageData?.cache_creation_input_tokens || 0,
-        cacheReadTokens: usageData?.cache_read_input_tokens || usageData?.prompt_tokens_details?.cached_tokens || 0,
-        rawUsage: usageData || {},
-        extras: mediaBilling || null,
-      })
-      const billModel = this._resolveBillingModel(actualModel, requestedModel, options.endpointKind)
-      await apiKeyService
-        .recordUsage(apiKeyData.id, usagePayload, billModel, account.id, 'grok')
-        .catch((e) => console.error(e))
-    } else if (!usageData && !mediaBilling) {
-      logger.warn(
-        `[Grok] stream ended without usageData accountId=${account?.id} model=${actualModel || requestedModel || 'unknown'} clientGone=${clientGone}`,
-      )
+    try {
+      // 客户端断开后继续读取 usage；协议终态到达后结束上游迭代并释放连接。
+      for await (const chunk of response.data) {
+        for (const frame of parser.feedFrames(chunk)) {
+          processFrame(frame)
+        }
+        if (upstreamState.terminalType) {
+          break
+        }
+      }
+      for (const frame of parser.finishFrames()) {
+        processFrame(frame)
+      }
+    } catch (error) {
+      transportError = error
+      logger.error('Grok upstream stream failed', { ...summarizeErrorForLog(error), accountId: account.id })
+    }
+    const hadTerminal = Boolean(upstreamState.terminalType)
+    const result = upstreamState.finish(transportError)
+    if (bridgeError) {
+      result.statusCode = 502
+      result.errorCode = 'protocol_conversion_failed'
+      result.errorMessage = bridgeError.message
+    }
+
+    if (!clientGone && !res.destroyed && !res.writableEnded) {
+      if (reverseClaude) {
+        writeClaudeEvents(claudeResponses.finishClaudeFromResponsesStream(claudeState, upstreamState.error))
+      } else if (!hadTerminal && result.clientError) {
+        res.write(`data: ${JSON.stringify(result.clientError)}\n\n`)
+      } else if (reverseBridge && !chatDoneSent && !result.clientError && !bridgeError) {
+        res.write('data: [DONE]\n\n')
+      }
+    }
+
+    try {
+      if (isResponsesRateLimitError(upstreamState.error)) {
+        const resetSeconds = Number(upstreamState.error.resets_in_seconds)
+        const retryAfter =
+          Number.isFinite(resetSeconds) && resetSeconds > 0
+            ? Number(upstreamState.error.resets_in_seconds)
+            : (upstreamErrorHelper.parseRetryAfter?.(response.headers) ?? 3600)
+        if (account.disableAutoProtection !== true && account.disableAutoProtection !== 'true') {
+          await grokAccountService
+            .markAccountRateLimited(account.id, Math.ceil(retryAfter / 60))
+            .catch((error) => logger.error('Failed to update Grok stream rate limit', error))
+        }
+        const context = upstreamErrorHelper.buildErrorContext({
+          url: response.config?.url,
+          method: 'POST',
+          requestBody: req.body,
+          responseStatus: 429,
+          responseHeaders: response.headers,
+          responseBody: { error: upstreamState.error },
+          sessionId: options.sessionHash,
+        })
+        await upstreamErrorHelper
+          .markTempUnavailable(account.id, 'grok', 429, retryAfter, context)
+          .catch((error) => logger.error('Failed to record Grok stream rate limit', error))
+      }
+
+      const usageData = upstreamState.usage
+      const mediaBilling = this._buildMediaBillingUsage(null, req, options.endpointKind)
+      req._crsUsageDetailHandled = true
+      if (apiKeyData?.id && (usageData || mediaBilling)) {
+        const usagePayload = buildTokenUsagePayload({
+          ...normalizeOpenAITokenUsage(usageData ?? {}),
+          rawUsage: usageData || {},
+          extras: mediaBilling || null,
+        })
+        const billModel = this._resolveBillingModel(upstreamState.model, requestedModel, options.endpointKind)
+        await apiKeyService
+          .recordUsage(
+            apiKeyData.id,
+            usagePayload,
+            billModel,
+            account.id,
+            'grok',
+            createRequestDetailMeta(req, { ...result, stream: true }),
+          )
+          .catch((e) => console.error(e))
+      } else if (!usageData && !mediaBilling) {
+        logger.warn(
+          `[Grok] stream ended without usageData accountId=${account?.id} model=${upstreamState.model ?? requestedModel} clientGone=${clientGone}`,
+        )
+        await requestDetailService.captureUnmeteredRequest(req, {
+          apiKeyId: apiKeyData?.id,
+          accountId: account.id,
+          accountType: 'grok',
+          result,
+        })
+      }
+    } finally {
+      if (!clientGone && !res.destroyed && !res.writableEnded) {
+        res.end()
+      }
     }
   }
 

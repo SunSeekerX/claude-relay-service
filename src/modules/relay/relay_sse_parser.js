@@ -1,3 +1,5 @@
+import { StringDecoder } from 'node:string_decoder'
+
 /**
  * Server-Sent Events (SSE) 解析工具
  *
@@ -29,11 +31,11 @@
  * // => { type: 'control', data: null, line: '...', jsonStr: '[DONE]' }
  */
 export const parseSSELine = function parseSSELine(line) {
-  if (!line.startsWith('data: ')) {
+  if (!line.startsWith('data:')) {
     return { type: 'other', line, data: null }
   }
 
-  const jsonStr = line.substring(6).trim()
+  const jsonStr = line.substring(5).trim()
 
   if (!jsonStr || jsonStr === '[DONE]') {
     return { type: 'control', line, data: null, jsonStr }
@@ -47,6 +49,32 @@ export const parseSSELine = function parseSSELine(line) {
   }
 }
 
+// data 字段允许省略冒号后的空格；同一事件的多行 data 必须合并后解析。
+export const parseSSEEvent = (frame) => {
+  let name = ''
+  const dataLines = []
+  for (const line of frame.split(/\r\n|\n|\r/)) {
+    if (line.startsWith('event:')) {
+      name = line.slice(6).trim()
+    } else if (line.startsWith('data:')) {
+      const value = line.slice(5)
+      dataLines.push(value.startsWith(' ') ? value.slice(1) : value)
+    }
+  }
+  const raw = dataLines.join('\n')
+  if (dataLines.length === 0) {
+    return { type: 'event', name }
+  }
+  if (raw.trim() === '[DONE]') {
+    return { type: 'done', name }
+  }
+  try {
+    return { type: 'data', name, data: JSON.parse(raw) }
+  } catch (error) {
+    return { type: 'invalid', name, raw, error }
+  }
+}
+
 /**
  * 增量 SSE 解析器类
  * 用于处理流式数据，避免每次都 split 整个 buffer
@@ -54,6 +82,7 @@ export const parseSSELine = function parseSSELine(line) {
 export class IncrementalSSEParser {
   constructor() {
     this.buffer = ''
+    this.decoder = new StringDecoder('utf8')
   }
 
   /**
@@ -62,59 +91,46 @@ export class IncrementalSSEParser {
    * @returns {Array<Object>} 解析出的完整事件数组
    */
   feed(chunk) {
-    this.buffer += chunk
-    const events = []
+    return this.feedFrames(chunk).map(parseSSEEvent)
+  }
 
-    // 事件边界同时认 \n\n 与 \r\n\r\n（上游可能 CRLF）
+  // 返回含原始分隔符的完整事件，供出站改写复用同一个字节解码和分帧规则。
+  feedFrames(chunk) {
+    this.buffer += this.decoder.write(typeof chunk === 'string' ? Buffer.from(chunk) : chunk)
+    return this._takeFrames()
+  }
+
+  _takeFrames() {
+    const frames = []
     // DEC_20260905_155232
-    while (true) {
-      const lfIdx = this.buffer.indexOf('\n\n')
-      const crlfIdx = this.buffer.indexOf('\r\n\r\n')
-      if (lfIdx === -1 && crlfIdx === -1) {
-        break
+    const boundary = /\r\n\r\n|\r\n\n|\n\r\n|\n\n|\r\r/
+    let match
+    while ((match = boundary.exec(this.buffer))) {
+      const end = match.index + match[0].length
+      if (end > 64 * 1024 * 1024) {
+        throw new Error('SSE event exceeds the buffer limit')
       }
-      let idx
-      let sepLen
-      if (lfIdx === -1) {
-        idx = crlfIdx
-        sepLen = 4
-      } else if (crlfIdx === -1) {
-        idx = lfIdx
-        sepLen = 2
-      } else if (crlfIdx < lfIdx) {
-        idx = crlfIdx
-        sepLen = 4
-      } else {
-        idx = lfIdx
-        sepLen = 2
-      }
-
-      const event = this.buffer.slice(0, idx)
-      this.buffer = this.buffer.slice(idx + sepLen)
-
-      if (event.trim()) {
-        // 行分隔兼容 \r\n
-        const lines = event.split(/\r?\n/)
-        for (const line of lines) {
-          if (line.startsWith('data: ')) {
-            const jsonStr = line.slice(6)
-            if (jsonStr && jsonStr !== '[DONE]') {
-              try {
-                events.push({ type: 'data', data: JSON.parse(jsonStr) })
-              } catch (e) {
-                events.push({ type: 'invalid', raw: jsonStr, error: e })
-              }
-            } else if (jsonStr === '[DONE]') {
-              events.push({ type: 'done' })
-            }
-          } else if (line.startsWith('event: ')) {
-            events.push({ type: 'event', name: line.slice(7).trim() })
-          }
-        }
-      }
+      frames.push(this.buffer.slice(0, end))
+      this.buffer = this.buffer.slice(end)
     }
+    if (this.buffer.length > 64 * 1024 * 1024) {
+      throw new Error('SSE event exceeds the buffer limit')
+    }
+    return frames
+  }
 
-    return events
+  finishFrames() {
+    this.buffer += this.decoder.end()
+    const frames = this._takeFrames()
+    if (this.buffer.trim()) {
+      frames.push(`${this.buffer}\n\n`)
+    }
+    this.buffer = ''
+    return frames
+  }
+
+  finish() {
+    return this.finishFrames().map(parseSSEEvent)
   }
 
   /**
@@ -130,5 +146,6 @@ export class IncrementalSSEParser {
    */
   reset() {
     this.buffer = ''
+    this.decoder = new StringDecoder('utf8')
   }
 }

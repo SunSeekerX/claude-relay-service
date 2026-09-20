@@ -2,6 +2,17 @@
 import * as thinkingMap from './relay_translator_thinking.js'
 import { TranslatorFormat, TranslatorQuality } from './relay_translator_formats.js'
 import { registerTranslator } from './relay_translator_registry.js'
+import { normalizeOpenAITokenUsage } from '../relay_request_detail_helper.js'
+import { buildAnthropicClientErrorBody } from '../../../common/client_error_builder.js'
+import {
+  createClaudeFromResponsesStreamState,
+  convertResponsesStreamEventToClaude,
+} from './relay_translator_responses_stream.js'
+export {
+  createClaudeFromResponsesStreamState,
+  convertResponsesStreamEventToClaude,
+  finishClaudeFromResponsesStream,
+} from './relay_translator_responses_stream.js'
 
 const generateId = (prefix) => `${prefix}_${Math.random().toString(36).slice(2, 12)}`
 
@@ -56,6 +67,26 @@ const claudeContentToResponsesInputParts = (content) => {
       } else if (block.source.type === 'url' && block.source.url) {
         parts.push({ type: 'input_image', image_url: block.source.url })
       }
+    } else if (block.type === 'document' && block.source) {
+      const { source } = block
+      if (source.type === 'text') {
+        parts.push({ type: 'input_text', text: source.data ?? '' })
+      } else if (source.type === 'content') {
+        parts.push(...claudeContentToResponsesInputParts(source.content))
+      } else if (source.type === 'base64') {
+        parts.push({
+          type: 'input_file',
+          filename: block.title ?? 'document.pdf',
+          file_data: `data:${source.media_type ?? 'application/pdf'};base64,${source.data ?? ''}`,
+        })
+      } else if (source.type === 'url') {
+        parts.push({ type: 'input_file', file_url: source.url })
+      } else {
+        throw Object.assign(new Error('This document source cannot be shared across providers'), {
+          statusCode: 400,
+          code: 'unsupported_document_source',
+        })
+      }
     }
     // tool_use / tool_result / thinking 在消息级处理
   }
@@ -76,18 +107,23 @@ export const convertClaudeRequestToResponses = (claudeRequest, options = {}) => 
       if (Array.isArray(content)) {
         const toolResults = content.filter((block) => block && block.type === 'tool_result')
         const other = content.filter((block) => block && block.type !== 'tool_result')
+        const toolResultFiles = []
         for (const result of toolResults) {
+          const parts = Array.isArray(result.content) ? claudeContentToResponsesInputParts(result.content) : null
+          const files = parts?.filter((part) => part.type === 'input_file') ?? []
+          const outputParts = parts?.filter((part) => part.type !== 'input_file')
           input.push({
             type: 'function_call_output',
             call_id: result.tool_use_id,
-            output: typeof result.content === 'string' ? result.content : JSON.stringify(result.content ?? ''),
+            output: parts ? (outputParts.length ? outputParts : '') : String(result.content ?? ''),
           })
+          toolResultFiles.push(...files)
         }
-        if (other.length > 0) {
+        if (other.length > 0 || toolResultFiles.length > 0) {
           input.push({
             type: 'message',
             role: 'user',
-            content: claudeContentToResponsesInputParts(other),
+            content: [...(other.length ? claudeContentToResponsesInputParts(other) : []), ...toolResultFiles],
           })
         }
       } else {
@@ -103,42 +139,32 @@ export const convertClaudeRequestToResponses = (claudeRequest, options = {}) => 
     if (message.role === 'assistant') {
       const { content } = message
       if (Array.isArray(content)) {
-        const thinkingBlocks = content.filter((block) => block && block.type === 'thinking')
-        const toolUses = content.filter((block) => block && block.type === 'tool_use')
-        const texts = content.filter((block) => block && block.type === 'text')
-        // redacted_thinking 不进 reasoning 明文
-
-        if (thinkingBlocks.length > 0) {
-          const summary = thinkingBlocks
-            .map((block) => block.thinking || '')
-            .filter((text) => text.trim())
-            .map((text) => ({ type: 'summary_text', text }))
-          const encrypted = thinkingBlocks.find((block) => block.signature)?.signature
-          const reasoningItem = {
-            type: 'reasoning',
-            summary,
+        for (const block of content) {
+          if (block?.type === 'thinking') {
+            const reasoningItem = {
+              type: 'reasoning',
+              summary: block.thinking ? [{ type: 'summary_text', text: block.thinking }] : [],
+            }
+            if (block.signature) {
+              reasoningItem.encrypted_content = block.signature
+            }
+            input.push(reasoningItem)
+          } else if (block?.type === 'text') {
+            const previous = input.at(-1)
+            const part = { type: 'output_text', text: block.text ?? '' }
+            if (previous?.type === 'message' && previous.role === 'assistant') {
+              previous.content.push(part)
+            } else {
+              input.push({ type: 'message', role: 'assistant', content: [part] })
+            }
+          } else if (block?.type === 'tool_use') {
+            input.push({
+              type: 'function_call',
+              call_id: block.id || generateId('call'),
+              name: block.name,
+              arguments: JSON.stringify(block.input ?? {}),
+            })
           }
-          if (encrypted) {
-            reasoningItem.encrypted_content = encrypted
-          }
-          input.push(reasoningItem)
-        }
-
-        if (texts.length > 0) {
-          input.push({
-            type: 'message',
-            role: 'assistant',
-            content: texts.map((block) => ({ type: 'output_text', text: block.text || '' })),
-          })
-        }
-
-        for (const tool of toolUses) {
-          input.push({
-            type: 'function_call',
-            call_id: tool.id || generateId('call'),
-            name: tool.name,
-            arguments: JSON.stringify(tool.input || {}),
-          })
         }
       } else if (typeof content === 'string') {
         input.push({
@@ -155,7 +181,7 @@ export const convertClaudeRequestToResponses = (claudeRequest, options = {}) => 
     input,
     stream: body.stream === true,
     store: false,
-    parallel_tool_calls: options.parallelToolCalls !== false,
+    parallel_tool_calls: options.parallelToolCalls !== false && body.tool_choice?.disable_parallel_tool_use !== true,
   }
 
   if (instructions) {
@@ -387,6 +413,9 @@ export const convertResponsesRequestToClaude = (responsesRequest, options = {}) 
 
 export const convertResponsesResultToClaudeMessage = (responseData) => {
   const response = responseData?.response || responseData || {}
+  if (response.error || response.status === 'failed' || response.status === 'cancelled') {
+    return buildAnthropicClientErrorBody({ statusCode: 502, upstreamBody: response })
+  }
   const output = Array.isArray(response.output) ? response.output : []
   const content = []
   let stopReason = 'end_turn'
@@ -421,10 +450,17 @@ export const convertResponsesResultToClaudeMessage = (responseData) => {
     }
   }
 
-  const usage = response.usage || {}
-  const inputTokens = usage.input_tokens || 0
-  const outputTokens = usage.output_tokens || 0
-  const cached = usage.input_tokens_details?.cached_tokens || 0
+  if (response.status === 'incomplete') {
+    const reason = response.incomplete_details?.reason
+    if (reason === 'max_output_tokens' || reason === 'max_tokens') {
+      stopReason = 'max_tokens'
+    } else if (reason === 'content_filter') {
+      stopReason = 'refusal'
+    } else {
+      return buildAnthropicClientErrorBody({ statusCode: 502 })
+    }
+  }
+  const usage = normalizeOpenAITokenUsage(response.usage ?? {})
 
   return {
     id: response.id || generateId('msg'),
@@ -435,169 +471,12 @@ export const convertResponsesResultToClaudeMessage = (responseData) => {
     stop_reason: stopReason,
     stop_sequence: null,
     usage: {
-      input_tokens: Math.max(0, inputTokens - cached),
-      output_tokens: outputTokens,
-      cache_read_input_tokens: cached,
-      cache_creation_input_tokens: usage.input_tokens_details?.cache_write_tokens || 0,
+      input_tokens: usage.inputTokens,
+      output_tokens: usage.outputTokens,
+      cache_read_input_tokens: usage.cacheReadTokens,
+      cache_creation_input_tokens: usage.cacheCreateTokens,
     },
   }
-}
-
-export const createClaudeFromResponsesStreamState = () => ({
-  messageId: generateId('msg'),
-  model: '',
-  contentIndex: -1,
-  textStarted: false,
-  thinkingStarted: false,
-  toolIndexByCallId: new Map(),
-  started: false,
-  stopped: false,
-})
-
-// Responses SSE event → Anthropic SSE event 对象数组
-export const convertResponsesStreamEventToClaude = (eventData, state) => {
-  if (!eventData || !eventData.type) {
-    return []
-  }
-  const events = []
-  const { type } = eventData
-
-  const push = (event, data) => {
-    events.push({ event, data: { type: event, ...data } })
-  }
-
-  if (type === 'response.created') {
-    state.messageId = eventData.response?.id || state.messageId
-    state.model = eventData.response?.model || state.model
-    if (!state.started) {
-      state.started = true
-      push('message_start', {
-        message: {
-          id: state.messageId,
-          type: 'message',
-          role: 'assistant',
-          model: state.model,
-          content: [],
-          stop_reason: null,
-          stop_sequence: null,
-          usage: { input_tokens: 0, output_tokens: 0 },
-        },
-      })
-    }
-    return events
-  }
-
-  if (type === 'response.reasoning_summary_text.delta' || type === 'response.reasoning_text.delta') {
-    if (!state.thinkingStarted) {
-      state.contentIndex += 1
-      state.thinkingStarted = true
-      push('content_block_start', {
-        index: state.contentIndex,
-        content_block: { type: 'thinking', thinking: '', signature: '' },
-      })
-    }
-    push('content_block_delta', {
-      index: state.contentIndex,
-      delta: { type: 'thinking_delta', thinking: eventData.delta || '' },
-    })
-    return events
-  }
-
-  if (type === 'response.output_text.delta') {
-    // 文本块开始前必须先关闭 thinking block，否则 Anthropic SSE 非法
-    if (state.thinkingStarted) {
-      push('content_block_stop', { index: state.contentIndex })
-      state.thinkingStarted = false
-    }
-    if (!state.textStarted) {
-      state.contentIndex += 1
-      state.textStarted = true
-      push('content_block_start', {
-        index: state.contentIndex,
-        content_block: { type: 'text', text: '' },
-      })
-    }
-    push('content_block_delta', {
-      index: state.contentIndex,
-      delta: { type: 'text_delta', text: eventData.delta || '' },
-    })
-    return events
-  }
-
-  if (type === 'response.output_item.added' && eventData.item?.type === 'function_call') {
-    if (state.textStarted || state.thinkingStarted) {
-      push('content_block_stop', { index: state.contentIndex })
-      state.textStarted = false
-      state.thinkingStarted = false
-    }
-    state.contentIndex += 1
-    const callId = eventData.item.call_id || eventData.item.id || generateId('toolu')
-    state.toolIndexByCallId.set(callId, state.contentIndex)
-    push('content_block_start', {
-      index: state.contentIndex,
-      content_block: {
-        type: 'tool_use',
-        id: callId,
-        name: eventData.item.name,
-        input: {},
-      },
-    })
-    return events
-  }
-
-  if (type === 'response.function_call_arguments.delta') {
-    const callId = eventData.call_id || eventData.item_id
-    const index = state.toolIndexByCallId.get(callId) ?? state.contentIndex
-    push('content_block_delta', {
-      index,
-      delta: { type: 'input_json_delta', partial_json: eventData.delta || '' },
-    })
-    return events
-  }
-
-  if (type === 'response.function_call_arguments.done' || type === 'response.output_item.done') {
-    if (eventData.item?.type === 'function_call' || type === 'response.function_call_arguments.done') {
-      const callId = eventData.item?.call_id || eventData.call_id || eventData.item_id
-      const index = state.toolIndexByCallId.get(callId) ?? state.contentIndex
-      push('content_block_stop', { index })
-    }
-    return events
-  }
-
-  if (type === 'response.completed') {
-    if (state.textStarted || state.thinkingStarted) {
-      push('content_block_stop', { index: state.contentIndex })
-      state.textStarted = false
-      state.thinkingStarted = false
-    }
-    const usage = eventData.response?.usage || {}
-    const cached = usage.input_tokens_details?.cached_tokens || 0
-    const hasTool = Array.isArray(eventData.response?.output)
-      ? eventData.response.output.some((item) => item?.type === 'function_call')
-      : false
-    push('message_delta', {
-      delta: { stop_reason: hasTool ? 'tool_use' : 'end_turn', stop_sequence: null },
-      usage: {
-        output_tokens: usage.output_tokens || 0,
-        input_tokens: Math.max(0, (usage.input_tokens || 0) - cached),
-        cache_read_input_tokens: cached,
-      },
-    })
-    push('message_stop', {})
-    state.stopped = true
-    return events
-  }
-
-  if (type === 'response.failed' || type === 'error') {
-    push('error', {
-      error: {
-        type: 'api_error',
-        message: eventData.response?.error?.message || eventData.message || 'upstream failed',
-      },
-    })
-  }
-
-  return events
 }
 
 export const registerClaudeResponsesTranslators = () => {

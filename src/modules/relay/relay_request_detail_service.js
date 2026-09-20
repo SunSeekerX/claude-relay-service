@@ -790,6 +790,29 @@ class RequestDetailService {
     return normalized
   }
 
+  async captureUnmeteredRequest(req, { apiKeyId, accountId, accountType, result } = {}) {
+    const meta = requestDetailHelper.createRequestDetailMeta(req, {
+      ...result,
+      errorCode: result?.errorCode ?? 'usage_missing',
+      errorMessage: result?.errorMessage ?? 'Upstream did not report token usage',
+    })
+    return this.captureRequestDetail({
+      ...meta,
+      apiKeyId,
+      accountId,
+      accountType,
+      model: req?._crsRequestedModel ?? req?.body?.model ?? 'unknown',
+      timestamp: new Date().toISOString(),
+      inputTokens: 0,
+      outputTokens: 0,
+      cacheReadTokens: 0,
+      cacheCreateTokens: 0,
+      totalTokens: 0,
+      cost: 0,
+      realCost: 0,
+    })
+  }
+
   async captureRequestDetail(detail = {}) {
     try {
       const settings = await this.getSettings()

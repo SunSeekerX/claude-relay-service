@@ -558,6 +558,8 @@ export const createRequestDetailMeta = function createRequestDetailMeta(req, ove
     durationMs: durationMs ?? (effectiveStart ? Math.max(0, nowMs - effectiveStart) : null),
     requestStartedAt: effectiveStart ? new Date(effectiveStart).toISOString() : null,
     requestBody,
+    errorCode: overrides.errorCode ?? null,
+    errorMessage: overrides.errorMessage ?? null,
   }
   const groupCostHoldGroupId = overrides.groupCostHoldGroupId || req?.apiKey?.groupCostHoldGroupId
   if (groupCostHoldGroupId) {
@@ -953,6 +955,8 @@ export const extractOpenAICacheReadTokens = function extractOpenAICacheReadToken
     usage.input_tokens_details?.cached_token,
     usage.prompt_tokens_details?.cached_tokens,
     usage.prompt_tokens_details?.cached_token,
+    usage.cache_read_input_tokens,
+    usage.cache_read_tokens,
   ]
 
   for (const value of candidates) {
@@ -961,12 +965,37 @@ export const extractOpenAICacheReadTokens = function extractOpenAICacheReadToken
     }
 
     const parsed = Number(value)
-    if (!Number.isNaN(parsed)) {
+    if (Number.isFinite(parsed)) {
       return Math.max(0, parsed)
     }
   }
 
   return 0
+}
+
+// OpenAI/Responses 的输入总量包含缓存；计费入口使用互不重叠的 token 桶。
+export const normalizeOpenAITokenUsage = (usage = {}) => {
+  const tokenCount = (value) => Math.max(0, Math.trunc(toFiniteNumber(value) ?? 0))
+  const totalInputTokens = tokenCount(usage.input_tokens ?? usage.prompt_tokens)
+  const cacheReadTokens = Math.min(totalInputTokens, tokenCount(extractOpenAICacheReadTokens(usage)))
+  const details = usage.input_tokens_details ?? usage.prompt_tokens_details ?? {}
+  const cacheCreateTokens = Math.min(
+    totalInputTokens - cacheReadTokens,
+    tokenCount(
+      details.cache_write_tokens ??
+        details.cache_creation_input_tokens ??
+        details.cache_creation_tokens ??
+        usage.cache_creation_input_tokens ??
+        usage.cache_creation_tokens,
+    ),
+  )
+  return {
+    inputTokens: totalInputTokens - cacheReadTokens - cacheCreateTokens,
+    outputTokens: tokenCount(usage.output_tokens ?? usage.completion_tokens),
+    cacheReadTokens,
+    cacheCreateTokens,
+    totalInputTokens,
+  }
 }
 
 // 提取思考/reasoning tokens（OpenAI/Codex/Gemini/Grok 字段名不一）
