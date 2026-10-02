@@ -7,7 +7,7 @@ import { config as appConfig } from '../../config/config.js'
 // 经 attach(redisClient) 挂到同一个 RedisClient 单例上，this 绑定与原文件一致。
 // ===
 
-export const attach = function attach(redisClient) {
+export const attach = (redisClient) => {
   // 会话管理（用于管理员登录等）
   redisClient.setSession = async function (sessionId, sessionData, ttl = TTL.adminSession) {
     const key = RedisKeys.session.admin(sessionId)

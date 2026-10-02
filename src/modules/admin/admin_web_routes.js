@@ -11,6 +11,7 @@ import { RedisKeys } from '../../infra/redis_key.js'
 import { asyncRoute } from '../../common/route_handler.js'
 import { ok, badRequest, unauthorized } from '../../common/http_result.js'
 import { parseObjectBody } from '../../common/parse_body.js'
+import { assertAdminLoginAllowed, clearAdminLoginAttempts } from './admin_login_policy.js'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -26,6 +27,7 @@ router.get('/', (req, res) => {
 router.post(
   '/auth/login',
   asyncRoute('Login error', async (req) => {
+    await assertAdminLoginAllowed(req)
     const { username, password } = parseObjectBody(req.body, '管理员登录')
 
     if (!username || !password) {
@@ -75,6 +77,8 @@ router.post(
       logger.security(`Failed login attempt for username: ${username}`)
       throw unauthorized('Invalid username or password')
     }
+
+    await clearAdminLoginAttempts(req)
 
     // 生成会话token
     const sessionId = crypto.randomBytes(32).toString('hex')

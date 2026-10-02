@@ -21,6 +21,55 @@ const getCostCalculator = () => {
 // 含计费关键写幂等 Lua（COST_TOTAL_LUA，逐字保留）。
 // ===
 export const attach = function attach(redisClient) {
+  redisClient.reserveCost = async function reserveCost(
+    keyId,
+    reservationId,
+    amount,
+    { dailyLimit = 0, totalLimit = 0, prepaid = false } = {},
+  ) {
+    const numericAmount = Number(amount)
+    if (!keyId || !reservationId || !Number.isFinite(numericAmount) || numericAmount <= 0) {
+      return true
+    }
+    const result = await this.client.eval(
+      RedisLua.cost.reserve,
+      6,
+      RedisKeys.usage.costReservationIndex(keyId),
+      RedisKeys.usage.costTotal(keyId),
+      RedisKeys.usage.costDaily(keyId, timezone.getDateStringInTimezone()),
+      RedisKeys.payment.balanceCredit(keyId),
+      RedisKeys.payment.balanceRefunded(keyId),
+      RedisKeys.payment.balanceBaseline(keyId),
+      RedisKeys.usage.costReservation(keyId, reservationId),
+      reservationId,
+      String(numericAmount),
+      String(TTL.costReservation),
+      String(dailyLimit || 0),
+      String(totalLimit || 0),
+      prepaid ? '1' : '0',
+      String(Date.now()),
+    )
+    if (Number(result) === 1) {
+      return true
+    }
+    const error = new Error('Cost reservation limit exceeded')
+    error.code = Number(result) === -4 ? 'prepaid_balance_reserved' : 'cost_reservation_limit_exceeded'
+    error.statusCode = 402
+    throw error
+  }
+
+  redisClient.releaseCostReservation = async function releaseCostReservation(keyId, reservationId) {
+    if (!keyId || !reservationId) {
+      return
+    }
+    await this.client.eval(
+      RedisLua.cost.release,
+      2,
+      RedisKeys.usage.costReservationIndex(keyId),
+      RedisKeys.usage.costReservation(keyId, reservationId),
+    )
+  }
+
   // 获取当日费用
   redisClient.getDailyCost = async function (keyId) {
     const today = timezone.getDateStringInTimezone()

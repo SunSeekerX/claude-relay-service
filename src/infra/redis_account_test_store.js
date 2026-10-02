@@ -9,7 +9,7 @@ const ACCOUNT_TEST_HISTORY_MAX = LIMITS.accountTestHistory // 保留最近5次�
 const ACCOUNT_TEST_HISTORY_TTL = TTL.accountTestHistory // 30天过期
 const ACCOUNT_TEST_CONFIG_TTL = TTL.accountTestConfig // 测试配置保留1年（用户通常长期使用）
 
-export const attach = function attach(redisClient) {
+export const attach = (redisClient) => {
   /**
    * 保存账户测试结果
    * @param {string} accountId - 账户ID

@@ -7,6 +7,7 @@ import * as thinkingMap from './translator/relay_translator_thinking.js'
 
 class OpenAIToClaudeConverter {
   constructor() {
+    this.streamUsage = new Map()
     // 停止原因映射
     this.stopReasonMapping = {
       end_turn: 'stop',
@@ -117,6 +118,7 @@ class OpenAIToClaudeConverter {
     }
     if (suffix.forceOff) {
       claudeRequest.thinking = { type: 'disabled' }
+      thinkingMap.normalizeClaudeThinkingForModel(claudeRequest, claudeRequest.model)
       return
     }
 
@@ -129,7 +131,10 @@ class OpenAIToClaudeConverter {
       return
     }
 
-    const mapped = thinkingMap.effortToClaudeThinking(effort, { supportsAdaptive: true })
+    const mapped = thinkingMap.effortToClaudeThinking(effort, {
+      supportsAdaptive: true,
+      modelId: claudeRequest.model,
+    })
     if (!mapped) {
       return
     }
@@ -145,6 +150,7 @@ class OpenAIToClaudeConverter {
     if (Number.isFinite(suffix.budget) && claudeRequest.thinking?.type === 'enabled') {
       claudeRequest.thinking.budget_tokens = suffix.budget
     }
+    thinkingMap.normalizeClaudeThinkingForModel(claudeRequest, claudeRequest.model)
   }
 
   /**
@@ -196,6 +202,8 @@ class OpenAIToClaudeConverter {
     const lines = chunk.split('\n')
     const convertedChunks = []
     let hasMessageStop = false
+    const streamState = this.streamUsage.get(sessionId) || { input: 0, cacheRead: 0, cacheCreate: 0 }
+    this.streamUsage.set(sessionId, streamState)
 
     for (const line of lines) {
       if (line.startsWith('data: ')) {
@@ -213,7 +221,7 @@ class OpenAIToClaudeConverter {
             hasMessageStop = true
           }
 
-          const openaiChunk = this._convertStreamEvent(claudeEvent, requestModel, sessionId)
+          const openaiChunk = this._convertStreamEvent(claudeEvent, requestModel, sessionId, streamState)
           if (openaiChunk) {
             convertedChunks.push(`data: ${JSON.stringify(openaiChunk)}\n\n`)
           }
@@ -228,6 +236,7 @@ class OpenAIToClaudeConverter {
     // 如果收到 message_stop 事件，添加 [DONE] 标记
     if (hasMessageStop) {
       convertedChunks.push('data: [DONE]\n\n')
+      this.streamUsage.delete(sessionId)
     }
 
     return convertedChunks.join('')
@@ -557,7 +566,7 @@ class OpenAIToClaudeConverter {
   /**
    * 转换流式事件
    */
-  _convertStreamEvent(event, requestModel, sessionId) {
+  _convertStreamEvent(event, requestModel, sessionId, streamState = {}) {
     const timestamp = Math.floor(Date.now() / 1000)
     const baseChunk = {
       id: sessionId,
@@ -577,6 +586,12 @@ class OpenAIToClaudeConverter {
     if (event.type === 'message_start') {
       // 处理消息开始事件，发送角色信息
       baseChunk.choices[0].delta.role = 'assistant'
+      const usage = event.message?.usage
+      if (usage) {
+        streamState.input = Number(usage.input_tokens) || 0
+        streamState.cacheRead = Number(usage.cache_read_input_tokens) || 0
+        streamState.cacheCreate = Number(usage.cache_creation_input_tokens) || 0
+      }
       return baseChunk
     } else if (event.type === 'content_block_start' && event.content_block) {
       if (event.content_block.type === 'text') {
@@ -628,11 +643,18 @@ class OpenAIToClaudeConverter {
         baseChunk.choices[0].finish_reason = this._mapStopReason(event.delta.stop_reason)
       }
       if (event.usage) {
-        baseChunk.usage = this._convertUsage(event.usage)
+        baseChunk.usage = this._convertUsage({
+          ...event.usage,
+          input_tokens: streamState.input,
+          cache_read_input_tokens: streamState.cacheRead,
+          cache_creation_input_tokens: streamState.cacheCreate,
+        })
       }
     } else if (event.type === 'message_stop') {
       // message_stop 事件不需要返回 chunk，[DONE] 标记会在 convertStreamChunk 中添加
       return null
+    } else if (event.type === 'error') {
+      return { error: event.error || { type: 'server_error', message: 'Upstream stream error' } }
     } else {
       // 忽略其他类型的事件
       return null

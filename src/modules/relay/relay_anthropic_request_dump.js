@@ -8,7 +8,7 @@ export const REQUEST_DUMP_ENV = 'ANTHROPIC_DEBUG_REQUEST_DUMP'
 export const REQUEST_DUMP_MAX_BYTES_ENV = 'ANTHROPIC_DEBUG_REQUEST_DUMP_MAX_BYTES'
 export const REQUEST_DUMP_FILENAME = 'anthropic-requests-dump.jsonl'
 
-const isEnabled = function isEnabled() {
+const isEnabled = () => {
   const raw = env[REQUEST_DUMP_ENV]
   if (!raw) {
     return false
@@ -16,7 +16,7 @@ const isEnabled = function isEnabled() {
   return raw === '1' || raw.toLowerCase() === 'true'
 }
 
-const getMaxBytes = function getMaxBytes() {
+const getMaxBytes = () => {
   const raw = env[REQUEST_DUMP_MAX_BYTES_ENV]
   if (!raw) {
     return 2 * 1024 * 1024
@@ -28,7 +28,7 @@ const getMaxBytes = function getMaxBytes() {
   return parsed
 }
 
-const maskSecret = function maskSecret(value) {
+const maskSecret = (value) => {
   if (value === null || value === undefined) {
     return value
   }
@@ -39,7 +39,7 @@ const maskSecret = function maskSecret(value) {
   return `${str.slice(0, 4)}...${str.slice(-4)}`
 }
 
-const sanitizeHeaders = function sanitizeHeaders(headers) {
+const sanitizeHeaders = (headers) => {
   const sensitive = new Set([
     'authorization',
     'proxy-authorization',
@@ -62,7 +62,7 @@ const sanitizeHeaders = function sanitizeHeaders(headers) {
   return out
 }
 
-const safeJsonStringify = function safeJsonStringify(payload, maxBytes) {
+const safeJsonStringify = (payload, maxBytes) => {
   let json
   try {
     json = JSON.stringify(payload)
@@ -87,7 +87,7 @@ const safeJsonStringify = function safeJsonStringify(payload, maxBytes) {
   })
 }
 
-export const dumpAnthropicMessagesRequest = async function dumpAnthropicMessagesRequest(req, meta = {}) {
+export const dumpAnthropicMessagesRequest = async (req, meta = {}) => {
   if (!isEnabled()) {
     return
   }

@@ -8,6 +8,16 @@
 // ===
 
 export const RedisLua = {
+  adminLogin: {
+    consumeAttempt: `
+local count = tonumber(redis.call('GET', KEYS[1]) or '0')
+local ttl = redis.call('TTL', KEYS[1])
+if count >= tonumber(ARGV[1]) and ttl > 0 then return ttl end
+count = redis.call('INCR', KEYS[1])
+if count == 1 or ttl < 0 then redis.call('EXPIRE', KEYS[1], ARGV[2]) end
+return 0
+`,
+  },
   // === 支付 ===
   payment: {
     // 原子状态转移 + 状态二级索引 + pending 索引
@@ -156,6 +166,40 @@ end
 redis.call('SET', KEYS[1], '1', 'EX', tonumber(ARGV[3]))
 redis.call('INCRBYFLOAT', KEYS[2], ARGV[1])
 redis.call('INCRBYFLOAT', KEYS[3], ARGV[2])
+return 1
+`,
+    reserve: `
+local now = tonumber(ARGV[8])
+for _, reservationKey in ipairs(redis.call('ZRANGEBYSCORE', KEYS[1], '-inf', now)) do
+  redis.call('ZREM', KEYS[1], reservationKey)
+  redis.call('DEL', reservationKey)
+end
+if redis.call('EXISTS', ARGV[1]) == 1 then return 0 end
+local reserved = 0
+for _, reservationKey in ipairs(redis.call('ZRANGE', KEYS[1], 0, -1)) do
+  reserved = reserved + (tonumber(redis.call('GET', reservationKey) or '0') or 0)
+end
+local amount = tonumber(ARGV[3])
+local daily = tonumber(redis.call('GET', KEYS[3]) or '0')
+local total = tonumber(redis.call('GET', KEYS[2]) or '0')
+if tonumber(ARGV[5]) > 0 and daily + reserved + amount > tonumber(ARGV[5]) then return -2 end
+if tonumber(ARGV[6]) > 0 and total + reserved + amount > tonumber(ARGV[6]) then return -3 end
+if ARGV[7] == '1' then
+  local credit = tonumber(redis.call('GET', KEYS[4]) or '0')
+  local refunded = tonumber(redis.call('GET', KEYS[5]) or '0')
+  local baseline = tonumber(redis.call('GET', KEYS[6]) or '0')
+  local consumed = tonumber(redis.call('GET', KEYS[2]) or '0')
+  local used = consumed - baseline
+  if used < 0 then used = 0 end
+  if credit - refunded - used - reserved - amount < 0 then return -4 end
+end
+redis.call('SET', ARGV[1], ARGV[3], 'EX', ARGV[4])
+redis.call('ZADD', KEYS[1], now + tonumber(ARGV[4]) * 1000, ARGV[1])
+return 1
+`,
+    release: `
+redis.call('DEL', KEYS[2])
+redis.call('ZREM', KEYS[1], KEYS[2])
 return 1
 `,
   },

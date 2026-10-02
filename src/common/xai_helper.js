@@ -15,8 +15,8 @@ export const XAI_DEFAULTS = {
   scope: 'openid profile email offline_access grok-cli:access api:access',
   redirectUri: 'http://127.0.0.1:56121/callback',
   sessionTtlMs: 30 * 60 * 1000,
-  // 与 sub2api billing.go CLIClientVersion 对齐，OAuth/billing 共用
-  cliClientVersion: '0.2.114',
+  // DEC_20261001_114137 对齐官方 grok-build xai-grok-version 1.0.41，OAuth/billing 共用
+  cliClientVersion: '1.0.41',
 }
 
 const xaiConfig = () => config.xai || {}
@@ -25,6 +25,7 @@ export const OAUTH_ENDPOINT_ALLOWED_HOSTS = ['x.ai', '*.x.ai']
 export const BASE_URL_ALLOWED_HOSTS = ['api.x.ai', '*.api.x.ai', 'cli-chat-proxy.grok.com']
 
 export const DEFAULT_MODELS = [
+  { id: 'grok-4.6', displayName: 'Grok 4.6' },
   { id: 'grok-4.5', displayName: 'Grok 4.5' },
   { id: 'grok-4.3', displayName: 'Grok 4.3' },
   { id: 'grok-build-0.1', displayName: 'Grok Build 0.1' },
@@ -41,12 +42,14 @@ export const DEFAULT_MODELS = [
   { id: 'grok-imagine-video-1.5', displayName: 'Grok Imagine Video 1.5' },
 ]
 
+// DEC_20261001_114137 通用别名指向官方默认模型 grok-4.6
 const DEFAULT_MODEL_MAPPING = {
-  grok: 'grok-4.5',
-  'grok-latest': 'grok-4.5',
+  grok: 'grok-4.6',
+  'grok-latest': 'grok-4.6',
+  'grok-4.6-latest': 'grok-4.6',
   'grok-4.5-latest': 'grok-4.5',
   'grok-build': 'grok-build-0.1',
-  'grok-build-latest': 'grok-4.5',
+  'grok-build-latest': 'grok-4.6',
   'grok-composer': 'grok-composer-2.5-fast',
   'composer-2.5': 'grok-composer-2.5-fast',
   'grok-4.20-reasoning': 'grok-4.20-0309-reasoning',
@@ -57,7 +60,13 @@ export const CLI_HEADERS = {
   tokenAuthHeader: 'x-xai-token-auth',
   tokenAuthValue: 'xai-grok-cli',
   clientVersionHeader: 'x-grok-client-version',
+  clientIdentifierHeader: 'x-grok-client-identifier',
+  clientModeHeader: 'x-grok-client-mode',
 }
+
+// 官方 grok-build / cli-chat-proxy 默认身份；由中转服务生成，禁止客户端覆盖
+const GROK_CLIENT_IDENTIFIER = 'grok-shell'
+const GROK_CLIENT_MODE = 'headless'
 
 export const allowUnsafeUrlOverrides = () => xaiConfig().allowUnsafeUrlOverrides === true
 
@@ -475,6 +484,8 @@ export const buildCliIdentityHeaders = () => {
   return {
     [CLI_HEADERS.tokenAuthHeader]: CLI_HEADERS.tokenAuthValue,
     [CLI_HEADERS.clientVersionHeader]: version,
+    [CLI_HEADERS.clientIdentifierHeader]: GROK_CLIENT_IDENTIFIER,
+    [CLI_HEADERS.clientModeHeader]: GROK_CLIENT_MODE,
     'User-Agent': `grok-pager/${version} grok-shell/${version} (linux; x86_64)`,
   }
 }

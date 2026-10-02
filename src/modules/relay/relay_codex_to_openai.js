@@ -14,9 +14,8 @@ export class CodexToOpenAIConverter {
       responseId: '',
       createdAt: 0,
       model: '',
-      functionCallIndex: -1,
-      hasReceivedArgumentsDelta: false,
-      hasToolCallAnnounced: false,
+      tools: [],
+      toolKeys: new Map(),
       roleSent: false,
     }
   }
@@ -185,129 +184,123 @@ export class CodexToOpenAIConverter {
     return []
   }
 
+  _resolveTool(eventData, state, create = false) {
+    const item = eventData.item ?? {}
+    const keys = []
+    if (Number.isInteger(eventData.output_index)) {
+      keys.push(`index:${eventData.output_index}`)
+    }
+    for (const id of [eventData.item_id, item.id]) {
+      if (typeof id === 'string' && id) {
+        keys.push(`item:${id}`)
+      }
+    }
+    for (const id of [eventData.call_id, item.call_id]) {
+      if (typeof id === 'string' && id) {
+        keys.push(`call:${id}`)
+      }
+    }
+    let tool = keys.map((key) => state.toolKeys.get(key)).find(Boolean)
+    if (!tool && create && keys.length > 0) {
+      tool = { index: state.tools.length, announced: false, arguments: '', finished: false }
+      state.tools.push(tool)
+    }
+    if (!tool) {
+      throw new Error('Responses tool event has no matching output item')
+    }
+    for (const key of keys) {
+      const existing = state.toolKeys.get(key)
+      if (existing && existing !== tool) {
+        throw new Error('Conflicting Responses tool identifiers')
+      }
+      state.toolKeys.set(key, tool)
+    }
+    return tool
+  }
+
   _handleOutputItemAdded(eventData, model, state) {
     const { item } = eventData
-    if (!item) {
+    if (!item || !['function_call', 'custom_tool_call'].includes(item.type)) {
       return []
     }
-    // function_call + custom_tool_call（Codex freeform）统一映射为 tool_calls
-    if (item.type !== 'function_call' && item.type !== 'custom_tool_call') {
+    const tool = this._resolveTool(eventData, state, true)
+    if (tool.announced) {
       return []
     }
-
-    state.functionCallIndex++
-    state.hasToolCallAnnounced = true
-    state.hasReceivedArgumentsDelta = false
-    const toolName = item.name || 'custom_tool'
-
+    tool.announced = true
     return this._emitChunk(state, model, {
       tool_calls: [
         {
-          index: state.functionCallIndex,
-          id: item.call_id || item.id,
+          index: tool.index,
+          id: item.call_id ?? item.id,
           type: 'function',
-          function: {
-            name: this._restoreToolName(toolName),
-            arguments: '',
-          },
+          function: { name: this._restoreToolName(item.name ?? 'custom_tool'), arguments: '' },
         },
       ],
     })
   }
 
   _handleArgumentsDelta(eventData, model, state) {
-    state.hasReceivedArgumentsDelta = true
+    const tool = this._resolveTool(eventData, state)
+    if (tool.finished) {
+      return []
+    }
+    const delta = eventData.delta ?? ''
+    if (typeof delta !== 'string') {
+      throw new Error('Invalid Responses tool arguments delta')
+    }
+    tool.arguments += delta
     return this._emitChunk(state, model, {
-      tool_calls: [
-        {
-          index: state.functionCallIndex,
-          function: { arguments: eventData.delta },
-        },
-      ],
+      tool_calls: [{ index: tool.index, function: { arguments: delta } }],
     })
   }
 
   _handleArgumentsDone(eventData, model, state) {
-    // 如果已收到增量 delta，done 不需要再输出
-    if (state.hasReceivedArgumentsDelta) {
+    const tool = this._resolveTool(eventData, state)
+    if (tool.finished) {
       return []
     }
-
-    // custom_tool_call_input.done 用 input；function_call_arguments.done 用 arguments
-    const argsRaw = eventData.arguments ?? eventData.input
-    const args =
-      argsRaw === null || argsRaw === undefined
-        ? '{}'
-        : typeof argsRaw === 'string'
-          ? argsRaw || '{}'
-          : JSON.stringify(argsRaw)
-
-    // 没有收到 delta，一次性输出完整参数
+    const raw = eventData.arguments ?? eventData.input
+    const complete =
+      raw === undefined || raw === null ? tool.arguments : typeof raw === 'string' ? raw : JSON.stringify(raw)
+    if (!complete.startsWith(tool.arguments)) {
+      throw new Error('Responses tool arguments differ from emitted deltas')
+    }
+    const remaining = complete.slice(tool.arguments.length)
+    tool.arguments = complete
+    tool.finished = true
+    if (!remaining) {
+      return []
+    }
     return this._emitChunk(state, model, {
-      tool_calls: [
-        {
-          index: state.functionCallIndex,
-          function: { arguments: args },
-        },
-      ],
+      tool_calls: [{ index: tool.index, function: { arguments: remaining } }],
     })
   }
 
   _handleOutputItemDone(eventData, model, state) {
     const { item } = eventData
-    // function_call 与 custom_tool_call 均需落成 tool_calls
-    if (!item || (item.type !== 'function_call' && item.type !== 'custom_tool_call')) {
+    if (!item || !['function_call', 'custom_tool_call'].includes(item.type)) {
       return []
     }
-
-    // 如果已经通过 output_item.added 通知过，不重复输出
-    if (state.hasToolCallAnnounced) {
-      state.hasToolCallAnnounced = false
-      // 若仅有 done 无 delta，补齐 arguments（custom_tool 常把完整 input 放在 item 上）
-      const argsRaw = item.arguments ?? item.input
-      if (argsRaw !== null && argsRaw !== undefined && !state.hasReceivedArgumentsDelta) {
-        const args = typeof argsRaw === 'string' ? argsRaw || '{}' : JSON.stringify(argsRaw)
-        return this._emitChunk(state, model, {
-          tool_calls: [
-            {
-              index: state.functionCallIndex,
-              function: { arguments: args },
-            },
-          ],
-        })
-      }
-      return []
-    }
-
-    // Fallback：未收到 added 事件，输出完整 tool call
-    state.functionCallIndex++
-    const argsRaw = item.arguments ?? item.input
-    const args =
-      argsRaw === null || argsRaw === undefined
-        ? '{}'
-        : typeof argsRaw === 'string'
-          ? argsRaw || '{}'
-          : JSON.stringify(argsRaw)
-    return this._emitChunk(state, model, {
-      tool_calls: [
+    const chunks = this._handleOutputItemAdded(eventData, model, state)
+    chunks.push(
+      ...this._handleArgumentsDone(
         {
-          index: state.functionCallIndex,
-          id: item.call_id || item.id,
-          type: 'function',
-          function: {
-            name: this._restoreToolName(item.name || 'custom_tool'),
-            arguments: args,
-          },
+          ...eventData,
+          arguments: item.arguments ?? item.input,
         },
-      ],
-    })
+        model,
+        state,
+      ),
+    )
+    return chunks
   }
 
   _handleResponseCompleted(eventData, model, state) {
     const resp = eventData.response || {}
     const chunk = this._makeChunk(state, model)
 
-    if (state.functionCallIndex >= 0) {
+    if (state.tools.length > 0) {
       chunk.choices[0].finish_reason = 'tool_calls'
     } else {
       chunk.choices[0].finish_reason = this._mapResponseStatus(resp)
@@ -342,7 +335,7 @@ export class CodexToOpenAIConverter {
     // response.incomplete 及其他非 failed 状态 → 带 finish_reason 的终止 chunk
     if (resp.status !== 'failed') {
       const chunk = this._makeChunk(state, model)
-      if (state.functionCallIndex >= 0) {
+      if (state.tools.length > 0) {
         chunk.choices[0].finish_reason = 'tool_calls'
       } else {
         chunk.choices[0].finish_reason = this._mapResponseStatus(resp)
@@ -428,7 +421,7 @@ export class CodexToOpenAIConverter {
     const result = {
       prompt_tokens: usage.input_tokens || 0,
       completion_tokens: usage.output_tokens || 0,
-      total_tokens: usage.total_tokens || 0,
+      total_tokens: usage.total_tokens ?? (usage.input_tokens ?? 0) + (usage.output_tokens ?? 0),
     }
     if (usage.input_tokens_details?.cached_tokens > 0) {
       result.prompt_tokens_details = { cached_tokens: usage.input_tokens_details.cached_tokens }
@@ -453,12 +446,40 @@ export class CodexToOpenAIConverter {
    */
   buildRequestFromOpenAI(chatBody) {
     const result = {}
+    this._toolNameMap = {}
+    this._reverseToolNameMap = {}
 
     if (chatBody.model) {
       result.model = chatBody.model
     }
-    if (chatBody.stream !== undefined) {
-      result.stream = chatBody.stream
+    result.stream = chatBody.stream === true
+
+    // 收集所有工具名（tools + assistant.tool_calls），统一构建缩短映射
+    const allToolNames = new Set()
+    if (chatBody.tools) {
+      for (const t of chatBody.tools) {
+        if (t.type === 'function' && t.function?.name) {
+          allToolNames.add(t.function.name)
+        }
+      }
+    }
+    for (const msg of chatBody.messages || []) {
+      if (msg.role === 'assistant' && msg.tool_calls) {
+        for (const tc of msg.tool_calls) {
+          if (tc.type === 'function' && tc.function?.name) {
+            allToolNames.add(tc.function.name)
+          }
+        }
+      }
+    }
+    if (allToolNames.size > 0) {
+      this._toolNameMap = this._buildShortNameMap([...allToolNames])
+      this._reverseToolNameMap = {}
+      for (const [orig, short] of Object.entries(this._toolNameMap)) {
+        if (orig !== short) {
+          this._reverseToolNameMap[short] = orig
+        }
+      }
     }
 
     // messages → input（instructions 由调用方设置，此处只转换消息到 input）
@@ -520,45 +541,17 @@ export class CodexToOpenAIConverter {
 
     result.input = input
 
-    // temperature/top_p/max_output_tokens 不透传，与上游 Codex API 行为保持一致
-
-    // reasoning 配置
-    result.reasoning = {
-      effort: chatBody.reasoning_effort || 'medium',
-      summary: 'auto',
-    }
-
-    // 固定值
-    result.parallel_tool_calls = true
-    result.include = ['reasoning.encrypted_content']
-    result.store = false
-
-    // 收集所有工具名（tools + assistant.tool_calls），统一构建缩短映射
-    const allToolNames = new Set()
-    if (chatBody.tools) {
-      for (const t of chatBody.tools) {
-        if (t.type === 'function' && t.function?.name) {
-          allToolNames.add(t.function.name)
-        }
+    for (const field of ['temperature', 'top_p', 'parallel_tool_calls', 'service_tier', 'metadata', 'user', 'store']) {
+      if (chatBody[field] !== undefined) {
+        result[field] = chatBody[field]
       }
     }
-    for (const msg of chatBody.messages || []) {
-      if (msg.role === 'assistant' && msg.tool_calls) {
-        for (const tc of msg.tool_calls) {
-          if (tc.type === 'function' && tc.function?.name) {
-            allToolNames.add(tc.function.name)
-          }
-        }
-      }
+    const maxOutputTokens = chatBody.max_completion_tokens ?? chatBody.max_tokens
+    if (maxOutputTokens !== undefined) {
+      result.max_output_tokens = maxOutputTokens
     }
-    if (allToolNames.size > 0) {
-      this._toolNameMap = this._buildShortNameMap([...allToolNames])
-      this._reverseToolNameMap = {}
-      for (const [orig, short] of Object.entries(this._toolNameMap)) {
-        if (orig !== short) {
-          this._reverseToolNameMap[short] = orig
-        }
-      }
+    if (chatBody.reasoning_effort !== undefined) {
+      result.reasoning = { effort: chatBody.reasoning_effort }
     }
 
     // tools 展平

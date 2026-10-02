@@ -13,6 +13,8 @@ import { logger } from '../../common/logger.js'
 import { acceptWebSocketEndpoint, encodeWsClientText, encodeWsClientPong } from '../../common/gateway_ws_endpoint.js'
 import { createWsFrameSniffer } from '../../common/gateway_ws_frame_sniffer.js'
 import { IncrementalSSEParser } from './relay_sse_parser.js'
+import { ResponsesStreamState } from './relay_responses_stream_state.js'
+import * as groupPolicy from '../account/account_group_policy.js'
 import { filterForOpenAI, codexCriticalRequestHeaders } from './relay_header_filter.js'
 import { proxyResolver } from '../proxy/proxy_resolver.js'
 import { unifiedOpenAIScheduler } from './relay_unified_openai_scheduler.js'
@@ -31,7 +33,7 @@ import { applyOpenAIServiceTierAlias } from './relay_openai_compact_v2.js'
 import { applyOpenAIPublicModelAlias } from './relay_openai_model_alias.js'
 import { normalizeCodexBootstrapBody } from './relay_codex_bootstrap_normalize.js'
 import { extractUpstreamErrorCode, extractSafeMessage } from '../../common/client_error_builder.js'
-import { normalizeKnownOpenAICodexModel } from './relay_openai_model_alias.js'
+import { assertModelAccess, createWsModelAccessGuard } from './relay_model_access.js'
 
 // 与 relay_openai_routes.getCodexCompatibleModel 同语义（避免跨文件非导出依赖）
 const getCodexCompatibleModel = (requestedModel = null) => {
@@ -48,6 +50,7 @@ const createBridgeSessionState = () => ({
   // 累积 input（message / function_call / function_call_output 等）
   inputItems: [],
   lastResponseId: null,
+  lastRequestBody: null,
   instructions: null,
   tools: null,
   toolChoice: null,
@@ -269,170 +272,102 @@ const extractUsageFromCompleted = (eventData) => {
 
 // 把 client WS 消息规范成可 POST 的 responses body
 export const buildHttpResponsesBodyFromWsMessage = (message, state) => {
-  if (!message || typeof message !== 'object') {
-    throw Object.assign(new Error('invalid websocket message'), { statusCode: 400 })
+  if (!message || typeof message !== 'object' || Array.isArray(message)) {
+    throw Object.assign(new Error('Invalid WebSocket message'), { statusCode: 400 })
   }
-  const type = message.type || 'response.create'
-
-  if (type === 'response.create') {
-    // 完整 body 可能在 message 顶层，或 message.response 下
-    const source =
-      message.response && typeof message.response === 'object' ? { ...message, ...message.response } : message
-    const model = source.model || state.model
-    if (!model) {
-      throw Object.assign(new Error('missing model in response.create'), { statusCode: 400 })
-    }
-    // 公开别名归一写入 state，保证 create/append 出站一致；选号用同一归一名
-    const canonicalModel = normalizeKnownOpenAICodexModel(model) || model
-    state.model = canonicalModel
-    state.clientModel = model
-
-    if (source.instructions !== undefined) {
-      state.instructions = source.instructions
-    }
-    if (source.tools !== undefined) {
-      state.tools = source.tools
-    }
-    if (source.tool_choice !== undefined) {
-      state.toolChoice = source.tool_choice
-    }
-    if (source.parallel_tool_calls !== undefined) {
-      state.parallelToolCalls = source.parallel_tool_calls
-    }
-    if (source.temperature !== undefined) {
-      state.temperature = source.temperature
-    }
-    if (source.top_p !== undefined) {
-      state.topP = source.top_p
-    }
-    if (source.max_output_tokens !== undefined) {
-      state.maxOutputTokens = source.max_output_tokens
-    }
-    if (source.reasoning !== undefined) {
-      state.reasoning = source.reasoning
-    }
-    if (source.service_tier !== undefined) {
-      state.serviceTier = source.service_tier
-    }
-
-    const inputDelta = Array.isArray(source.input) ? source.input : []
-    const previousId = source.previous_response_id || null
-
-    const body = {
-      model: getCodexCompatibleModel(canonicalModel) || canonicalModel,
-      stream: true,
-      store: false,
-    }
-    if (source.service_tier !== undefined) {
-      body.service_tier = source.service_tier
-    }
-    applyOpenAIServiceTierAlias(body)
-    applyOpenAIPublicModelAlias(body)
-
-    // v2 续写：有 previous_response_id 时只发本轮 delta input，禁止把历史整包重放
-    if (previousId) {
-      state.lastResponseId = previousId
-      body.previous_response_id = previousId
-      body.input = inputDelta
-      if (inputDelta.length) {
-        state.inputItems = state.inputItems.concat(inputDelta)
-      }
-    } else if (inputDelta.length) {
-      // 新会话：全量 input
-      state.inputItems = [...inputDelta]
-      state.lastResponseId = null
-      body.input = state.inputItems
-    } else if (state.lastResponseId) {
-      // 无 input 的续写
-      body.previous_response_id = state.lastResponseId
-      body.input = []
-    } else {
-      body.input = state.inputItems
-    }
-
-    if (state.instructions !== null && state.instructions !== undefined) {
-      body.instructions = state.instructions
-    }
-    if (state.tools !== null && state.tools !== undefined) {
-      body.tools = state.tools
-    }
-    if (state.toolChoice !== null && state.toolChoice !== undefined) {
-      body.tool_choice = state.toolChoice
-    }
-    if (state.parallelToolCalls !== undefined) {
-      body.parallel_tool_calls = state.parallelToolCalls
-    }
-    if (state.temperature !== undefined) {
-      body.temperature = state.temperature
-    }
-    if (state.topP !== undefined) {
-      body.top_p = state.topP
-    }
-    if (state.maxOutputTokens !== undefined) {
-      body.max_output_tokens = state.maxOutputTokens
-    }
-    if (state.reasoning !== undefined) {
-      body.reasoning = state.reasoning
-    }
-    if (state.serviceTier !== undefined && state.serviceTier !== null) {
-      body.service_tier = state.serviceTier
-      applyOpenAIServiceTierAlias(body)
-    }
-
-    // 先 bootstrap 再 tool repair：repair 会丢无 call_id 的 function_call_output
-    // DEC_20260904_174000 bootstrap 必须先于 repair，否则 delegation/automation 被丢弃
-    const bootstrap = normalizeCodexBootstrapBody(body)
-    if (bootstrap.changed) {
-      logger.info(`Codex bootstrap normalized on WS bridge kinds=${bootstrap.kinds.join(',')}`)
-    }
-    const repaired = repairResponsesToolCallsInBody(bootstrap.body)
-    applyOpenAIPublicModelAlias(repaired)
-    return repaired
+  const type = message.type ?? 'response.create'
+  if (!['response.create', 'response.append'].includes(type)) {
+    throw Object.assign(new Error('Unsupported WebSocket message type'), { statusCode: 400 })
   }
-
+  const source =
+    message.response && typeof message.response === 'object' ? { ...message, ...message.response } : message
+  if (source.stream_id) {
+    throw Object.assign(new Error('Named streams require native WebSocket transport'), {
+      statusCode: 400,
+      code: 'unsupported_stream_id',
+    })
+  }
+  const model = source.model ?? state.model
+  if (!model) {
+    throw Object.assign(new Error('Missing model in response.create'), { statusCode: 400 })
+  }
+  const previousId = type === 'response.append' ? state.lastResponseId : source.previous_response_id
+  if (previousId && previousId !== state.lastResponseId) {
+    throw Object.assign(new Error('Previous response is unavailable; resend the full input context'), {
+      statusCode: 400,
+      code: 'previous_response_not_found',
+    })
+  }
+  if (type === 'response.append' && !previousId) {
+    throw Object.assign(new Error('response.append requires a completed response'), { statusCode: 400 })
+  }
+  let input = source.input ?? source.delta ?? source.items ?? source.text ?? []
+  if (typeof input === 'string') {
+    input = [{ role: 'user', content: input }]
+  }
+  if (!Array.isArray(input)) {
+    throw Object.assign(new Error('Invalid response input'), { statusCode: 400 })
+  }
+  const body = { ...source, model, input: previousId ? [...state.inputItems, ...input] : [...input] }
+  // OAuth HTTP 不持有 WS 的连接内上下文，续写必须发送完整 input
+  for (const field of [
+    'type',
+    'response',
+    'previous_response_id',
+    'stream_id',
+    'generate',
+    'delta',
+    'items',
+    'temperature',
+    'top_p',
+    'max_output_tokens',
+    'background',
+    'conversation',
+    'metadata',
+    'prompt_cache_retention',
+    'safety_identifier',
+    'truncation',
+    'user',
+  ]) {
+    delete body[field]
+  }
   if (type === 'response.append') {
-    // 旧协议 append：只发增量 + previous_response_id，不重放完整历史
-    let delta = message.input || message.delta || message.items
-    if (!Array.isArray(delta)) {
-      delta = typeof message.text === 'string' ? [{ type: 'message', role: 'user', content: message.text }] : []
-    }
-    if (!state.model) {
-      throw Object.assign(new Error('response.append before response.create'), { statusCode: 400 })
-    }
-    if (delta.length) {
-      state.inputItems = state.inputItems.concat(delta)
-    }
-    const body = {
-      model: getCodexCompatibleModel(state.model) || state.model,
-      input: delta,
-      stream: true,
-      store: false,
-    }
-    if (state.lastResponseId) {
-      body.previous_response_id = state.lastResponseId
-    }
-    if (state.instructions !== null && state.instructions !== undefined) {
-      body.instructions = state.instructions
-    }
-    if (state.tools !== null && state.tools !== undefined) {
-      body.tools = state.tools
-    }
-    if (state.toolChoice !== null && state.toolChoice !== undefined) {
-      body.tool_choice = state.toolChoice
-    }
-    if (state.serviceTier !== null && state.serviceTier !== undefined) {
-      body.service_tier = state.serviceTier
-    }
-    applyOpenAIServiceTierAlias(body)
-    applyOpenAIPublicModelAlias(body)
-    const bootstrapAppend = normalizeCodexBootstrapBody(body)
-    if (bootstrapAppend.changed) {
-      logger.info(`Codex bootstrap normalized on WS append kinds=${bootstrapAppend.kinds.join(',')}`)
-    }
-    return repairResponsesToolCallsInBody(bootstrapAppend.body)
+    Object.assign(body, { ...state.lastRequestBody, ...body })
+  } else if (previousId && source.tools === undefined && state.lastRequestBody?.tools !== undefined) {
+    body.tools = state.lastRequestBody.tools
   }
+  body.model = getCodexCompatibleModel(model) ?? model
+  body.stream = true
+  body.store = false
+  body.include = [...new Set([...(Array.isArray(source.include) ? source.include : []), 'reasoning.encrypted_content'])]
+  if (source.generate === false) {
+    body.generate = false
+  }
+  applyOpenAIServiceTierAlias(body)
+  applyOpenAIPublicModelAlias(body)
+  // DEC_20260904_174000 bootstrap 必须先于 repair，否则 delegation/automation 被丢弃
+  return repairResponsesToolCallsInBody(normalizeCodexBootstrapBody(body).body)
+}
 
-  throw Object.assign(new Error(`unsupported websocket message type: ${type}`), { statusCode: 400 })
+export const completeHttpBridgeWarmup = (body, state) => {
+  const response = {
+    id: `resp_crs_${crypto.randomUUID().replaceAll('-', '')}`,
+    object: 'response',
+    created_at: Math.floor(Date.now() / 1000),
+    model: body.model,
+    output: [],
+    status: 'completed',
+    usage: { input_tokens: 0, output_tokens: 0, total_tokens: 0 },
+  }
+  state.lastResponseId = response.id
+  state.inputItems = [...body.input]
+  state.model = body.model
+  state.lastRequestBody = { ...body }
+  delete state.lastRequestBody.generate
+  return [
+    { type: 'response.created', response: { ...response, status: 'in_progress' }, sequence_number: 0 },
+    { type: 'response.completed', response, sequence_number: 1 },
+  ]
 }
 
 const buildUpstreamHeaders = ({ accessToken, account, accountId, clientHeaders }) => {
@@ -477,6 +412,18 @@ const runOneTurn = async ({
   state,
   abortSignal: contextAbortSignal = null,
 }) => {
+  if (body.generate === false) {
+    for (const event of completeHttpBridgeWarmup(body, state)) {
+      sendText(JSON.stringify(event))
+    }
+    const groupId = apiKeyData?.groupCostHoldGroupId
+    if (groupId) {
+      await groupPolicy.releaseGroupCostHolds(groupId)
+      apiKeyData.groupCostHoldGroupId = null
+      apiKeyData.groupCostHoldMeta = null
+    }
+    return { ok: true, warmup: true }
+  }
   if (accountType === 'openai-responses') {
     sendText(
       JSON.stringify({
@@ -637,111 +584,67 @@ const runOneTurn = async ({
   }
 
   const parser = new IncrementalSSEParser()
+  const upstreamState = new ResponsesStreamState({ model: body.model })
   let usagePayload = null
   let actualModel = body.model
   let completedId = null
-  // DEC_20260904_174000 半截流：无 terminal 不得 ok=true
-  let sawResponseCreated = false
-  let sawTerminal = false
-  let terminalFailed = false
   let streamError = null
   let lastFailEvent = null
-
-  await new Promise((resolve, reject) => {
-    upstream.data.on('data', (chunk) => {
-      try {
-        const events = parser.feed(chunk)
-        for (const event of events || []) {
-          if (!event) {
-            continue
-          }
-          if (event.type === 'done') {
-            sendText(JSON.stringify({ type: 'response.done' }))
-            continue
-          }
-          if (event.type !== 'data' || !event.data || typeof event.data !== 'object') {
-            continue
-          }
-          const eventData = event.data
-          const eventType = eventData.type
-
-          if (eventType === 'response.created') {
-            sawResponseCreated = true
-          }
-          if (
-            eventType === 'response.completed' ||
-            eventType === 'response.failed' ||
-            eventType === 'response.done' ||
-            eventType === 'error'
-          ) {
-            sawTerminal = true
-            if (eventType === 'response.failed' || eventType === 'error') {
-              terminalFailed = true
-              lastFailEvent = eventData
-              noteCyberPolicyFromUpstream(state, eventData, `sse_${eventType}`)
-            }
-          }
-
-          // capacity shed 出站改写
-          const sanitizedEvent = sanitizeOpenAICapacityShedForClient(eventData)
-          const clientEvent = sanitizedEvent.payload
-
-          // 回写客户端：WS 文本帧 = 事件 JSON（官方 WS 语义）
-          sendText(JSON.stringify(clientEvent))
-
-          if (eventData.type === 'response.completed' && eventData.response) {
-            actualModel = eventData.response.model || actualModel
-            completedId = eventData.response.id || completedId
-            usagePayload = extractUsageFromCompleted(eventData)
-            if (completedId) {
-              state.lastResponseId = completedId
-            }
-            // 把 output 里的 function_call 等并入 input 历史，便于 append
-            const { output } = eventData.response
-            if (Array.isArray(output) && output.length) {
-              state.inputItems = state.inputItems.concat(output)
-            }
-          }
-        }
-      } catch (error) {
-        console.error(error)
+  const consumeEvents = (events) => {
+    for (const event of events) {
+      if (upstreamState.terminalType) {
+        break
       }
-    })
-    upstream.data.on('end', resolve)
-    upstream.data.on('error', (error) => {
-      console.error(error)
-      streamError = error
-      reject(error)
-    })
-  }).catch((error) => {
+      if (event.type === 'invalid') {
+        throw new Error('Invalid upstream SSE event')
+      }
+      if (event.type !== 'data') {
+        continue
+      }
+      const { data } = event
+      upstreamState.observe(data)
+      actualModel = upstreamState.model
+      if (data.response?.usage) {
+        usagePayload = extractUsageFromCompleted(data)
+      }
+      if (upstreamState.error) {
+        lastFailEvent = data
+        noteCyberPolicyFromUpstream(state, data, data.type)
+      }
+      sendText(JSON.stringify(sanitizeOpenAICapacityShedForClient(data).payload))
+      if (['response.completed', 'response.done'].includes(upstreamState.terminalType) && data.response?.id) {
+        completedId = data.response.id
+        state.lastResponseId = completedId
+        state.inputItems = [...body.input, ...(Array.isArray(data.response.output) ? data.response.output : [])]
+        state.lastRequestBody = { ...body }
+        state.model = body.model
+      }
+    }
+  }
+  try {
+    for await (const chunk of upstream.data) {
+      consumeEvents(parser.feed(chunk))
+      if (upstreamState.terminalType) {
+        break
+      }
+    }
+    consumeEvents(parser.finish())
+  } catch (error) {
     streamError = error
-    sendText(
-      JSON.stringify({
-        type: 'error',
-        error: { message: error.message || 'stream error', type: 'api_error', code: 'upstream_stream_error' },
-      }),
-    )
-  })
-
-  // 上游正常 end 但无 terminal：补失败帧，禁止假成功
-  if (!streamError && sawResponseCreated && !sawTerminal) {
-    terminalFailed = true
-    sendText(
-      JSON.stringify({
-        type: 'error',
-        error: {
-          message: 'Upstream closed before response completed',
-          type: 'api_error',
-          code: 'upstream_incomplete',
-        },
-      }),
-    )
+    logger.error('Responses WS HTTP bridge stream failed:', error)
+  }
+  const hadTerminal = Boolean(upstreamState.terminalType)
+  const result = upstreamState.finish(streamError)
+  const terminalFailed = !['response.completed', 'response.done'].includes(upstreamState.terminalType)
+  if (!hadTerminal && result.clientError) {
+    sendText(JSON.stringify(result.clientError))
   }
 
   proxyResolver.report(proxyResolution.proxyId, proxyResolution.contextKey, null)
 
-  const success = !streamError && !terminalFailed && Boolean(usagePayload || completedId || sawTerminal)
-  if (success && usagePayload && apiKeyData?.id) {
+  const success = !streamError && !terminalFailed
+  let usageRecorded = false
+  if (usagePayload && apiKeyData?.id) {
     try {
       const effectiveTier = resolveOpenAIServiceTier(
         usagePayload.service_tier,
@@ -756,18 +659,19 @@ const runOneTurn = async ({
         effectiveTier,
         createRequestDetailMeta(reqMeta || {}, {
           stream: true,
-          statusCode: 200,
+          ...result,
           billingUsage: usagePayload,
           requestBody: { wsBridge: true, model: actualModel, serviceTier: effectiveTier },
         }),
       )
+      usageRecorded = true
     } catch (error) {
       console.error(error)
       logger.error(`[ResponsesWS-bridge] billing failed: ${error.message}`)
     }
   }
 
-  if (!success) {
+  if (!success && !usageRecorded) {
     // DEC_20260905_194420 WS bridge 失败也落 request detail（含上游 ID）
     if (apiKeyData?.id) {
       try {
@@ -814,7 +718,7 @@ const runOneTurn = async ({
     }
     return {
       ok: false,
-      incomplete: Boolean(sawResponseCreated && !sawTerminal),
+      incomplete: !hadTerminal,
       usagePayload,
       actualModel,
       responseId: completedId,
@@ -932,6 +836,7 @@ export const handleResponsesWebSocketHttpBridge = async (
 
             // 选号传原始 modelHint；公开别名由调度白名单候选覆盖
             const modelHint = message?.model || message?.response?.model || state.model || null
+            assertModelAccess(apiKeyData, modelHint)
             await ensureAccount(modelHint)
 
             const body = buildHttpResponsesBodyFromWsMessage(message, state)
@@ -973,6 +878,7 @@ export const handleResponsesWebSocketHttpBridge = async (
                   error: {
                     message: error.message || 'bridge turn failed',
                     type: 'invalid_request_error',
+                    code: error.code ?? 'invalid_request_error',
                   },
                 }),
               )
@@ -1053,6 +959,7 @@ export const handleResponsesWebSocketLazyPassthrough = async (
   const PENDING_MAX_FRAMES = 20
   const PENDING_MAX_BYTES = 1 * 1024 * 1024
   let pendingBytes = 0
+  const validateModelAccess = createWsModelAccessGuard(apiKeyData)
 
   const settleClose = async (err = null) => {
     if (closed) {
@@ -1179,6 +1086,22 @@ export const handleResponsesWebSocketLazyPassthrough = async (
     label: 'responses-lazy-passthrough',
     onTextMessage: (text) => {
       if (closed) {
+        return
+      }
+      try {
+        validateModelAccess(text)
+      } catch (error) {
+        endpoint.sendText(
+          JSON.stringify({
+            type: 'error',
+            status: error.statusCode ?? 400,
+            error: {
+              type: error.code === 'model_not_allowed' ? 'permission_error' : 'invalid_request_error',
+              code: error.code ?? 'invalid_request_error',
+              message: error.code === 'model_not_allowed' ? error.message : 'Invalid WebSocket request',
+            },
+          }),
+        )
         return
       }
 

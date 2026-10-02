@@ -6,7 +6,7 @@ import { onClientDisconnect } from '../../common/client_disconnect.js'
 import { config } from '../../../config/config.js'
 import * as upstreamErrorHelper from './relay_upstream_error_helper.js'
 // 转换模型名称（去掉 azure/ 前缀）
-export const normalizeModelName = function normalizeModelName(model) {
+const stripAzureModelPrefix = (model) => {
   if (model && model.startsWith('azure/')) {
     return model.replace('azure/', '')
   }
@@ -14,13 +14,13 @@ export const normalizeModelName = function normalizeModelName(model) {
 }
 
 // 处理 Azure OpenAI 请求
-export const handleAzureOpenAIRequest = async function handleAzureOpenAIRequest({
+export const handleAzureOpenAIRequest = async ({
   account,
   requestBody,
   headers: _headers = {}, // 前缀下划线表示未使用
   isStream = false,
   endpoint = 'chat/completions',
-}) {
+}) => {
   // 声明变量在函数顶部，确保在 catch 块中也能访问
   let requestUrl = ''
   let proxyAgent = null
@@ -59,7 +59,7 @@ export const handleAzureOpenAIRequest = async function handleAzureOpenAIRequest(
     if (endpoint === 'responses') {
       processedBody.model = deploymentName
     } else if (processedBody.model) {
-      processedBody.model = normalizeModelName(processedBody.model)
+      processedBody.model = stripAzureModelPrefix(processedBody.model)
     } else {
       processedBody.model = 'gpt-4'
     }
@@ -276,7 +276,7 @@ const MAX_BUFFER_SIZE = 64 * 1024 // 64KB
 const MAX_EVENT_SIZE = 16 * 1024 // 16KB 单个事件最大大小
 
 // 处理流式响应
-export const handleStreamResponse = function handleStreamResponse(upstreamResponse, clientResponse, options = {}) {
+export const handleStreamResponse = (upstreamResponse, clientResponse, options = {}) => {
   const { onData, onEnd, onError } = options
   const streamId = `stream_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
 
@@ -619,7 +619,7 @@ export const handleStreamResponse = function handleStreamResponse(upstreamRespon
 }
 
 // 强化的用量数据提取函数
-const extractUsageDataRobust = function extractUsageDataRobust(responseData, context = 'unknown') {
+const extractUsageDataRobust = (responseData, context = 'unknown') => {
   logger.debug(`Attempting usage extraction for ${context}`, {
     responseDataKeys: Object.keys(responseData || {}),
     responseDataType: typeof responseData,
@@ -733,7 +733,7 @@ const extractUsageDataRobust = function extractUsageDataRobust(responseData, con
 }
 
 // 处理非流式响应
-export const handleNonStreamResponse = function handleNonStreamResponse(upstreamResponse, clientResponse) {
+export const handleNonStreamResponse = (upstreamResponse, clientResponse) => {
   try {
     // 设置状态码
     clientResponse.status(upstreamResponse.status)

@@ -10,7 +10,10 @@
       <p class="t-text-secondary text-sm">正在加载转换注册表...</p>
     </div>
 
-    <div v-else-if="error" class="rounded-lg border border-red-200 bg-red-50 p-4 dark:border-red-800 dark:bg-red-900/20">
+    <div
+      v-else-if="error"
+      class="rounded-lg border border-red-200 bg-red-50 p-4 dark:border-red-800 dark:bg-red-900/20"
+    >
       <p class="text-sm text-red-700 dark:text-red-300">{{ error }}</p>
       <button class="btn btn-primary mt-3 px-3 py-2 text-sm" type="button" @click="loadRegistry">
         重试
@@ -81,7 +84,7 @@
           </thead>
           <tbody class="divide-y divide-gray-100 dark:divide-gray-800">
             <tr v-if="filteredEntries.length === 0">
-              <td class="px-3 py-6 text-center text-gray-500 dark:text-gray-400" colspan="5">
+              <td class="px-3 py-6 text-center text-gray-500 dark:text-gray-400" colspan="6">
                 无匹配条目
               </td>
             </tr>
@@ -130,6 +133,7 @@
             <tr>
               <th class="px-3 py-2 font-medium">协议</th>
               <th class="px-3 py-2 font-medium">状态</th>
+              <th class="px-3 py-2 font-medium">验证</th>
               <th class="px-3 py-2 font-medium">路径</th>
               <th class="px-3 py-2 font-medium">说明</th>
             </tr>
@@ -151,6 +155,24 @@
                 >
                   {{ row.status }}
                 </span>
+              </td>
+              <td class="px-3 py-2 text-sm text-gray-600 dark:text-gray-300">
+                <span
+                  class="rounded-full bg-blue-100 px-2 py-0.5 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300"
+                >
+                  被动观察
+                </span>
+                <div class="mt-1 text-xs">
+                  {{ row.lastObservedAt ? `最近成功 ${row.lastObservedAt}` : '暂无成功样本' }}
+                </div>
+                <button
+                  v-if="row.testAvailable"
+                  class="mt-1 text-xs text-blue-600 hover:underline dark:text-blue-400"
+                  type="button"
+                  @click="router.push('/accounts')"
+                >
+                  去账号测试
+                </button>
               </td>
               <td class="px-3 py-2 font-mono text-sm">
                 <div v-for="pathItem in row.paths" :key="pathItem">{{ pathItem }}</div>
@@ -189,6 +211,7 @@
 
 <script setup>
 import { computed, onMounted, ref } from 'vue'
+import { useRouter } from 'vue-router'
 
 import CustomDropdown from '@/components/common/custom_dropdown.vue'
 import { isOk, msgOf } from '@/libs/http_envelope'
@@ -200,6 +223,7 @@ defineOptions({
 })
 
 const loading = ref(false)
+const router = useRouter()
 const error = ref('')
 const entries = ref([])
 const protocolSurface = ref([])

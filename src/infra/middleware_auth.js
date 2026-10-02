@@ -9,6 +9,7 @@ import { ClaudeCodeValidator } from '../common/validator_client_claude_code_vali
 import { claudeRelayConfigService } from '../modules/relay/relay_claude_relay_config_service.js'
 import { calculateWaitTimeStats } from '../common/stats_helper.js'
 import { isClaudeFamilyModel } from '../modules/relay/relay_model_helper.js'
+import { assertModelAccess, getRequestModels, modelAccessErrorBody } from '../modules/relay/relay_model_access.js'
 import { RedisKeys, TTL } from './redis_key.js'
 import { balanceLedger } from '../modules/payment/payment_balance_ledger.js'
 import * as groupPolicy from '../modules/account/account_group_policy.js'
@@ -51,9 +52,7 @@ const isManagementJsonPath = (req) => {
 // RateLimiterRedis 全局限流已禁用，需要时再从 rate-limiter-flexible 引入
 
 // 工具函数
-const sleep = function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms))
-}
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
 /**
  * 检查排队是否过载，决定是否应该快速失败
@@ -65,12 +64,7 @@ const sleep = function sleep(ms) {
  * @param {number} maxQueueSize - 最大排队数
  * @returns {Promise<Object>} { reject: boolean, reason?: string, estimatedWaitMs?: number, timeoutMs?: number }
  */
-const shouldRejectDueToOverload = async function shouldRejectDueToOverload(
-  apiKeyId,
-  timeoutMs,
-  queueConfig,
-  maxQueueSize,
-) {
+const shouldRejectDueToOverload = async (apiKeyId, timeoutMs, queueConfig, maxQueueSize) => {
   try {
     // 如果健康检查被禁用，直接返回不拒绝
     if (!queueConfig.concurrentRequestQueueHealthCheckEnabled) {
@@ -204,7 +198,7 @@ const TOKEN_COUNT_PATHS = new Set([
   '/claude/v1/messages/count_tokens',
 ])
 
-const extractApiKey = function extractApiKey(req) {
+const extractApiKey = (req) => {
   const candidates = [
     req.headers['x-api-key'],
     req.headers['x-goog-api-key'],
@@ -242,7 +236,7 @@ const extractApiKey = function extractApiKey(req) {
   return ''
 }
 
-const normalizeRequestPath = function normalizeRequestPath(value) {
+const normalizeRequestPath = (value) => {
   if (!value) {
     return '/'
   }
@@ -254,7 +248,7 @@ const normalizeRequestPath = function normalizeRequestPath(value) {
   return collapsed || '/'
 }
 
-const isTokenCountRequest = function isTokenCountRequest(req) {
+const isTokenCountRequest = (req) => {
   const combined = normalizeRequestPath(`${req.baseUrl || ''}${req.path || ''}`)
   if (TOKEN_COUNT_PATHS.has(combined)) {
     return true
@@ -286,7 +280,7 @@ const isTokenCountRequest = function isTokenCountRequest(req) {
  * @param {Object} queueOptions - 配置参数
  * @returns {Promise<Object>} { acquired: boolean, reason?: string, waitTimeMs: number }
  */
-const waitForConcurrencySlot = async function waitForConcurrencySlot(req, res, apiKeyId, queueOptions) {
+const waitForConcurrencySlot = async (req, res, apiKeyId, queueOptions) => {
   const {
     concurrencyLimit,
     requestId,
@@ -498,6 +492,15 @@ export const authenticateApiKey = async (req, res, next) => {
     }
 
     const skipKeyRestrictions = isTokenCountRequest(req)
+    if (!skipKeyRestrictions) {
+      try {
+        for (const model of getRequestModels(req)) {
+          assertModelAccess(validation.keyData, model)
+        }
+      } catch (error) {
+        return res.status(403).json(modelAccessErrorBody(req, error))
+      }
+    }
 
     // 检查客户端限制（使用新的验证器）
     if (

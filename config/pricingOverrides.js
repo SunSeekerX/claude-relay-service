@@ -14,12 +14,16 @@
 // 下线条件：定价源自身把这批 max_input_tokens 修正到正确值后，删除对应条目。
 // 每次条目生效/失效都会打日志（见 pricingService._applyPricingOverrides），
 // 便于发现「源已修正、覆盖变冗余」。
-const LONG_CONTEXT_GPT56 = 1050000
+// DEC_20261001_114137 改按官方 Codex catalog max_context_window 872000（context_window 272000）
+const LONG_CONTEXT_GPT56 = 872000
 
 export const pricingOverrides = {
   'gpt-5.6-terra': { max_input_tokens: LONG_CONTEXT_GPT56 },
   'gpt-5.6-sol': { max_input_tokens: LONG_CONTEXT_GPT56 },
   'gpt-5.6-luna': { max_input_tokens: LONG_CONTEXT_GPT56 },
   'gpt-6-astra': { max_input_tokens: LONG_CONTEXT_GPT56 },
-  'gpt-6': { max_input_tokens: LONG_CONTEXT_GPT56 }
+  'gpt-6': { max_input_tokens: LONG_CONTEXT_GPT56 },
+  'gpt-6.1-sol': { max_input_tokens: LONG_CONTEXT_GPT56 },
+  'gpt-6-sol': { max_input_tokens: LONG_CONTEXT_GPT56 },
+  'gpt-6-luna': { max_input_tokens: LONG_CONTEXT_GPT56 }
 }

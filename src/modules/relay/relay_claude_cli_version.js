@@ -1,11 +1,11 @@
 // Claude CLI 伪装版本：内置基线 + 环境变量覆盖
-// DEC_20260905_194420 基线抬到 2.1.251 以开箱支持 fable；CLAUDE_CLI_VERSION 可再抬高
+// DEC_20261001_114137 基线对齐官方 Claude Code 2.1.280；CLAUDE_CLI_VERSION 可再抬高
 // 进程启动解析一次：UA 与 billing cc_version 必须同源，禁止每次读 env
 import { env } from '../../../config/env.js'
 import { logger } from '../../common/logger.js'
 
 // 内置基线（未配置覆盖时的生效值；覆盖值不得低于此）
-export const CLAUDE_CLI_BASELINE_VERSION = '2.1.251'
+export const CLAUDE_CLI_BASELINE_VERSION = '2.1.280'
 
 const STRICT_THREE_PART_SEMVER = /^\d+\.\d+\.\d+$/
 

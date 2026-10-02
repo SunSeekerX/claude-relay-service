@@ -2898,15 +2898,11 @@ const supportedTestPlatforms = [
   'ccr'
 ]
 
-const canTestAccount = (account) => {
-  return !!account && supportedTestPlatforms.includes(account.platform)
-}
+const canTestAccount = (account) => !!account && supportedTestPlatforms.includes(account.platform)
 
 // 定时测试目前仅 claude 平台支持（弹窗 loadConfig/saveConfig 与后端接口均为 claude 专用），
 // 与连通性测试的 canTestAccount 解耦，避免对其他平台暴露假功能
-const canScheduleTest = (account) => {
-  return !!account && account.platform === 'claude'
-}
+const canScheduleTest = (account) => !!account && account.platform === 'claude'
 
 const openAccountTestModal = (account) => {
   if (!canTestAccount(account)) {
@@ -5063,9 +5059,7 @@ const getSessionProgressBarClass = (status, account = null) => {
 // ====== Claude OAuth Usage 相关函数 ======
 
 // 判断 Claude 账户是否为 OAuth 授权
-const isClaudeOAuth = (account) => {
-  return account.authType === 'oauth'
-}
+const isClaudeOAuth = (account) => account.authType === 'oauth'
 
 // 格式化 Claude 使用率百分比
 const formatClaudeUsagePercent = (window) => {

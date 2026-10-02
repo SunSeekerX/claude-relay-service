@@ -16,7 +16,7 @@ import * as oauthHelper from '../../common/oauth_helper.js'
 import { proxyResolver } from '../proxy/proxy_resolver.js'
 import { CostCalculator } from '../pricing/pricing_cost_calculator.js'
 import { webhookNotifier } from '../webhook/webhook_notifier.js'
-import { formatAccountExpiry, mapExpiryField } from '../admin/admin_utils_routes.js'
+import { formatAccountExpiry, mapExpiryField } from './account_expiry_helper.js'
 import { stripReadonlyAccountFields } from '../../common/common_helper.js'
 import { parseObjectBody } from '../../common/parse_body.js'
 import {

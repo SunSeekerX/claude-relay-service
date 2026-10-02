@@ -103,13 +103,3 @@ export const sortModelsForDisplay = (models) => {
     return compareInProvider(a.name ?? a.id ?? '', b.name ?? b.id ?? '')
   })
 }
-
-export const compareModelsForDisplay = (a, b) => {
-  const ra = providerRank(a.provider ?? '')
-  const rb = providerRank(b.provider ?? '')
-  if (ra !== rb) return ra - rb
-  const pa = String(a.provider ?? '').toLowerCase()
-  const pb = String(b.provider ?? '').toLowerCase()
-  if (pa !== pb) return pa.localeCompare(pb)
-  return compareInProvider(a.name ?? a.id ?? '', b.name ?? b.id ?? '')
-}

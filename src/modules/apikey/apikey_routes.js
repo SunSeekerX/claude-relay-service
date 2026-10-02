@@ -26,7 +26,7 @@ const VALID_PERMISSIONS = ['claude', 'gemini', 'openai', 'droid', 'grok']
  * @param {any} permissions - 权限值（可以是数组或其他）
  * @returns {string|null} - 返回错误消息，null 表示验证通过
  */
-const validatePermissions = function validatePermissions(permissions) {
+const validatePermissions = (permissions) => {
   // 空值或未定义表示全部服务
   if (permissions === undefined || permissions === null || permissions === '') {
     return null
@@ -60,7 +60,7 @@ const validatePermissions = function validatePermissions(permissions) {
  * @param {any} serviceRates - 服务倍率对象
  * @returns {string|null} - 返回错误消息，null 表示验证通过
  */
-const validateServiceRates = function validateServiceRates(serviceRates) {
+const validateServiceRates = (serviceRates) => {
   if (serviceRates === undefined || serviceRates === null) {
     return null
   }
@@ -366,7 +366,7 @@ router.get(
 /**
  * 使用预计算索引进行费用排序的分页查询
  */
-const getApiKeysSortedByCostPrecomputed = async function getApiKeysSortedByCostPrecomputed(options) {
+const getApiKeysSortedByCostPrecomputed = async (options) => {
   const { page, pageSize, sortOrder, costTimeRange, search, searchMode, tag, isActive, modelFilter = [] } = options
 
   // 1. 获取排序后的全量 keyId 列表
@@ -462,7 +462,7 @@ const getApiKeysSortedByCostPrecomputed = async function getApiKeysSortedByCostP
 /**
  * 使用实时计算进行 custom 时间范围的费用排序
  */
-const getApiKeysSortedByCostCustom = async function getApiKeysSortedByCostCustom(options) {
+const getApiKeysSortedByCostCustom = async (options) => {
   const { page, pageSize, sortOrder, startDate, endDate, search, searchMode, tag, isActive, modelFilter = [] } = options
 
   // 1. 实时计算所有 Keys 的费用
@@ -922,13 +922,13 @@ router.post(
   }),
 )
 
-const extractUsageKeyId = function extractUsageKeyId(key) {
+const extractUsageKeyId = (key) => {
   const match = key.match(/^usage:([^:]+):model:/)
   return match ? match[1] : null
 }
 
 // DEC_20260906_230856 batch-stats 一次收集 usage key 再按本页 id 过滤
-const collectUsageKeysForKeyIds = async function collectUsageKeysForKeyIds(keyIds, timeRange, startDate, endDate) {
+const collectUsageKeysForKeyIds = async (keyIds, timeRange, startDate, endDate) => {
   const keyIdSet = new Set(keyIds)
   const client = redis.getClientSafe()
   const tzDate = redis.getDateInTimezone()
@@ -999,7 +999,7 @@ const collectUsageKeysForKeyIds = async function collectUsageKeysForKeyIds(keyId
  * @param {string[]|undefined} preloadedUsageKeys - 已收集的 usage key，传入则不再 SCAN
  * @returns {Object} 统计数据
  */
-const calculateKeyStats = async function calculateKeyStats(keyId, timeRange, startDate, endDate, preloadedUsageKeys) {
+const calculateKeyStats = async (keyId, timeRange, startDate, endDate, preloadedUsageKeys) => {
   const client = redis.getClientSafe()
   const tzDate = redis.getDateInTimezone()
   const today = redis.getDateStringInTimezone()

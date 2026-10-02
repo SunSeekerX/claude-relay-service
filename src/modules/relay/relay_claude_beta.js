@@ -22,6 +22,36 @@ export const ClaudeBeta = {
   advancedToolUse: 'advanced-tool-use-2025-11-20',
   structuredOutputs: 'structured-outputs-2025-12-15',
   taskBudgets: 'task-budgets-2026-03-13',
+  thinkingTokenCount: 'thinking-token-count-2026-05-13',
+  midConversationSystem: 'mid-conversation-system-2026-04-07',
+  // 以下由 2.1.280 运行时 gate 决定，只透传客户端值，不主动伪造
+  perTurnControl: 'per-turn-control-2026-07-01',
+  perTurnTiming: 'timing-2026-09-09',
+  midConversationToolChanges: 'mid-conversation-tool-changes-2026-07-01',
+  inlineTools: 'inline-tools-2026-09-15',
+}
+
+// 2.1.280 Ug 有序表中早于 opus-4-8 的模型不发 mid-conversation-system（kw 规则）
+const PRE_MID_CONVERSATION_SYSTEM_MODEL_RE =
+  /claude-(3-|opus-4-[0-7](?!\d)|opus-4(?![-.]?\d)|sonnet-4-[056](?!\d)|sonnet-4(?![-.]?\d)|haiku-4-5)|claude-opus-4-20250514|claude-sonnet-4-20250514/i
+
+// 2.1.280 interleaved thinking 判定：非 claude-3、非 haiku-4-5
+const supportsInterleavedThinking = (modelId) => {
+  const model = String(modelId || '').toLowerCase()
+  return !model.includes('claude-3-') && !model.includes('haiku-4-5')
+}
+
+// DEC_20261001_114137 按 2.1.280 静态规则补模型条件 beta（仅 OAuth 伪装）
+export const inferModelConditionalBetas = (modelId) => {
+  const extras = []
+  if (supportsInterleavedThinking(modelId)) {
+    extras.push(ClaudeBeta.thinkingTokenCount)
+  }
+  const model = String(modelId || '')
+  if (/claude-/i.test(model) && !PRE_MID_CONVERSATION_SYSTEM_MODEL_RE.test(model)) {
+    extras.push(ClaudeBeta.midConversationSystem)
+  }
+  return extras
 }
 
 // OAuth mimic 默认集（不默认 redact-thinking，避免抹掉 thinking；客户端显式带则保留）
@@ -195,7 +225,7 @@ export const buildClaudeBetaHeader = (options = {}) => {
       ? COUNT_TOKENS_BETAS
       : [ClaudeBeta.claudeCode, ClaudeBeta.interleavedThinking, ClaudeBeta.tokenCounting]
   } else if (oauth && (oauthMimic || !isRealClaudeCode)) {
-    base = [...FULL_CLAUDE_CODE_MIMICRY_BETAS]
+    base = [...FULL_CLAUDE_CODE_MIMICRY_BETAS, ...inferModelConditionalBetas(modelId)]
   } else if (oauth && isRealClaudeCode) {
     // 真实 CC：保底最小集，其余信任客户端
     base = haiku ? OAUTH_HAIKU_DEFAULT_BETAS : FULL_CLAUDE_CODE_MIMICRY_BETAS.slice(0, 4)
@@ -224,7 +254,7 @@ export const DEFAULT_CLAUDE_CODE_HEADERS = {
   'x-stainless-retry-count': '0',
   'x-stainless-timeout': '600',
   'x-stainless-lang': 'js',
-  'x-stainless-package-version': '0.94.0',
+  'x-stainless-package-version': '0.112.1',
   'x-stainless-os': 'Linux',
   'x-stainless-arch': 'x64',
   'x-stainless-runtime': 'node',

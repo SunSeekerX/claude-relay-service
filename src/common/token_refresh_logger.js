@@ -52,7 +52,7 @@ if (env.NODE_ENV !== 'production') {
 /**
  * 记录 token 刷新开始
  */
-export const logRefreshStart = function logRefreshStart(accountId, accountName, platform = 'claude', reason = '') {
+export const logRefreshStart = (accountId, accountName, platform = 'claude', reason = '') => {
   tokenRefreshLogger.info({
     event: 'token_refresh_start',
     accountId,
@@ -66,12 +66,7 @@ export const logRefreshStart = function logRefreshStart(accountId, accountName, 
 /**
  * 记录 token 刷新成功
  */
-export const logRefreshSuccess = function logRefreshSuccess(
-  accountId,
-  accountName,
-  platform = 'claude',
-  tokenData = {},
-) {
+export const logRefreshSuccess = (accountId, accountName, platform = 'claude', tokenData = {}) => {
   const maskedTokenData = {
     accessToken: tokenData.accessToken ? maskToken(tokenData.accessToken) : '[NOT_PROVIDED]',
     refreshToken: tokenData.refreshToken ? maskToken(tokenData.refreshToken) : '[NOT_PROVIDED]',
@@ -92,13 +87,7 @@ export const logRefreshSuccess = function logRefreshSuccess(
 /**
  * 记录 token 刷新失败
  */
-export const logRefreshError = function logRefreshError(
-  accountId,
-  accountName,
-  platform = 'claude',
-  error,
-  attemptNumber = 1,
-) {
+export const logRefreshError = (accountId, accountName, platform = 'claude', error, attemptNumber = 1) => {
   const errorInfo = {
     message: error.message || error.toString(),
     code: error.code || 'UNKNOWN',
@@ -120,12 +109,7 @@ export const logRefreshError = function logRefreshError(
 /**
  * 记录 token 刷新跳过（并发锁占用）
  */
-export const logRefreshSkipped = function logRefreshSkipped(
-  accountId,
-  accountName,
-  platform = 'claude',
-  reason = 'locked',
-) {
+export const logRefreshSkipped = (accountId, accountName, platform = 'claude', reason = 'locked') => {
   tokenRefreshLogger.info({
     event: 'token_refresh_skipped',
     accountId,
@@ -139,7 +123,7 @@ export const logRefreshSkipped = function logRefreshSkipped(
 /**
  * 记录 token 使用情况
  */
-export const logTokenUsage = function logTokenUsage(accountId, accountName, platform = 'claude', expiresAt, isExpired) {
+export const logTokenUsage = (accountId, accountName, platform = 'claude', expiresAt, isExpired) => {
   tokenRefreshLogger.debug({
     event: 'token_usage_check',
     accountId,
@@ -155,7 +139,7 @@ export const logTokenUsage = function logTokenUsage(accountId, accountName, plat
 /**
  * 记录批量刷新任务
  */
-export const logBatchRefreshStart = function logBatchRefreshStart(totalAccounts, platform = 'all') {
+export const logBatchRefreshStart = (totalAccounts, platform = 'all') => {
   tokenRefreshLogger.info({
     event: 'batch_refresh_start',
     totalAccounts,
@@ -167,7 +151,7 @@ export const logBatchRefreshStart = function logBatchRefreshStart(totalAccounts,
 /**
  * 记录批量刷新结果
  */
-export const logBatchRefreshComplete = function logBatchRefreshComplete(results) {
+export const logBatchRefreshComplete = (results) => {
   tokenRefreshLogger.info({
     event: 'batch_refresh_complete',
     results: {

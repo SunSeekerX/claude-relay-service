@@ -112,6 +112,8 @@ export const RedisKeys = {
     costRealTotal: (keyId) => `usage:cost:real:total:${keyId}`,
     costDedup: (dedupId) => `usage:cost:dedup:${dedupId}`, // 计费关键写幂等去重标记（重试窗口内）
     costRealDaily: (keyId, date) => `usage:cost:real:daily:${keyId}:${date}`,
+    costReservation: (keyId, reservationId) => `usage:cost:reservation:${keyId}:${reservationId}`,
+    costReservationIndex: (keyId) => `usage:cost:reservation:index:${keyId}`,
     costPattern: 'usage:cost:*', // scan
     // Opus 周费用
     opusWeekly: (keyId, period) => `usage:opus:weekly:${keyId}:${period}`,
@@ -253,6 +255,8 @@ export const RedisKeys = {
     droidSticky: (endpoint, apiKeyPart, sessionHash) => `droid:${endpoint}:${apiKeyPart}:${sessionHash}`,
     // Grok 调度会话映射
     unifiedGrokMapping: (sessionHash) => `unified_grok_session_mapping:${sessionHash}`,
+    grokVideoTask: (apiKeyId, requestId) => `grok_video_task:${apiKeyId}:${requestId}`,
+    grokVideoTaskIndex: 'grok_video_task:index',
     grokAccountSessions: (accountId) => `grok_account_sessions:${accountId}`, // Set
     originalBinding: (sessionId) => `original_session_binding:${sessionId}`, // Claude relay 原始会话绑定
   },
@@ -429,6 +433,10 @@ export const RedisKeys = {
   },
 
   // === 兑换码防爆破限流 ===
+  adminLogin: {
+    attempts: (identity) => `admin_login:attempts:${identity}`,
+    events: 'admin_login:events',
+  },
   redeemCard: {
     fail: (ip) => `redeem_card:fail:${ip}`,
     // 失败锁 IP 索引：ZSET，score=过期时间戳(ms)；成员随过期 zremrangebyscore 清理
@@ -515,6 +523,7 @@ export const TTL = {
   dailyRecharge: DAY * 2, // 当日累计充值金额(dailyLimit 用),原硬编码 86400*2
   providerDailyReservation: DAY * 3, // 渠道实例当日预留(兼容对账窗口)
   redeemCardWindow: 3600, // 兑换码防爆破窗口 1 小时
+  adminLoginWindow: 900,
   // —— 杂项 ——
   emptyMarker: 3600, // 索引空标记 1 小时
   upstreamRateLimit: 300, // 429: 5 分钟(不可配,硬编码)
@@ -556,6 +565,7 @@ export const TTL = {
   },
   // 请求详情(参数派生): retentionHours
   requestDetailItem: (retentionHours) => Math.max(3600, retentionHours * 3600),
+  costReservation: 2 * DAY,
   requestDetailIndex: (itemTtlSeconds) => itemTtlSeconds + DAY,
   // 限流窗口(per-key 参数,毫秒)
   rateLimitWindowMs: (rateLimitWindow) => rateLimitWindow * 60 * 1000,
@@ -567,6 +577,8 @@ export const TTL = {
 // LIMITS — 集合容量上限(仅"真有裁剪动作"的)
 // ===
 export const LIMITS = {
+  adminLoginAttempts: 20,
+  adminLoginPeerAttempts: 200,
   usageRecords: 200,
   accountTestHistory: 5,
   proxyHealthHistory: 50,

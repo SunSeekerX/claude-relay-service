@@ -6,15 +6,13 @@ import { apiKeyService } from '../apikey/apikey_service.js'
 import { buildTokenUsagePayload } from './relay_request_detail_helper.js'
 // Gemini API 配置
 const GEMINI_API_BASE = 'https://cloudcode.googleapis.com/v1'
-const DEFAULT_MODEL = 'models/gemini-2.0-flash-exp'
+const DEFAULT_MODEL = 'models/gemini-2.5-flash'
 
 // 创建代理 agent（使用统一的代理工具）
-const createProxyAgent = function createProxyAgent(proxyConfig) {
-  return ProxyHelper.createProxyAgent(proxyConfig)
-}
+const createProxyAgent = (proxyConfig) => ProxyHelper.createProxyAgent(proxyConfig)
 
 // 转换 OpenAI 消息格式到 Gemini 格式
-export const convertMessagesToGemini = function convertMessagesToGemini(messages) {
+export const convertMessagesToGemini = (messages) => {
   const contents = []
   let systemInstruction = ''
 
@@ -38,7 +36,7 @@ export const convertMessagesToGemini = function convertMessagesToGemini(messages
 }
 
 // 转换 Gemini 响应到 OpenAI 格式
-export const convertGeminiResponse = function convertGeminiResponse(geminiResponse, model, stream = false) {
+export const convertGeminiResponse = (geminiResponse, model, stream = false) => {
   if (stream) {
     // 流式响应
     const candidate = geminiResponse.candidates?.[0]
@@ -221,7 +219,7 @@ async function* handleStreamResponse(response, model, apiKeyId, accountId = null
 }
 
 // 发送请求到 Gemini
-export const sendGeminiRequest = async function sendGeminiRequest({
+export const sendGeminiRequest = async ({
   messages,
   model = DEFAULT_MODEL,
   temperature = 0.7,
@@ -235,7 +233,7 @@ export const sendGeminiRequest = async function sendGeminiRequest({
   location = 'us-central1',
   accountId = null,
   requestMeta = null,
-}) {
+}) => {
   // 确保模型名称格式正确
   if (!model.startsWith('models/')) {
     model = `models/${model}`
@@ -382,12 +380,7 @@ export const sendGeminiRequest = async function sendGeminiRequest({
 }
 
 // 获取可用模型列表
-export const getAvailableModels = async function getAvailableModels(
-  accessToken,
-  proxy,
-  projectId,
-  location = 'us-central1',
-) {
+export const getAvailableModels = async (accessToken, proxy, projectId, location = 'us-central1') => {
   let apiUrl
   if (projectId) {
     // 使用项目特定的 URL 格式
@@ -436,7 +429,7 @@ export const getAvailableModels = async function getAvailableModels(
     // 返回默认模型列表
     return [
       {
-        id: 'gemini-2.0-flash-exp',
+        id: 'gemini-2.5-flash',
         object: 'model',
         created: Date.now() / 1000,
         owned_by: 'google',
@@ -446,14 +439,7 @@ export const getAvailableModels = async function getAvailableModels(
 }
 
 // Count Tokens API - 用于Gemini CLI兼容性
-export const countTokens = async function countTokens({
-  model,
-  content,
-  accessToken,
-  proxy,
-  projectId,
-  location = 'us-central1',
-}) {
+export const countTokens = async ({ model, content, accessToken, proxy, projectId, location = 'us-central1' }) => {
   // 确保模型名称格式正确
   if (!model.startsWith('models/')) {
     model = `models/${model}`

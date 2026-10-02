@@ -6,7 +6,7 @@ import { RedisKeys } from './redis_key.js'
 // 经 attach(redisClient) 挂到同一个 RedisClient 单例上，this 绑定与原文件一致。
 // ===
 
-export const attach = function attach(redisClient) {
+export const attach = (redisClient) => {
   // 迁移全局统计数据（从 API Key 数据聚合）
   redisClient.migrateGlobalStats = async function () {
     logger.info('开始迁移全局统计数据...')

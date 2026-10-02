@@ -14,6 +14,17 @@ import * as upstreamErrorHelper from './relay_upstream_error_helper.js'
 import { proxyResolver } from '../proxy/proxy_resolver.js'
 import { env } from '../../../config/env.js'
 import { sanitizeClaudeBodyFallbacks } from './translator/relay_translator_body_sanitize.js'
+import { convertLevelToBudget, getClaudeThinkingCapabilities } from './translator/relay_translator_thinking.js'
+
+// effort 档位换算 budget_tokens（max/未知回退 maxTokens-1），且必须小于 max_tokens
+const resolveBedrockThinkingBudget = (effort, maxTokens) => {
+  const ceiling = maxTokens - 1
+  const mapped = convertLevelToBudget(effort)
+  if (!mapped.ok || mapped.budget <= 0 || String(effort).toLowerCase() === 'max') {
+    return ceiling
+  }
+  return Math.min(mapped.budget, ceiling)
+}
 
 const require = createRequire(import.meta.url)
 let _userMessageQueueService = null
@@ -598,12 +609,23 @@ class BedrockRelayService {
     const cleanModelName = modelName.replace(/\[1m\]$/, '')
 
     // 标准Claude模型名到Bedrock模型名的映射表
+    // DEC_20261001_114137 Bedrock ID 对齐 Claude Code 2.1.280 provider_ids.bedrock；Sonnet 5.5 仅 global profile
     const modelMapping = {
-      // Claude Opus 4.6
-      'claude-opus-4-6': 'global.anthropic.claude-opus-4-6-v1',
+      // Claude Opus 5.5 / 5 / 4.8 / 4.7
+      'claude-opus-5-5': 'us.anthropic.claude-opus-5-5',
+      'claude-opus-5': 'us.anthropic.claude-opus-5',
+      'claude-opus-4-8': 'us.anthropic.claude-opus-4-8',
+      'claude-opus-4-7': 'us.anthropic.claude-opus-4-7',
 
-      // Claude Sonnet 4.6 — Bedrock 暂未上线，回退到 Sonnet 4.5
-      'claude-sonnet-4-6': 'us.anthropic.claude-sonnet-4-5-20250929-v1:0',
+      // Claude Sonnet 5.5 / 5
+      'claude-sonnet-5-5': 'global.anthropic.claude-sonnet-5-5',
+      'claude-sonnet-5': 'us.anthropic.claude-sonnet-5',
+
+      // Claude Opus 4.6
+      'claude-opus-4-6': 'us.anthropic.claude-opus-4-6-v1',
+
+      // Claude Sonnet 4.6
+      'claude-sonnet-4-6': 'us.anthropic.claude-sonnet-4-6',
 
       // Claude 4.5 Opus
       'claude-opus-4-5': 'us.anthropic.claude-opus-4-5-20251101-v1:0',
@@ -613,10 +635,9 @@ class BedrockRelayService {
       'claude-sonnet-4-5': 'us.anthropic.claude-sonnet-4-5-20250929-v1:0',
       'claude-sonnet-4-5-20250929': 'us.anthropic.claude-sonnet-4-5-20250929-v1:0',
 
-      // Claude Fable 5.1 / 5 — 官方 Bedrock ID 无 us. 前缀、无 -v1:0
-      // DEC_20260905_155232 对齐 sub2api anthropic.claude-fable-5[-1]
-      'claude-fable-5-1': 'anthropic.claude-fable-5-1',
-      'claude-fable-5': 'anthropic.claude-fable-5',
+      // Claude Fable 5.1 / 5
+      'claude-fable-5-1': 'us.anthropic.claude-fable-5-1',
+      'claude-fable-5': 'us.anthropic.claude-fable-5',
 
       // Claude 4.5 Haiku
       'claude-haiku-4-5': 'us.anthropic.claude-haiku-4-5-20251001-v1:0',
@@ -764,25 +785,33 @@ class BedrockRelayService {
       bedrockPayload.tool_choice = requestBody.tool_choice
     }
 
-    // Extended thinking：按模型族分支（对齐 sub2api sanitizeBedrockThinking）
-    // DEC_20260905_155232 Fable 仅 adaptive 且禁止 budget_tokens；其它 adaptive->enabled 并补 budget
+    // Extended thinking：按模型能力分支（对齐 sub2api sanitizeBedrockThinking / bedrock_request 2026-09-29）
+    // DEC_20261001_114137 adaptive-only 模型（Opus 5.5 / Fable 5 / 5.1 / Sonnet 5.5）禁 budget_tokens；仅 Sonnet 5.5
+    // 保留 output_config.effort；Sonnet 5.5 disabled→between_tools；其余 adaptive->enabled，budget 按 effort 档换算
     if (requestBody.thinking) {
       bedrockPayload.thinking = { ...requestBody.thinking }
       const bedrockModelId = String(modelId || requestBody.model || '')
-      const isFable = /claude-fable-5/i.test(bedrockModelId)
+      const capabilities = getClaudeThinkingCapabilities(bedrockModelId)
       const thinkingType = String(bedrockPayload.thinking.type || '').toLowerCase()
-      if (isFable) {
+      const effort = requestBody.output_config?.effort
+      if (capabilities.adaptiveOnly) {
         if (thinkingType === 'enabled' || thinkingType === 'adaptive') {
           bedrockPayload.thinking.type = 'adaptive'
           delete bedrockPayload.thinking.budget_tokens
+        } else if (thinkingType === 'disabled') {
+          bedrockPayload.thinking = { type: capabilities.betweenTools ? 'between_tools' : 'adaptive' }
+        }
+        // 仅 Sonnet 5.5 有 Bedrock InvokeModel 接受 output_config.effort 的证据（sub2api 8490a8186）
+        if (capabilities.betweenTools && typeof effort === 'string' && effort) {
+          bedrockPayload.output_config = { effort }
         }
       } else if (thinkingType === 'adaptive') {
         bedrockPayload.thinking.type = 'enabled'
         if (!bedrockPayload.thinking.budget_tokens) {
-          bedrockPayload.thinking.budget_tokens = maxTokens - 1
+          bedrockPayload.thinking.budget_tokens = resolveBedrockThinkingBudget(effort, maxTokens)
         }
       } else if (thinkingType === 'enabled' && !bedrockPayload.thinking.budget_tokens) {
-        bedrockPayload.thinking.budget_tokens = maxTokens - 1
+        bedrockPayload.thinking.budget_tokens = resolveBedrockThinkingBudget(effort, maxTokens)
       }
     }
 

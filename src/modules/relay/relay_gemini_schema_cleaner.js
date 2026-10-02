@@ -1,4 +1,4 @@
-const appendHint = function appendHint(description, hint) {
+const appendHint = (description, hint) => {
   if (!hint) {
     return description || ''
   }
@@ -8,7 +8,7 @@ const appendHint = function appendHint(description, hint) {
   return `${description} (${hint})`
 }
 
-const getRefHint = function getRefHint(refValue) {
+const getRefHint = (refValue) => {
   const ref = String(refValue || '')
   if (!ref) {
     return ''
@@ -18,7 +18,7 @@ const getRefHint = function getRefHint(refValue) {
   return name ? `See: ${name}` : ''
 }
 
-const normalizeType = function normalizeType(typeValue) {
+const normalizeType = (typeValue) => {
   if (typeof typeValue === 'string' && typeValue) {
     return { type: typeValue, hint: '' }
   }
@@ -49,7 +49,7 @@ const CONSTRAINT_KEYS = [
   'maxItems',
 ]
 
-const scoreSchema = function scoreSchema(schema) {
+const scoreSchema = (schema) => {
   if (!schema || typeof schema !== 'object') {
     return { score: 0, type: '' }
   }
@@ -66,7 +66,7 @@ const scoreSchema = function scoreSchema(schema) {
   return { score: 0, type: t || 'null' }
 }
 
-const pickBestFromAlternatives = function pickBestFromAlternatives(alternatives) {
+const pickBestFromAlternatives = (alternatives) => {
   let bestIndex = 0
   let bestScore = -1
   const types = []
@@ -84,7 +84,17 @@ const pickBestFromAlternatives = function pickBestFromAlternatives(alternatives)
   return { best: alternatives[bestIndex], types: Array.from(new Set(types)).filter(Boolean) }
 }
 
-export const cleanJsonSchemaForGemini = function cleanJsonSchemaForGemini(schema) {
+// parametersJsonSchema 保留的标准 JSON Schema 约束（CLIProxyAPI b532db9c）
+const PRESERVED_JSON_SCHEMA_KEYS = [...CONSTRAINT_KEYS, 'minimum', 'maximum', 'format', 'default', 'title']
+
+// options.preserveConstraints：parametersJsonSchema 形态，保留约束与 additionalProperties
+export const cleanJsonSchemaForGemini = (schema, options = {}) => {
+  const preserveConstraints = options.preserveConstraints === true
+  const clean = (child) => cleanJsonSchemaForGemini(child, options)
+  // 布尔 true 子 schema 等价于 {}（CLIProxyAPI c93978c4）
+  if (schema === true) {
+    return preserveConstraints ? {} : { type: 'object', properties: {} }
+  }
   if (schema === null || schema === undefined) {
     return { type: 'object', properties: {} }
   }
@@ -110,7 +120,7 @@ export const cleanJsonSchemaForGemini = function cleanJsonSchemaForGemini(schema
   const alts = anyOf && anyOf.length ? anyOf : oneOf && oneOf.length ? oneOf : null
   if (alts) {
     const { best, types } = pickBestFromAlternatives(alts)
-    const cleaned = cleanJsonSchemaForGemini(best)
+    const cleaned = clean(best)
     const mergedDescription = appendHint(cleaned.description || '', schema.description || '')
     const typeHint = types.length > 1 ? `Accepts: ${types.join(' || ')}` : ''
     return {
@@ -126,7 +136,7 @@ export const cleanJsonSchemaForGemini = function cleanJsonSchemaForGemini(schema
     const mergedReq = new Set()
     const mergedProps = {}
     for (const item of schema.allOf) {
-      const cleaned = cleanJsonSchemaForGemini(item)
+      const cleaned = clean(item)
       if (cleaned.description) {
         mergedDesc = appendHint(mergedDesc, cleaned.description)
       }
@@ -161,7 +171,7 @@ export const cleanJsonSchemaForGemini = function cleanJsonSchemaForGemini(schema
     if (mergedDesc) {
       merged.description = mergedDesc
     }
-    return cleanJsonSchemaForGemini(merged)
+    return clean(merged)
   }
 
   const result = {}
@@ -172,12 +182,21 @@ export const cleanJsonSchemaForGemini = function cleanJsonSchemaForGemini(schema
     result.description = schema.description
   }
 
-  for (const key of CONSTRAINT_KEYS) {
-    const value = schema[key]
-    if (value === undefined || value === null || typeof value === 'object') {
-      continue
+  if (preserveConstraints) {
+    for (const key of PRESERVED_JSON_SCHEMA_KEYS) {
+      const value = schema[key]
+      if (value !== undefined && value !== null && typeof value !== 'object') {
+        result[key] = value
+      }
     }
-    constraintHints.push(`${key}: ${value}`)
+  } else {
+    for (const key of CONSTRAINT_KEYS) {
+      const value = schema[key]
+      if (value === undefined || value === null || typeof value === 'object') {
+        continue
+      }
+      constraintHints.push(`${key}: ${value}`)
+    }
   }
 
   // const -> enum
@@ -202,7 +221,7 @@ export const cleanJsonSchemaForGemini = function cleanJsonSchemaForGemini(schema
     result.description = appendHint(result.description || '', typeHint)
   }
 
-  if (result.enum && result.enum.length > 1 && result.enum.length <= 10) {
+  if (!preserveConstraints && result.enum && result.enum.length > 1 && result.enum.length <= 10) {
     const list = result.enum.map((item) => String(item)).join(', ')
     result.description = appendHint(result.description || '', `Allowed: ${list}`)
   }
@@ -211,8 +230,13 @@ export const cleanJsonSchemaForGemini = function cleanJsonSchemaForGemini(schema
     result.description = appendHint(result.description || '', constraintHints.join(', '))
   }
 
-  // additionalProperties：Gemini/Antigravity 不接受布尔值，直接删除并用 hint 记录
-  if (schema.additionalProperties === false) {
+  // additionalProperties：parametersJsonSchema 原样保留；parameters（OpenAPI 子集）不接受布尔值，转 hint
+  if (preserveConstraints && schema.additionalProperties !== undefined) {
+    result.additionalProperties =
+      typeof schema.additionalProperties === 'object' && schema.additionalProperties !== null
+        ? clean(schema.additionalProperties)
+        : schema.additionalProperties
+  } else if (schema.additionalProperties === false) {
     result.description = appendHint(result.description || '', 'No extra properties allowed')
   }
 
@@ -220,7 +244,7 @@ export const cleanJsonSchemaForGemini = function cleanJsonSchemaForGemini(schema
   if (schema.properties && typeof schema.properties === 'object' && !Array.isArray(schema.properties)) {
     const props = {}
     for (const [name, propSchema] of Object.entries(schema.properties)) {
-      props[name] = cleanJsonSchemaForGemini(propSchema)
+      props[name] = clean(propSchema)
     }
     result.type = result.type || 'object'
     result.properties = props
@@ -229,7 +253,7 @@ export const cleanJsonSchemaForGemini = function cleanJsonSchemaForGemini(schema
   // items
   if (schema.items !== undefined) {
     result.type = result.type || 'array'
-    result.items = cleanJsonSchemaForGemini(schema.items)
+    result.items = clean(schema.items)
   }
 
   // required（最后再清理无效字段）

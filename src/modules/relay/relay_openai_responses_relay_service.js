@@ -693,7 +693,10 @@ class OpenAIResponsesRelayService {
     applyFilteredResponseHeaders(res, response.headers)
 
     const parser = new IncrementalSSEParser()
-    const upstreamState = new ResponsesStreamState({ model: requestedModel })
+    const upstreamState = new ResponsesStreamState({
+      model: requestedModel,
+      protocol: req.path.endsWith('/chat/completions') ? 'chat' : 'responses',
+    })
     let transportError = null
     // 客户端已断：停止写 res，但继续读上游以捕获 usage
     let clientGone = Boolean(req?._crsClientGone)
@@ -709,6 +712,8 @@ class OpenAIResponsesRelayService {
         }
         if (item.type === 'data') {
           upstreamState.observe(item.data)
+        } else if (item.type === 'done') {
+          upstreamState.sawDone = true
         }
       }
     }

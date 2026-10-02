@@ -8,7 +8,7 @@ export const RESPONSE_DUMP_ENV = 'ANTHROPIC_DEBUG_RESPONSE_DUMP'
 export const RESPONSE_DUMP_MAX_BYTES_ENV = 'ANTHROPIC_DEBUG_RESPONSE_DUMP_MAX_BYTES'
 export const RESPONSE_DUMP_FILENAME = 'anthropic-responses-dump.jsonl'
 
-const isEnabled = function isEnabled() {
+const isEnabled = () => {
   const raw = env[RESPONSE_DUMP_ENV]
   if (!raw) {
     return false
@@ -16,7 +16,7 @@ const isEnabled = function isEnabled() {
   return raw === '1' || raw.toLowerCase() === 'true'
 }
 
-const getMaxBytes = function getMaxBytes() {
+const getMaxBytes = () => {
   const raw = env[RESPONSE_DUMP_MAX_BYTES_ENV]
   if (!raw) {
     return 2 * 1024 * 1024
@@ -28,7 +28,7 @@ const getMaxBytes = function getMaxBytes() {
   return parsed
 }
 
-const safeJsonStringify = function safeJsonStringify(payload, maxBytes) {
+const safeJsonStringify = (payload, maxBytes) => {
   let json
   try {
     json = JSON.stringify(payload)
@@ -53,7 +53,7 @@ const safeJsonStringify = function safeJsonStringify(payload, maxBytes) {
   })
 }
 
-const summarizeAnthropicResponseBody = function summarizeAnthropicResponseBody(body) {
+const summarizeAnthropicResponseBody = (body) => {
   const content = Array.isArray(body?.content) ? body.content : []
   const toolUses = content.filter((b) => b && b.type === 'tool_use')
   const texts = content
@@ -72,7 +72,7 @@ const summarizeAnthropicResponseBody = function summarizeAnthropicResponseBody(b
   }
 }
 
-const dumpAnthropicResponse = async function dumpAnthropicResponse(req, responseInfo, meta = {}) {
+const dumpAnthropicResponse = async (req, responseInfo, meta = {}) => {
   if (!isEnabled()) {
     return
   }
@@ -100,23 +100,15 @@ const dumpAnthropicResponse = async function dumpAnthropicResponse(req, response
   }
 }
 
-export const dumpAnthropicNonStreamResponse = async function dumpAnthropicNonStreamResponse(
-  req,
-  statusCode,
-  body,
-  meta = {},
-) {
-  return dumpAnthropicResponse(
+export const dumpAnthropicNonStreamResponse = async (req, statusCode, body, meta = {}) =>
+  dumpAnthropicResponse(
     req,
     { kind: 'non-stream', statusCode, summary: summarizeAnthropicResponseBody(body), body },
     meta,
   )
-}
 
-export const dumpAnthropicStreamSummary = async function dumpAnthropicStreamSummary(req, summary, meta = {}) {
-  return dumpAnthropicResponse(req, { kind: 'stream', summary }, meta)
-}
+export const dumpAnthropicStreamSummary = async (req, summary, meta = {}) =>
+  dumpAnthropicResponse(req, { kind: 'stream', summary }, meta)
 
-export const dumpAnthropicStreamError = async function dumpAnthropicStreamError(req, error, meta = {}) {
-  return dumpAnthropicResponse(req, { kind: 'stream-error', error }, meta)
-}
+export const dumpAnthropicStreamError = async (req, error, meta = {}) =>
+  dumpAnthropicResponse(req, { kind: 'stream-error', error }, meta)

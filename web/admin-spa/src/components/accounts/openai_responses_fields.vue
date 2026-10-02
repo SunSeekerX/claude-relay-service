@@ -311,7 +311,7 @@
 </template>
 
 <script setup>
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, onBeforeUnmount } from 'vue'
 
 import DialogSideNav from '@/components/common/dialog_side_nav.vue'
 import { isOk, msgOf } from '@/libs/http_envelope'
@@ -368,6 +368,13 @@ const activeTab = ref('basic')
 const currentTab = computed(() => props.externalTab || activeTab.value)
 const showApiKey = ref(false)
 const fetching = ref(false)
+let fetchSequence = 0
+const invalidateFetch = () => {
+  fetchSequence += 1
+  fetching.value = false
+}
+watch(() => [props.accountId, props.baseApi, props.apiKey], invalidateFetch, { flush: 'sync' })
+onBeforeUnmount(invalidateFetch)
 const customModel = ref('')
 const modelOptions = ref([])
 
@@ -431,6 +438,9 @@ const addCustomAllowed = () => {
 }
 
 const fetchUpstream = async () => {
+  const sequence = ++fetchSequence
+  const tab = currentTab.value
+  const initialSelection = JSON.stringify(tab === 'whitelist' ? props.allowedModels : props.modelMappings)
   try {
     fetching.value = true
     const payload = {}
@@ -455,6 +465,7 @@ const fetchUpstream = async () => {
     }
 
     const result = await httpApis.fetchOpenAIResponsesUpstreamModelsApi(payload)
+    if (sequence !== fetchSequence) return
     if (!isOk(result) || !Array.isArray(result.data?.models)) {
       showToast(msgOf(result, '同步上游模型失败'), 'error')
       return
@@ -462,8 +473,11 @@ const fetchUpstream = async () => {
     const models = result.data.models.filter((m) => typeof m === 'string' && m.trim())
     modelOptions.value = models
 
-    // 必须看 currentTab：父级侧栏用 externalTab 时 activeTab 不会变
-    const tab = currentTab.value
+    const currentSelection = JSON.stringify(tab === 'whitelist' ? props.allowedModels : props.modelMappings)
+    if (initialSelection !== currentSelection) {
+      showToast('模型列表已同步，保留同步期间修改的配置', 'info')
+      return
+    }
     if (tab === 'whitelist') {
       // 同步后默认全选进白名单（用户可再取消）
       emit('update:allowedModels', [...models])
@@ -491,10 +505,11 @@ const fetchUpstream = async () => {
       showToast(`已同步 ${models.length} 个上游模型（可到白名单/映射使用）`, 'success')
     }
   } catch (error) {
+    if (sequence !== fetchSequence) return
     console.error(error)
     showToast(error?.message || '同步上游模型失败', 'error')
   } finally {
-    fetching.value = false
+    if (sequence === fetchSequence) fetching.value = false
   }
 }
 

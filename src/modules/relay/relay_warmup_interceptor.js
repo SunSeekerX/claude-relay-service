@@ -11,7 +11,7 @@ import crypto from 'node:crypto'
  * @param {Object} body - 请求体
  * @returns {boolean}
  */
-export const isWarmupRequest = function isWarmupRequest(body) {
+export const isWarmupRequest = (body) => {
   if (!body) {
     return false
   }
@@ -52,7 +52,7 @@ export const isWarmupRequest = function isWarmupRequest(body) {
 /**
  * 检查文本是否为标题生成或Warmup请求
  */
-const isTitleOrWarmupText = function isTitleOrWarmupText(text) {
+const isTitleOrWarmupText = (text) => {
   if (!text) {
     return false
   }
@@ -62,7 +62,7 @@ const isTitleOrWarmupText = function isTitleOrWarmupText(text) {
 /**
  * 检查system prompt是否为标题提取类型
  */
-const isTitleExtractionSystemPrompt = function isTitleExtractionSystemPrompt(systemText) {
+const isTitleExtractionSystemPrompt = (systemText) => {
   if (!systemText) {
     return false
   }
@@ -74,7 +74,7 @@ const isTitleExtractionSystemPrompt = function isTitleExtractionSystemPrompt(sys
 /**
  * 从system字段提取文本
  */
-const extractSystemText = function extractSystemText(system) {
+const extractSystemText = (system) => {
   if (typeof system === 'string') {
     return system
   }
@@ -89,28 +89,26 @@ const extractSystemText = function extractSystemText(system) {
  * @param {string} model - 模型名称
  * @returns {Object}
  */
-export const buildMockWarmupResponse = function buildMockWarmupResponse(model) {
-  return {
-    id: `msg_warmup_${crypto.randomUUID().replace(/-/g, '').slice(0, 20)}`,
-    type: 'message',
-    role: 'assistant',
-    content: [{ type: 'text', text: 'New Conversation' }],
-    model: model || 'claude-3-5-sonnet-20241022',
-    stop_reason: 'end_turn',
-    stop_sequence: null,
-    usage: {
-      input_tokens: 10,
-      output_tokens: 2,
-    },
-  }
-}
+export const buildMockWarmupResponse = (model) => ({
+  id: `msg_warmup_${crypto.randomUUID().replace(/-/g, '').slice(0, 20)}`,
+  type: 'message',
+  role: 'assistant',
+  content: [{ type: 'text', text: 'New Conversation' }],
+  model: model || 'claude-3-5-sonnet-20241022',
+  stop_reason: 'end_turn',
+  stop_sequence: null,
+  usage: {
+    input_tokens: 10,
+    output_tokens: 2,
+  },
+})
 
 /**
  * 发送模拟的流式响应
  * @param {Object} res - Express response对象
  * @param {string} model - 模型名称
  */
-export const sendMockWarmupStream = function sendMockWarmupStream(res, model) {
+export const sendMockWarmupStream = (res, model) => {
   const effectiveModel = model || 'claude-3-5-sonnet-20241022'
   const messageId = `msg_warmup_${crypto.randomUUID().replace(/-/g, '').slice(0, 20)}`
 

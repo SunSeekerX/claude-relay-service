@@ -5,7 +5,7 @@ import { config } from '../../config/config.js'
  * @param {boolean} includeTimezone - 是否在输出中包含时区信息
  * @returns {string} 格式化后的时间字符串
  */
-export const formatDateWithTimezone = function formatDateWithTimezone(date, includeTimezone = true) {
+export const formatDateWithTimezone = (date, includeTimezone = true) => {
   // 处理不同类型的输入
   let dateObj
   if (typeof date === 'number') {
@@ -53,7 +53,7 @@ export const formatDateWithTimezone = function formatDateWithTimezone(date, incl
  * @param {Date|number} date - Date对象或时间戳
  * @returns {string} ISO格式的时间字符串
  */
-export const getISOStringWithTimezone = function getISOStringWithTimezone(date) {
+export const getISOStringWithTimezone = (date) => {
   // 先获取本地格式的时间（不含时区后缀）
   const localTimeStr = formatDateWithTimezone(date, false)
 
@@ -68,26 +68,4 @@ export const getISOStringWithTimezone = function getISOStringWithTimezone(date) 
 
   // 将空格替换为T，并添加时区
   return `${localTimeStr.replace(' ', 'T')}${sign}${offsetHours}:${offsetMinutes}`
-}
-
-/**
- * 计算时间差并格式化为人类可读的字符串
- * @param {number} seconds - 秒数
- * @returns {string} 格式化的时间差字符串
- */
-export const formatDuration = function formatDuration(seconds) {
-  if (seconds < 60) {
-    return `${seconds}秒`
-  } else if (seconds < 3600) {
-    const minutes = Math.floor(seconds / 60)
-    return `${minutes}分钟`
-  } else if (seconds < 86400) {
-    const hours = Math.floor(seconds / 3600)
-    const minutes = Math.floor((seconds % 3600) / 60)
-    return minutes > 0 ? `${hours}小时${minutes}分钟` : `${hours}小时`
-  } else {
-    const days = Math.floor(seconds / 86400)
-    const hours = Math.floor((seconds % 86400) / 3600)
-    return hours > 0 ? `${days}天${hours}小时` : `${days}天`
-  }
 }

@@ -6,7 +6,9 @@
     </div>
 
     <div v-else-if="loadFailed" class="py-12 text-center">
-      <p class="mb-3 text-sm text-red-600 dark:text-red-400">{{ loadError || '获取转发配置失败' }}</p>
+      <p class="mb-3 text-sm text-red-600 dark:text-red-400">
+        {{ loadError || '获取转发配置失败' }}
+      </p>
       <button class="btn btn-primary h-8 px-3 text-sm" type="button" @click="loadClaudeConfig">
         <i class="i-lucide-refresh-cw mr-1.5"></i>
         重新加载
@@ -42,7 +44,8 @@
           <div class="cs-row__text">
             <div class="cs-row__title">强制会话绑定</div>
             <p class="cs-row__desc">
-              将原始 session ID 绑定首次账户，保证上下文一致；污染会话（历史无记录且 messages.length &gt; 1）会被拒绝。
+              将原始 session ID 绑定首次账户，保证上下文一致；污染会话（历史无记录且 messages.length
+              &gt; 1）会被拒绝。
             </p>
           </div>
           <AppSwitch
@@ -214,16 +217,19 @@
             <p v-if="requestDetailRetentionError" class="mt-1 text-sm text-red-500">
               {{ requestDetailRetentionError }}
             </p>
-            <p v-else-if="requestDetailRetentionWarning" class="mt-1 text-sm text-amber-600 dark:text-amber-400">
+            <p
+              v-else-if="requestDetailRetentionWarning"
+              class="mt-1 text-sm text-amber-600 dark:text-amber-400"
+            >
               {{ requestDetailRetentionWarning }}
             </p>
           </div>
 
           <div class="cs-row cs-row--nested">
             <div class="cs-row__text">
-              <div class="cs-row__title">请求体预览</div>
+              <div class="cs-row__title">完整请求/响应快照</div>
               <p class="cs-row__desc">
-                保存脱敏截断预览（增 Redis 压力）。关闭只影响新请求；历史可在请求明细页清理。
+                默认保存完整结构，敏感字段会脱敏；关闭只影响新请求，历史可在请求明细页清理。
               </p>
             </div>
             <AppSwitch
@@ -302,7 +308,7 @@ const claudeConfig = ref({
   concurrentRequestQueueTimeoutMs: 10000,
   requestDetailCaptureEnabled: false,
   requestDetailRetentionHours: 6,
-  requestDetailBodyPreviewEnabled: false,
+  requestDetailBodyPreviewEnabled: true,
   errorHistoryCollectionEnabled: true,
   updatedAt: null,
   updatedBy: null
@@ -389,12 +395,13 @@ const loadClaudeConfig = async () => {
         userMessageQueueTimeoutMs: config.userMessageQueueTimeoutMs ?? 5000,
         concurrentRequestQueueEnabled: config.concurrentRequestQueueEnabled ?? false,
         concurrentRequestQueueMaxSize: config.concurrentRequestQueueMaxSize ?? 3,
-        concurrentRequestQueueMaxSizeMultiplier: config.concurrentRequestQueueMaxSizeMultiplier ?? 0,
+        concurrentRequestQueueMaxSizeMultiplier:
+          config.concurrentRequestQueueMaxSizeMultiplier ?? 0,
         concurrentRequestQueueTimeoutMs: config.concurrentRequestQueueTimeoutMs ?? 10000,
         requestDetailCaptureEnabled: config.requestDetailCaptureEnabled ?? false,
         requestDetailRetentionHours:
           config.requestDetailRetentionHours ?? REQUEST_DETAIL_RETENTION_DEFAULT_HOURS,
-        requestDetailBodyPreviewEnabled: config.requestDetailBodyPreviewEnabled ?? false,
+        requestDetailBodyPreviewEnabled: config.requestDetailBodyPreviewEnabled ?? true,
         errorHistoryCollectionEnabled: config.errorHistoryCollectionEnabled ?? true,
         updatedAt: config.updatedAt || null,
         updatedBy: config.updatedBy || null

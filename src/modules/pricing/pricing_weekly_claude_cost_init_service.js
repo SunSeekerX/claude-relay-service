@@ -5,20 +5,17 @@ import { serviceRatesService } from '../payment/payment_service_rates_service.js
 import { isClaudeFamilyModel } from '../relay/relay_model_helper.js'
 import { RedisKeys } from '../../infra/redis_key.js'
 
-const pad2 = function pad2(n) {
-  return String(n).padStart(2, '0')
-}
+const pad2 = (n) => String(n).padStart(2, '0')
 
 // 生成配置时区下的 YYYY-MM-DD 字符串。
 // 注意：入参 date 必须是 redis.getDateInTimezone() 生成的"时区偏移后"的 Date。
-const formatTzDateYmd = function formatTzDateYmd(tzDate) {
-  return `${tzDate.getUTCFullYear()}-${pad2(tzDate.getUTCMonth() + 1)}-${pad2(tzDate.getUTCDate())}`
-}
+const formatTzDateYmd = (tzDate) =>
+  `${tzDate.getUTCFullYear()}-${pad2(tzDate.getUTCMonth() + 1)}-${pad2(tzDate.getUTCDate())}`
 
 // 推断账户类型的辅助函数（与运行时 recordOpusCost 一致，只统计 claude-official/claude-console/ccr）
 const OPUS_ACCOUNT_TYPES = ['claude-official', 'claude-console', 'ccr']
 
-const inferAccountType = function inferAccountType(keyData) {
+const inferAccountType = (keyData) => {
   if (keyData?.ccrAccountId) {
     return 'ccr'
   }
@@ -32,7 +29,7 @@ const inferAccountType = function inferAccountType(keyData) {
   return null
 }
 
-const toInt = function toInt(v) {
+const toInt = (v) => {
   const n = parseInt(v || '0', 10)
   return Number.isFinite(n) ? n : 0
 }

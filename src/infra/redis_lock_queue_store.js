@@ -7,7 +7,7 @@ import { RedisLua } from './redis_lua.js'
 // 注意：时区辅助函数别名（getDateInTimezone 等）仍留在 redis.js（引用其顶层 import）。
 // ===
 
-export const attach = function attach(redisClient) {
+export const attach = (redisClient) => {
   // 分布式锁相关方法
   redisClient.setAccountLock = async function (lockKey, lockValue, ttlMs) {
     try {

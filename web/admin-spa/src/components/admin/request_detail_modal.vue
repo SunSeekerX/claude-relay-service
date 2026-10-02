@@ -7,7 +7,9 @@
     >
       <div
         class="modal-content my-auto flex w-full flex-col overflow-hidden bg-white shadow-xl dark:bg-gray-900"
-        :class="isMobileViewport ? 'min-h-[100dvh] max-w-none' : 'max-h-[92vh] max-w-3xl rounded-xl'"
+        :class="
+          isMobileViewport ? 'min-h-[100dvh] max-w-none' : 'max-h-[92vh] max-w-3xl rounded-xl'
+        "
       >
         <!-- 顶栏 -->
         <div
@@ -37,10 +39,7 @@
               >
                 成功
               </span>
-              <span
-                v-if="detail"
-                class="text-sm text-gray-500 dark:text-gray-400"
-              >
+              <span v-if="detail" class="text-sm text-gray-500 dark:text-gray-400">
                 {{ formatDuration(detail.durationMs) }}
                 <template v-if="detail.firstTokenMs != null">
                   · 首字 {{ formatDuration(detail.firstTokenMs) }}
@@ -53,9 +52,7 @@
               <template v-if="detail?.upstreamRequestId">
                 · 上游 {{ detail.upstreamRequestId }}
               </template>
-              <template v-if="detail?.timestamp">
-                · {{ formatDate(detail.timestamp) }}
-              </template>
+              <template v-if="detail?.timestamp"> · {{ formatDate(detail.timestamp) }} </template>
             </p>
           </div>
           <button
@@ -109,7 +106,8 @@
                   <span
                     v-if="detail.errorCode"
                     class="mr-1 rounded bg-red-100 px-1.5 py-0.5 text-sm font-medium text-red-700 dark:bg-red-900/40 dark:text-red-300"
-                  >{{ detail.errorCode }}</span>
+                    >{{ detail.errorCode }}</span
+                  >
                   {{ detail.errorMessage || '请求失败' }}
                 </dd>
               </div>
@@ -120,13 +118,16 @@
                   <span
                     v-if="detail.apiKeyId && detail.apiKeyName"
                     class="ml-1 break-all text-gray-500 dark:text-gray-400"
-                  >{{ detail.apiKeyId }}</span>
+                    >{{ detail.apiKeyId }}</span
+                  >
                 </dd>
               </div>
               <div class="grid grid-cols-[5.5rem_1fr] gap-x-2 py-1.5 sm:grid-cols-[6rem_1fr]">
                 <dt class="text-gray-500 dark:text-gray-400">账户</dt>
                 <dd class="min-w-0 text-gray-900 dark:text-gray-100">
-                  <span class="font-medium">{{ detail.accountName || detail.accountId || '-' }}</span>
+                  <span class="font-medium">{{
+                    detail.accountName || detail.accountId || '-'
+                  }}</span>
                   <span class="ml-1 text-gray-500 dark:text-gray-400">
                     {{ detail.accountTypeName || detail.accountType || '' }}
                   </span>
@@ -164,7 +165,8 @@
                   <span
                     v-if="detail.reasoningSource"
                     class="ml-1 text-gray-500 dark:text-gray-400"
-                  >{{ detail.reasoningSource }}</span>
+                    >{{ detail.reasoningSource }}</span
+                  >
                 </dd>
               </div>
               <div
@@ -179,10 +181,9 @@
                   >
                     {{ formatServiceTier(detail.serviceTier) }}
                   </span>
-                  <span
-                    v-if="detail.serviceTier"
-                    class="ml-1 text-gray-500 dark:text-gray-400"
-                  >{{ detail.serviceTier }}</span>
+                  <span v-if="detail.serviceTier" class="ml-1 text-gray-500 dark:text-gray-400">{{
+                    detail.serviceTier
+                  }}</span>
                 </dd>
               </div>
               <div
@@ -206,12 +207,31 @@
                   </span>
                 </dd>
               </div>
+              <div
+                v-if="detail.videoTaskId"
+                class="grid grid-cols-[5.5rem_1fr] gap-x-2 py-1.5 sm:grid-cols-[6rem_1fr]"
+              >
+                <dt class="text-gray-500 dark:text-gray-400">视频任务</dt>
+                <dd>
+                  <button
+                    class="font-mono text-sm text-blue-600 hover:underline dark:text-blue-400"
+                    type="button"
+                    @click="router.push('/grok-video-tasks')"
+                  >
+                    {{ detail.videoTaskId }} · 查看任务
+                  </button>
+                </dd>
+              </div>
             </dl>
 
             <!-- Token / 费用表 -->
-            <div class="mt-2 overflow-hidden rounded-lg border border-gray-200 dark:border-gray-700">
+            <div
+              class="mt-2 overflow-hidden rounded-lg border border-gray-200 dark:border-gray-700"
+            >
               <table class="w-full text-sm">
-                <thead class="bg-gray-50 text-left text-gray-500 dark:bg-gray-800/80 dark:text-gray-400">
+                <thead
+                  class="bg-gray-50 text-left text-gray-500 dark:bg-gray-800/80 dark:text-gray-400"
+                >
                   <tr>
                     <th class="px-2.5 py-1.5 font-medium">项目</th>
                     <th class="px-2.5 py-1.5 text-right font-medium">Token</th>
@@ -221,7 +241,9 @@
                 <tbody class="divide-y divide-gray-100 dark:divide-gray-800">
                   <tr>
                     <td class="px-2.5 py-1.5 text-gray-600 dark:text-gray-300">输入</td>
-                    <td class="px-2.5 py-1.5 text-right font-medium text-blue-600 dark:text-blue-400">
+                    <td
+                      class="px-2.5 py-1.5 text-right font-medium text-blue-600 dark:text-blue-400"
+                    >
                       {{ formatNumber(detail.inputTokens) }}
                     </td>
                     <td class="px-2.5 py-1.5 text-right text-gray-900 dark:text-gray-100">
@@ -230,7 +252,9 @@
                   </tr>
                   <tr>
                     <td class="px-2.5 py-1.5 text-gray-600 dark:text-gray-300">输出</td>
-                    <td class="px-2.5 py-1.5 text-right font-medium text-green-600 dark:text-green-400">
+                    <td
+                      class="px-2.5 py-1.5 text-right font-medium text-green-600 dark:text-green-400"
+                    >
                       {{ formatNumber(detail.outputTokens) }}
                     </td>
                     <td class="px-2.5 py-1.5 text-right text-gray-900 dark:text-gray-100">
@@ -239,7 +263,9 @@
                   </tr>
                   <tr>
                     <td class="px-2.5 py-1.5 text-gray-600 dark:text-gray-300">缓存读取</td>
-                    <td class="px-2.5 py-1.5 text-right font-medium text-cyan-600 dark:text-cyan-400">
+                    <td
+                      class="px-2.5 py-1.5 text-right font-medium text-cyan-600 dark:text-cyan-400"
+                    >
                       {{ formatNumber(detail.cacheReadTokens) }}
                     </td>
                     <td class="px-2.5 py-1.5 text-right text-gray-900 dark:text-gray-100">
@@ -248,8 +274,12 @@
                   </tr>
                   <tr>
                     <td class="px-2.5 py-1.5 text-gray-600 dark:text-gray-300">缓存创建</td>
-                    <td class="px-2.5 py-1.5 text-right font-medium text-purple-600 dark:text-purple-400">
-                      {{ formatCacheCreate(detail.cacheCreateTokens, detail.cacheCreateNotApplicable) }}
+                    <td
+                      class="px-2.5 py-1.5 text-right font-medium text-purple-600 dark:text-purple-400"
+                    >
+                      {{
+                        formatCacheCreate(detail.cacheCreateTokens, detail.cacheCreateNotApplicable)
+                      }}
                     </td>
                     <td class="px-2.5 py-1.5 text-right text-gray-900 dark:text-gray-100">
                       {{
@@ -268,10 +298,14 @@
                         <template v-if="detail.usedFallbackPricing"> · fallback</template>
                       </span>
                     </td>
-                    <td class="px-2.5 py-1.5 text-right font-semibold text-gray-900 dark:text-gray-100">
+                    <td
+                      class="px-2.5 py-1.5 text-right font-semibold text-gray-900 dark:text-gray-100"
+                    >
                       {{ formatNumber(detail.totalTokens) }}
                     </td>
-                    <td class="px-2.5 py-1.5 text-right font-semibold text-amber-600 dark:text-amber-400">
+                    <td
+                      class="px-2.5 py-1.5 text-right font-semibold text-amber-600 dark:text-amber-400"
+                    >
                       {{ formatCost(detail.cost) }}
                       <template v-if="showRealCostBeside">
                         <span class="ml-1 font-normal text-gray-500 dark:text-gray-400">
@@ -287,7 +321,10 @@
             <!-- Request Body -->
             <div class="mt-2">
               <div class="mb-1 flex items-center justify-between gap-2">
-                <p class="text-sm font-medium text-gray-700 dark:text-gray-200">Request Body</p>
+                <p class="text-sm font-medium text-gray-700 dark:text-gray-200">
+                  完整 Request Body
+                  <span class="ml-1 text-xs font-normal text-gray-500">敏感字段脱敏</span>
+                </p>
                 <button
                   v-if="hasRequestBodySnapshot"
                   class="rounded border border-gray-200 px-1.5 py-0.5 text-sm text-gray-600 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-800"
@@ -301,9 +338,9 @@
                 v-if="hasRequestBodySnapshot"
                 class="max-h-[40vh] overflow-auto rounded-lg bg-slate-900 p-2.5"
               >
-                <pre class="m-0 whitespace-pre-wrap break-words text-sm leading-relaxed text-slate-200">{{
-                  formattedSnapshot
-                }}</pre>
+                <pre
+                  class="m-0 whitespace-pre-wrap break-words text-sm leading-relaxed text-slate-200"
+                  >{{ formattedSnapshot }}</pre>
               </div>
               <p
                 v-else-if="!bodyPreviewEnabled"
@@ -318,6 +355,32 @@
                 未保存请求体快照
               </p>
             </div>
+            <div class="mt-2">
+              <div class="mb-1 flex items-center justify-between gap-2">
+                <p class="text-sm font-medium text-gray-700 dark:text-gray-200">
+                  完整 Response Body
+                  <span class="ml-1 text-xs font-normal text-gray-500">敏感字段脱敏</span>
+                </p>
+                <button
+                  v-if="detail.responseBodySnapshot"
+                  class="rounded border border-gray-200 px-1.5 py-0.5 text-sm text-gray-600 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-800"
+                  type="button"
+                  @click="copyResponseSnapshot"
+                >
+                  复制
+                </button>
+              </div>
+              <pre
+                v-if="detail.responseBodySnapshot"
+                class="max-h-[40vh] overflow-auto whitespace-pre-wrap break-words rounded-lg bg-slate-900 p-2.5 text-sm leading-relaxed text-slate-200"
+                >{{ formattedResponseSnapshot }}</pre>
+              <p
+                v-else
+                class="rounded-lg border border-dashed border-gray-300 px-2.5 py-2 text-sm text-gray-500 dark:border-gray-700 dark:text-gray-400"
+              >
+                未保存响应体快照
+              </p>
+            </div>
           </template>
         </div>
       </div>
@@ -327,6 +390,7 @@
 
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { useRouter } from 'vue-router'
 import ModalTransition from '@/components/common/modal_transition.vue'
 import { getRequestDetailApi } from '@/libs/http_apis'
 import { isOk, msgOf } from '@/libs/http_envelope'
@@ -345,6 +409,7 @@ const props = defineProps({
 })
 
 const emit = defineEmits(['close'])
+const router = useRouter()
 
 const loading = ref(false)
 const detail = ref(null)
@@ -517,6 +582,14 @@ const formattedSnapshot = computed(() => {
   return JSON.stringify(snapshotSource, null, 2)
 })
 
+const formattedResponseSnapshot = computed(() => {
+  const snapshot = detail.value?.responseBodySnapshot
+  if (!snapshot) return ''
+  const source = extractSnapshotDisplaySource(snapshot)
+  if (typeof source === 'string') return tryFormatJsonString(source) || formatJsonLikeText(source)
+  return JSON.stringify(source, null, 2)
+})
+
 const emitClose = () => emit('close')
 
 const fetchDetail = async () => {
@@ -558,6 +631,19 @@ const copySnapshot = async () => {
   try {
     await navigator.clipboard.writeText(formattedSnapshot.value)
     showToast('已复制请求快照', 'success')
+  } catch (_error) {
+    showToast('复制失败，请手动复制', 'error')
+  }
+}
+
+const copyResponseSnapshot = async () => {
+  if (!formattedResponseSnapshot.value) {
+    showToast('没有可复制的响应快照', 'info')
+    return
+  }
+  try {
+    await navigator.clipboard.writeText(formattedResponseSnapshot.value)
+    showToast('已复制响应快照', 'success')
   } catch (_error) {
     showToast('复制失败，请手动复制', 'error')
   }

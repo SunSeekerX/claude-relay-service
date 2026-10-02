@@ -150,6 +150,6 @@ describe('SSE CRLF event boundary', () => {
     const out = stream.push(chunk)
     expect(out).toContain('server_error')
     expect(out).not.toContain('server_is_overloaded')
-    expect(out.includes(crlf + crlf) || out.endsWith(crlf) || out.includes('')).toBe(true)
+    expect(out.includes(crlf + crlf) || out.endsWith(crlf) || out.includes(String.fromCharCode(13))).toBe(true)
   })
 })

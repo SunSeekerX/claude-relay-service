@@ -14,7 +14,7 @@ const SUPPORTED_VENDOR_PREFIXES = ['ccr']
  * @param {string} modelStr - Model string, potentially with vendor prefix (e.g., "ccr,gemini-2.5-pro")
  * @returns {{vendor: string|null, baseModel: string}} - Parsed vendor and base model
  */
-export const parseVendorPrefixedModel = function parseVendorPrefixedModel(modelStr) {
+export const parseVendorPrefixedModel = (modelStr) => {
   if (!modelStr || typeof modelStr !== 'string') {
     return { vendor: null, baseModel: modelStr || '' }
   }
@@ -53,7 +53,7 @@ export const parseVendorPrefixedModel = function parseVendorPrefixedModel(modelS
  * @param {string} modelStr - Model string to check
  * @returns {boolean} - True if the model has a vendor prefix
  */
-export const hasVendorPrefix = function hasVendorPrefix(modelStr) {
+export const hasVendorPrefix = (modelStr) => {
   const { vendor } = parseVendorPrefixedModel(modelStr)
   return vendor !== null
 }
@@ -64,7 +64,7 @@ export const hasVendorPrefix = function hasVendorPrefix(modelStr) {
  * @param {string} modelStr - Original model string
  * @returns {string} - Effective model name without vendor prefix
  */
-export const getEffectiveModel = function getEffectiveModel(modelStr) {
+export const getEffectiveModel = (modelStr) => {
   const { baseModel } = parseVendorPrefixedModel(modelStr)
   return baseModel
 }
@@ -74,7 +74,7 @@ export const getEffectiveModel = function getEffectiveModel(modelStr) {
  * @param {string} modelStr - Model string to parse
  * @returns {string|null} - Vendor type ('ccr') or null if no prefix
  */
-export const getVendorType = function getVendorType(modelStr) {
+export const getVendorType = (modelStr) => {
   const { vendor } = parseVendorPrefixedModel(modelStr)
   return vendor
 }
@@ -95,7 +95,7 @@ export const getVendorType = function getVendorType(modelStr) {
  * @param {string} modelName - Model name
  * @returns {boolean} - Whether the model is Opus 4.5 or newer
  */
-export const isOpus45OrNewer = function isOpus45OrNewer(modelName) {
+export const isOpus45OrNewer = (modelName) => {
   if (!modelName) {
     return false
   }
@@ -198,7 +198,7 @@ export const isOpus45OrNewer = function isOpus45OrNewer(modelName) {
  *
  * 注意：会先去掉支持的 vendor 前缀（例如 "ccr,"）。
  */
-export const isClaudeFamilyModel = function isClaudeFamilyModel(modelName) {
+export const isClaudeFamilyModel = (modelName) => {
   if (!modelName || typeof modelName !== 'string') {
     return false
   }
@@ -227,6 +227,13 @@ export const isClaudeFamilyModel = function isClaudeFamilyModel(modelName) {
   return false
 }
 
+export const isProAccount = (info) => {
+  if (info.hasClaudePro === true && info.hasClaudeMax !== true) {
+    return true
+  }
+  return info.accountType === 'claude_pro'
+}
+
 /**
  * 参与「按模型独立限流」的模型家族。
  *
@@ -241,7 +248,7 @@ export const RATE_LIMITED_MODEL_FAMILIES = ['opus', 'sonnet', 'haiku', 'fable']
  * @param {string} modelName - 模型名，如 claude-sonnet-4-5
  * @returns {string|null} - 'opus' | 'sonnet' | 'haiku' | 'fable'，无法识别时返回 null
  */
-export const getRateLimitModelFamily = function getRateLimitModelFamily(modelName) {
+export const getRateLimitModelFamily = (modelName) => {
   if (!modelName || typeof modelName !== 'string') {
     return null
   }

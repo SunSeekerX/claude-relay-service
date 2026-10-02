@@ -32,7 +32,7 @@ const CRS_EXPORT_TYPE = parsers.CRS_TYPE
 const CRS_EXPORT_VERSION = 1
 
 // 安全 JSON.parse
-const sj = function sj(raw, fallback = null) {
+const sj = (raw, fallback = null) => {
   if (raw === undefined || raw === null) {
     return fallback
   }
@@ -50,7 +50,7 @@ const sj = function sj(raw, fallback = null) {
 // 各平台解密行为不一致，这里收口。snapshot.data 字段对齐对应 createAccount 入参。
 
 // Claude：getClaudeAccount 返回原始加密 hash，需显式解密（参考 sync.js 逻辑）
-const readClaudeSnapshot = async function readClaudeSnapshot(id) {
+const readClaudeSnapshot = async (id) => {
   const a = await redis.getClaudeAccount(id)
   if (!a || Object.keys(a).length === 0) {
     return null
@@ -81,7 +81,7 @@ const readClaudeSnapshot = async function readClaudeSnapshot(id) {
   }
 }
 
-const pruneObj = function pruneObj(o) {
+const pruneObj = (o) => {
   const out = {}
   for (const [k, v] of Object.entries(o || {})) {
     if (v !== undefined && v !== null && v !== '' && !(Array.isArray(v) && v.length === 0)) {
@@ -91,13 +91,13 @@ const pruneObj = function pruneObj(o) {
   return out
 }
 
-const toInt = function toInt(v, dflt) {
+const toInt = (v, dflt) => {
   const n = parseInt(v, 10)
   return Number.isFinite(n) ? n : dflt
 }
 
 // OpenAI OAuth：getAccount 解了 refreshToken/email/openaiOauth，但故意没解 accessToken
-const readOpenAiSnapshot = async function readOpenAiSnapshot(id) {
+const readOpenAiSnapshot = async (id) => {
   const a = await openaiAccountService.getAccount(id)
   if (!a) {
     return null
@@ -145,7 +145,7 @@ const readOpenAiSnapshot = async function readOpenAiSnapshot(id) {
 }
 
 // Gemini OAuth：getAccount 已解密 geminiOauth/accessToken/refreshToken
-const readGeminiSnapshot = async function readGeminiSnapshot(id) {
+const readGeminiSnapshot = async (id) => {
   const a = await geminiAccountService.getAccount(id)
   if (!a) {
     return null
@@ -175,7 +175,7 @@ const readGeminiSnapshot = async function readGeminiSnapshot(id) {
 }
 
 // Gemini API：getAccount 已解密 apiKey
-const readGeminiApiSnapshot = async function readGeminiApiSnapshot(id) {
+const readGeminiApiSnapshot = async (id) => {
   const a = await geminiApiAccountService.getAccount(id)
   if (!a) {
     return null
@@ -188,7 +188,7 @@ const readGeminiApiSnapshot = async function readGeminiApiSnapshot(id) {
 }
 
 // Claude Console：getAccount 已解密 apiKey
-const readClaudeConsoleSnapshot = async function readClaudeConsoleSnapshot(id) {
+const readClaudeConsoleSnapshot = async (id) => {
   const a = await claudeConsoleAccountService.getAccount(id)
   if (!a) {
     return null
@@ -204,7 +204,7 @@ const readClaudeConsoleSnapshot = async function readClaudeConsoleSnapshot(id) {
 }
 
 // CCR：getAccount 已解密 apiKey
-const readCcrSnapshot = async function readCcrSnapshot(id) {
+const readCcrSnapshot = async (id) => {
   const a = await ccrAccountService.getAccount(id)
   if (!a) {
     return null
@@ -219,7 +219,7 @@ const readCcrSnapshot = async function readCcrSnapshot(id) {
 }
 
 // OpenAI Responses：getAccount 已解密 apiKey
-const readOpenAiResponsesSnapshot = async function readOpenAiResponsesSnapshot(id) {
+const readOpenAiResponsesSnapshot = async (id) => {
   const a = await openaiResponsesAccountService.getAccount(id)
   if (!a) {
     return null
@@ -234,7 +234,7 @@ const readOpenAiResponsesSnapshot = async function readOpenAiResponsesSnapshot(i
 }
 
 // Azure OpenAI：getAccount 已解密 apiKey
-const readAzureSnapshot = async function readAzureSnapshot(id) {
+const readAzureSnapshot = async (id) => {
   const a = await azureOpenaiAccountService.getAccount(id)
   if (!a) {
     return null
@@ -249,27 +249,25 @@ const readAzureSnapshot = async function readAzureSnapshot(id) {
 }
 
 // 通用 API-Key 类快照构造
-const apiKeySnapshot = function apiKeySnapshot(platform, id, a, extraData) {
-  return {
-    platform,
-    id,
-    name: a.name || '',
+const apiKeySnapshot = (platform, id, a, extraData) => ({
+  platform,
+  id,
+  name: a.name || '',
+  description: a.description || '',
+  data: {
+    name: a.name,
     description: a.description || '',
-    data: {
-      name: a.name,
-      description: a.description || '',
-      ...extraData,
-      proxy: a.proxy || null,
-      priority: toInt(a.priority, 50),
-      accountType: a.accountType || 'shared',
-      schedulable: a.schedulable !== false && a.schedulable !== 'false',
-      subscriptionExpiresAt: a.subscriptionExpiresAt || null,
-    },
-  }
-}
+    ...extraData,
+    proxy: a.proxy || null,
+    priority: toInt(a.priority, 50),
+    accountType: a.accountType || 'shared',
+    schedulable: a.schedulable !== false && a.schedulable !== 'false',
+    subscriptionExpiresAt: a.subscriptionExpiresAt || null,
+  },
+})
 
 // Droid：getAccount 解密 token 但掩码 apiKeys；用 getDecryptedApiKeyEntries 取明文 key
-const readDroidSnapshot = async function readDroidSnapshot(id) {
+const readDroidSnapshot = async (id) => {
   const a = await droidAccountService.getAccount(id)
   if (!a) {
     return null
@@ -310,7 +308,7 @@ const readDroidSnapshot = async function readDroidSnapshot(id) {
 }
 
 // Grok：getAccount 默认解密敏感字段
-const readGrokSnapshot = async function readGrokSnapshot(id) {
+const readGrokSnapshot = async (id) => {
   const a = await grokAccountService.getAccount(id, { decryptSecrets: true })
   if (!a) {
     return null
@@ -345,7 +343,7 @@ const readGrokSnapshot = async function readGrokSnapshot(id) {
 }
 
 // Bedrock：getAccount 返回 { success, data }，data 内 awsCredentials/bearerToken 已解密
-const readBedrockSnapshot = async function readBedrockSnapshot(id) {
+const readBedrockSnapshot = async (id) => {
   const res = await bedrockAccountService.getAccount(id)
   if (!res || !res.success || !res.data) {
     return null
@@ -449,7 +447,7 @@ const PLATFORM_INDEX = {
 
 const ALL_PLATFORMS = Object.keys(PLATFORM_READERS)
 
-const listIds = async function listIds(platform) {
+const listIds = async (platform) => {
   const cfg = PLATFORM_INDEX[platform]
   if (!cfg) {
     return []
@@ -459,7 +457,7 @@ const listIds = async function listIds(platform) {
 
 // === 收集快照 ===
 // 收集指定 id（或全部）的规范化快照。idsByPlatform 为 null 表示全量。
-const gatherSnapshots = async function gatherSnapshots(idSet) {
+const gatherSnapshots = async (idSet) => {
   const snapshots = []
   const errors = []
   for (const platform of ALL_PLATFORMS) {
@@ -492,7 +490,7 @@ const gatherSnapshots = async function gatherSnapshots(idSet) {
 // format: 'crs' | 'sub2api' | 'cliproxyapi'
 // ids: 字符串数组或 null（全量）
 // 返回 { format, kind: 'json'|'zip', filename, contentType, payload(json) | buffer(zip), skipped[] }
-export const exportAccounts = async function exportAccounts({ format = 'crs', ids = null, exportedAt } = {}) {
+export const exportAccounts = async ({ format = 'crs', ids = null, exportedAt } = {}) => {
   const idSet = Array.isArray(ids) && ids.length > 0 ? new Set(ids) : null
   const { snapshots, errors } = await gatherSnapshots(idSet)
   const stamp = exportedAt || new Date().toISOString()
@@ -531,12 +529,10 @@ export const exportAccounts = async function exportAccounts({ format = 'crs', id
   throw new Error(`unknown export format: ${format}`)
 }
 
-const fileStamp = function fileStamp(iso) {
-  return String(iso).replace(/[:.]/g, '-').replace(/T/, '_').replace(/Z$/, '')
-}
+const fileStamp = (iso) => String(iso).replace(/[:.]/g, '-').replace(/T/, '_').replace(/Z$/, '')
 
 // sub2api 导出：可映射的进 accounts[]，其余进 skipped[]
-const buildSub2apiExport = function buildSub2apiExport(snapshots, stamp, readErrors) {
+const buildSub2apiExport = (snapshots, stamp, readErrors) => {
   const accounts = []
   const proxies = []
   const proxySeen = new Map() // host:port -> proxy_key
@@ -582,7 +578,7 @@ const buildSub2apiExport = function buildSub2apiExport(snapshots, stamp, readErr
 }
 
 // CLIProxyAPI 导出：OAuth 类生成 auth 文件；单条->json，多条->zip（只放 .json，不放 manifest）
-const buildCliproxyExport = function buildCliproxyExport(snapshots, stamp, readErrors) {
+const buildCliproxyExport = (snapshots, stamp, readErrors) => {
   const files = []
   const skipped = []
   const usedNames = new Set()
@@ -640,7 +636,7 @@ const buildCliproxyExport = function buildCliproxyExport(snapshots, stamp, readE
   }
 }
 
-const prune = function prune(obj) {
+const prune = (obj) => {
   const out = {}
   for (const [k, v] of Object.entries(obj)) {
     if (v !== undefined && v !== null && v !== '') {
@@ -652,7 +648,7 @@ const prune = function prune(obj) {
 
 // === 解析导入 payload -> 规范化快照列表 ===
 // 返回 { format, snapshots: [{snapshot, source}], unsupported: [{name, reason}], parseErrors }
-const buildSnapshotsFromImport = function buildSnapshotsFromImport(parsed) {
+const buildSnapshotsFromImport = (parsed) => {
   const out = {
     format: parsed.format,
     snapshots: [],
@@ -725,7 +721,7 @@ const buildSnapshotsFromImport = function buildSnapshotsFromImport(parsed) {
 
 // === 重复匹配 ===
 
-const fp = function fp(...parts) {
+const fp = (...parts) => {
   const joined = parts.filter((p) => p !== undefined && p !== null && p !== '').join('|')
   if (!joined) {
     return ''
@@ -734,7 +730,7 @@ const fp = function fp(...parts) {
 }
 
 // 为快照计算业务指纹（用于跨格式匹配现有账户）
-const snapshotFingerprint = function snapshotFingerprint(snap) {
+const snapshotFingerprint = (snap) => {
   const d = snap.data || {}
   switch (snap.platform) {
     case mappers.CRS_PLATFORM.CLAUDE: {
@@ -778,7 +774,7 @@ const snapshotFingerprint = function snapshotFingerprint(snap) {
 }
 
 // 建立现有账户索引：platform -> { byId, byFp, byNameKey }
-const buildExistingIndex = async function buildExistingIndex() {
+const buildExistingIndex = async () => {
   const index = {}
   for (const platform of ALL_PLATFORMS) {
     const byId = new Map()
@@ -815,7 +811,7 @@ const buildExistingIndex = async function buildExistingIndex() {
 }
 
 // 在现有索引里给快照定位匹配项：返回 { action, matchId, matchReason }
-const matchSnapshot = function matchSnapshot(item, existing) {
+const matchSnapshot = (item, existing) => {
   const { snapshot, source } = item
   const idx = existing[snapshot.platform]
   if (!idx) {
@@ -842,7 +838,7 @@ const matchSnapshot = function matchSnapshot(item, existing) {
 }
 
 // === inspect ===
-export const inspectImport = async function inspectImport({ filename, contentBase64 } = {}) {
+export const inspectImport = async ({ filename, contentBase64 } = {}) => {
   const parsed = parsers.parseImportPayload({ filename, contentBase64 })
   if (parsed.format === parsers.FORMAT.UNKNOWN) {
     return {
@@ -893,7 +889,7 @@ export const inspectImport = async function inspectImport({ filename, contentBas
   }
 }
 
-const validateSnapshotWarnings = function validateSnapshotWarnings(snapshot) {
+const validateSnapshotWarnings = (snapshot) => {
   const warnings = []
   const d = snapshot.data || {}
   if (snapshot.platform === mappers.CRS_PLATFORM.CLAUDE && !d.claudeAiOauth?.refreshToken) {
@@ -907,7 +903,7 @@ const validateSnapshotWarnings = function validateSnapshotWarnings(snapshot) {
 
 // === import 执行 ===
 // options: { allowCreate=true, allowUpdate=true }
-export const importAccounts = async function importAccounts({ filename, contentBase64, options = {} } = {}) {
+export const importAccounts = async ({ filename, contentBase64, options = {} } = {}) => {
   const allowCreate = options.allowCreate !== false
   const allowUpdate = options.allowUpdate !== false
 
@@ -995,7 +991,7 @@ export const importAccounts = async function importAccounts({ filename, contentB
 
 // === create / update 分发 ===
 // 把规范化快照 data 透传给对应 service.createAccount，返回新账户 id。
-const applyCreate = async function applyCreate(snapshot) {
+const applyCreate = async (snapshot) => {
   const d = { ...(snapshot.data || {}) }
   switch (snapshot.platform) {
     case mappers.CRS_PLATFORM.CLAUDE: {
@@ -1037,7 +1033,7 @@ const applyCreate = async function applyCreate(snapshot) {
 }
 
 // claudeAiOauth 兜底：scopes -> 数组；expiresAt -> 数字（默认 +1h）
-const normalizeClaudeOauth = function normalizeClaudeOauth(oauth) {
+const normalizeClaudeOauth = (oauth) => {
   const o = { ...oauth }
   if (!Array.isArray(o.scopes)) {
     o.scopes =
@@ -1052,7 +1048,7 @@ const normalizeClaudeOauth = function normalizeClaudeOauth(oauth) {
 }
 
 // 更新：把可写字段透传给 service.updateAccount。各 service 的 allowedUpdates 会过滤无关字段。
-const applyUpdate = async function applyUpdate(snapshot, accountId) {
+const applyUpdate = async (snapshot, accountId) => {
   const updates = buildUpdatePayload(snapshot)
   switch (snapshot.platform) {
     case mappers.CRS_PLATFORM.CLAUDE:
@@ -1087,7 +1083,7 @@ const applyUpdate = async function applyUpdate(snapshot, accountId) {
 }
 
 // 更新只透传凭据与少量业务字段，避免覆盖运行态/调度态
-const buildUpdatePayload = function buildUpdatePayload(snapshot) {
+const buildUpdatePayload = (snapshot) => {
   const d = snapshot.data || {}
   const u = {}
   const keys = [

@@ -7,7 +7,7 @@ import { isBalanceScriptEnabled } from '../../common/feature_flags.js'
  * @param {string} url - 要检查的URL
  * @returns {boolean} - true表示URL安全
  */
-const isUrlSafe = function isUrlSafe(url) {
+const isUrlSafe = (url) => {
   try {
     const parsed = new URL(url)
     const hostname = parsed.hostname.toLowerCase()

@@ -109,9 +109,8 @@ const clearAllToasts = () => {
 }
 
 // 暴露方法给全局使用
-const showToast = (message, type = 'info', title = null, duration = 5000) => {
-  return addToast(message, type, title, duration)
-}
+const showToast = (message, type = 'info', title = null, duration = 5000) =>
+  addToast(message, type, title, duration)
 
 // 全局方法注册
 onMounted(() => {

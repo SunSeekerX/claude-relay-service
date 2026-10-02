@@ -18,7 +18,7 @@ const WAIT_TIME_SAMPLES_PER_KEY = LIMITS.waitTimesPerKey // 每个 API Key 保�
 const WAIT_TIME_SAMPLES_GLOBAL = LIMITS.waitTimesGlobal // 全局保留的等待时间样本数
 const QUEUE_TTL_BUFFER_SECONDS = 30 // 排队计数器TTL缓冲时间
 
-export const attach = function attach(redisClient) {
+export const attach = (redisClient) => {
   /**
    * 增加排队计数（使用 Lua 脚本确保原子性）
    * @param {string} apiKeyId - API Key ID

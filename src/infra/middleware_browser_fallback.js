@@ -1,4 +1,5 @@
 import { logger } from '../common/logger.js'
+import { getClaudeCliVersion } from '../modules/relay/relay_claude_cli_version.js'
 /**
  * 浏览器/Chrome插件兜底中间件
  * 专门处理第三方插件的兼容性问题
@@ -44,7 +45,7 @@ export const browserFallbackMiddleware = (req, res, next) => {
     req.originalUserAgent = userAgent
 
     // 关键修改：伪装成claude-cli请求以绕过客户端限制
-    req.headers['user-agent'] = 'claude-cli/1.0.110 (external, cli, browser-fallback)'
+    req.headers['user-agent'] = `claude-cli/${getClaudeCliVersion()} (external, cli, browser-fallback)`
 
     // 确保设置正确的认证头
     if (!req.headers['authorization'] && apiKeyHeader) {

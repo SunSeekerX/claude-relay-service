@@ -30,7 +30,7 @@ import { StringDecoder } from 'node:string_decoder'
  * parseSSELine('data: [DONE]')
  * // => { type: 'control', data: null, line: '...', jsonStr: '[DONE]' }
  */
-export const parseSSELine = function parseSSELine(line) {
+export const parseSSELine = (line) => {
   if (!line.startsWith('data:')) {
     return { type: 'other', line, data: null }
   }

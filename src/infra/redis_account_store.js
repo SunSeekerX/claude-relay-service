@@ -5,7 +5,7 @@ import { RedisKeys } from './redis_key.js'
 // 其余平台账户存取在各自 *AccountService.js 中直接用通用 redis 方法，不在此处。
 // ===
 
-export const attach = function attach(redisClient) {
+export const attach = (redisClient) => {
   // Claude 账户管理
   redisClient.setClaudeAccount = async function (accountId, accountData) {
     const key = RedisKeys.accounts.claude(accountId)

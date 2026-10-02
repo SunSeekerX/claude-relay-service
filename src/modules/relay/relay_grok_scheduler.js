@@ -1,4 +1,5 @@
 import { grokAccountService } from '../account/account_grok_service.js'
+import { assertModelAccess } from './relay_model_access.js'
 import { accountGroupService } from '../account/account_group_service.js'
 import * as groupPolicy from '../account/account_group_policy.js'
 import { redis } from '../../infra/redis.js'
@@ -200,6 +201,7 @@ class GrokScheduler {
   }
 
   async selectAccount(apiKeyData, requestedModel, sessionHash, options = {}) {
+    assertModelAccess(apiKeyData, requestedModel)
     let candidates = []
     let isDedicatedBinding = false
     const mediaGeneration = Boolean(options.mediaGeneration)

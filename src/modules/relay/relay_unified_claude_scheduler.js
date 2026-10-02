@@ -10,34 +10,13 @@ import * as upstreamErrorHelper from './relay_upstream_error_helper.js'
 import { RedisKeys, TTL } from '../../infra/redis_key.js'
 import { config } from '../../../config/config.js'
 import { config as appConfig } from '../../../config/config.js'
-import { parseVendorPrefixedModel, isOpus45OrNewer, getRateLimitModelFamily } from './relay_model_helper.js'
+import {
+  parseVendorPrefixedModel,
+  isOpus45OrNewer,
+  isProAccount,
+  getRateLimitModelFamily,
+} from './relay_model_helper.js'
 import { isSchedulable, isAutoProtectionDisabled, sortAccountsByPriority } from '../../common/common_helper.js'
-/**
- * Check if account is Pro (not Max)
- *
- * ACCOUNT TYPE LOGIC (as of 2025-12-05):
- * Pro accounts can be identified by either:
- * 1. API real-time data: hasClaudePro=true && hasClaudeMax=false
- * 2. Local config data: accountType='claude_pro'
- *
- * Account type restrictions for Opus models:
- * - Free account: No Opus access at all
- * - Pro account: Only Opus 4.5+ (new versions)
- * - Max account: All Opus versions (legacy 3.x, 4.0, 4.1 and new 4.5+)
- *
- * Compatible with both API real-time data (hasClaudePro) and local config (accountType)
- * @param {Object} info - Subscription info object
- * @returns {boolean} - true if Pro account (not Free, not Max)
- */
-const isProAccount = function isProAccount(info) {
-  // API real-time status takes priority
-  if (info.hasClaudePro === true && info.hasClaudeMax !== true) {
-    return true
-  }
-  // Local configured account type
-  return info.accountType === 'claude_pro'
-}
-
 class UnifiedClaudeScheduler {
   // 检查账户是否支持请求的模型
   _isModelSupportedByAccount(account, accountType, requestedModel, context = '') {

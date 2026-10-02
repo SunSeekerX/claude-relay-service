@@ -16,6 +16,7 @@ import { initTranslatorRegistry, listTranslators } from '../relay/translator/rel
 import { asyncRoute } from '../../common/route_handler.js'
 import { ok, badRequest, notFound } from '../../common/http_result.js'
 import { parseObjectBody } from '../../common/parse_body.js'
+import { requestDetailService } from '../relay/relay_request_detail_service.js'
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
 
@@ -63,7 +64,7 @@ router.delete(
 // === 系统更新检查 ===
 
 // 版本比较函数
-const compareVersions = function compareVersions(current, latest) {
+const compareVersions = (current, latest) => {
   const parseVersion = (v) => {
     const parts = v.split('.').map(Number)
     return {
@@ -656,6 +657,37 @@ router.get(
         note: '故意不挂根 /v1/*，避免与 unified chat 抢路由；客户端 base=/grok',
       },
     ]
+    const observed = await requestDetailService.listRequestDetails({
+      startDate: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
+      endDate: new Date().toISOString(),
+      pageSize: 200,
+      sortOrder: 'desc',
+    })
+    const lastObserved = new Map()
+    for (const record of observed.records || []) {
+      if (Number(record.statusCode) < 200 || Number(record.statusCode) >= 300) {
+        continue
+      }
+      const endpoint = String(record.endpoint || '')
+      const accountType = String(record.accountType || '').toLowerCase()
+      let key = null
+      if (endpoint.includes('/messages')) {
+        key = 'claude-messages'
+      } else if (accountType === 'grok' || endpoint.includes('/grok/')) {
+        key = 'grok-xai'
+      } else if (endpoint.includes('generateContent') || endpoint.includes('interactions')) {
+        key = 'gemini-v1beta'
+      } else if (endpoint.includes('/responses')) {
+        key = endpoint.includes('ws') ? 'codex-responses-ws' : 'codex-responses-http'
+      }
+      if (key && !lastObserved.has(key)) {
+        lastObserved.set(key, record.timestamp)
+      }
+    }
+    for (const row of protocolSurface) {
+      row.lastObservedAt = lastObserved.get(row.protocol) || null
+      row.testAvailable = true
+    }
     return {
       entries,
       protocolSurface,

@@ -23,6 +23,8 @@ const ApiStatsPricingTab = () => import('@/views/api_stats/pricing_tab.vue')
 const ApiStatsTutorialTab = () => import('@/views/api_stats/tutorial_tab.vue')
 const QuotaCardsView = () => import('@/views/quota_cards_view.vue')
 const RequestDetailsView = () => import('@/views/request_details_view.vue')
+const GrokVideoTasksView = () => import('@/views/grok_video_tasks_view.vue')
+const SecurityEventsView = () => import('@/views/security_events_view.vue')
 const ProxyPoolView = () => import('@/views/proxy_pool_view.vue')
 
 const routes = [
@@ -249,6 +251,18 @@ const routes = [
         component: RequestDetailsView
       }
     ]
+  },
+  {
+    path: '/grok-video-tasks',
+    component: MainLayout,
+    meta: { requiresAuth: true },
+    children: [{ path: '', name: 'GrokVideoTasks', component: GrokVideoTasksView }]
+  },
+  {
+    path: '/security-events',
+    component: MainLayout,
+    meta: { requiresAuth: true },
+    children: [{ path: '', name: 'SecurityEvents', component: SecurityEventsView }]
   },
   {
     path: '/proxy-pool',

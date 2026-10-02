@@ -47,6 +47,8 @@ const tabs = computed(() => {
     { key: 'apiKeys', name: 'API Keys', icon: 'i-lucide-key' },
     { key: 'accounts', name: '账户管理', icon: 'i-lucide-circle-user' },
     { key: 'requestDetails', name: '请求明细', icon: 'i-lucide-table' },
+    { key: 'grokVideoTasks', name: '视频任务', icon: 'i-lucide-clapperboard' },
+    { key: 'securityEvents', name: '安全事件', icon: 'i-lucide-shield-alert' },
     { key: 'quotaCards', name: '额度卡', icon: 'i-lucide-ticket' },
     { key: 'paymentManage', name: '支付管理', icon: 'i-lucide-credit-card' },
     { key: 'proxyPool', name: '代理池', icon: 'i-lucide-server' }

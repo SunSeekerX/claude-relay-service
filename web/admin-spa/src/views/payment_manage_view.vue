@@ -874,20 +874,6 @@ const configHint = (k) => {
 }
 
 const activeTab = ref('dashboard')
-const loaded = reactive({})
-const switchTab = (key) => {
-  activeTab.value = key
-  // 数据看板用自身 loaded 状态：首次或上次失败（未成功加载）时都重试，不受通用 loaded 门控卡死
-  if (key === 'dashboard') {
-    if (!dashboardLoaded.value && !dashboardLoading.value) loadDashboard()
-    return
-  }
-  if (loaded[key]) return
-  loaded[key] = true
-  if (key === 'plans') loadPlans()
-  else if (key === 'providers') loadProviders()
-  else if (key === 'orders') loadOrders()
-}
 
 // 全局配置改为 dialog 弹出（不再占用 tab）
 const configModal = ref(false)

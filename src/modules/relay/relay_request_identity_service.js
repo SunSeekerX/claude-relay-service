@@ -35,7 +35,7 @@ const STAINLESS_HEADER_CASE_MAP = {
 }
 const MIN_FINGERPRINT_FIELDS = 4
 
-const formatUuidFromSeed = function formatUuidFromSeed(seed) {
+const formatUuidFromSeed = (seed) => {
   const digest = crypto.createHash('sha256').update(String(seed)).digest()
   const bytes = Buffer.from(digest.subarray(0, 16))
 
@@ -49,7 +49,7 @@ const formatUuidFromSeed = function formatUuidFromSeed(seed) {
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`
 }
 
-const safeParseJson = function safeParseJson(value) {
+const safeParseJson = (value) => {
   if (typeof value !== 'string' || !value.trim()) {
     return null
   }
@@ -62,7 +62,7 @@ const safeParseJson = function safeParseJson(value) {
   }
 }
 
-const getRedisClient = function getRedisClient() {
+const getRedisClient = () => {
   if (!redisService || typeof redisService.getClientSafe !== 'function') {
     throw new Error('requestIdentityService: Redis 服务未初始化')
   }
@@ -70,11 +70,10 @@ const getRedisClient = function getRedisClient() {
   return redisService.getClientSafe()
 }
 
-const hasFingerprintValues = function hasFingerprintValues(fingerprint) {
-  return fingerprint && typeof fingerprint === 'object' && Object.keys(fingerprint).length > 0
-}
+const hasFingerprintValues = (fingerprint) =>
+  fingerprint && typeof fingerprint === 'object' && Object.keys(fingerprint).length > 0
 
-const sanitizeFingerprint = function sanitizeFingerprint(source) {
+const sanitizeFingerprint = (source) => {
   if (!source || typeof source !== 'object') {
     return {}
   }
@@ -99,7 +98,7 @@ const sanitizeFingerprint = function sanitizeFingerprint(source) {
   return normalized
 }
 
-const collectFingerprintFromHeaders = function collectFingerprintFromHeaders(headers) {
+const collectFingerprintFromHeaders = (headers) => {
   if (!headers || typeof headers !== 'object') {
     return {}
   }
@@ -116,7 +115,7 @@ const collectFingerprintFromHeaders = function collectFingerprintFromHeaders(hea
   return sanitizeFingerprint(subset)
 }
 
-const removeHeaderCaseInsensitive = function removeHeaderCaseInsensitive(target, key) {
+const removeHeaderCaseInsensitive = (target, key) => {
   if (!target || typeof target !== 'object') {
     return
   }
@@ -129,7 +128,7 @@ const removeHeaderCaseInsensitive = function removeHeaderCaseInsensitive(target,
   })
 }
 
-const applyFingerprintToHeaders = function applyFingerprintToHeaders(headers, fingerprint) {
+const applyFingerprintToHeaders = (headers, fingerprint) => {
   if (!headers || typeof headers !== 'object') {
     return headers
   }
@@ -153,7 +152,7 @@ const applyFingerprintToHeaders = function applyFingerprintToHeaders(headers, fi
   return nextHeaders
 }
 
-const persistFingerprint = function persistFingerprint(accountId, fingerprint) {
+const persistFingerprint = (accountId, fingerprint) => {
   if (!accountId || !hasFingerprintValues(fingerprint)) {
     return
   }
@@ -171,7 +170,7 @@ const persistFingerprint = function persistFingerprint(accountId, fingerprint) {
   }
 }
 
-const getHeaderValueCaseInsensitive = function getHeaderValueCaseInsensitive(headers, key) {
+const getHeaderValueCaseInsensitive = (headers, key) => {
   if (!headers || typeof headers !== 'object') {
     return undefined
   }
@@ -186,7 +185,7 @@ const getHeaderValueCaseInsensitive = function getHeaderValueCaseInsensitive(hea
   return undefined
 }
 
-const headersChanged = function headersChanged(original, updated) {
+const headersChanged = (original, updated) => {
   if (original === updated) {
     return false
   }
@@ -200,7 +199,7 @@ const headersChanged = function headersChanged(original, updated) {
   return false
 }
 
-const resolveAccountId = function resolveAccountId(payload) {
+const resolveAccountId = (payload) => {
   if (!payload || typeof payload !== 'object') {
     return null
   }
@@ -230,7 +229,7 @@ const resolveAccountId = function resolveAccountId(payload) {
   return null
 }
 
-const rewriteHeaders = function rewriteHeaders(headers, accountId) {
+const rewriteHeaders = (headers, accountId) => {
   if (!headers || typeof headers !== 'object') {
     return { nextHeaders: headers, changed: false }
   }
@@ -267,7 +266,7 @@ const rewriteHeaders = function rewriteHeaders(headers, accountId) {
   return { nextHeaders: appliedHeaders, changed }
 }
 
-const normalizeAccountUuid = function normalizeAccountUuid(candidate) {
+const normalizeAccountUuid = (candidate) => {
   if (typeof candidate !== 'string') {
     return null
   }
@@ -276,7 +275,7 @@ const normalizeAccountUuid = function normalizeAccountUuid(candidate) {
   return trimmed || null
 }
 
-const extractAccountUuid = function extractAccountUuid(account) {
+const extractAccountUuid = (account) => {
   if (!account || typeof account !== 'object') {
     return null
   }
@@ -296,7 +295,7 @@ const extractAccountUuid = function extractAccountUuid(account) {
   return extUuid || null
 }
 
-const rewriteUserId = function rewriteUserId(body, accountId, accountUuid) {
+const rewriteUserId = (body, accountId, accountUuid) => {
   if (!body || typeof body !== 'object') {
     return { nextBody: body, changed: false }
   }
@@ -351,7 +350,7 @@ const rewriteUserId = function rewriteUserId(body, accountId, accountUuid) {
  * @param {Object} payload.account - 账户对象
  * @returns {Object} 转换后的 { body, headers, abortResponse? }
  */
-export const transform = function transform(payload = {}) {
+export const transform = (payload = {}) => {
   const currentBody = payload.body
   const currentHeaders = payload.headers
 

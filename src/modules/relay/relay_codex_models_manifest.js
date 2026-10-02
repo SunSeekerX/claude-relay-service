@@ -23,6 +23,13 @@ for (const model of codexClientModelsTemplate.models || []) {
   }
 }
 
+// 官方 catalog 已移除 base_instructions；对外仍按 serialize_model_infos_with_legacy_base 回填给旧客户端
+const withLegacyBaseInstructions = (entry) => {
+  const template = entry?.model_messages?.instructions_template
+  entry.base_instructions = typeof template === 'string' ? template : ''
+  return entry
+}
+
 if (!defaultTemplate) {
   const models = codexClientModelsTemplate.models || []
   defaultTemplate = models.find((model) => model?.visibility === 'list') || models[0] || null
@@ -88,7 +95,7 @@ export const buildCodexModelsManifest = (modelIds = null) => {
     if (entry.use_responses_lite === true) {
       entry.use_responses_lite = false
     }
-    models.push(entry)
+    models.push(withLegacyBaseInstructions(entry))
   }
 
   models.sort((left, right) => codexEntryPriority(left) - codexEntryPriority(right))

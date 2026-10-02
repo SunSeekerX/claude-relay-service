@@ -15,7 +15,7 @@ import { badRequest } from '../../common/http_result.js'
 
 export const router = express.Router()
 
-const toBool = function toBool(value, defaultValue = false) {
+const toBool = (value, defaultValue = false) => {
   if (value === undefined || value === null || value === '') {
     return defaultValue
   }
@@ -28,7 +28,7 @@ const toBool = function toBool(value, defaultValue = false) {
   return defaultValue
 }
 
-const normalizeProxy = function normalizeProxy(proxy) {
+const normalizeProxy = (proxy) => {
   if (!proxy || typeof proxy !== 'object') {
     return null
   }
@@ -50,7 +50,7 @@ const normalizeProxy = function normalizeProxy(proxy) {
   }
 }
 
-const buildModelMappingFromSupportedModels = function buildModelMappingFromSupportedModels(supportedModels) {
+const buildModelMappingFromSupportedModels = (supportedModels) => {
   if (!supportedModels) {
     return null
   }
@@ -78,7 +78,7 @@ const buildModelMappingFromSupportedModels = function buildModelMappingFromSuppo
   return null
 }
 
-const safeParseJson = function safeParseJson(raw, fallback = null) {
+const safeParseJson = (raw, fallback = null) => {
   if (!raw || typeof raw !== 'string') {
     return fallback
   }

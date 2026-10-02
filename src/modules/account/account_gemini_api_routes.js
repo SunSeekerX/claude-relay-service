@@ -17,6 +17,7 @@ import { createGeminiTestPayload, extractErrorMessage } from '../../common/test_
 import { parseObjectBody } from '../../common/parse_body.js'
 import { buildGeminiApiUrl } from '../relay/relay_gemini_handlers_routes.js'
 import { ProxyHelper } from '../proxy/proxy_helper.js'
+import { normalizeAccountTokenStats } from '../../common/compat_token_stats.js'
 
 export const router = express.Router()
 
@@ -73,25 +74,10 @@ router.get(
       const [errDaily, daily] = statsResults[i * 3 + 1]
       const [errMonthly, monthly] = statsResults[i * 3 + 2]
 
-      const parseUsage = (data) => ({
-        requests: parseInt(data?.totalRequests || data?.requests) || 0,
-        tokens: parseInt(data?.totalTokens || data?.tokens) || 0,
-        inputTokens: parseInt(data?.totalInputTokens || data?.inputTokens) || 0,
-        outputTokens: parseInt(data?.totalOutputTokens || data?.outputTokens) || 0,
-        cacheCreateTokens: parseInt(data?.totalCacheCreateTokens || data?.cacheCreateTokens) || 0,
-        cacheReadTokens: parseInt(data?.totalCacheReadTokens || data?.cacheReadTokens) || 0,
-        allTokens:
-          parseInt(data?.totalAllTokens || data?.allTokens) ||
-          (parseInt(data?.totalInputTokens || data?.inputTokens) || 0) +
-            (parseInt(data?.totalOutputTokens || data?.outputTokens) || 0) +
-            (parseInt(data?.totalCacheCreateTokens || data?.cacheCreateTokens) || 0) +
-            (parseInt(data?.totalCacheReadTokens || data?.cacheReadTokens) || 0),
-      })
-
       allUsageStatsMap.set(accountId, {
-        total: errTotal ? {} : parseUsage(total),
-        daily: errDaily ? {} : parseUsage(daily),
-        monthly: errMonthly ? {} : parseUsage(monthly),
+        total: errTotal ? {} : normalizeAccountTokenStats(total),
+        daily: errDaily ? {} : normalizeAccountTokenStats(daily),
+        monthly: errMonthly ? {} : normalizeAccountTokenStats(monthly),
       })
     }
 

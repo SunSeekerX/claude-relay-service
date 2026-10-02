@@ -10,7 +10,7 @@ const PREVIEW_TRUNCATION_SUFFIX_PATTERN = /\.\.\.\[(?:truncated )?(\d+) chars\]$
 const OPENAI_RELATED_ACCOUNT_TYPES = new Set(['openai', 'openai-responses', 'azure-openai'])
 export const CACHE_HIT_FORMULA = 'cacheReadTokens / (inputTokens + cacheReadTokens + cacheCreateTokens)'
 
-const toFiniteNumber = function toFiniteNumber(value) {
+const toFiniteNumber = (value) => {
   if (value === undefined || value === null || value === '') {
     return null
   }
@@ -23,7 +23,7 @@ const toFiniteNumber = function toFiniteNumber(value) {
   return num
 }
 
-const maskSensitiveValue = function maskSensitiveValue(value) {
+const maskSensitiveValue = (value) => {
   if (value === null || value === undefined) {
     return value
   }
@@ -36,7 +36,7 @@ const maskSensitiveValue = function maskSensitiveValue(value) {
   return `${str.slice(0, 3)}***${str.slice(-3)}`
 }
 
-const truncateString = function truncateString(value, maxChars = DEFAULT_MAX_STRING_CHARS) {
+const truncateString = (value, maxChars = DEFAULT_MAX_STRING_CHARS) => {
   if (typeof value !== 'string') {
     return value
   }
@@ -48,7 +48,7 @@ const truncateString = function truncateString(value, maxChars = DEFAULT_MAX_STR
   return `${value.slice(0, maxChars)}...[${value.length - maxChars} chars]`
 }
 
-const getValueCharLength = function getValueCharLength(value) {
+const getValueCharLength = (value) => {
   if (value === null || value === undefined) {
     return 0
   }
@@ -69,11 +69,9 @@ const getValueCharLength = function getValueCharLength(value) {
   return String(value).length
 }
 
-const createOmittedValue = function createOmittedValue(value) {
-  return `...[${getValueCharLength(value)} chars]`
-}
+const createOmittedValue = (value) => `...[${getValueCharLength(value)} chars]`
 
-const normalizeNonEmptyString = function normalizeNonEmptyString(value) {
+const normalizeNonEmptyString = (value) => {
   if (typeof value !== 'string') {
     return null
   }
@@ -82,7 +80,7 @@ const normalizeNonEmptyString = function normalizeNonEmptyString(value) {
   return trimmed ? trimmed : null
 }
 
-const normalizeInteger = function normalizeInteger(value) {
+const normalizeInteger = (value) => {
   const num = toFiniteNumber(value)
   if (num === null) {
     return null
@@ -91,18 +89,14 @@ const normalizeInteger = function normalizeInteger(value) {
   return Math.trunc(num)
 }
 
-const formatReasoningBudget = function formatReasoningBudget(value) {
-  return `budget:${value}`
-}
+const formatReasoningBudget = (value) => `budget:${value}`
 
-const createReasoningInfo = function createReasoningInfo(reasoningDisplay = null, reasoningSource = null) {
-  return {
-    reasoningDisplay: reasoningDisplay || null,
-    reasoningSource: reasoningSource || null,
-  }
-}
+const createReasoningInfo = (reasoningDisplay = null, reasoningSource = null) => ({
+  reasoningDisplay: reasoningDisplay || null,
+  reasoningSource: reasoningSource || null,
+})
 
-const summarizeToolEntry = function summarizeToolEntry(value) {
+const summarizeToolEntry = (value) => {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     return sanitizeValue(value, {
       seen: new WeakSet(),
@@ -126,7 +120,7 @@ const summarizeToolEntry = function summarizeToolEntry(value) {
   return summary
 }
 
-const extractOpenAIReasoningInfo = function extractOpenAIReasoningInfo(payload) {
+const extractOpenAIReasoningInfo = (payload) => {
   const effort = normalizeNonEmptyString(payload?.reasoning?.effort)
   if (effort) {
     return createReasoningInfo(effort, 'reasoning.effort')
@@ -140,7 +134,7 @@ const extractOpenAIReasoningInfo = function extractOpenAIReasoningInfo(payload) 
   return createReasoningInfo()
 }
 
-const extractAnthropicReasoningInfo = function extractAnthropicReasoningInfo(payload) {
+const extractAnthropicReasoningInfo = (payload) => {
   const outputEffort = normalizeNonEmptyString(payload?.output_config?.effort)
   if (outputEffort) {
     return createReasoningInfo(outputEffort, 'output_config.effort')
@@ -198,7 +192,7 @@ const extractAnthropicReasoningInfo = function extractAnthropicReasoningInfo(pay
   return createReasoningInfo()
 }
 
-const extractGeminiReasoningInfo = function extractGeminiReasoningInfo(payload) {
+const extractGeminiReasoningInfo = (payload) => {
   const thinkingConfig = payload?.generationConfig?.thinkingConfig
   if (!thinkingConfig || typeof thinkingConfig !== 'object' || Array.isArray(thinkingConfig)) {
     return createReasoningInfo()
@@ -229,7 +223,7 @@ const extractGeminiReasoningInfo = function extractGeminiReasoningInfo(payload) 
   return createReasoningInfo()
 }
 
-export const extractRequestReasoningInfo = function extractRequestReasoningInfo(payload) {
+export const extractRequestReasoningInfo = (payload) => {
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
     return createReasoningInfo()
   }
@@ -246,7 +240,7 @@ export const extractRequestReasoningInfo = function extractRequestReasoningInfo(
   return createReasoningInfo()
 }
 
-const parsePreviewJson = function parsePreviewJson(preview) {
+const parsePreviewJson = (preview) => {
   if (typeof preview !== 'string' || !preview) {
     return null
   }
@@ -271,7 +265,7 @@ const parsePreviewJson = function parsePreviewJson(preview) {
   }
 }
 
-const extractPreviewReasoningInfo = function extractPreviewReasoningInfo(preview) {
+const extractPreviewReasoningInfo = (preview) => {
   if (typeof preview !== 'string' || !preview) {
     return createReasoningInfo()
   }
@@ -335,7 +329,7 @@ const extractPreviewReasoningInfo = function extractPreviewReasoningInfo(preview
   return createReasoningInfo()
 }
 
-export const resolveRequestDetailReasoning = function resolveRequestDetailReasoning(detail = {}) {
+export const resolveRequestDetailReasoning = (detail = {}) => {
   const storedDisplay = normalizeNonEmptyString(detail.reasoningDisplay)
   const storedSource = normalizeNonEmptyString(detail.reasoningSource)
   if (storedDisplay) {
@@ -357,7 +351,7 @@ export const resolveRequestDetailReasoning = function resolveRequestDetailReason
   return createReasoningInfo()
 }
 
-const sanitizeValue = function sanitizeValue(value, ctx) {
+const sanitizeValue = (value, ctx) => {
   const {
     keyPath = '',
     seen,
@@ -464,7 +458,7 @@ const sanitizeValue = function sanitizeValue(value, ctx) {
   return String(value)
 }
 
-const enforceTotalSize = function enforceTotalSize(snapshot, maxTotalChars = DEFAULT_MAX_TOTAL_CHARS) {
+const enforceTotalSize = (snapshot, maxTotalChars = DEFAULT_MAX_TOTAL_CHARS) => {
   let json
   try {
     json = JSON.stringify(snapshot)
@@ -487,7 +481,7 @@ const enforceTotalSize = function enforceTotalSize(snapshot, maxTotalChars = DEF
   }
 }
 
-export const sanitizeRequestBodySnapshot = function sanitizeRequestBodySnapshot(body, options = {}) {
+export const sanitizeRequestBodySnapshot = (body, options = {}) => {
   if (body === undefined) {
     return null
   }
@@ -505,7 +499,7 @@ export const sanitizeRequestBodySnapshot = function sanitizeRequestBodySnapshot(
   return enforceTotalSize(sanitized, options.maxTotalChars || DEFAULT_MAX_TOTAL_CHARS)
 }
 
-const getRequestEndpoint = function getRequestEndpoint(req) {
+const getRequestEndpoint = (req) => {
   if (!req) {
     return null
   }
@@ -519,7 +513,7 @@ const getRequestEndpoint = function getRequestEndpoint(req) {
   return queryIndex >= 0 ? originalUrl.slice(0, queryIndex) : originalUrl
 }
 
-const toTimestampMs = function toTimestampMs(value) {
+const toTimestampMs = (value) => {
   const numericValue = toFiniteNumber(value)
   if (numericValue !== null) {
     return numericValue
@@ -538,7 +532,7 @@ const toTimestampMs = function toTimestampMs(value) {
   return Number.isFinite(parsed) ? parsed : null
 }
 
-export const createRequestDetailMeta = function createRequestDetailMeta(req, overrides = {}) {
+export const createRequestDetailMeta = (req, overrides = {}) => {
   const nowMs = Date.now()
   const statusCode = toFiniteNumber(overrides.statusCode)
   const durationMs = toFiniteNumber(overrides.durationMs)
@@ -546,6 +540,7 @@ export const createRequestDetailMeta = function createRequestDetailMeta(req, ove
   const reqStartedAt = toFiniteNumber(req?.requestStartedAt)
   const effectiveStart = requestStartedAt ?? reqStartedAt
   const requestBody = overrides.requestBody !== undefined ? overrides.requestBody : req?.body
+  const responseBody = overrides.responseBody !== undefined ? overrides.responseBody : req?._crsResponseBody
 
   const firstTokenMsOverride = toFiniteNumber(overrides.firstTokenMs)
   const meta = {
@@ -558,6 +553,8 @@ export const createRequestDetailMeta = function createRequestDetailMeta(req, ove
     durationMs: durationMs ?? (effectiveStart ? Math.max(0, nowMs - effectiveStart) : null),
     requestStartedAt: effectiveStart ? new Date(effectiveStart).toISOString() : null,
     requestBody,
+    responseBody,
+    videoTaskId: req?._crsVideoTaskId || null,
     errorCode: overrides.errorCode ?? null,
     errorMessage: overrides.errorMessage ?? null,
   }
@@ -608,7 +605,7 @@ export const createRequestDetailMeta = function createRequestDetailMeta(req, ove
 }
 
 // 从上游响应头解析 request id；headerName 非空时只读该头
-export const extractUpstreamRequestId = function extractUpstreamRequestId(headers, options = {}) {
+export const extractUpstreamRequestId = (headers, options = {}) => {
   if (!headers || typeof headers !== 'object') {
     return null
   }
@@ -643,7 +640,7 @@ export const extractUpstreamRequestId = function extractUpstreamRequestId(header
   return null
 }
 
-export const finalizeRequestDetailMeta = function finalizeRequestDetailMeta(requestMeta = null) {
+export const finalizeRequestDetailMeta = (requestMeta = null) => {
   if (!requestMeta || typeof requestMeta !== 'object') {
     return null
   }
@@ -679,11 +676,7 @@ const RELAY_PATH_PREFIXES = [
 
 // 是否应把失败响应写入请求明细（成功仍走 recordUsage 采集，避免双写）
 // DEC_20260904_162520 失败请求也要进请求明细并带 status/error，列表可直接看成功失败
-export const shouldCaptureFailedRequestDetail = function shouldCaptureFailedRequestDetail({
-  statusCode,
-  path,
-  apiKeyId,
-} = {}) {
+export const shouldCaptureFailedRequestDetail = ({ statusCode, path, apiKeyId } = {}) => {
   if (!apiKeyId) {
     return false
   }
@@ -717,7 +710,7 @@ export const shouldCaptureFailedRequestDetail = function shouldCaptureFailedRequ
 }
 
 // 从已返回给客户端的 error body 提取摘要（供失败明细落库）
-export const extractClientErrorSummary = function extractClientErrorSummary(responseBody) {
+export const extractClientErrorSummary = (responseBody) => {
   if (!responseBody) {
     return { errorMessage: null, errorCode: null }
   }
@@ -869,13 +862,7 @@ export const extractClientErrorSummary = function extractClientErrorSummary(resp
 }
 
 // 组装失败请求明细 payload（无 token/费用，仅状态与错误摘要）
-export const buildFailedRequestDetailPayload = function buildFailedRequestDetailPayload({
-  req,
-  statusCode,
-  durationMs,
-  responseBody,
-  path,
-} = {}) {
+export const buildFailedRequestDetailPayload = ({ req, statusCode, durationMs, responseBody, path } = {}) => {
   const summary = extractClientErrorSummary(responseBody)
   const body = req && req.body && typeof req.body === 'object' ? req.body : null
   const model =
@@ -929,7 +916,7 @@ export const buildFailedRequestDetailPayload = function buildFailedRequestDetail
 // 反向漏收由回包本身覆盖：请求 auto 而上游实际按 priority 服务时，回包就是 priority。
 //
 // 回落请求体时仍排除 auto/default：它们不是价格档，等价于「按基础价」。
-export const resolveOpenAIServiceTier = function resolveOpenAIServiceTier(responseTier, requestTier) {
+export const resolveOpenAIServiceTier = (responseTier, requestTier) => {
   const normalize = (value) => (typeof value === 'string' && value.trim() ? value.trim().toLowerCase() : '')
 
   // 回包有值就是权威结论，原样返回，绝不回落请求值
@@ -945,7 +932,7 @@ export const resolveOpenAIServiceTier = function resolveOpenAIServiceTier(respon
   return null
 }
 
-export const extractOpenAICacheReadTokens = function extractOpenAICacheReadTokens(usage = {}) {
+export const extractOpenAICacheReadTokens = (usage = {}) => {
   if (!usage || typeof usage !== 'object') {
     return 0
   }
@@ -999,7 +986,7 @@ export const normalizeOpenAITokenUsage = (usage = {}) => {
 }
 
 // 提取思考/reasoning tokens（OpenAI/Codex/Gemini/Grok 字段名不一）
-export const extractThinkingTokens = function extractThinkingTokens(usage = {}) {
+export const extractThinkingTokens = (usage = {}) => {
   if (!usage || typeof usage !== 'object') {
     return 0
   }
@@ -1033,7 +1020,7 @@ export const extractThinkingTokens = function extractThinkingTokens(usage = {}) 
 // 官方口径：
 // - OpenAI Chat/Codex Responses/Azure/Grok：reasoning 是 output/completion 的子集（details 字段）
 // - Gemini 原生 usageMetadata：thoughtsTokenCount 与 candidatesTokenCount 分立，计费需相加
-export const isThinkingAlreadyInOutput = function isThinkingAlreadyInOutput(usage = {}) {
+export const isThinkingAlreadyInOutput = (usage = {}) => {
   if (!usage || typeof usage !== 'object') {
     return false
   }
@@ -1075,14 +1062,14 @@ export const isThinkingAlreadyInOutput = function isThinkingAlreadyInOutput(usag
 }
 
 // 组装 recordUsage 对象重载入参：保留拆分后的 token，并把 raw usage 中的思考 tokens 一并带上
-export const buildTokenUsagePayload = function buildTokenUsagePayload({
+export const buildTokenUsagePayload = ({
   inputTokens = 0,
   outputTokens = 0,
   cacheCreateTokens = 0,
   cacheReadTokens = 0,
   rawUsage = null,
   extras = null,
-} = {}) {
+} = {}) => {
   const raw = rawUsage && typeof rawUsage === 'object' ? rawUsage : {}
   const payload = {
     input_tokens: inputTokens || 0,
@@ -1118,7 +1105,7 @@ export const buildTokenUsagePayload = function buildTokenUsagePayload({
   return payload
 }
 
-export const isOpenAIRelatedEndpoint = function isOpenAIRelatedEndpoint(endpoint) {
+export const isOpenAIRelatedEndpoint = (endpoint) => {
   if (typeof endpoint !== 'string') {
     return false
   }
@@ -1139,7 +1126,7 @@ export const isOpenAIRelatedEndpoint = function isOpenAIRelatedEndpoint(endpoint
   )
 }
 
-export const getRequestDetailCacheMetrics = function getRequestDetailCacheMetrics(detail = {}) {
+export const getRequestDetailCacheMetrics = (detail = {}) => {
   const read = Math.max(0, Number(detail.cacheReadTokens) || 0)
   const create = Math.max(0, Number(detail.cacheCreateTokens) || 0)
   const input = Math.max(0, Number(detail.inputTokens) || 0)
@@ -1170,11 +1157,7 @@ export const getRequestDetailCacheMetrics = function getRequestDetailCacheMetric
   }
 }
 
-export const calculateCacheHitRate = function calculateCacheHitRate(
-  cacheReadTokensOrDetail = 0,
-  cacheCreateTokens = 0,
-  inputTokens = 0,
-) {
+export const calculateCacheHitRate = (cacheReadTokensOrDetail = 0, cacheCreateTokens = 0, inputTokens = 0) => {
   if (typeof cacheReadTokensOrDetail === 'object' && cacheReadTokensOrDetail !== null) {
     return getRequestDetailCacheMetrics(cacheReadTokensOrDetail).rate
   }

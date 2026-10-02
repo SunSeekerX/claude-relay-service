@@ -9,7 +9,7 @@ import { normalizeModelName } from '../common/common_helper.js'
 // 跨域 this 调用(getAccountDailyCost/getAllIdsByIndex/scanKeys/batchDelChunked/getClient)
 // 均经同一单例解析。_normalizeModelName 与 common_helper.normalizeModelName 同一实现。
 // ===
-export const attach = function attach(redisClient) {
+export const attach = (redisClient) => {
   // 使用统计相关操作（支持缓存token统计和模型信息）
   redisClient._normalizeModelName = function (model) {
     return normalizeModelName(model)

@@ -8,7 +8,7 @@ export const UPSTREAM_RESPONSE_DUMP_ENV = 'ANTIGRAVITY_DEBUG_UPSTREAM_RESPONSE_D
 export const UPSTREAM_RESPONSE_DUMP_MAX_BYTES_ENV = 'ANTIGRAVITY_DEBUG_UPSTREAM_RESPONSE_DUMP_MAX_BYTES'
 export const UPSTREAM_RESPONSE_DUMP_FILENAME = 'antigravity-upstream-responses-dump.jsonl'
 
-const isEnabled = function isEnabled() {
+const isEnabled = () => {
   const raw = env[UPSTREAM_RESPONSE_DUMP_ENV]
   if (!raw) {
     return false
@@ -17,7 +17,7 @@ const isEnabled = function isEnabled() {
   return normalized === '1' || normalized === 'true'
 }
 
-const getMaxBytes = function getMaxBytes() {
+const getMaxBytes = () => {
   const raw = env[UPSTREAM_RESPONSE_DUMP_MAX_BYTES_ENV]
   if (!raw) {
     return 2 * 1024 * 1024
@@ -29,7 +29,7 @@ const getMaxBytes = function getMaxBytes() {
   return parsed
 }
 
-const safeJsonStringify = function safeJsonStringify(payload, maxBytes) {
+const safeJsonStringify = (payload, maxBytes) => {
   let json
   try {
     json = JSON.stringify(payload)
@@ -66,7 +66,7 @@ const safeJsonStringify = function safeJsonStringify(payload, maxBytes) {
  * @param {Object} responseInfo.summary - 响应摘要
  * @param {Object} responseInfo.error - 错误信息（如果有）
  */
-export const dumpAntigravityUpstreamResponse = async function dumpAntigravityUpstreamResponse(responseInfo) {
+export const dumpAntigravityUpstreamResponse = async (responseInfo) => {
   if (!isEnabled()) {
     return
   }
@@ -103,7 +103,7 @@ export const dumpAntigravityUpstreamResponse = async function dumpAntigravityUps
 /**
  * 记录 SSE 流中的每个事件（用于详细调试）
  */
-export const dumpAntigravityStreamEvent = async function dumpAntigravityStreamEvent(eventInfo) {
+export const dumpAntigravityStreamEvent = async (eventInfo) => {
   if (!isEnabled()) {
     return
   }
@@ -131,7 +131,7 @@ export const dumpAntigravityStreamEvent = async function dumpAntigravityStreamEv
 /**
  * 记录流式响应的最终摘要
  */
-export const dumpAntigravityStreamSummary = async function dumpAntigravityStreamSummary(summaryInfo) {
+export const dumpAntigravityStreamSummary = async (summaryInfo) => {
   if (!isEnabled()) {
     return
   }

@@ -12,7 +12,7 @@
  * @param {string|array} permissions - 权限数据
  * @returns {array} - 权限数组，空数组表示全部服务
  */
-export const normalizePermissions = function normalizePermissions(permissions) {
+export const normalizePermissions = (permissions) => {
   if (!permissions) {
     return [] // 空 = 全部服务
   }
@@ -54,7 +54,7 @@ export const normalizePermissions = function normalizePermissions(permissions) {
  * @param {string} service - 服务名称（claude/gemini/openai/droid）
  * @returns {boolean} - 是否有权限
  */
-export const hasPermission = function hasPermission(permissions, service) {
+export const hasPermission = (permissions, service) => {
   const perms = normalizePermissions(permissions)
   return perms.length === 0 || perms.includes(service) // 空数组 = 全部服务
 }

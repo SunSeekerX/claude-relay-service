@@ -364,7 +364,7 @@ router.post(
     }
 
     const body = parseObjectBody(req.body, '测试Grok账户')
-    const model = body.model || (await testModelConfigService.resolveAccountModel?.('grok', body.model)) || 'grok-4.5'
+    const model = body.model || (await testModelConfigService.resolveAccountModel?.('grok', body.model)) || 'grok-4.6'
     const mappedModel = xaiHelper.mapModel(model)
     const token = account.authType === 'apikey' ? account.apiKey : account.accessToken
     if (!token) {

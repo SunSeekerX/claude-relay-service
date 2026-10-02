@@ -13,7 +13,7 @@ import { logger } from '../../common/logger.js'
 import { ProxyHelper } from '../proxy/proxy_helper.js'
 import { proxyResolver } from '../proxy/proxy_resolver.js'
 import { webhookNotifier } from '../webhook/webhook_notifier.js'
-import { formatAccountExpiry, mapExpiryField } from '../admin/admin_utils_routes.js'
+import { formatAccountExpiry, mapExpiryField } from './account_expiry_helper.js'
 import { stripReadonlyAccountFields } from '../../common/common_helper.js'
 import { parseObjectBody } from '../../common/parse_body.js'
 /**
@@ -35,7 +35,7 @@ const OPENAI_CONFIG = {
  * 生成 PKCE 参数
  * @returns {Object} 包含 codeVerifier 和 codeChallenge 的对象
  */
-const generateOpenAIPKCE = function generateOpenAIPKCE() {
+const generateOpenAIPKCE = () => {
   const codeVerifier = crypto.randomBytes(64).toString('hex')
   const codeChallenge = crypto.createHash('sha256').update(codeVerifier).digest('base64url')
 

@@ -8,7 +8,7 @@ export const UPSTREAM_REQUEST_DUMP_ENV = 'ANTIGRAVITY_DEBUG_UPSTREAM_REQUEST_DUM
 export const UPSTREAM_REQUEST_DUMP_MAX_BYTES_ENV = 'ANTIGRAVITY_DEBUG_UPSTREAM_REQUEST_DUMP_MAX_BYTES'
 export const UPSTREAM_REQUEST_DUMP_FILENAME = 'antigravity-upstream-requests-dump.jsonl'
 
-const isEnabled = function isEnabled() {
+const isEnabled = () => {
   const raw = env[UPSTREAM_REQUEST_DUMP_ENV]
   if (!raw) {
     return false
@@ -17,7 +17,7 @@ const isEnabled = function isEnabled() {
   return normalized === '1' || normalized === 'true'
 }
 
-const getMaxBytes = function getMaxBytes() {
+const getMaxBytes = () => {
   const raw = env[UPSTREAM_REQUEST_DUMP_MAX_BYTES_ENV]
   if (!raw) {
     return 2 * 1024 * 1024
@@ -29,7 +29,7 @@ const getMaxBytes = function getMaxBytes() {
   return parsed
 }
 
-const redact = function redact(value) {
+const redact = (value) => {
   if (!value) {
     return value
   }
@@ -40,7 +40,7 @@ const redact = function redact(value) {
   return `${s.slice(0, 3)}...${s.slice(-4)}`
 }
 
-const safeJsonStringify = function safeJsonStringify(payload, maxBytes) {
+const safeJsonStringify = (payload, maxBytes) => {
   let json
   try {
     json = JSON.stringify(payload)
@@ -65,7 +65,7 @@ const safeJsonStringify = function safeJsonStringify(payload, maxBytes) {
   })
 }
 
-export const dumpAntigravityUpstreamRequest = async function dumpAntigravityUpstreamRequest(requestInfo) {
+export const dumpAntigravityUpstreamRequest = async (requestInfo) => {
   if (!isEnabled()) {
     return
   }

@@ -9,7 +9,8 @@ import * as upstreamErrorHelper from '../relay/relay_upstream_error_helper.js'
 import { tokenRefreshService } from './account_token_refresh_service.js'
 import { LRUCache } from '../../common/lru_cache.js'
 import { formatDateWithTimezone, getISOStringWithTimezone } from '../../common/date_helper.js'
-import { isOpus45OrNewer, RATE_LIMITED_MODEL_FAMILIES } from '../relay/relay_model_helper.js'
+import { isOpus45OrNewer, isProAccount, RATE_LIMITED_MODEL_FAMILIES } from '../relay/relay_model_helper.js'
+import { buildClaudeCliUserAgent } from '../relay/relay_claude_cli_version.js'
 import { RedisKeys, TTL } from '../../infra/redis_key.js'
 import { webhookNotifier } from '../webhook/webhook_notifier.js'
 import { accountGroupService } from './account_group_service.js'
@@ -20,21 +21,6 @@ import {
   normalizeTempUnavailablePolicyInput,
 } from '../relay/relay_temp_unavailable_policy.js'
 import { env } from '../../../config/env.js'
-/**
- * Check if account is Pro (not Max)
- * Compatible with both API real-time data (hasClaudePro) and local config (accountType)
- * @param {Object} info - Subscription info object
- * @returns {boolean}
- */
-const isProAccount = function isProAccount(info) {
-  // API real-time status takes priority
-  if (info.hasClaudePro === true && info.hasClaudeMax !== true) {
-    return true
-  }
-  // Local configured account type
-  return info.accountType === 'claude_pro'
-}
-
 class ClaudeAccountService {
   constructor() {
     // console.anthropic.com 已迁移至 platform.claude.com，旧域名对 refresh_token grant 返回 404
@@ -312,7 +298,7 @@ class ClaudeAccountService {
         headers: {
           'Content-Type': 'application/json',
           Accept: 'application/json, text/plain, */*',
-          'User-Agent': 'claude-cli/1.0.56 (external, cli)',
+          'User-Agent': buildClaudeCliUserAgent(),
           'Accept-Language': 'en-US,en;q=0.9',
           Referer: 'https://claude.ai/',
           Origin: 'https://claude.ai',
@@ -2110,7 +2096,7 @@ class ClaudeAccountService {
           'Content-Type': 'application/json',
           Accept: 'application/json',
           'anthropic-beta': 'oauth-2025-04-20',
-          'User-Agent': 'claude-cli/2.0.53 (external, cli)',
+          'User-Agent': buildClaudeCliUserAgent(),
           'Accept-Language': 'en-US,en;q=0.9',
         },
         timeout: 15000,
@@ -2342,7 +2328,7 @@ class ClaudeAccountService {
           Authorization: `Bearer ${accessToken}`,
           'Content-Type': 'application/json',
           Accept: 'application/json',
-          'User-Agent': 'claude-cli/1.0.56 (external, cli)',
+          'User-Agent': buildClaudeCliUserAgent(),
           'Accept-Language': 'en-US,en;q=0.9',
         },
         timeout: 15000,

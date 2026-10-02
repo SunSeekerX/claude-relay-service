@@ -64,6 +64,14 @@ export const credentialStripHeaders = [
   'cookie2',
 ]
 
+// DEC_20261001_114137 Codex 证明/内部能力/路由头由官方客户端宿主生成，中转不接受客户端值（HTTP 与 WS 一致）
+export const codexServerOwnedRequestHeaders = [
+  'x-oai-attestation',
+  'x-openai-internal-codex-responses-lite',
+  'x-openai-memgen-request',
+  'x-codex-routing-hint',
+]
+
 // Codex / OpenAI Responses 官方关键头（文档化保留；filterForOpenAI 黑名单模式默认已放行）
 export const codexCriticalRequestHeaders = [
   'originator',
@@ -79,20 +87,59 @@ export const codexCriticalRequestHeaders = [
   'accept',
 ]
 
+// Claude Code 2.1.280 每请求会话头与子代理身份头（DEC_20261001_114137 透传并缺失时补会话头）
+export const CLAUDE_CODE_SESSION_ID_HEADER = 'x-claude-code-session-id'
+export const claudeCodeSessionHeaders = [
+  CLAUDE_CODE_SESSION_ID_HEADER,
+  'x-claude-code-agent-id',
+  'x-claude-code-parent-agent-id',
+  'x-claude-code-request-class',
+  'x-claude-code-agent-type',
+  'x-claude-remote-container-id',
+  'x-claude-remote-session-id',
+  'x-client-app',
+  'x-anthropic-additional-protection',
+]
+
 // Grok 官方关键头（xaiHelper 也会主动注入；此处保证客户端带来的不被误剥）
+// DEC_20261001_114137 客户端只透传会话类 x-grok-*；身份/路由/模型覆盖由服务端决定
 export const grokCriticalRequestHeaders = [
   'x-xai-token-auth',
   'x-grok-client-version',
   'x-grok-client-identifier',
   'x-grok-client-mode',
   'x-grok-conv-id',
+  'x-grok-conv-group-id',
   'x-grok-req-id',
   'x-grok-session-id',
   'x-grok-agent-id',
   'x-grok-model-override',
   'x-grok-turn-idx',
+  'x-grok-transient-retry',
   'x-authenticateresponse',
 ]
+
+// 仅透传会话/重试类头；客户端身份、运行模式、设备、部署、模型覆盖一律不接受客户端值
+const grokPassthroughRequestHeaders = new Set([
+  'x-grok-conv-id',
+  'x-grok-conv-group-id',
+  'x-grok-req-id',
+  'x-grok-session-id',
+  'x-grok-turn-idx',
+  'x-grok-transient-retry',
+])
+
+// 白名单透传客户端 Grok 会话头（出站合并前调用，服务端头后写覆盖）
+export const pickGrokPassthroughHeaders = (headers) => {
+  const picked = {}
+  for (const [key, value] of Object.entries(toHeaderMap(headers))) {
+    const lowerKey = key.toLowerCase()
+    if (grokPassthroughRequestHeaders.has(lowerKey) && value) {
+      picked[lowerKey] = value
+    }
+  }
+  return picked
+}
 
 const toHeaderMap = (headers) => {
   if (!headers || typeof headers !== 'object') {
@@ -118,6 +165,7 @@ export const filterForOpenAI = (headers) => {
     ...credentialStripHeaders,
     ...cdnHeaders,
     ...hopByHopHeaders,
+    ...codexServerOwnedRequestHeaders,
   ])
 
   const filtered = {}
@@ -150,6 +198,8 @@ export const filterForClaude = (headers) => {
     'anthropic-version',
     'x-app',
     'anthropic-beta',
+    // Claude Code 2.1.280 会话/子代理身份头
+    ...claudeCodeSessionHeaders,
     'accept-language',
     'sec-fetch-mode',
     // 注意：不透传 accept-encoding，避免客户端发送的 zstd 等 Node.js 不支持的编码

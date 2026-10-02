@@ -8,10 +8,12 @@ import { getAvailableModels } from './relay_gemini_relay_service.js'
 import crypto from 'node:crypto'
 import { apiKeyService } from '../apikey/apikey_service.js'
 import { buildTokenUsagePayload, createRequestDetailMeta } from './relay_request_detail_helper.js'
+import { openAIContentToGeminiParts } from './translator/relay_translator_gemini_parts.js'
+import { ensureAntigravityProjectId } from './relay_antigravity_client.js'
 export const router = express.Router()
 
 // 生成会话哈希
-const generateSessionHash = function generateSessionHash(req) {
+const generateSessionHash = (req) => {
   const authSource = req.headers['authorization'] || req.headers['x-api-key'] || req.headers['x-goog-api-key']
 
   const sessionData = [req.headers['user-agent'], req.ip, authSource?.substring(0, 20)].filter(Boolean).join(':')
@@ -19,23 +21,12 @@ const generateSessionHash = function generateSessionHash(req) {
   return crypto.createHash('sha256').update(sessionData).digest('hex')
 }
 
-const ensureAntigravityProjectId = function ensureAntigravityProjectId(account) {
-  if (account.projectId) {
-    return account.projectId
-  }
-  if (account.tempProjectId) {
-    return account.tempProjectId
-  }
-  return `ag-${crypto.randomBytes(8).toString('hex')}`
-}
-
 // 检查 API Key 权限
-const checkPermissions = function checkPermissions(apiKeyData, requiredPermission = 'gemini') {
-  return apiKeyService.hasPermission(apiKeyData?.permissions, requiredPermission)
-}
+const checkPermissions = (apiKeyData, requiredPermission = 'gemini') =>
+  apiKeyService.hasPermission(apiKeyData?.permissions, requiredPermission)
 
 // 转换 OpenAI 消息格式到 Gemini 格式
-const convertMessagesToGemini = function convertMessagesToGemini(messages) {
+const convertMessagesToGemini = (messages) => {
   const contents = []
   let systemInstruction = ''
 
@@ -111,20 +102,28 @@ const convertMessagesToGemini = function convertMessagesToGemini(messages) {
     return ''
   }
 
-  for (const message of messages) {
-    const textContent = extractTextContent(message.content)
+  // DEC_20261001_114137 user/assistant 数组内容保留多模态 part；非数组沿用文本提取
+  const buildParts = (content) => {
+    if (Array.isArray(content)) {
+      const parts = openAIContentToGeminiParts(content)
+      return parts.length > 0 ? parts : [{ text: extractTextContent(content) }]
+    }
+    return [{ text: extractTextContent(content) }]
+  }
 
+  for (const message of messages) {
     if (message.role === 'system') {
+      const textContent = extractTextContent(message.content)
       systemInstruction += (systemInstruction ? '\n\n' : '') + textContent
     } else if (message.role === 'user') {
       contents.push({
         role: 'user',
-        parts: [{ text: textContent }],
+        parts: buildParts(message.content),
       })
     } else if (message.role === 'assistant') {
       contents.push({
         role: 'model',
-        parts: [{ text: textContent }],
+        parts: buildParts(message.content),
       })
     }
   }
@@ -133,7 +132,7 @@ const convertMessagesToGemini = function convertMessagesToGemini(messages) {
 }
 
 // 转换 Gemini 响应到 OpenAI 格式
-const convertGeminiResponseToOpenAI = function convertGeminiResponseToOpenAI(geminiResponse, model, stream = false) {
+const convertGeminiResponseToOpenAI = (geminiResponse, model, stream = false) => {
   if (stream) {
     // 处理流式响应 - 原样返回 SSE 数据
     return geminiResponse
@@ -223,7 +222,7 @@ router.post('/v1/chat/completions', authenticateApiKey, async (req, res) => {
     const {
       messages: requestMessages,
       contents: requestContents,
-      model: bodyModel = 'gemini-2.0-flash-exp',
+      model: bodyModel = 'gemini-2.5-flash',
       temperature = 0.7,
       max_tokens = 4096,
       stream = false,
@@ -714,7 +713,7 @@ router.post('/v1/chat/completions', authenticateApiKey, async (req, res) => {
 })
 
 // 获取可用模型列表的共享处理器
-const handleGetModels = async function handleGetModels(req, res) {
+const handleGetModels = async (req, res) => {
   try {
     const apiKeyData = req.apiKey
 
@@ -760,7 +759,7 @@ const handleGetModels = async function handleGetModels(req, res) {
       // 返回默认模型列表
       models = [
         {
-          id: 'gemini-2.0-flash-exp',
+          id: 'gemini-2.5-flash',
           object: 'model',
           created: Math.floor(Date.now() / 1000),
           owned_by: 'google',
@@ -771,7 +770,7 @@ const handleGetModels = async function handleGetModels(req, res) {
     if (!models || models.length === 0) {
       models = [
         {
-          id: 'gemini-2.0-flash-exp',
+          id: 'gemini-2.5-flash',
           object: 'model',
           created: Math.floor(Date.now() / 1000),
           owned_by: 'google',

@@ -190,7 +190,7 @@ const WS_REWRITE_MAX_FRAME = 16 * 1024 * 1024
 // DEC_20260906_103722
 const WS_REWRITE_MAX_FRAGMENT_FRAMES = 4096
 
-export const createWsClientTextRewriter = ({ rewriteText, label = 'ws-rewrite' } = {}) => {
+export const createWsClientTextRewriter = ({ rewriteText, label = 'ws-rewrite', failClosed = false } = {}) => {
   let buffer = Buffer.alloc(0)
   let bypass = false
   // 不可改写的分片消息：逐帧原样转发直到 FIN
@@ -266,6 +266,9 @@ export const createWsClientTextRewriter = ({ rewriteText, label = 'ws-rewrite' }
   }
 
   const enterBypass = (out, reason) => {
+    if (failClosed) {
+      throw new Error(`WebSocket request cannot be validated: ${reason}`)
+    }
     if (!bypass) {
       logger.warn(`[WsRewrite:${label}] enter bypass: ${reason}`)
     }
@@ -302,6 +305,9 @@ export const createWsClientTextRewriter = ({ rewriteText, label = 'ws-rewrite' }
     try {
       rewritten = rewriteText(text)
     } catch (error) {
+      if (failClosed) {
+        throw error
+      }
       console.error(error)
       rewritten = null
     }
@@ -380,6 +386,9 @@ export const createWsClientTextRewriter = ({ rewriteText, label = 'ws-rewrite' }
       }
 
       // 客户端→服务端帧按 RFC 必须 masked；未 mask 的数据帧无法安全改写
+      if (failClosed && (!masked || (b0 & 0x70) !== 0 || ![OP_TEXT, OP_CONTINUATION].includes(opcode))) {
+        throw new Error('Unsupported WebSocket data frame')
+      }
       if (!masked) {
         flushHeldRawFrames(out)
         out.push(rawFrame)
@@ -405,6 +414,9 @@ export const createWsClientTextRewriter = ({ rewriteText, label = 'ws-rewrite' }
       // 分片消息：攒齐后再改写为单帧发出（DEC_20260906_011816）
       if (opcode === OP_CONTINUATION) {
         if (fragmentedOpcode === null) {
+          if (failClosed) {
+            throw new Error('WebSocket continuation has no opening frame')
+          }
           // 无起始片：原样转发本帧，避免吞字节
           out.push(rawFrame)
           continue

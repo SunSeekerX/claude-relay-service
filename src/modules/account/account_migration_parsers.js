@@ -34,7 +34,7 @@ export const CLIPROXY_TYPES = new Set(['claude', 'codex', 'gemini', 'antigravity
  * @param {string} contentBase64
  * @returns {Buffer}
  */
-export const decodeBase64 = function decodeBase64(contentBase64) {
+export const decodeBase64 = (contentBase64) => {
   if (typeof contentBase64 !== 'string' || contentBase64.length === 0) {
     throw new Error('contentBase64 is required')
   }
@@ -46,22 +46,19 @@ export const decodeBase64 = function decodeBase64(contentBase64) {
 /**
  * 判断 Buffer 是否为 ZIP（PK\x03\x04 本地文件头 / PK\x05\x06 空包）。
  */
-export const looksLikeZip = function looksLikeZip(buffer) {
-  return (
-    Buffer.isBuffer(buffer) &&
-    buffer.length >= 4 &&
-    buffer[0] === 0x50 &&
-    buffer[1] === 0x4b &&
-    (buffer[2] === 0x03 || buffer[2] === 0x05 || buffer[2] === 0x07)
-  )
-}
+export const looksLikeZip = (buffer) =>
+  Buffer.isBuffer(buffer) &&
+  buffer.length >= 4 &&
+  buffer[0] === 0x50 &&
+  buffer[1] === 0x4b &&
+  (buffer[2] === 0x03 || buffer[2] === 0x05 || buffer[2] === 0x07)
 
 /**
  * 从 ZIP Buffer 中提取所有 .json 条目并逐个解析。
  * 忽略目录、非 .json、点文件与 __MACOSX 噪音。
  * @returns {{ authFiles: Array<{filename:string,json:object}>, errors: Array<{name:string,message:string}> }}
  */
-export const extractJsonEntriesFromZip = function extractJsonEntriesFromZip(buffer) {
+export const extractJsonEntriesFromZip = (buffer) => {
   const authFiles = []
   const errors = []
   let zip
@@ -99,7 +96,7 @@ export const extractJsonEntriesFromZip = function extractJsonEntriesFromZip(buff
  * - CLIProxyAPI 单文件: type in {claude,codex,gemini,antigravity,vertex,xai,kimi}
  * @returns {string} FORMAT.*
  */
-export const detectFormatFromJson = function detectFormatFromJson(json) {
+export const detectFormatFromJson = (json) => {
   if (!json || typeof json !== 'object' || Array.isArray(json)) {
     return FORMAT.UNKNOWN
   }
@@ -142,7 +139,7 @@ export const detectFormatFromJson = function detectFormatFromJson(json) {
  * parseErrors: Array<{name:string,message:string}>
  * }}
  */
-export const parseImportPayload = function parseImportPayload(input) {
+export const parseImportPayload = (input) => {
   const filename = input && typeof input.filename === 'string' ? input.filename : ''
   const buffer = decodeBase64(input && input.contentBase64)
 

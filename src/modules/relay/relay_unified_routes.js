@@ -2,11 +2,11 @@ import express from 'express'
 import { authenticateApiKey } from '../../infra/middleware_auth.js'
 import { logger } from '../../common/logger.js'
 import { handleChatCompletion } from './relay_openai_claude_routes.js'
-import { handleResponses } from './relay_openai_routes.js'
+import { handleOpenAIChatRequest } from './relay_openai_routes.js'
 import { apiKeyService } from '../apikey/apikey_service.js'
 import { GeminiToOpenAIConverter } from './relay_gemini_to_openai.js'
-import { CodexToOpenAIConverter } from './relay_codex_to_openai.js'
 import * as thinkingMap from './translator/relay_translator_thinking.js'
+import { openAIContentToGeminiParts } from './translator/relay_translator_gemini_parts.js'
 import { grokRelayService } from './relay_grok_relay_service.js'
 import crypto from 'node:crypto'
 import {
@@ -17,7 +17,7 @@ import {
 export const unifiedRoutes = express.Router()
 
 // 根据模型名称检测后端类型
-export const detectBackendFromModel = function detectBackendFromModel(modelName) {
+export const detectBackendFromModel = (modelName) => {
   if (!modelName) {
     return 'claude' // 默认 Claude
   }
@@ -35,7 +35,12 @@ export const detectBackendFromModel = function detectBackendFromModel(modelName)
   }
 
   // OpenAI 模型
-  if (model.startsWith('gpt-')) {
+  if (
+    model.startsWith('gpt-') ||
+    /^o\d+(?:[-.]|$)/.test(model) ||
+    model.startsWith('chatgpt-') ||
+    model.startsWith('codex-')
+  ) {
     return 'openai'
   }
 
@@ -49,7 +54,7 @@ export const detectBackendFromModel = function detectBackendFromModel(modelName)
 }
 
 // 智能后端路由处理器
-export const routeToBackend = async function routeToBackend(req, res, requestedModel) {
+export const routeToBackend = async (req, res, requestedModel) => {
   const backend = detectBackendFromModel(requestedModel)
 
   logger.info(`Routing request - Model: ${requestedModel}, Backend: ${backend}`)
@@ -80,137 +85,7 @@ export const routeToBackend = async function routeToBackend(req, res, requestedM
         },
       })
     }
-    // 响应格式拦截：Codex/Responses → OpenAI Chat Completions
-    const codexConverter = new CodexToOpenAIConverter()
-    const originalJson = res.json.bind(res)
-
-    // 流式：patch res.write/res.end 拦截 SSE 事件
-    // 与 openaiRoutes 保持一致：stream 缺省时视为流式（stream !== false）
-    if (req.body.stream !== false) {
-      const streamState = codexConverter.createStreamState()
-      const sseBuffer = { data: '' }
-      const originalWrite = res.write.bind(res)
-      const originalEnd = res.end.bind(res)
-
-      res.write = function (chunk, encoding, callback) {
-        if (res.statusCode >= 400) {
-          return originalWrite(chunk, encoding, callback)
-        }
-
-        const str = (typeof chunk === 'string' ? chunk : chunk.toString()).replace(/\r\n/g, '\n')
-        sseBuffer.data += str
-
-        let idx
-        while ((idx = sseBuffer.data.indexOf('\n\n')) !== -1) {
-          const event = sseBuffer.data.slice(0, idx)
-          sseBuffer.data = sseBuffer.data.slice(idx + 2)
-
-          if (!event.trim()) {
-            continue
-          }
-
-          const lines = event.split('\n')
-          for (const line of lines) {
-            if (line.startsWith('data: ')) {
-              const jsonStr = line.slice(6)
-              if (!jsonStr || jsonStr === '[DONE]') {
-                continue
-              }
-
-              try {
-                const eventData = JSON.parse(jsonStr)
-                if (eventData.error) {
-                  originalWrite(`data: ${jsonStr}\n\n`)
-                  continue
-                }
-                const converted = codexConverter.convertStreamChunk(eventData, requestedModel, streamState)
-                for (const c of converted) {
-                  originalWrite(c)
-                }
-              } catch (e) {
-                originalWrite(`data: ${jsonStr}\n\n`)
-              }
-            }
-          }
-        }
-
-        if (typeof callback === 'function') {
-          callback()
-        }
-        return true
-      }
-
-      res.end = function (chunk, encoding, callback) {
-        if (res.statusCode < 400) {
-          // 处理 res.end(chunk) 传入的最后一块数据
-          if (chunk) {
-            const str = (typeof chunk === 'string' ? chunk : chunk.toString()).replace(/\r\n/g, '\n')
-            sseBuffer.data += str
-            chunk = undefined
-          }
-
-          if (sseBuffer.data.trim()) {
-            const remaining = `${sseBuffer.data}\n\n`
-            sseBuffer.data = ''
-
-            const lines = remaining.split('\n')
-            for (const line of lines) {
-              if (line.startsWith('data: ')) {
-                const jsonStr = line.slice(6)
-                if (!jsonStr || jsonStr === '[DONE]') {
-                  continue
-                }
-                try {
-                  const eventData = JSON.parse(jsonStr)
-                  if (eventData.error) {
-                    originalWrite(`data: ${jsonStr}\n\n`)
-                  } else {
-                    const converted = codexConverter.convertStreamChunk(eventData, requestedModel, streamState)
-                    for (const c of converted) {
-                      originalWrite(c)
-                    }
-                  }
-                } catch (e) {
-                  originalWrite(`data: ${jsonStr}\n\n`)
-                }
-              }
-            }
-          }
-
-          originalWrite('data: [DONE]\n\n')
-        }
-        return originalEnd(chunk, encoding, callback)
-      }
-    }
-
-    // 非流式：patch res.json 拦截 JSON 响应
-    // chatgpt.com 后端返回 { type: "response.completed", response: {...} }
-    // api.openai.com 后端返回标准 Response 对象 { object: "response", status, output, ... }
-    res.json = function (data) {
-      if (res.statusCode >= 400) {
-        return originalJson(data)
-      }
-      if (data && (data.type === 'response.completed' || data.object === 'response')) {
-        try {
-          return originalJson(codexConverter.convertResponse(data, requestedModel))
-        } catch (e) {
-          logger.debug('Codex response conversion failed, passing through:', e.message)
-          return originalJson(data)
-        }
-      }
-      return originalJson(data)
-    }
-
-    // 输入转换：Chat Completions → Responses API 格式
-    req.body = codexConverter.buildRequestFromOpenAI(req.body)
-    // 不在此注入 Codex CLI instructions：openai-responses API Key 路径禁止污染 system prompt
-    // （OAuth Codex 路径由 handleResponses 按路由决定是否注入）
-    req._fromUnifiedEndpoint = true
-    // 修正请求路径：body 已转为 Responses 格式，路径需与之匹配
-    // Express req.path 是只读 getter（派生自 req.url），需改 req.url
-    req.url = '/v1/responses'
-
-    return await handleResponses(req, res)
+    return await handleOpenAIChatRequest(req, res)
   } else if (backend === 'grok') {
     if (!apiKeyService.hasPermission(permissions, 'grok')) {
       return res.status(403).json({
@@ -438,7 +313,7 @@ unifiedRoutes.post('/v1/completions', authenticateApiKey, async (req, res) => {
 
 // --- OpenAI Chat Completions → Gemini 原生请求转换（OpenAI → Gemini 格式映射） ---
 
-const buildGeminiRequestFromOpenAI = function buildGeminiRequestFromOpenAI(body) {
+const buildGeminiRequestFromOpenAI = (body) => {
   const request = {}
   const generationConfig = {}
   const messages = body.messages || []
@@ -466,13 +341,13 @@ const buildGeminiRequestFromOpenAI = function buildGeminiRequestFromOpenAI(body)
         systemParts.push({ text })
       }
     } else if (msg.role === 'user') {
-      const parts = buildContentParts(msg.content)
+      const parts = openAIContentToGeminiParts(msg.content)
       if (parts.length > 0) {
         contents.push({ role: 'user', parts })
       }
     } else if (msg.role === 'assistant') {
       // 格式映射: assistant 内容保留 text + image（多模态）
-      const parts = buildContentParts(msg.content)
+      const parts = openAIContentToGeminiParts(msg.content)
       // tool_calls → functionCall parts
       if (msg.tool_calls) {
         for (const tc of msg.tool_calls) {
@@ -567,7 +442,8 @@ const buildGeminiRequestFromOpenAI = function buildGeminiRequestFromOpenAI(body)
   if (body.reasoning_effort) {
     const effort = body.reasoning_effort.toLowerCase()
     if (effort === 'none') {
-      generationConfig.thinkingConfig = { thinkingLevel: 'none', includeThoughts: false }
+      // Gemini ThinkingLevel 枚举无 none，关闭思考用 thinkingBudget:0
+      generationConfig.thinkingConfig = { thinkingBudget: 0, includeThoughts: false }
     } else if (effort === 'auto') {
       // 格式映射: auto → thinkingBudget:-1 (让模型自行决定)
       generationConfig.thinkingConfig = { thinkingBudget: -1, includeThoughts: true }
@@ -662,7 +538,7 @@ const buildGeminiRequestFromOpenAI = function buildGeminiRequestFromOpenAI(body)
   return request
 }
 
-const extractTextContent = function extractTextContent(content) {
+const extractTextContent = (content) => {
   if (typeof content === 'string') {
     return content
   }
@@ -673,31 +549,4 @@ const extractTextContent = function extractTextContent(content) {
       .join('')
   }
   return ''
-}
-
-const buildContentParts = function buildContentParts(content) {
-  if (typeof content === 'string') {
-    return [{ text: content }]
-  }
-  if (Array.isArray(content)) {
-    const parts = []
-    for (const item of content) {
-      if (item.type === 'text') {
-        parts.push({ text: item.text })
-      } else if (item.type === 'image_url' && item.image_url?.url) {
-        const { url } = item.image_url
-        if (url.startsWith('data:')) {
-          const match = url.match(/^data:([^;]+);base64,(.+)$/)
-          if (match) {
-            parts.push({ inlineData: { mimeType: match[1], data: match[2] } })
-          }
-        }
-      }
-    }
-    return parts
-  }
-  if (!content) {
-    return []
-  }
-  return [{ text: String(content) }]
 }

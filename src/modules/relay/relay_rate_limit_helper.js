@@ -3,21 +3,21 @@ import { pricingService } from '../pricing/pricing_service.js'
 import { CostCalculator } from '../pricing/pricing_cost_calculator.js'
 import { apiKeyService } from '../apikey/apikey_service.js'
 import { serviceRatesService } from '../payment/payment_service_rates_service.js'
-const toNumber = function toNumber(value) {
+const toNumber = (value) => {
   const num = Number(value)
   return Number.isFinite(num) ? num : 0
 }
 
 // keyId 和 accountType 用于计算倍率成本
 // preCalculatedCost: 可选的 { realCost, ratedCost }，由调用方提供以避免重复计算
-export const updateRateLimitCounters = async function updateRateLimitCounters(
+export const updateRateLimitCounters = async (
   rateLimitInfo,
   usageSummary,
   model,
   keyId = null,
   accountType = null,
   preCalculatedCost = null,
-) {
+) => {
   if (!rateLimitInfo) {
     return { totalTokens: 0, totalCost: 0, ratedCost: 0 }
   }

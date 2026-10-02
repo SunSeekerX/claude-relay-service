@@ -9,7 +9,7 @@
  * @param {number} visiblePercent - 可见部分的百分比，默认 70
  * @returns {string} 脱敏后的 token
  */
-export const maskToken = function maskToken(token, visiblePercent = 70) {
+export const maskToken = (token, visiblePercent = 70) => {
   if (!token || typeof token !== 'string') {
     return '[EMPTY]'
   }
@@ -44,65 +44,4 @@ export const maskToken = function maskToken(token, visiblePercent = 70) {
   const middle = '*'.repeat(length - visibleLength)
 
   return `${front}${middle}${back}`
-}
-
-/**
- * 对包含 token 的对象进行脱敏处理
- * @param {Object} obj - 包含 token 的对象
- * @param {Array<string>} tokenFields - 需要脱敏的字段名列表
- * @returns {Object} 脱敏后的对象副本
- */
-export const maskTokensInObject = function maskTokensInObject(
-  obj,
-  tokenFields = ['accessToken', 'refreshToken', 'access_token', 'refresh_token'],
-) {
-  if (!obj || typeof obj !== 'object') {
-    return obj
-  }
-
-  const masked = { ...obj }
-
-  tokenFields.forEach((field) => {
-    if (masked[field]) {
-      masked[field] = maskToken(masked[field])
-    }
-  })
-
-  return masked
-}
-
-/**
- * 格式化 token 刷新日志
- * @param {string} accountId - 账户 ID
- * @param {string} accountName - 账户名称
- * @param {Object} tokens - 包含 access_token 和 refresh_token 的对象
- * @param {string} status - 刷新状态 (success/failed)
- * @param {string} message - 额外的消息
- * @returns {Object} 格式化的日志对象
- */
-export const formatTokenRefreshLog = function formatTokenRefreshLog(
-  accountId,
-  accountName,
-  tokens,
-  status,
-  message = '',
-) {
-  const log = {
-    timestamp: new Date().toISOString(),
-    event: 'token_refresh',
-    accountId,
-    accountName,
-    status,
-    message,
-  }
-
-  if (tokens) {
-    log.tokens = {
-      accessToken: tokens.accessToken ? maskToken(tokens.accessToken) : '[NOT_PROVIDED]',
-      refreshToken: tokens.refreshToken ? maskToken(tokens.refreshToken) : '[NOT_PROVIDED]',
-      expiresAt: tokens.expiresAt || '[NOT_PROVIDED]',
-    }
-  }
-
-  return log
 }

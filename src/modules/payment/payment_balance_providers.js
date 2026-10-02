@@ -106,7 +106,7 @@ class GenericBalanceProvider extends BaseBalanceProvider {
   }
 }
 
-export const registerAllProviders = function registerAllProviders(balanceService) {
+export const registerAllProviders = (balanceService) => {
   // Claude
   balanceService.registerProvider('claude', new ClaudeBalanceProvider())
   balanceService.registerProvider('claude-console', new ClaudeConsoleBalanceProvider())

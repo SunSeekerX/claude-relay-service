@@ -58,12 +58,10 @@ setInterval(
 ) // 每小时清理一次
 
 // 生成加密密钥 - 使用安全的密钥管理器
-const generateEncryptionKey = function generateEncryptionKey() {
-  return encryptionKeyManager.getKey()
-}
+const generateEncryptionKey = () => encryptionKeyManager.getKey()
 
 // 加密函数
-export const encrypt = function encrypt(text) {
+export const encrypt = (text) => {
   if (!text) {
     return ''
   }
@@ -76,7 +74,7 @@ export const encrypt = function encrypt(text) {
 }
 
 // 解密函数 - 移除缓存以提高安全性
-export const decrypt = function decrypt(text) {
+export const decrypt = (text) => {
   if (!text) {
     return ''
   }
@@ -106,7 +104,7 @@ export const decrypt = function decrypt(text) {
 }
 
 // 创建账户
-export const createAccount = async function createAccount(accountData) {
+export const createAccount = async (accountData) => {
   const accountId = crypto.randomUUID()
   const now = new Date().toISOString()
 
@@ -160,7 +158,7 @@ export const createAccount = async function createAccount(accountData) {
 }
 
 // 获取账户
-export const getAccount = async function getAccount(accountId) {
+export const getAccount = async (accountId) => {
   const client = redisClient.getClientSafe()
   const accountData = await client.hgetall(RedisKeys.accounts.azureOpenai(accountId))
 
@@ -195,7 +193,7 @@ export const getAccount = async function getAccount(accountId) {
 }
 
 // 更新账户
-export const updateAccount = async function updateAccount(accountId, updates) {
+export const updateAccount = async (accountId, updates) => {
   const existingAccount = await getAccount(accountId)
   if (!existingAccount) {
     throw new Error('Account not found')
@@ -274,7 +272,7 @@ export const updateAccount = async function updateAccount(accountId, updates) {
 }
 
 // 删除账户
-export const deleteAccount = async function deleteAccount(accountId) {
+export const deleteAccount = async (accountId) => {
   // 首先从所有分组中移除此账户
   await accountGroupService.removeAccountFromAllGroups(accountId)
 
@@ -295,7 +293,7 @@ export const deleteAccount = async function deleteAccount(accountId) {
 }
 
 // 获取所有账户
-export const getAllAccounts = async function getAllAccounts() {
+export const getAllAccounts = async () => {
   const accountIds = await redisClient.getAllIdsByIndex(
     RedisKeys.accounts.azureOpenaiIndex,
     RedisKeys.accounts.azureOpenaiPattern,
@@ -350,7 +348,7 @@ export const getAllAccounts = async function getAllAccounts() {
 }
 
 // 获取共享账户
-export const getSharedAccounts = async function getSharedAccounts() {
+export const getSharedAccounts = async () => {
   const client = redisClient.getClientSafe()
   const accountIds = await client.smembers(RedisKeys.accounts.sharedAzureOpenai)
 
@@ -374,7 +372,7 @@ export const getSharedAccounts = async function getSharedAccounts() {
  * @param {Object} account - 账户对象
  * @returns {boolean} - true: 已过期, false: 未过期
  */
-const isSubscriptionExpired = function isSubscriptionExpired(account) {
+const isSubscriptionExpired = (account) => {
   if (!account.subscriptionExpiresAt) {
     return false // 未设置视为永不过期
   }
@@ -383,7 +381,7 @@ const isSubscriptionExpired = function isSubscriptionExpired(account) {
 }
 
 // 选择可用账户
-export const selectAvailableAccount = async function selectAvailableAccount(sessionId = null) {
+export const selectAvailableAccount = async (sessionId = null) => {
   // 如果有会话ID，尝试获取之前分配的账户
   if (sessionId) {
     const client = redisClient.getClientSafe()
@@ -449,7 +447,7 @@ export const selectAvailableAccount = async function selectAvailableAccount(sess
 }
 
 // 更新账户使用量
-export const updateAccountUsage = async function updateAccountUsage(accountId, tokens) {
+export const updateAccountUsage = async (accountId, tokens) => {
   const client = redisClient.getClientSafe()
   const now = new Date().toISOString()
 
@@ -461,7 +459,7 @@ export const updateAccountUsage = async function updateAccountUsage(accountId, t
 }
 
 // 健康检查单个账户
-export const healthCheckAccount = async function healthCheckAccount(accountId) {
+export const healthCheckAccount = async (accountId) => {
   try {
     const account = await getAccount(accountId)
     if (!account) {
@@ -495,7 +493,7 @@ export const healthCheckAccount = async function healthCheckAccount(accountId) {
 }
 
 // 批量健康检查
-export const performHealthChecks = async function performHealthChecks() {
+export const performHealthChecks = async () => {
   const accounts = await getAllAccounts()
   const results = []
 
@@ -508,7 +506,7 @@ export const performHealthChecks = async function performHealthChecks() {
 }
 
 // 切换账户的可调度状态
-export const toggleSchedulable = async function toggleSchedulable(accountId) {
+export const toggleSchedulable = async (accountId) => {
   const account = await getAccount(accountId)
   if (!account) {
     throw new Error('Account not found')
@@ -524,7 +522,7 @@ export const toggleSchedulable = async function toggleSchedulable(accountId) {
 }
 
 // 迁移 API Keys 以支持 Azure OpenAI
-export const migrateApiKeysForAzureSupport = async function migrateApiKeysForAzureSupport() {
+export const migrateApiKeysForAzureSupport = async () => {
   const client = redisClient.getClientSafe()
   const apiKeyIds = await client.smembers(RedisKeys.apiKey.legacyAll)
 
@@ -543,7 +541,7 @@ export const migrateApiKeysForAzureSupport = async function migrateApiKeysForAzu
 }
 
 // 重置Azure OpenAI账户所有异常状态
-export const resetAccountStatus = async function resetAccountStatus(accountId) {
+export const resetAccountStatus = async (accountId) => {
   try {
     const accountData = await getAccount(accountId)
     if (!accountData) {

@@ -18,7 +18,7 @@ import {
   getAntigravityModelMetadata,
   normalizeAntigravityModelInput,
 } from '../relay/relay_antigravity_model.js'
-import { env } from '../../../config/env.js'
+import { env, hasEnv } from '../../../config/env.js'
 // Gemini OAuth 配置 - 支持 Gemini CLI 与 Antigravity 两种 OAuth 应用
 const OAUTH_PROVIDER_GEMINI_CLI = 'gemini-cli'
 const OAUTH_PROVIDER_ANTIGRAVITY = 'antigravity'
@@ -43,7 +43,7 @@ const OAUTH_PROVIDERS = {
   },
 }
 
-const normalizeOauthProvider = function normalizeOauthProvider(oauthProvider) {
+const normalizeOauthProvider = (oauthProvider) => {
   if (!oauthProvider) {
     return OAUTH_PROVIDER_GEMINI_CLI
   }
@@ -52,7 +52,7 @@ const normalizeOauthProvider = function normalizeOauthProvider(oauthProvider) {
 
 // requireCredentials=true：授权/换 token/刷新 等真 OAuth 路径必须有完整 env
 // requireCredentials=false：允许双空（无凭证直转发）；半套 env 一律 fail-fast，禁止静默降级
-const getOauthProviderConfig = function getOauthProviderConfig(oauthProvider, { requireCredentials = true } = {}) {
+const getOauthProviderConfig = (oauthProvider, { requireCredentials = true } = {}) => {
   const normalized = normalizeOauthProvider(oauthProvider)
   const config = OAUTH_PROVIDERS[normalized] || OAUTH_PROVIDERS[OAUTH_PROVIDER_GEMINI_CLI]
   const hasClientId = !!config.clientId
@@ -86,11 +86,7 @@ logger.info('Gemini HTTPS Agent initialized with TCP Keep-Alive support')
 export const encryptor = createEncryptor('gemini-account-salt')
 const { encrypt, decrypt } = encryptor
 
-export const fetchAvailableModelsAntigravity = async function fetchAvailableModelsAntigravity(
-  accessToken,
-  proxyConfig = null,
-  refreshToken = null,
-) {
+export const fetchAvailableModelsAntigravity = async (accessToken, proxyConfig = null, refreshToken = null) => {
   try {
     let effectiveToken = accessToken
     if (refreshToken) {
@@ -175,12 +171,7 @@ export const fetchAvailableModelsAntigravity = async function fetchAvailableMode
   }
 }
 
-export const countTokensAntigravity = async function countTokensAntigravity(
-  client,
-  contents,
-  model,
-  proxyConfig = null,
-) {
+export const countTokensAntigravity = async (client, contents, model, proxyConfig = null) => {
   const { token } = await client.getAccessToken()
   const response = await antigravityClient.countTokens({
     accessToken: token,
@@ -202,12 +193,12 @@ setInterval(
 
 // 创建 OAuth2 客户端（支持代理配置）
 // requireCredentials：授权/换 token/刷新 必须 true；持有现成 access_token 的转发可为 false
-const createOAuth2Client = function createOAuth2Client(
+const createOAuth2Client = (
   redirectUri = null,
   proxyConfig = null,
   oauthProvider = null,
   { requireCredentials = true } = {},
-) {
+) => {
   // 如果没有提供 redirectUri，使用默认值
   const uri = redirectUri || 'http://localhost:45462'
   const oauthConfig = getOauthProviderConfig(oauthProvider, { requireCredentials })
@@ -236,12 +227,7 @@ const createOAuth2Client = function createOAuth2Client(
 }
 
 // 生成授权 URL (支持 PKCE 和代理)
-export const generateAuthUrl = async function generateAuthUrl(
-  state = null,
-  redirectUri = null,
-  proxyConfig = null,
-  oauthProvider = null,
-) {
+export const generateAuthUrl = async (state = null, redirectUri = null, proxyConfig = null, oauthProvider = null) => {
   // 使用新的 redirect URI
   const finalRedirectUri = redirectUri || 'https://codeassist.google.com/authcode'
   const normalizedProvider = normalizeOauthProvider(oauthProvider)
@@ -278,13 +264,13 @@ export const generateAuthUrl = async function generateAuthUrl(
 }
 
 // 交换授权码获取 tokens (支持 PKCE 和代理)
-export const exchangeCodeForTokens = async function exchangeCodeForTokens(
+export const exchangeCodeForTokens = async (
   code,
   redirectUri = null,
   codeVerifier = null,
   proxyConfig = null,
   oauthProvider = null,
-) {
+) => {
   try {
     const normalizedProvider = normalizeOauthProvider(oauthProvider)
     const oauthConfig = getOauthProviderConfig(normalizedProvider)
@@ -324,11 +310,7 @@ export const exchangeCodeForTokens = async function exchangeCodeForTokens(
 }
 
 // 刷新访问令牌
-export const refreshAccessToken = async function refreshAccessToken(
-  refreshToken,
-  proxyConfig = null,
-  oauthProvider = null,
-) {
+export const refreshAccessToken = async (refreshToken, proxyConfig = null, oauthProvider = null) => {
   const normalizedProvider = normalizeOauthProvider(oauthProvider)
   const oauthConfig = getOauthProviderConfig(normalizedProvider)
   // 创建带代理配置的 OAuth2Client
@@ -377,7 +359,7 @@ export const refreshAccessToken = async function refreshAccessToken(
 }
 
 // 创建 Gemini 账户
-export const createAccount = async function createAccount(accountData) {
+export const createAccount = async (accountData) => {
   const id = crypto.randomUUID()
   const now = new Date().toISOString()
   const oauthProvider = normalizeOauthProvider(accountData.oauthProvider)
@@ -494,7 +476,7 @@ export const createAccount = async function createAccount(accountData) {
 }
 
 // 获取账户
-export const getAccount = async function getAccount(accountId) {
+export const getAccount = async (accountId) => {
   const client = redisClient.getClientSafe()
   const accountData = await client.hgetall(RedisKeys.accounts.gemini(accountId))
 
@@ -530,7 +512,7 @@ export const getAccount = async function getAccount(accountId) {
 }
 
 // 更新账户
-export const updateAccount = async function updateAccount(accountId, updates) {
+export const updateAccount = async (accountId, updates) => {
   const existingAccount = await getAccount(accountId)
   if (!existingAccount) {
     throw new Error('Account not found')
@@ -674,7 +656,7 @@ export const updateAccount = async function updateAccount(accountId, updates) {
 }
 
 // 删除账户
-export const deleteAccount = async function deleteAccount(accountId) {
+export const deleteAccount = async (accountId) => {
   const account = await getAccount(accountId)
   if (!account) {
     throw new Error('Account not found')
@@ -703,7 +685,7 @@ export const deleteAccount = async function deleteAccount(accountId) {
   return true
 }
 
-const buildRateLimitInfoFromAccount = function buildRateLimitInfoFromAccount(account) {
+const buildRateLimitInfoFromAccount = (account) => {
   if (!account) {
     return null
   }
@@ -731,7 +713,7 @@ const buildRateLimitInfoFromAccount = function buildRateLimitInfoFromAccount(acc
 }
 
 // 获取所有账户
-export const getAllAccounts = async function getAllAccounts() {
+export const getAllAccounts = async () => {
   const _client = redisClient.getClientSafe()
   const accountIds = await redisClient.getAllIdsByIndex(
     RedisKeys.accounts.geminiIndex,
@@ -804,7 +786,7 @@ export const getAllAccounts = async function getAllAccounts() {
 }
 
 // 选择可用账户（支持专属和共享账户）
-export const selectAvailableAccount = async function selectAvailableAccount(apiKeyId, sessionHash = null) {
+export const selectAvailableAccount = async (apiKeyId, sessionHash = null) => {
   // 首先检查是否有粘性会话
   const client = redisClient.getClientSafe()
   if (sessionHash) {
@@ -906,7 +888,7 @@ export const selectAvailableAccount = async function selectAvailableAccount(apiK
 }
 
 // 检查 token 是否过期
-export const isTokenExpired = function isTokenExpired(account) {
+export const isTokenExpired = (account) => {
   if (!account.expiresAt) {
     return true
   }
@@ -923,7 +905,7 @@ export const isTokenExpired = function isTokenExpired(account) {
  * @param {Object} account - 账户对象
  * @returns {boolean} - true: 已过期, false: 未过期
  */
-const isSubscriptionExpired = function isSubscriptionExpired(account) {
+const isSubscriptionExpired = (account) => {
   if (!account.subscriptionExpiresAt) {
     return false // 未设置视为永不过期
   }
@@ -932,7 +914,7 @@ const isSubscriptionExpired = function isSubscriptionExpired(account) {
 }
 
 // 检查账户是否被限流
-const isRateLimited = function isRateLimited(account) {
+const isRateLimited = (account) => {
   if (account.rateLimitStatus === 'limited' && account.rateLimitedAt) {
     const limitedAt = new Date(account.rateLimitedAt).getTime()
     const now = Date.now()
@@ -944,7 +926,7 @@ const isRateLimited = function isRateLimited(account) {
 }
 
 // 刷新账户 token
-export const refreshAccountToken = async function refreshAccountToken(accountId) {
+export const refreshAccountToken = async (accountId) => {
   let lockAcquired = false
   let account = null
 
@@ -1082,14 +1064,14 @@ export const refreshAccountToken = async function refreshAccountToken(accountId)
 }
 
 // 标记账户被使用
-export const markAccountUsed = async function markAccountUsed(accountId) {
+export const markAccountUsed = async (accountId) => {
   await updateAccount(accountId, {
     lastUsedAt: new Date().toISOString(),
   })
 }
 
 // 设置账户限流状态
-export const setAccountRateLimited = async function setAccountRateLimited(accountId, isLimited = true) {
+export const setAccountRateLimited = async (accountId, isLimited = true) => {
   // disableAutoProtection 检查（仅在设置限流时）：跳过限流标记，仅记录错误历史
   if (isLimited) {
     const account = await getAccount(accountId)
@@ -1114,7 +1096,7 @@ export const setAccountRateLimited = async function setAccountRateLimited(accoun
 }
 
 // 获取账户的限流信息（参考 claudeAccountService 的实现）
-export const getAccountRateLimitInfo = async function getAccountRateLimitInfo(accountId) {
+export const getAccountRateLimitInfo = async (accountId) => {
   try {
     const account = await getAccount(accountId)
     return buildRateLimitInfoFromAccount(account)
@@ -1127,12 +1109,7 @@ export const getAccountRateLimitInfo = async function getAccountRateLimitInfo(ac
 // 获取配置的OAuth客户端 - 参考GeminiCliSimulator的getOauthClient方法（支持代理）
 // 有 CLIENT_ID/SECRET 时：强制 refresh 拿新 token（旧行为）
 // 无凭证 env 时：不触发 refresh，直接使用账户已有 access_token 转发（secret 移除后的兼容）
-export const getOauthClient = async function getOauthClient(
-  accessToken,
-  refreshToken,
-  proxyConfig = null,
-  oauthProvider = null,
-) {
+export const getOauthClient = async (accessToken, refreshToken, proxyConfig = null, oauthProvider = null) => {
   const normalizedProvider = normalizeOauthProvider(oauthProvider)
   const oauthConfig = getOauthProviderConfig(normalizedProvider, { requireCredentials: false })
   const hasClientCreds = !!(oauthConfig.clientId && oauthConfig.clientSecret)
@@ -1173,14 +1150,32 @@ export const getOauthClient = async function getOauthClient(
   return client
 }
 
+// DEC_20261001_114137 Code Assist 出站 UA 对齐 gemini-cli contentGenerator.ts
+// 官方 gemini-cli package.json 当前构建号；GEMINI_CLI_VERSION 为可选外部覆盖，非法值告警并回落基线
+const GEMINI_CLI_BASELINE_VERSION = '0.62.0-nightly.20260918.g9450ade79'
+const resolveGeminiCliVersion = () => {
+  if (!hasEnv('GEMINI_CLI_VERSION')) {
+    return GEMINI_CLI_BASELINE_VERSION
+  }
+  const override = String(env.GEMINI_CLI_VERSION).trim()
+  if (/^\d+\.\d+\.\d+([-.][0-9A-Za-z.]+)?$/.test(override)) {
+    return override
+  }
+  logger.warn(
+    `[GeminiCLI] ignore invalid GEMINI_CLI_VERSION override value=${override} baseline=${GEMINI_CLI_BASELINE_VERSION}`,
+  )
+  return GEMINI_CLI_BASELINE_VERSION
+}
+const GEMINI_CLI_VERSION = resolveGeminiCliVersion()
+const DEFAULT_GEMINI_CLI_UA_MODEL = 'gemini-2.5-pro'
+const buildGeminiCliUserAgent = (model = DEFAULT_GEMINI_CLI_UA_MODEL) => {
+  const modelName = String(model || DEFAULT_GEMINI_CLI_UA_MODEL).replace(/^models\//, '')
+  return `GeminiCLI/${GEMINI_CLI_VERSION}/${modelName} (linux; x64; terminal)`
+}
+
 // 通用的 Code Assist API 转发函数（用于简单的请求/响应端点）
 // 适用于：loadCodeAssist, onboardUser, countTokens, listExperiments 等不需要特殊处理的端点
-export const forwardToCodeAssist = async function forwardToCodeAssist(
-  client,
-  apiMethod,
-  requestBody,
-  proxyConfig = null,
-) {
+export const forwardToCodeAssist = async (client, apiMethod, requestBody, proxyConfig = null) => {
   const CODE_ASSIST_ENDPOINT = 'https://cloudcode-pa.googleapis.com'
   const CODE_ASSIST_API_VERSION = 'v1internal'
 
@@ -1195,6 +1190,7 @@ export const forwardToCodeAssist = async function forwardToCodeAssist(
     headers: {
       Authorization: `Bearer ${token}`,
       'Content-Type': 'application/json',
+      'User-Agent': buildGeminiCliUserAgent(),
     },
     data: requestBody,
     timeout: 30000,
@@ -1217,7 +1213,7 @@ export const forwardToCodeAssist = async function forwardToCodeAssist(
 }
 
 // 调用 Google Code Assist API 的 loadCodeAssist 方法（支持代理）
-export const loadCodeAssist = async function loadCodeAssist(client, projectId = null, proxyConfig = null) {
+export const loadCodeAssist = async (client, projectId = null, proxyConfig = null) => {
   const CODE_ASSIST_ENDPOINT = 'https://cloudcode-pa.googleapis.com'
   const CODE_ASSIST_API_VERSION = 'v1internal'
 
@@ -1301,6 +1297,7 @@ export const loadCodeAssist = async function loadCodeAssist(client, projectId = 
     headers: {
       Authorization: `Bearer ${token}`,
       'Content-Type': 'application/json',
+      'User-Agent': buildGeminiCliUserAgent(),
     },
     data: request,
     timeout: 30000,
@@ -1323,12 +1320,13 @@ export const loadCodeAssist = async function loadCodeAssist(client, projectId = 
 }
 
 // 获取onboard层级 - 参考GeminiCliSimulator的getOnboardTier方法
-export const getOnboardTier = function getOnboardTier(loadRes) {
+export const getOnboardTier = (loadRes) => {
   // 用户层级枚举
+  // 与 gemini-cli code_assist/types.ts UserTierId 一致
   const UserTierId = {
-    LEGACY: 'LEGACY',
-    FREE: 'FREE',
-    PRO: 'PRO',
+    LEGACY: 'legacy-tier',
+    FREE: 'free-tier',
+    STANDARD: 'standard-tier',
   }
 
   if (loadRes.currentTier) {
@@ -1350,7 +1348,7 @@ export const getOnboardTier = function getOnboardTier(loadRes) {
 }
 
 // 调用 Google Code Assist API 的 onboardUser 方法（包含轮询逻辑，支持代理）
-export const onboardUser = async function onboardUser(client, tierId, projectId, clientMetadata, proxyConfig = null) {
+export const onboardUser = async (client, tierId, projectId, clientMetadata, proxyConfig = null) => {
   const CODE_ASSIST_ENDPOINT = 'https://cloudcode-pa.googleapis.com'
   const CODE_ASSIST_API_VERSION = 'v1internal'
 
@@ -1361,9 +1359,11 @@ export const onboardUser = async function onboardUser(client, tierId, projectId,
     metadata: clientMetadata,
   }
 
-  // 只有当projectId存在时才添加cloudaicompanionProject
-  if (projectId) {
+  // free-tier 使用托管项目，带 cloudaicompanionProject 会 Precondition Failed（gemini-cli setup.ts）
+  const isFreeTier = tierId === 'free-tier'
+  if (projectId && !isFreeTier) {
     onboardReq.cloudaicompanionProject = projectId
+    onboardReq.metadata = { ...(clientMetadata || {}), duetProject: projectId }
   }
 
   // 创建基础axios配置
@@ -1373,6 +1373,7 @@ export const onboardUser = async function onboardUser(client, tierId, projectId,
     headers: {
       Authorization: `Bearer ${token}`,
       'Content-Type': 'application/json',
+      'User-Agent': buildGeminiCliUserAgent(),
     },
     data: onboardReq,
     timeout: 30000,
@@ -1396,17 +1397,23 @@ export const onboardUser = async function onboardUser(client, tierId, projectId,
     isFreeTier: tierId === 'free-tier' || tierId === 'FREE',
   })
 
-  // 轮询onboardUser直到长运行操作完成
+  // 对齐 gemini-cli setup.ts：首调 POST onboardUser，未完成则 GET operation 轮询
   let lroRes = await axios(baseAxiosConfig)
+  const operationName = typeof lroRes.data?.name === 'string' ? lroRes.data.name : ''
 
   let attempts = 0
   const maxAttempts = 12 // 最多等待1分钟（5秒 * 12次）
 
-  while (!lroRes.data.done && attempts < maxAttempts) {
-    logger.info(`等待onboardUser完成... (${attempts + 1}/${maxAttempts})`)
+  while (!lroRes.data.done && operationName && attempts < maxAttempts) {
+    logger.info(`等待onboardUser完成... (${attempts + 1}/${maxAttempts}) operation=${operationName}`)
     await new Promise((resolve) => setTimeout(resolve, 5000))
 
-    lroRes = await axios(baseAxiosConfig)
+    lroRes = await axios({
+      ...baseAxiosConfig,
+      url: `${CODE_ASSIST_ENDPOINT}/${CODE_ASSIST_API_VERSION}/${operationName}`,
+      method: 'GET',
+      data: undefined,
+    })
     attempts++
   }
 
@@ -1419,12 +1426,7 @@ export const onboardUser = async function onboardUser(client, tierId, projectId,
 }
 
 // 完整的用户设置流程 - 参考setup.ts的逻辑（支持代理）
-export const setupUser = async function setupUser(
-  client,
-  initialProjectId = null,
-  clientMetadata = null,
-  proxyConfig = null,
-) {
+export const setupUser = async (client, initialProjectId = null, clientMetadata = null, proxyConfig = null) => {
   logger.info('setupUser 开始', { initialProjectId, hasClientMetadata: !!clientMetadata })
 
   let projectId = initialProjectId || env.GOOGLE_CLOUD_PROJECT || null
@@ -1460,8 +1462,18 @@ export const setupUser = async function setupUser(
     userDefinedProject: tier.userDefinedCloudaicompanionProject,
   })
 
-  if (tier.userDefinedCloudaiCompanionProject && !projectId) {
+  if (tier.userDefinedCloudaicompanionProject && !projectId) {
     throw new Error('此账号需要设置GOOGLE_CLOUD_PROJECT环境变量或提供projectId')
+  }
+
+  // 已有 currentTier 视为已 onboard，不再调用 onboardUser；缺项目则报错（gemini-cli setup.ts throwIneligibleOrProjectIdError）
+  if (loadRes.currentTier) {
+    if (!projectId) {
+      throw new Error('此账号已开通但缺少项目ID，请设置GOOGLE_CLOUD_PROJECT环境变量或提供projectId')
+    }
+    const userTier = loadRes.paidTier?.id || loadRes.currentTier.id || 'standard-tier'
+    logger.info('setupUser 已 onboard，跳过 onboardUser', { projectId, userTier })
+    return { projectId, userTier, loadRes, onboardRes: {} }
   }
 
   // 调用onboardUser
@@ -1481,12 +1493,7 @@ export const setupUser = async function setupUser(
 }
 
 // 调用 Code Assist API 计算 token 数量（支持代理）
-export const countTokens = async function countTokens(
-  client,
-  contents,
-  model = 'gemini-2.0-flash-exp',
-  proxyConfig = null,
-) {
+export const countTokens = async (client, contents, model = 'gemini-2.5-flash', proxyConfig = null) => {
   const CODE_ASSIST_ENDPOINT = 'https://cloudcode-pa.googleapis.com'
   const CODE_ASSIST_API_VERSION = 'v1internal'
 
@@ -1508,6 +1515,7 @@ export const countTokens = async function countTokens(
     headers: {
       Authorization: `Bearer ${token}`,
       'Content-Type': 'application/json',
+      'User-Agent': buildGeminiCliUserAgent(model),
     },
     data: request,
     timeout: 30000,
@@ -1531,37 +1539,43 @@ export const countTokens = async function countTokens(
 }
 
 // 调用 Code Assist API 生成内容（非流式）
-export const generateContent = async function generateContent(
+// 按 gemini-cli converter.ts toGenerateContentRequest 构造 Code Assist 包装
+// 客户端自带 request.session_id 优先；enabled_credit_types（AI Credits 超额）透传
+const buildCodeAssistGenerateRequest = (requestData, userPromptId, projectId, sessionId) => {
+  const innerRequest = requestData.request || {}
+  const request = {
+    model: requestData.model,
+    request: {
+      ...innerRequest,
+      session_id: innerRequest.session_id || sessionId,
+    },
+  }
+  if (userPromptId) {
+    request.user_prompt_id = userPromptId
+  }
+  if (projectId) {
+    request.project = projectId
+  }
+  if (Array.isArray(requestData.enabled_credit_types) && requestData.enabled_credit_types.length > 0) {
+    request.enabled_credit_types = requestData.enabled_credit_types
+  }
+  return request
+}
+
+export const generateContent = async (
   client,
   requestData,
   userPromptId,
   projectId = null,
   sessionId = null,
   proxyConfig = null,
-) {
+) => {
   const CODE_ASSIST_ENDPOINT = 'https://cloudcode-pa.googleapis.com'
   const CODE_ASSIST_API_VERSION = 'v1internal'
 
   const { token } = await client.getAccessToken()
 
-  // 按照 gemini-cli 的转换格式构造请求
-  const request = {
-    model: requestData.model,
-    request: {
-      ...requestData.request,
-      session_id: sessionId,
-    },
-  }
-
-  // 只有当 userPromptId 存在时才添加
-  if (userPromptId) {
-    request.user_prompt_id = userPromptId
-  }
-
-  // 只有当projectId存在时才添加project字段
-  if (projectId) {
-    request.project = projectId
-  }
+  const request = buildCodeAssistGenerateRequest(requestData, userPromptId, projectId, sessionId)
 
   logger.info('generateContent API调用开始', {
     model: requestData.model,
@@ -1582,6 +1596,7 @@ export const generateContent = async function generateContent(
     headers: {
       Authorization: `Bearer ${token}`,
       'Content-Type': 'application/json',
+      'User-Agent': buildGeminiCliUserAgent(requestData.model),
     },
     data: request,
     timeout: 600000, // 生成内容可能需要更长时间
@@ -1607,20 +1622,19 @@ export const generateContent = async function generateContent(
 }
 
 // 调用 Antigravity 上游生成内容（非流式）
-export const generateContentAntigravity = async function generateContentAntigravity(
+export const generateContentAntigravity = async (
   client,
   requestData,
   userPromptId,
   projectId = null,
   sessionId = null,
   proxyConfig = null,
-) {
+) => {
   const { token } = await client.getAccessToken()
   const { model } = antigravityClient.buildAntigravityEnvelope({
     requestData,
     projectId,
     sessionId,
-    userPromptId,
   })
 
   logger.info('Antigravity generateContent API调用开始', {
@@ -1636,7 +1650,6 @@ export const generateContentAntigravity = async function generateContentAntigrav
     requestData,
     projectId,
     sessionId,
-    userPromptId,
     stream: false,
   })
   logger.info('Antigravity generateContent API调用成功')
@@ -1644,7 +1657,7 @@ export const generateContentAntigravity = async function generateContentAntigrav
 }
 
 // 调用 Code Assist API 生成内容（流式）
-export const generateContentStream = async function generateContentStream(
+export const generateContentStream = async (
   client,
   requestData,
   userPromptId,
@@ -1652,30 +1665,13 @@ export const generateContentStream = async function generateContentStream(
   sessionId = null,
   signal = null,
   proxyConfig = null,
-) {
+) => {
   const CODE_ASSIST_ENDPOINT = 'https://cloudcode-pa.googleapis.com'
   const CODE_ASSIST_API_VERSION = 'v1internal'
 
   const { token } = await client.getAccessToken()
 
-  // 按照 gemini-cli 的转换格式构造请求
-  const request = {
-    model: requestData.model,
-    request: {
-      ...requestData.request,
-      session_id: sessionId,
-    },
-  }
-
-  // 只有当 userPromptId 存在时才添加
-  if (userPromptId) {
-    request.user_prompt_id = userPromptId
-  }
-
-  // 只有当projectId存在时才添加project字段
-  if (projectId) {
-    request.project = projectId
-  }
+  const request = buildCodeAssistGenerateRequest(requestData, userPromptId, projectId, sessionId)
 
   logger.info('streamGenerateContent API调用开始', {
     model: requestData.model,
@@ -1693,6 +1689,7 @@ export const generateContentStream = async function generateContentStream(
     headers: {
       Authorization: `Bearer ${token}`,
       'Content-Type': 'application/json',
+      'User-Agent': buildGeminiCliUserAgent(requestData.model),
     },
     data: request,
     responseType: 'stream',
@@ -1725,7 +1722,7 @@ export const generateContentStream = async function generateContentStream(
 }
 
 // 调用 Antigravity 上游生成内容（流式）
-export const generateContentStreamAntigravity = async function generateContentStreamAntigravity(
+export const generateContentStreamAntigravity = async (
   client,
   requestData,
   userPromptId,
@@ -1733,13 +1730,12 @@ export const generateContentStreamAntigravity = async function generateContentSt
   sessionId = null,
   signal = null,
   proxyConfig = null,
-) {
+) => {
   const { token } = await client.getAccessToken()
   const { model } = antigravityClient.buildAntigravityEnvelope({
     requestData,
     projectId,
     sessionId,
-    userPromptId,
   })
 
   logger.info('Antigravity streamGenerateContent API调用开始', {
@@ -1755,7 +1751,6 @@ export const generateContentStreamAntigravity = async function generateContentSt
     requestData,
     projectId,
     sessionId,
-    userPromptId,
     stream: true,
     signal,
     params: { alt: 'sse' },
@@ -1765,7 +1760,7 @@ export const generateContentStreamAntigravity = async function generateContentSt
 }
 
 // 更新账户的临时项目 ID
-export const updateTempProjectId = async function updateTempProjectId(accountId, tempProjectId) {
+export const updateTempProjectId = async (accountId, tempProjectId) => {
   if (!tempProjectId) {
     return
   }
@@ -1788,7 +1783,7 @@ export const updateTempProjectId = async function updateTempProjectId(accountId,
 }
 
 // 重置账户状态（清除所有异常状态）
-export const resetAccountStatus = async function resetAccountStatus(accountId) {
+export const resetAccountStatus = async (accountId) => {
   const account = await getAccount(accountId)
   if (!account) {
     throw new Error('Account not found')

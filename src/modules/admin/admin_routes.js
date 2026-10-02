@@ -28,6 +28,8 @@ import { router as errorHistoryRoutes } from '../relay/relay_error_history_route
 import { router as requestDetailsRoutes } from '../relay/relay_request_details_routes.js'
 import { router as proxiesRoutes } from '../proxy/proxy_routes.js'
 import { router as paymentAdminRoutes } from '../payment/payment_admin_routes.js'
+import { router as grokVideoRoutes } from './admin_grok_video_routes.js'
+import { router as securityRoutes } from './admin_security_routes.js'
 /**
  * Admin Routes - 主入口文件
  * 导入并挂载所有子路由模块
@@ -62,6 +64,8 @@ router.use('/', quotaCardsRoutes)
 router.use('/', errorHistoryRoutes)
 router.use('/', requestDetailsRoutes)
 router.use('/', paymentAdminRoutes)
+router.use('/', grokVideoRoutes)
+router.use('/', securityRoutes)
 
 // 使用相对路径的模块（需要指定基础路径前缀）
 router.use('/account-groups', accountGroupsRoutes)

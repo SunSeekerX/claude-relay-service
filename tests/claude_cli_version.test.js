@@ -8,8 +8,8 @@ import {
 } from '../src/modules/relay/relay_claude_cli_version.js'
 
 describe('relay_claude_cli_version', () => {
-  test('baseline is 2.1.251', () => {
-    expect(CLAUDE_CLI_BASELINE_VERSION).toBe('2.1.251')
+  test('baseline is 2.1.280', () => {
+    expect(CLAUDE_CLI_BASELINE_VERSION).toBe('2.1.280')
   })
 
   test('isSemverGte', () => {
@@ -19,17 +19,17 @@ describe('relay_claude_cli_version', () => {
   })
 
   test('isSupportedClaudeCliVersion rejects junk and older', () => {
-    expect(isSupportedClaudeCliVersion('2.1.251')).toBe(true)
+    expect(isSupportedClaudeCliVersion('2.1.280')).toBe(true)
     expect(isSupportedClaudeCliVersion('2.1.300')).toBe(true)
-    expect(isSupportedClaudeCliVersion('2.1.250')).toBe(false)
-    expect(isSupportedClaudeCliVersion('2.1.251-local')).toBe(false)
+    expect(isSupportedClaudeCliVersion('2.1.279')).toBe(false)
+    expect(isSupportedClaudeCliVersion('2.1.280-local')).toBe(false)
     expect(isSupportedClaudeCliVersion('2.1')).toBe(false)
     expect(isSupportedClaudeCliVersion('')).toBe(false)
   })
 
   test('resolveClaudeCliVersion falls back on invalid', () => {
     expect(resolveClaudeCliVersion('')).toBe(CLAUDE_CLI_BASELINE_VERSION)
-    expect(resolveClaudeCliVersion('2.1.250')).toBe(CLAUDE_CLI_BASELINE_VERSION)
+    expect(resolveClaudeCliVersion('2.1.279')).toBe(CLAUDE_CLI_BASELINE_VERSION)
     expect(resolveClaudeCliVersion('2.1.300')).toBe('2.1.300')
   })
 

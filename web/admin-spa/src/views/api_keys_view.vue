@@ -2946,9 +2946,7 @@ const getCachedStats = (keyId) => {
 }
 
 // 检查是否正在加载统计
-const isStatsLoading = (keyId) => {
-  return statsLoading.value.has(keyId)
-}
+const isStatsLoading = (keyId) => statsLoading.value.has(keyId)
 
 // 异步加载当前页的最后使用账号数据
 const loadPageLastUsage = async () => {
@@ -2988,14 +2986,10 @@ const loadPageLastUsage = async () => {
 }
 
 // 获取缓存的最后使用账号数据
-const getCachedLastUsage = (keyId) => {
-  return lastUsageCache.value.get(keyId) || null
-}
+const getCachedLastUsage = (keyId) => lastUsageCache.value.get(keyId) || null
 
 // 检查是否正在加载最后使用账号
-const isLastUsageLoading = (keyId) => {
-  return lastUsageLoading.value.has(keyId)
-}
+const isLastUsageLoading = (keyId) => lastUsageLoading.value.has(keyId)
 
 // 加载已删除的API Keys
 const loadDeletedApiKeys = async () => {

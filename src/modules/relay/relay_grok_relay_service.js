@@ -23,10 +23,11 @@ import {
 import { IncrementalSSEParser, parseSSEEvent } from './relay_sse_parser.js'
 import { ResponsesStreamState, isResponsesRateLimitError } from './relay_responses_stream_state.js'
 import { requestDetailService } from './relay_request_detail_service.js'
+import { pricingService } from '../pricing/pricing_service.js'
 import * as upstreamErrorHelper from './relay_upstream_error_helper.js'
 import { proxyResolver } from '../proxy/proxy_resolver.js'
 import * as xaiHelper from '../../common/xai_helper.js'
-import { applyFilteredResponseHeaders } from './relay_header_filter.js'
+import { applyFilteredResponseHeaders, pickGrokPassthroughHeaders } from './relay_header_filter.js'
 import { isNonProtocolUpstreamBody, handleNonProtocolUpstream } from './relay_upstream_protocol_guard.js'
 import * as grokProtocol from './relay_grok_protocol.js'
 import * as claudeResponses from './translator/relay_translator_claude_responses.js'
@@ -36,6 +37,104 @@ import * as claudeResponses from './translator/relay_translator_claude_responses
  */
 
 class GrokRelayService {
+  async _createVideoTask({ apiKeyId, requestId, accountId, model, body, reservationId = null }) {
+    if (!apiKeyId || !requestId) {
+      return null
+    }
+    const duration = Number(body?.duration ?? 6)
+    const reservedUsage = {
+      video_output_seconds: Number.isFinite(duration) && duration > 0 ? duration : 6,
+      video_resolution: body?.resolution ?? body?.video_resolution ?? body?.size,
+    }
+    const pricing = pricingService.calculateCost(reservedUsage, model)
+    const key = RedisKeys.session.grokVideoTask(apiKeyId, requestId)
+    const task = {
+      apiKeyId,
+      requestId,
+      accountId,
+      model,
+      reservedCost: Number(pricing?.costs?.total ?? 0),
+      reservedDuration: reservedUsage.video_output_seconds,
+      reservationId: reservationId || '',
+      status: 'processing',
+      settled: false,
+      createdAt: new Date().toISOString(),
+    }
+    const client = redis.getClientSafe()
+    await client.hset(key, Object.fromEntries(Object.entries(task).map(([k, v]) => [k, String(v)])))
+    await client.expire(key, 2 * 24 * 60 * 60)
+    await client.zadd(RedisKeys.session.grokVideoTaskIndex, Date.now(), `${apiKeyId}:${requestId}`)
+    return task
+  }
+
+  async _claimVideoSettlement(apiKeyId, requestId, data) {
+    if (!apiKeyId || !requestId) {
+      return null
+    }
+    const key = RedisKeys.session.grokVideoTask(apiKeyId, requestId)
+    const client = redis.getClientSafe()
+    const task = await client.hgetall(key)
+    if (!task || !task.requestId) {
+      return null
+    }
+    if (task.settled === 'true' || task.settlementInProgress === 'true') {
+      return null
+    }
+    const claimed = await client.hsetnx(key, 'settlementInProgress', 'true')
+    if (claimed !== 1) {
+      return null
+    }
+    const duration = Number(data?.video?.duration ?? data?.duration ?? data?.video?.seconds ?? data?.seconds)
+    return { ...task, actualDuration: Number.isFinite(duration) && duration > 0 ? duration : null, key }
+  }
+
+  async _finishVideoSettlement(task, settled, actualCost = 0) {
+    if (!task?.key) {
+      return
+    }
+    const client = redis.getClientSafe()
+    if (settled) {
+      await client.hset(task.key, {
+        settled: 'true',
+        status: 'completed',
+        actualDuration: String(task.actualDuration ?? ''),
+        actualCost: String(actualCost),
+        settledAt: new Date().toISOString(),
+      })
+    } else {
+      await client.hset(task.key, { status: 'failed', settled: 'true', settledAt: new Date().toISOString() })
+    }
+    await client.hdel(task.key, 'settlementInProgress')
+    if (task.reservationId) {
+      if (typeof redis.releaseCostReservation === 'function') {
+        await redis.releaseCostReservation(task.apiKeyId, task.reservationId)
+      }
+    }
+  }
+
+  async _reserveVideoCost(apiKeyData, model, body) {
+    const duration = Number(body?.duration ?? 6)
+    const usage = {
+      video_output_seconds: Number.isFinite(duration) && duration > 0 ? duration : 6,
+      video_resolution: body?.resolution ?? body?.video_resolution ?? body?.size,
+    }
+    const estimate = pricingService.calculateCost(usage, model)
+    const amount = Number(estimate?.costs?.total ?? 0)
+    const reservationId = crypto.randomUUID()
+    if (typeof redis.reserveCost !== 'function') {
+      throw Object.assign(new Error('Cost reservation is unavailable'), {
+        statusCode: 503,
+        code: 'reservation_unavailable',
+      })
+    }
+    await redis.reserveCost(apiKeyData.id, reservationId, amount, {
+      dailyLimit: Number(apiKeyData.dailyCostLimit) || 0,
+      totalLimit: Number(apiKeyData.totalCostLimit) || 0,
+      prepaid: apiKeyData.billingMode === 'prepaid',
+    })
+    return { reservationId, amount }
+  }
+
   constructor() {
     this.defaultTimeout = config.proxy?.timeout || 600000
   }
@@ -95,6 +194,7 @@ class GrokRelayService {
     let detachClientDisconnect = () => {}
     let proxyResolution = null
     let account = null
+    let videoReservation = null
 
     try {
       const requestedModel = req.body?.model || ''
@@ -119,6 +219,13 @@ class GrokRelayService {
             console.error(error)
           }
         }
+      }
+
+      if ((endpointKind === 'video_status' || endpointKind === 'video_content') && !forcedAccountId) {
+        const error = new Error('Video task is not owned by this API key or has expired')
+        error.statusCode = 404
+        error.code = 'grok_video_task_not_found'
+        throw error
       }
 
       if (forcedAccountId) {
@@ -230,7 +337,20 @@ class GrokRelayService {
         }
       }
 
+      if (
+        endpointKind === 'videos_generations' ||
+        endpointKind === 'videos_edits' ||
+        endpointKind === 'videos_extensions'
+      ) {
+        videoReservation = await this._reserveVideoCost(
+          apiKeyData,
+          body.model || requestedModel || this._defaultMediaModel(endpointKind),
+          body,
+        )
+      }
+
       const headers = {
+        ...pickGrokPassthroughHeaders(req.headers),
         Authorization: `Bearer ${token}`,
         'Content-Type': req.headers['content-type'] || 'application/json',
       }
@@ -540,6 +660,18 @@ class GrokRelayService {
               grokProtocol.videoSessionHash(requestId, apiKeyData.id),
             )
             await redis.setSessionAccountMapping?.(stickyKey, account.id)
+            await this._createVideoTask({
+              apiKeyId: apiKeyData.id,
+              requestId,
+              accountId: account.id,
+              model: body?.model || requestedModel || this._defaultMediaModel(endpointKind),
+              body,
+              reservationId: videoReservation?.reservationId || null,
+            })
+            req._crsVideoTaskId = requestId
+            if (videoReservation) {
+              videoReservation.linked = true
+            }
           }
         } catch (error) {
           console.error(error)
@@ -550,6 +682,24 @@ class GrokRelayService {
       req._crsAccountType = 'grok'
       req._crsRequestedModel = req._grokMessagesOriginalModel ?? requestedModel
       req._crsUpstreamHeaders = response.headers
+      if (endpointKind === 'video_content') {
+        const contentType = response.headers?.['content-type'] || 'video/mp4'
+        res.setHeader('Content-Type', contentType)
+        if (response.headers?.['content-length']) {
+          res.setHeader('Content-Length', response.headers['content-length'])
+        }
+        response.data.pipe(res)
+        return
+      }
+      if (endpointKind === 'video_status' && apiKeyData?.id) {
+        const requestId = req.params.requestId || req.params.request_id
+        req._crsVideoSettlement = await this._claimVideoSettlement(apiKeyData.id, requestId, response.data)
+        const status = String(response.data?.status || '').toLowerCase()
+        if (req._crsVideoSettlement && ['failed', 'expired', 'cancelled', 'canceled'].includes(status)) {
+          await this._finishVideoSettlement(req._crsVideoSettlement, false)
+          req._crsVideoSettlement = null
+        }
+      }
       if (isStream || (response.data && typeof response.data.pipe === 'function')) {
         return await this._handleStreamResponse(
           response,
@@ -619,6 +769,13 @@ class GrokRelayService {
         }
       }
     } finally {
+      if (videoReservation && !videoReservation.linked) {
+        if (typeof redis.releaseCostReservation === 'function') {
+          await redis
+            .releaseCostReservation(apiKeyData?.id, videoReservation.reservationId)
+            .catch((error) => logger.error('Failed to release unlinked Grok video reservation', error))
+        }
+      }
       detachClientDisconnect()
     }
   }
@@ -797,8 +954,13 @@ class GrokRelayService {
           break
         }
       }
-      if (usage.video_output_seconds === null) {
-        usage.request_count = 1
+      if (!Number.isFinite(Number(usage.video_output_seconds)) || Number(usage.video_output_seconds) <= 0) {
+        if (req._crsVideoSettlement?.reservedDuration) {
+          usage.video_output_seconds = Number(req._crsVideoSettlement.reservedDuration)
+          usage.video_duration_estimated = true
+        } else {
+          usage.request_count = 1
+        }
       }
       usage.video_resolution = usage.video_resolution || usage.resolution || usage.size
       usage.video_size = usage.size
@@ -873,17 +1035,23 @@ class GrokRelayService {
         }
       : {}
     const usage = response.data?.usage ?? null
-    const mediaBilling = this._buildMediaBillingUsage(response.data, req, options.endpointKind)
+    const billingEndpoint = options.endpointKind === 'video_status' ? 'videos_generations' : options.endpointKind
+    const mediaBilling = this._buildMediaBillingUsage(response.data, req, billingEndpoint)
+    const billMedia = options.endpointKind !== 'video_status' || req._crsVideoSettlement !== null
     // 媒体：即使上游不回 usage，也要按张数/秒落账
-    if (apiKeyData?.id && (usage || mediaBilling)) {
+    if (apiKeyData?.id && (usage || (mediaBilling && billMedia))) {
       // Grok/xAI 官方：chat 用 completion_tokens_details.reasoning_tokens，
       // responses 用 output_tokens_details.reasoning_tokens，均为 output 子集，不可再加一遍
       const usagePayload = buildTokenUsagePayload({
         ...normalizeOpenAITokenUsage(usage ?? {}),
         rawUsage: usage || {},
-        extras: mediaBilling || null,
+        extras: billMedia ? mediaBilling || null : null,
       })
-      const billModel = this._resolveBillingModel(data?.model, requestedModel, options.endpointKind)
+      const billModel = this._resolveBillingModel(
+        data?.model,
+        requestedModel || req._crsVideoSettlement?.model,
+        billingEndpoint,
+      )
       req._crsUsageDetailHandled = true
       await apiKeyService
         .recordUsage(
@@ -894,7 +1062,17 @@ class GrokRelayService {
           'grok',
           createRequestDetailMeta(req, { ...failure, statusCode, stream: false }),
         )
-        .catch((e) => console.error(e))
+        .then(async (costs) => {
+          if (req._crsVideoSettlement) {
+            await this._finishVideoSettlement(req._crsVideoSettlement, true, costs?.realCost ?? 0)
+          }
+        })
+        .catch(async (e) => {
+          if (req._crsVideoSettlement) {
+            await this._finishVideoSettlement(req._crsVideoSettlement, false)
+          }
+          console.error(e)
+        })
     }
 
     if (response.headers['content-type']) {

@@ -398,13 +398,14 @@ export const convertResponsesRequestToClaude = (responsesRequest, options = {}) 
 
   const effort = body.reasoning?.effort
   if (effort) {
-    const mapped = thinkingMap.effortToClaudeThinking(effort, { supportsAdaptive: true })
+    const mapped = thinkingMap.effortToClaudeThinking(effort, { supportsAdaptive: true, modelId: claude.model })
     if (mapped?.thinking) {
       claude.thinking = mapped.thinking
     }
     if (mapped?.output_config) {
       claude.output_config = mapped.output_config
     }
+    thinkingMap.normalizeClaudeThinkingForModel(claude, claude.model)
     thinkingMap.applyThinkingSamplingRules(claude, thinkingMap.isThinkingEnabled(claude.thinking))
   }
 

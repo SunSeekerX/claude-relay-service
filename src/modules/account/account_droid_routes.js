@@ -12,7 +12,7 @@ import { authenticateAdmin } from '../../infra/middleware_auth.js'
 import { logger } from '../../common/logger.js'
 import { proxyResolver } from '../proxy/proxy_resolver.js'
 import { webhookNotifier } from '../webhook/webhook_notifier.js'
-import { formatAccountExpiry, mapExpiryField } from '../admin/admin_utils_routes.js'
+import { formatAccountExpiry, mapExpiryField } from './account_expiry_helper.js'
 import { stripReadonlyAccountFields } from '../../common/common_helper.js'
 import { extractErrorMessage } from '../../common/test_payload_helper.js'
 import { ProxyHelper } from '../proxy/proxy_helper.js'
@@ -24,6 +24,7 @@ import {
 import { asyncRoute } from '../../common/route_handler.js'
 import { ok, badRequest, notFound, unauthorized, conflict, fail, HttpError } from '../../common/http_result.js'
 import { parseObjectBody } from '../../common/parse_body.js'
+import { normalizeAccountTokenStats } from '../../common/compat_token_stats.js'
 
 export const router = express.Router()
 
@@ -216,21 +217,6 @@ router.get(
 
     // 处理统计数据
     const allUsageStatsMap = new Map()
-    const parseUsage = (data) => ({
-      requests: parseInt(data?.totalRequests || data?.requests) || 0,
-      tokens: parseInt(data?.totalTokens || data?.tokens) || 0,
-      inputTokens: parseInt(data?.totalInputTokens || data?.inputTokens) || 0,
-      outputTokens: parseInt(data?.totalOutputTokens || data?.outputTokens) || 0,
-      cacheCreateTokens: parseInt(data?.totalCacheCreateTokens || data?.cacheCreateTokens) || 0,
-      cacheReadTokens: parseInt(data?.totalCacheReadTokens || data?.cacheReadTokens) || 0,
-      allTokens:
-        parseInt(data?.totalAllTokens || data?.allTokens) ||
-        (parseInt(data?.totalInputTokens || data?.inputTokens) || 0) +
-          (parseInt(data?.totalOutputTokens || data?.outputTokens) || 0) +
-          (parseInt(data?.totalCacheCreateTokens || data?.cacheCreateTokens) || 0) +
-          (parseInt(data?.totalCacheReadTokens || data?.cacheReadTokens) || 0),
-    })
-
     // 构建 accountId -> createdAt 映射用于计算 averages
     const accountCreatedAtMap = new Map()
     for (const account of accounts) {
@@ -243,7 +229,7 @@ router.get(
       const [errDaily, daily] = statsResults[i * 3 + 1]
       const [errMonthly, monthly] = statsResults[i * 3 + 2]
 
-      const totalData = errTotal ? {} : parseUsage(total)
+      const totalData = errTotal ? {} : normalizeAccountTokenStats(total)
       const totalTokens = totalData.tokens || 0
       const totalRequests = totalData.requests || 0
 
@@ -255,8 +241,8 @@ router.get(
 
       allUsageStatsMap.set(accountId, {
         total: totalData,
-        daily: errDaily ? {} : parseUsage(daily),
-        monthly: errMonthly ? {} : parseUsage(monthly),
+        daily: errDaily ? {} : normalizeAccountTokenStats(daily),
+        monthly: errMonthly ? {} : normalizeAccountTokenStats(monthly),
         averages: {
           rpm: Math.round((totalRequests / totalMinutes) * 100) / 100,
           tpm: Math.round((totalTokens / totalMinutes) * 100) / 100,

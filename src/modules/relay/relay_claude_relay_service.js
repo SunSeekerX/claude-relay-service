@@ -1,10 +1,11 @@
 import { fileURLToPath } from 'node:url'
 import https from 'node:https'
 import zlib from 'node:zlib'
+import { StringDecoder } from 'node:string_decoder'
 import path from 'node:path'
 import { ProxyHelper } from '../proxy/proxy_helper.js'
 import { proxyResolver } from '../proxy/proxy_resolver.js'
-import { filterForClaude } from './relay_header_filter.js'
+import { CLAUDE_CODE_SESSION_ID_HEADER, filterForClaude } from './relay_header_filter.js'
 import { claudeAccountService } from '../account/account_claude_service.js'
 import { unifiedClaudeScheduler } from './relay_unified_claude_scheduler.js'
 import { sessionHelper } from './relay_session_helper.js'
@@ -32,7 +33,13 @@ import {
 } from '../../common/performance_optimizer.js'
 import { buildClaudeBetaHeader } from './relay_claude_beta.js'
 import { buildClaudeCliUserAgent } from './relay_claude_cli_version.js'
-import { ensureAlignedBillingHeader, syncBillingHeaderVersion } from './relay_claude_billing_header.js'
+import {
+  ensureAlignedBillingHeader,
+  ensureBillingCchPlaceholder,
+  syncBillingHeaderVersion,
+} from './relay_claude_billing_header.js'
+import { signClaudeMessagesBody } from './relay_claude_cch_signing.js'
+import { normalizeClaudeRequestForModel } from './translator/relay_translator_thinking.js'
 import { prepareCacheControlForOfficialClaude } from './translator/relay_translator_cache_control.js'
 import {
   isClientActionableUpstreamError,
@@ -1312,6 +1319,9 @@ class ClaudeRelayService {
       userAgent: options.clientUserAgent || '',
     })
 
+    // DEC_20261001_114137 直达 Messages 按模型能力归一 thinking 与采样参数（adaptive-only 模型拒绝 disabled/budget）
+    normalizeClaudeRequestForModel(processedBody, processedBody.model)
+
     // cache 断点：官方透传路径已在 _prepareOfficialCacheControl 处理，此处不再硬裁 4 块
 
     // 处理原有的系统提示（如果配置了）
@@ -1567,13 +1577,24 @@ class ClaudeRelayService {
     headers['User-Agent'] = userAgent
     headers['Accept'] = acceptHeader
 
+    // DEC_20261001_114137 官方每请求带会话头；客户端未带时取 metadata.user_id 的 session_id
+    const sessionHeaderKey = Object.keys(headers).find((key) => key.toLowerCase() === CLAUDE_CODE_SESSION_ID_HEADER)
+    if (!sessionHeaderKey) {
+      const metadataSessionId = metadataUserIdHelper.extractSessionId(requestPayload?.metadata?.user_id)
+      if (metadataSessionId) {
+        headers['X-Claude-Code-Session-Id'] = metadataSessionId
+      }
+    }
+
     // billing cc_version 与 outbound UA 同源（含 fp 重算）
     if (requestPayload && typeof requestPayload === 'object') {
       syncBillingHeaderVersion(requestPayload, userAgent)
+      ensureBillingCchPlaceholder(requestPayload)
     }
 
-    // 序列化请求体，计算 content-length（须在 billing sync 之后）
-    const bodyString = JSON.stringify(requestPayload)
+    // 序列化请求体后签 cch，再算 content-length（须在 billing sync 之后）
+    // DEC_20261001_114137 OAuth 官方上游补 cch 签名
+    const bodyString = await signClaudeMessagesBody(JSON.stringify(requestPayload), requestPayload)
     const contentLength = Buffer.byteLength(bodyString, 'utf8')
     headers['content-length'] = String(contentLength)
 
@@ -2749,12 +2770,13 @@ class ClaudeRelayService {
           })
         }
 
+        const streamDecoder = new StringDecoder('utf8')
         dataSource.on('data', (chunk) => {
           if (streamFatal) {
             return
           }
           try {
-            const chunkStr = chunk.toString()
+            const chunkStr = streamDecoder.write(chunk)
 
             buffer += chunkStr
 
@@ -2880,6 +2902,7 @@ class ClaudeRelayService {
               settleStreamOk()
               return
             }
+            buffer += streamDecoder.end()
             // 处理缓冲区中剩余的数据
             if (buffer.trim() && isStreamWritable(responseStream)) {
               if (toolNameStreamTransformer) {

@@ -32,7 +32,7 @@ import { listTranslators, initTranslatorRegistry } from './translator/relay_tran
 import { normalizeClaudeCodeToolsInRequest } from './relay_claude_code_tool_schemas.js'
 
 // Bedrock 等无上游 count_tokens 时的本地启发式：字符粗估
-const estimateAnthropicInputTokens = function estimateAnthropicInputTokens(body = {}) {
+const estimateAnthropicInputTokens = (body = {}) => {
   const chunks = []
   const push = (value) => {
     if (value === null || value === undefined) {
@@ -61,7 +61,7 @@ const estimateAnthropicInputTokens = function estimateAnthropicInputTokens(body 
 
 export const apiRoutes = express.Router()
 
-const queueRateLimitUpdate = function queueRateLimitUpdate(
+const queueRateLimitUpdate = (
   rateLimitInfo,
   usageSummary,
   model,
@@ -69,7 +69,7 @@ const queueRateLimitUpdate = function queueRateLimitUpdate(
   keyId = null,
   accountType = null,
   preCalculatedCost = null,
-) {
+) => {
   if (!rateLimitInfo) {
     return Promise.resolve({ totalTokens: 0, totalCost: 0 })
   }
@@ -107,7 +107,7 @@ const queueRateLimitUpdate = function queueRateLimitUpdate(
  * @param {Object} body - 请求体
  * @returns {boolean} 是否为旧会话
  */
-const isOldSession = function isOldSession(body) {
+const isOldSession = (body) => {
   const messages = body?.messages
   const tools = body?.tools
 
@@ -160,7 +160,7 @@ const isOldSession = function isOldSession(body) {
 }
 
 // 共享的消息处理函数
-export const handleMessagesRequest = async function handleMessagesRequest(req, res) {
+export const handleMessagesRequest = async (req, res) => {
   try {
     const startTime = Date.now()
 

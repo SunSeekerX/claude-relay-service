@@ -13,9 +13,7 @@ import { env } from '../../../config/env.js'
  * @param {string} value
  * @returns {string}
  */
-const normalize = function normalize(value) {
-  return value.replace(/\s+/g, ' ').trim()
-}
+const normalize = (value) => value.replace(/\s+/g, ' ').trim()
 
 /**
  * @param {unknown} actual
@@ -23,7 +21,7 @@ const normalize = function normalize(value) {
  * @param {number} threshold
  * @returns {SimpleSimilarityResult}
  */
-export const simple = function simple(actual, expected, threshold) {
+export const simple = (actual, expected, threshold) => {
   if (typeof expected !== 'string' || !expected.trim()) {
     throw new Error('Expected prompt text must be a non-empty string')
   }
@@ -269,7 +267,7 @@ const toFlexibleWhitespacePattern = (value) =>
  * @param {unknown} value
  * @returns {string}
  */
-export const normalizePrompt = function normalizePrompt(value) {
+export const normalizePrompt = (value) => {
   if (typeof value !== 'string') {
     return ''
   }
@@ -304,7 +302,7 @@ const promptEntries = Object.entries(promptMap)
  * @param {string} template
  * @returns {string|null}
  */
-const getTrailingPlaceholderAnchor = function getTrailingPlaceholderAnchor(template) {
+const getTrailingPlaceholderAnchor = (template) => {
   const trimmed = template.trimEnd()
   if (!trimmed.endsWith(PLACEHOLDER_TOKEN)) {
     return null
@@ -327,7 +325,7 @@ const getTrailingPlaceholderAnchor = function getTrailingPlaceholderAnchor(templ
  * @param {string} template
  * @returns {string}
  */
-const trimRawValueByTrailingPlaceholder = function trimRawValueByTrailingPlaceholder(rawValue, template) {
+const trimRawValueByTrailingPlaceholder = (rawValue, template) => {
   if (!rawValue) {
     return rawValue
   }
@@ -372,7 +370,7 @@ const trimRawValueByTrailingPlaceholder = function trimRawValueByTrailingPlaceho
  * @param {string} template
  * @returns {string}
  */
-const trimTrailingPlaceholder = function trimTrailingPlaceholder(normalizedValue, template) {
+const trimTrailingPlaceholder = (normalizedValue, template) => {
   const anchor = getTrailingPlaceholderAnchor(template)
   if (!anchor) {
     return normalizedValue
@@ -392,7 +390,7 @@ const trimTrailingPlaceholder = function trimTrailingPlaceholder(normalizedValue
  * @param {string} normalizedTemplate
  * @returns {string}
  */
-const normalizeValueForTemplate = function normalizeValueForTemplate(normalizedValue, template, normalizedTemplate) {
+const normalizeValueForTemplate = (normalizedValue, template, normalizedTemplate) => {
   const trimmedTemplate = template.trimEnd()
   const trimmedValue = trimTrailingPlaceholder(normalizedValue, trimmedTemplate)
   const parts = trimmedTemplate.split(PLACEHOLDER_TOKEN).map((part) => collapseWhitespace(part))
@@ -413,7 +411,7 @@ const normalizeValueForTemplate = function normalizeValueForTemplate(normalizedV
  * @param {string[]} parts
  * @returns {boolean}
  */
-const matchesTemplateIgnoringPlaceholders = function matchesTemplateIgnoringPlaceholders(normalizedValue, parts) {
+const matchesTemplateIgnoringPlaceholders = (normalizedValue, parts) => {
   const valueNoSpace = normalizedValue.replace(/\s+/g, '')
   let cursor = 0
 
@@ -438,7 +436,7 @@ const matchesTemplateIgnoringPlaceholders = function matchesTemplateIgnoringPlac
  * @param {unknown} value
  * @returns {TemplateSimilarityResult}
  */
-export const bestSimilarityByTemplates = function bestSimilarityByTemplates(value) {
+export const bestSimilarityByTemplates = (value) => {
   const rawValue = typeof value === 'string' ? value : ''
   const normalizedValue = normalizePrompt(rawValue)
   let bestScore = 0
@@ -471,7 +469,7 @@ export const bestSimilarityByTemplates = function bestSimilarityByTemplates(valu
  * @param {unknown} value
  * @returns {string}
  */
-export const normalizeSystemText = function normalizeSystemText(value) {
+export const normalizeSystemText = (value) => {
   if (typeof value !== 'string') {
     return ''
   }
@@ -503,7 +501,7 @@ export const normalizeSystemText = function normalizeSystemText(value) {
  * @param {unknown} value
  * @returns {{bestScore: number}}
  */
-export const bestSimilarity = function bestSimilarity(value) {
+export const bestSimilarity = (value) => {
   const { bestScore } = bestSimilarityByTemplates(value)
   return { bestScore }
 }

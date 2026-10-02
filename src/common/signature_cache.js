@@ -26,7 +26,7 @@ const signatureCache = new Map()
  * @param {string} text - 待哈希的文本
  * @returns {string} 16 字符的十六进制哈希
  */
-export const hashText = function hashText(text) {
+export const hashText = (text) => {
   if (!text || typeof text !== 'string') {
     return ''
   }
@@ -39,7 +39,7 @@ export const hashText = function hashText(text) {
  * @param {string} sessionId - 会话 ID
  * @returns {Map} 会话的签名缓存 Map
  */
-const getOrCreateSessionCache = function getOrCreateSessionCache(sessionId) {
+const getOrCreateSessionCache = (sessionId) => {
   if (!signatureCache.has(sessionId)) {
     signatureCache.set(sessionId, new Map())
   }
@@ -51,9 +51,7 @@ const getOrCreateSessionCache = function getOrCreateSessionCache(sessionId) {
  * @param {string} signature - 待检查的签名
  * @returns {boolean} 签名是否有效
  */
-export const isValidSignature = function isValidSignature(signature) {
-  return typeof signature === 'string' && signature.length >= MIN_SIGNATURE_LENGTH
-}
+export const isValidSignature = (signature) => typeof signature === 'string' && signature.length >= MIN_SIGNATURE_LENGTH
 
 /**
  * 缓存 thinking 签名
@@ -61,7 +59,7 @@ export const isValidSignature = function isValidSignature(signature) {
  * @param {string} thinkingText - thinking 内容文本
  * @param {string} signature - thoughtSignature
  */
-export const cacheSignature = function cacheSignature(sessionId, thinkingText, signature) {
+export const cacheSignature = (sessionId, thinkingText, signature) => {
   if (!sessionId || !thinkingText || !signature) {
     return
   }
@@ -102,7 +100,7 @@ export const cacheSignature = function cacheSignature(sessionId, thinkingText, s
  * @param {string} thinkingText - thinking 内容文本
  * @returns {string|null} 缓存的签名，未找到或过期则返回 null
  */
-export const getCachedSignature = function getCachedSignature(sessionId, thinkingText) {
+export const getCachedSignature = (sessionId, thinkingText) => {
   if (!sessionId || !thinkingText) {
     return null
   }
@@ -137,7 +135,7 @@ export const getCachedSignature = function getCachedSignature(sessionId, thinkin
  * 清除会话缓存
  * @param {string} sessionId - 要清除的会话 ID，为空则清除全部
  */
-export const clearSignatureCache = function clearSignatureCache(sessionId = null) {
+export const clearSignatureCache = (sessionId = null) => {
   if (sessionId) {
     signatureCache.delete(sessionId)
     logger.debug(`[SignatureCache] Cleared cache for session ${sessionId.slice(0, 8)}...`)
@@ -151,7 +149,7 @@ export const clearSignatureCache = function clearSignatureCache(sessionId = null
  * 获取缓存统计信息（调试用）
  * @returns {Object} { sessionCount, totalEntries }
  */
-export const getCacheStats = function getCacheStats() {
+export const getCacheStats = () => {
   let totalEntries = 0
   for (const sessionCache of signatureCache.values()) {
     totalEntries += sessionCache.size

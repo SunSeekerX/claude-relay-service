@@ -26,7 +26,7 @@ jest.mock('../src/common/logger.js', () => ({
   success: jest.fn()
 }))
 jest.mock('../src/modules/webhook/webhook_notifier.js', () => ({}))
-jest.mock('../src/modules/admin/admin_utils_routes.js', () => ({
+jest.mock('../src/modules/account/account_expiry_helper.js', () => ({
   formatAccountExpiry: jest.fn((account) => account),
   mapExpiryField: jest.fn((updates) => updates)
 }))

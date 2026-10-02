@@ -71,7 +71,7 @@ const ERROR_MATCHERS = [
  * @param {boolean} options.logOriginal - 是否记录原始错误（默认true）
  * @returns {{ code: string, message: string, status: number }}
  */
-export const mapToErrorCode = function mapToErrorCode(error, options = {}) {
+export const mapToErrorCode = (error, options = {}) => {
   const { context = 'unknown', logOriginal = true } = options
 
   // 提取原始错误信息
@@ -147,7 +147,7 @@ export const mapToErrorCode = function mapToErrorCode(error, options = {}) {
 /**
  * 提取原始错误消息
  */
-const extractOriginalMessage = function extractOriginalMessage(error) {
+const extractOriginalMessage = (error) => {
   if (!error) {
     return ''
   }
@@ -178,7 +178,7 @@ const extractOriginalMessage = function extractOriginalMessage(error) {
  * @param {object} options - 选项
  * @returns {{ error: { code: string, message: string }, status: number }}
  */
-export const createSafeErrorResponse = function createSafeErrorResponse(error, options = {}) {
+export const createSafeErrorResponse = (error, options = {}) => {
   const mapped = mapToErrorCode(error, options)
   return {
     error: {
@@ -195,7 +195,7 @@ export const createSafeErrorResponse = function createSafeErrorResponse(error, o
  * @param {object} options - 选项
  * @returns {string} - SSE 格式的错误事件
  */
-export const createSafeSSEError = function createSafeSSEError(error, options = {}) {
+export const createSafeSSEError = (error, options = {}) => {
   const mapped = mapToErrorCode(error, options)
   return `event: error\ndata: ${JSON.stringify({
     error: mapped.message,
@@ -210,27 +210,13 @@ export const createSafeSSEError = function createSafeSSEError(error, options = {
  * @param {object} options - 选项
  * @returns {string}
  */
-export const getSafeMessage = function getSafeMessage(error, options = {}) {
-  return mapToErrorCode(error, options).message
-}
+export const getSafeMessage = (error, options = {}) => mapToErrorCode(error, options).message
 
-// 兼容旧接口
-export const sanitizeErrorMessage = function sanitizeErrorMessage(message) {
-  if (!message) {
-    return 'Service temporarily unavailable'
-  }
-  return mapToErrorCode({ message }, { logOriginal: false }).message
-}
+export const sanitizeUpstreamError = (errorData) => createSafeErrorResponse(errorData, { logOriginal: false })
 
-export const sanitizeUpstreamError = function sanitizeUpstreamError(errorData) {
-  return createSafeErrorResponse(errorData, { logOriginal: false })
-}
+export const extractErrorMessage = (body) => extractOriginalMessage(body)
 
-export const extractErrorMessage = function extractErrorMessage(body) {
-  return extractOriginalMessage(body)
-}
-
-export const isAccountDisabledError = function isAccountDisabledError(statusCode, body) {
+export const isAccountDisabledError = (statusCode, body) => {
   if (statusCode !== 400) {
     return false
   }

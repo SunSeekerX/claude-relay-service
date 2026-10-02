@@ -1,4 +1,5 @@
 import * as openaiAccountService from '../account/account_openai_service.js'
+import { assertModelAccess } from './relay_model_access.js'
 import { openaiResponsesAccountService } from '../account/account_openai_responses_service.js'
 import { accountGroupService } from '../account/account_group_service.js'
 import * as groupPolicy from '../account/account_group_policy.js'
@@ -285,6 +286,7 @@ class UnifiedOpenAIScheduler {
 
   // 统一调度OpenAI账号
   async selectAccountForApiKey(apiKeyData, sessionHash = null, requestedModel = null) {
+    assertModelAccess(apiKeyData, requestedModel)
     try {
       // 如果API Key绑定了专属账户或分组，优先使用
       if (apiKeyData.openaiAccountId) {

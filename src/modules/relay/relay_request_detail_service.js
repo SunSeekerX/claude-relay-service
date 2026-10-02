@@ -52,7 +52,7 @@ const accountServices = {
   bedrock: bedrockAccountService,
 }
 
-const clampRetentionHours = function clampRetentionHours(value) {
+const clampRetentionHours = (value) => {
   const parsed = Number.parseInt(value, 10)
   if (!Number.isFinite(parsed)) {
     return DEFAULT_RETENTION_HOURS
@@ -60,7 +60,7 @@ const clampRetentionHours = function clampRetentionHours(value) {
   return Math.min(Math.max(parsed, 1), MAX_RETENTION_HOURS)
 }
 
-const normalizeNumber = function normalizeNumber(value, digits = null) {
+const normalizeNumber = (value, digits = null) => {
   const num = Number(value)
   if (!Number.isFinite(num)) {
     return 0
@@ -74,7 +74,7 @@ const normalizeNumber = function normalizeNumber(value, digits = null) {
 }
 
 // 可选数值：缺省/非法返回 null（首字耗时等「有则展示」字段，禁止把 null 归一成 0）
-const normalizeOptionalNumber = function normalizeOptionalNumber(value, digits = null) {
+const normalizeOptionalNumber = (value, digits = null) => {
   if (value === null || value === undefined || value === '') {
     return null
   }
@@ -88,11 +88,9 @@ const normalizeOptionalNumber = function normalizeOptionalNumber(value, digits =
   return Number(num.toFixed(digits))
 }
 
-const normalizeTokenValue = function normalizeTokenValue(value) {
-  return Math.max(0, Math.trunc(normalizeNumber(value)))
-}
+const normalizeTokenValue = (value) => Math.max(0, Math.trunc(normalizeNumber(value)))
 
-const buildCostUsageFromRequestDetail = function buildCostUsageFromRequestDetail(record = {}) {
+const buildCostUsageFromRequestDetail = (record = {}) => {
   const inputTokens = normalizeTokenValue(record.inputTokens)
   const outputTokens = normalizeTokenValue(record.outputTokens)
   const cacheCreateTokens = normalizeTokenValue(record.cacheCreateTokens)
@@ -121,11 +119,10 @@ const buildCostUsageFromRequestDetail = function buildCostUsageFromRequestDetail
   return usage
 }
 
-const getCostResultNumber = function getCostResultNumber(costResult, key, fallbackKey = null) {
-  return normalizeNumber(costResult?.costs?.[key] ?? costResult?.[fallbackKey] ?? 0, 12)
-}
+const getCostResultNumber = (costResult, key, fallbackKey = null) =>
+  normalizeNumber(costResult?.costs?.[key] ?? costResult?.[fallbackKey] ?? 0, 12)
 
-const buildCostBreakdownFromResult = function buildCostBreakdownFromResult(costResult) {
+const buildCostBreakdownFromResult = (costResult) => {
   const input = getCostResultNumber(costResult, 'input', 'inputCost')
   const output = getCostResultNumber(costResult, 'output', 'outputCost')
   const cacheCreate =
@@ -148,7 +145,7 @@ const buildCostBreakdownFromResult = function buildCostBreakdownFromResult(costR
   }
 }
 
-const createCostRecomputePatch = function createCostRecomputePatch(record = {}) {
+const createCostRecomputePatch = (record = {}) => {
   const storedCost = normalizeNumber(record.cost, 6)
   const storedRealCost = normalizeNumber(record.realCost, 6)
   if (storedCost > 0 || storedRealCost > 0) {
@@ -192,7 +189,7 @@ const createCostRecomputePatch = function createCostRecomputePatch(record = {}) 
   }
 }
 
-const prepareRecordForDisplay = function prepareRecordForDisplay(record = {}) {
+const prepareRecordForDisplay = (record = {}) => {
   const costPatch = createCostRecomputePatch(record)
   if (!costPatch) {
     return record
@@ -209,11 +206,9 @@ const prepareRecordForDisplay = function prepareRecordForDisplay(record = {}) {
 // - day index 只是把候选请求按“UTC 那一天”粗分桶，减少查询扫描面
 // - 该口径已写入历史 key（request_detail:index:day:YYYY-MM-DD），不能直接切到业务时区，
 // 否则查询会同时错过旧桶并混淆新旧数据；若将来要切时区，必须走双写/迁移
-const formatDayKey = function formatDayKey(date) {
-  return date.toISOString().slice(0, 10)
-}
+const formatDayKey = (date) => date.toISOString().slice(0, 10)
 
-const listDayKeys = function listDayKeys(startDate, endDate) {
+const listDayKeys = (startDate, endDate) => {
   const keys = []
   const cursor = new Date(Date.UTC(startDate.getUTCFullYear(), startDate.getUTCMonth(), startDate.getUTCDate()))
   const endCursor = new Date(Date.UTC(endDate.getUTCFullYear(), endDate.getUTCMonth(), endDate.getUTCDate()))
@@ -226,7 +221,7 @@ const listDayKeys = function listDayKeys(startDate, endDate) {
   return keys
 }
 
-const toIsoString = function toIsoString(value) {
+const toIsoString = (value) => {
   if (!value) {
     return null
   }
@@ -239,7 +234,7 @@ const toIsoString = function toIsoString(value) {
   return date.toISOString()
 }
 
-const toMillis = function toMillis(value) {
+const toMillis = (value) => {
   if (value === null || value === undefined || value === '') {
     return null
   }
@@ -252,7 +247,7 @@ const toMillis = function toMillis(value) {
   return date.getTime()
 }
 
-const safeJsonParse = function safeJsonParse(value, label = 'request detail record') {
+const safeJsonParse = (value, label = 'request detail record') => {
   if (!value) {
     return null
   }
@@ -265,15 +260,11 @@ const safeJsonParse = function safeJsonParse(value, label = 'request detail reco
   }
 }
 
-const makeRequestDetailId = function makeRequestDetailId() {
-  return `rd_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`
-}
+const makeRequestDetailId = () => `rd_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`
 
-const makeRequestDetailQuerySnapshotId = function makeRequestDetailQuerySnapshotId() {
-  return `rds_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`
-}
+const makeRequestDetailQuerySnapshotId = () => `rds_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`
 
-const normalizeOptionalFilterValue = function normalizeOptionalFilterValue(value) {
+const normalizeOptionalFilterValue = (value) => {
   if (value === null || value === undefined) {
     return null
   }
@@ -282,12 +273,7 @@ const normalizeOptionalFilterValue = function normalizeOptionalFilterValue(value
   return normalized ? normalized : null
 }
 
-const createRequestDetailDateBoundarySignature = function createRequestDetailDateBoundarySignature(
-  type,
-  rawValue,
-  effectiveValue,
-  boundaryValue,
-) {
+const createRequestDetailDateBoundarySignature = (type, rawValue, effectiveValue, boundaryValue) => {
   if (!rawValue) {
     return {
       mode: 'absent',
@@ -323,10 +309,7 @@ const createRequestDetailDateBoundarySignature = function createRequestDetailDat
   }
 }
 
-const normalizeRequestDetailDateBoundarySignature = function normalizeRequestDetailDateBoundarySignature(
-  boundary = {},
-  legacyValue = null,
-) {
+const normalizeRequestDetailDateBoundarySignature = (boundary = {}, legacyValue = null) => {
   if (!boundary || typeof boundary !== 'object' || Array.isArray(boundary)) {
     return {
       mode: legacyValue ? 'fixed' : 'absent',
@@ -342,29 +325,19 @@ const normalizeRequestDetailDateBoundarySignature = function normalizeRequestDet
   }
 }
 
-const createRequestDetailFilterSignature = function createRequestDetailFilterSignature(
-  filters = {},
-  dateBoundarySignature = {},
-  retentionHours = null,
-) {
-  return {
-    keyword: normalizeOptionalFilterValue(filters.keyword),
-    apiKeyId: normalizeOptionalFilterValue(filters.apiKeyId),
-    accountId: normalizeOptionalFilterValue(filters.accountId),
-    model: normalizeOptionalFilterValue(filters.model),
-    endpoint: normalizeOptionalFilterValue(filters.endpoint),
-    sortOrder: filters.sortOrder === 'asc' ? 'asc' : 'desc',
-    retentionHours: retentionHours !== null && retentionHours !== undefined ? Number(retentionHours) : null,
-    startBoundary: normalizeRequestDetailDateBoundarySignature(dateBoundarySignature.startBoundary),
-    endBoundary: normalizeRequestDetailDateBoundarySignature(dateBoundarySignature.endBoundary),
-  }
-}
+const createRequestDetailFilterSignature = (filters = {}, dateBoundarySignature = {}, retentionHours = null) => ({
+  keyword: normalizeOptionalFilterValue(filters.keyword),
+  apiKeyId: normalizeOptionalFilterValue(filters.apiKeyId),
+  accountId: normalizeOptionalFilterValue(filters.accountId),
+  model: normalizeOptionalFilterValue(filters.model),
+  endpoint: normalizeOptionalFilterValue(filters.endpoint),
+  sortOrder: filters.sortOrder === 'asc' ? 'asc' : 'desc',
+  retentionHours: retentionHours !== null && retentionHours !== undefined ? Number(retentionHours) : null,
+  startBoundary: normalizeRequestDetailDateBoundarySignature(dateBoundarySignature.startBoundary),
+  endBoundary: normalizeRequestDetailDateBoundarySignature(dateBoundarySignature.endBoundary),
+})
 
-const requestDetailDateBoundarySignaturesMatch = function requestDetailDateBoundarySignaturesMatch(
-  snapshotBoundary,
-  currentBoundary,
-  type,
-) {
+const requestDetailDateBoundarySignaturesMatch = (snapshotBoundary, currentBoundary, type) => {
   if (snapshotBoundary.mode === currentBoundary.mode) {
     if (snapshotBoundary.mode === 'fixed') {
       return snapshotBoundary.value === currentBoundary.value
@@ -383,10 +356,7 @@ const requestDetailDateBoundarySignaturesMatch = function requestDetailDateBound
   return false
 }
 
-const requestDetailFilterSignaturesMatch = function requestDetailFilterSignaturesMatch(
-  snapshotSignature,
-  currentSignature,
-) {
+const requestDetailFilterSignaturesMatch = (snapshotSignature, currentSignature) => {
   const normalizedSnapshot = createRequestDetailFilterSignature(
     snapshotSignature,
     {
@@ -427,7 +397,7 @@ const requestDetailFilterSignaturesMatch = function requestDetailFilterSignature
   )
 }
 
-const flattenMatchedPointers = function flattenMatchedPointers(pointers = []) {
+const flattenMatchedPointers = (pointers = []) => {
   const flattened = []
 
   for (const pointer of pointers) {
@@ -444,7 +414,7 @@ const flattenMatchedPointers = function flattenMatchedPointers(pointers = []) {
   return flattened
 }
 
-const inflateMatchedPointers = function inflateMatchedPointers(flattened = []) {
+const inflateMatchedPointers = (flattened = []) => {
   const pointers = []
 
   for (let index = 0; index < flattened.length; index += 2) {
@@ -469,18 +439,16 @@ class RequestDetailValidationError extends Error {
   }
 }
 
-const createAvailableFilterAccumulator = function createAvailableFilterAccumulator() {
-  return {
-    apiKeyMap: new Map(),
-    accountMap: new Map(),
-    modelSet: new Set(),
-    endpointSet: new Set(),
-    earliest: null,
-    latest: null,
-  }
-}
+const createAvailableFilterAccumulator = () => ({
+  apiKeyMap: new Map(),
+  accountMap: new Map(),
+  modelSet: new Set(),
+  endpointSet: new Set(),
+  earliest: null,
+  latest: null,
+})
 
-const updateAvailableFilterAccumulator = function updateAvailableFilterAccumulator(accumulator, record) {
+const updateAvailableFilterAccumulator = (accumulator, record) => {
   if (record.apiKeyId) {
     accumulator.apiKeyMap.set(record.apiKeyId, {
       id: record.apiKeyId,
@@ -516,7 +484,7 @@ const updateAvailableFilterAccumulator = function updateAvailableFilterAccumulat
   }
 }
 
-const updateAvailableFilterAccumulatorRaw = function updateAvailableFilterAccumulatorRaw(accumulator, record) {
+const updateAvailableFilterAccumulatorRaw = (accumulator, record) => {
   if (record.apiKeyId && !accumulator.apiKeyMap.has(record.apiKeyId)) {
     accumulator.apiKeyMap.set(record.apiKeyId, {
       id: record.apiKeyId,
@@ -552,7 +520,7 @@ const updateAvailableFilterAccumulatorRaw = function updateAvailableFilterAccumu
   }
 }
 
-const restoreRecordTimestamp = function restoreRecordTimestamp(record, fallbackTimestampMs) {
+const restoreRecordTimestamp = (record, fallbackTimestampMs) => {
   if (!record) {
     return null
   }
@@ -569,37 +537,33 @@ const restoreRecordTimestamp = function restoreRecordTimestamp(record, fallbackT
   return record
 }
 
-const finalizeAvailableFilters = function finalizeAvailableFilters(accumulator) {
-  return {
-    apiKeys: Array.from(accumulator.apiKeyMap.values()).sort((a, b) => a.name.localeCompare(b.name)),
-    accounts: Array.from(accumulator.accountMap.values()).sort((a, b) => a.name.localeCompare(b.name)),
-    models: Array.from(accumulator.modelSet).sort((a, b) => a.localeCompare(b)),
-    endpoints: Array.from(accumulator.endpointSet).sort((a, b) => a.localeCompare(b)),
-    dateRange: {
-      earliest: accumulator.earliest !== null ? new Date(accumulator.earliest).toISOString() : null,
-      latest: accumulator.latest !== null ? new Date(accumulator.latest).toISOString() : null,
-    },
-  }
-}
+const finalizeAvailableFilters = (accumulator) => ({
+  apiKeys: Array.from(accumulator.apiKeyMap.values()).sort((a, b) => a.name.localeCompare(b.name)),
+  accounts: Array.from(accumulator.accountMap.values()).sort((a, b) => a.name.localeCompare(b.name)),
+  models: Array.from(accumulator.modelSet).sort((a, b) => a.localeCompare(b)),
+  endpoints: Array.from(accumulator.endpointSet).sort((a, b) => a.localeCompare(b)),
+  dateRange: {
+    earliest: accumulator.earliest !== null ? new Date(accumulator.earliest).toISOString() : null,
+    latest: accumulator.latest !== null ? new Date(accumulator.latest).toISOString() : null,
+  },
+})
 
-const createSummaryAccumulator = function createSummaryAccumulator() {
-  return {
-    totalRequests: 0,
-    inputTokens: 0,
-    outputTokens: 0,
-    cacheReadTokens: 0,
-    cacheCreateTokens: 0,
-    totalCost: 0,
-    totalDurationMs: 0,
-    totalFirstTokenMs: 0,
-    firstTokenSamples: 0,
-    cacheHitNumerator: 0,
-    cacheHitDenominator: 0,
-    openAIRelatedRequests: 0,
-  }
-}
+const createSummaryAccumulator = () => ({
+  totalRequests: 0,
+  inputTokens: 0,
+  outputTokens: 0,
+  cacheReadTokens: 0,
+  cacheCreateTokens: 0,
+  totalCost: 0,
+  totalDurationMs: 0,
+  totalFirstTokenMs: 0,
+  firstTokenSamples: 0,
+  cacheHitNumerator: 0,
+  cacheHitDenominator: 0,
+  openAIRelatedRequests: 0,
+})
 
-const updateSummaryAccumulator = function updateSummaryAccumulator(accumulator, record) {
+const updateSummaryAccumulator = (accumulator, record) => {
   const cacheMetrics = requestDetailHelper.getRequestDetailCacheMetrics(record)
 
   accumulator.totalRequests += 1
@@ -623,32 +587,30 @@ const updateSummaryAccumulator = function updateSummaryAccumulator(accumulator, 
   }
 }
 
-const finalizeSummary = function finalizeSummary(accumulator) {
-  return {
-    totalRequests: accumulator.totalRequests,
-    inputTokens: accumulator.inputTokens,
-    outputTokens: accumulator.outputTokens,
-    cacheReadTokens: accumulator.cacheReadTokens,
-    cacheCreateTokens: accumulator.cacheCreateTokens,
-    totalCost: Number(accumulator.totalCost.toFixed(6)),
-    avgDurationMs:
-      accumulator.totalRequests > 0 ? Math.round(accumulator.totalDurationMs / accumulator.totalRequests) : 0,
-    // 仅对有首字样本的流式请求求平均；无样本时 null（前端不展示 0ms 假数据）
-    avgFirstTokenMs:
-      accumulator.firstTokenSamples > 0
-        ? Math.round(accumulator.totalFirstTokenMs / accumulator.firstTokenSamples)
-        : null,
-    cacheHitRate:
-      accumulator.cacheHitDenominator > 0
-        ? Number(((accumulator.cacheHitNumerator / accumulator.cacheHitDenominator) * 100).toFixed(2))
-        : 0,
-    cacheHitNumerator: accumulator.cacheHitNumerator,
-    cacheHitDenominator: accumulator.cacheHitDenominator,
-    cacheHitFormula: requestDetailHelper.CACHE_HIT_FORMULA,
-    cacheCreateNotApplicable:
-      accumulator.totalRequests > 0 && accumulator.openAIRelatedRequests === accumulator.totalRequests,
-  }
-}
+const finalizeSummary = (accumulator) => ({
+  totalRequests: accumulator.totalRequests,
+  inputTokens: accumulator.inputTokens,
+  outputTokens: accumulator.outputTokens,
+  cacheReadTokens: accumulator.cacheReadTokens,
+  cacheCreateTokens: accumulator.cacheCreateTokens,
+  totalCost: Number(accumulator.totalCost.toFixed(6)),
+  avgDurationMs:
+    accumulator.totalRequests > 0 ? Math.round(accumulator.totalDurationMs / accumulator.totalRequests) : 0,
+  // 仅对有首字样本的流式请求求平均；无样本时 null（前端不展示 0ms 假数据）
+  avgFirstTokenMs:
+    accumulator.firstTokenSamples > 0
+      ? Math.round(accumulator.totalFirstTokenMs / accumulator.firstTokenSamples)
+      : null,
+  cacheHitRate:
+    accumulator.cacheHitDenominator > 0
+      ? Number(((accumulator.cacheHitNumerator / accumulator.cacheHitDenominator) * 100).toFixed(2))
+      : 0,
+  cacheHitNumerator: accumulator.cacheHitNumerator,
+  cacheHitDenominator: accumulator.cacheHitDenominator,
+  cacheHitFormula: requestDetailHelper.CACHE_HIT_FORMULA,
+  cacheCreateNotApplicable:
+    accumulator.totalRequests > 0 && accumulator.openAIRelatedRequests === accumulator.totalRequests,
+})
 
 class RequestDetailService {
   async getSettings() {
@@ -716,6 +678,7 @@ class RequestDetailService {
 
   _normalizeRecord(detail, requestId, options = {}) {
     const requestBodySource = detail.requestBodySnapshot ?? detail.requestBody
+    const responseBodySource = detail.responseBodySnapshot ?? detail.responseBody
     const timestamp = toIsoString(detail.timestamp) || new Date().toISOString()
     const durationMs = normalizeNumber(detail.durationMs)
     const firstTokenMs = normalizeOptionalNumber(detail.firstTokenMs)
@@ -781,10 +744,24 @@ class RequestDetailService {
         typeof detail.upstreamRequestId === 'string' && detail.upstreamRequestId.trim()
           ? detail.upstreamRequestId.trim().slice(0, 200)
           : null,
+      videoTaskId: detail.videoTaskId || null,
     }
 
     if (options.bodyPreviewEnabled && requestBodySource !== undefined) {
-      normalized.requestBodySnapshot = requestDetailHelper.sanitizeRequestBodySnapshot(requestBodySource)
+      normalized.requestBodySnapshot = requestDetailHelper.sanitizeRequestBodySnapshot(requestBodySource, {
+        maxDepth: 100,
+        maxArrayItems: Number.MAX_SAFE_INTEGER,
+        maxStringChars: Number.MAX_SAFE_INTEGER,
+        maxTotalChars: Number.MAX_SAFE_INTEGER,
+      })
+    }
+    if (options.bodyPreviewEnabled && responseBodySource !== undefined) {
+      normalized.responseBodySnapshot = requestDetailHelper.sanitizeRequestBodySnapshot(responseBodySource, {
+        maxDepth: 100,
+        maxArrayItems: Number.MAX_SAFE_INTEGER,
+        maxStringChars: Number.MAX_SAFE_INTEGER,
+        maxTotalChars: Number.MAX_SAFE_INTEGER,
+      })
     }
 
     return normalized
@@ -920,8 +897,10 @@ class RequestDetailService {
         const parsed = safeJsonParse(rawItem)
         if (
           parsed &&
-          Object.prototype.hasOwnProperty.call(parsed, 'requestBodySnapshot') &&
-          parsed.requestBodySnapshot !== undefined
+          ((Object.prototype.hasOwnProperty.call(parsed, 'requestBodySnapshot') &&
+            parsed.requestBodySnapshot !== undefined) ||
+            (Object.prototype.hasOwnProperty.call(parsed, 'responseBodySnapshot') &&
+              parsed.responseBodySnapshot !== undefined))
         ) {
           snapshotCount += 1
         }
@@ -949,13 +928,16 @@ class RequestDetailService {
         const parsed = safeJsonParse(rawItem)
         if (
           !parsed ||
-          !Object.prototype.hasOwnProperty.call(parsed, 'requestBodySnapshot') ||
-          parsed.requestBodySnapshot === undefined
+          ((!Object.prototype.hasOwnProperty.call(parsed, 'requestBodySnapshot') ||
+            parsed.requestBodySnapshot === undefined) &&
+            (!Object.prototype.hasOwnProperty.call(parsed, 'responseBodySnapshot') ||
+              parsed.responseBodySnapshot === undefined))
         ) {
           return
         }
 
         delete parsed.requestBodySnapshot
+        delete parsed.responseBodySnapshot
         pipeline.set(keys[index], JSON.stringify(parsed), 'KEEPTTL')
         hasMutations = true
         updatedRecords += 1
@@ -1283,6 +1265,7 @@ class RequestDetailService {
     return enrichedRecords.map((record) => ({
       ...record,
       requestBodySnapshot: undefined,
+      responseBodySnapshot: undefined,
     }))
   }
 

@@ -15,7 +15,7 @@ const OLD_FORMAT_REGEX = /^user_([a-fA-F0-9]{64})_account_(.*?)_session_([a-f0-9
  * @param {*} userId - user_id 值
  * @returns {{ deviceId: string, accountUuid: string, sessionId: string, isJsonFormat: boolean } | null}
  */
-export const parse = function parse(userId) {
+export const parse = (userId) => {
   if (typeof userId !== 'string' || !userId) {
     return null
   }
@@ -59,7 +59,7 @@ export const parse = function parse(userId) {
  * @param {*} userId - user_id 值
  * @returns {string | null}
  */
-export const extractSessionId = function extractSessionId(userId) {
+export const extractSessionId = (userId) => {
   const parsed = parse(userId)
   return parsed ? parsed.sessionId : null
 }
@@ -69,7 +69,7 @@ export const extractSessionId = function extractSessionId(userId) {
  * @param {{ deviceId: string, accountUuid: string, sessionId: string, isJsonFormat: boolean }} parts
  * @returns {string}
  */
-export const build = function build(parts) {
+export const build = (parts) => {
   const { deviceId, accountUuid, sessionId, isJsonFormat } = parts
 
   if (isJsonFormat) {
@@ -88,6 +88,4 @@ export const build = function build(parts) {
  * @param {*} userId - user_id 值
  * @returns {boolean}
  */
-export const isValid = function isValid(userId) {
-  return parse(userId) !== null
-}
+export const isValid = (userId) => parse(userId) !== null

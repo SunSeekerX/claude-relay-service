@@ -43,7 +43,7 @@ const PROXY_BINDABLE_STORES = [
   },
 ]
 
-export const attach = function attach(redisClient) {
+export const attach = (redisClient) => {
   // 全量代理配置（返回已解析的对象数组）
   redisClient.getProxyConfigsAll = async function () {
     const client = this.getClientSafe()

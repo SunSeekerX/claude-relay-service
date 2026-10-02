@@ -30,7 +30,7 @@ let ipRateLimiter = null
 let strictIpRateLimiter = null
 
 // 初始化速率限制器函数
-const initRateLimiters = function initRateLimiters() {
+const initRateLimiters = () => {
   if (!ipRateLimiter) {
     try {
       const redisClient = redis.getClientSafe()

@@ -20,19 +20,32 @@ const keepAliveAgent = new https.Agent({
   maxFreeSockets: 10,
 })
 
-export const getAntigravityApiUrl = function getAntigravityApiUrl() {
-  return env.ANTIGRAVITY_API_URL || 'https://daily-cloudcode-pa.sandbox.googleapis.com'
+// DEC_20261001_114137 端点/UA/请求体对齐 CLIProxyAPI antigravity executor（hub 2.9.1，非 sandbox daily）
+const ANTIGRAVITY_DAILY_BASE_URL = 'https://daily-cloudcode-pa.googleapis.com'
+const ANTIGRAVITY_PROD_BASE_URL = 'https://cloudcode-pa.googleapis.com'
+const ANTIGRAVITY_DEFAULT_USER_AGENT = 'antigravity/hub/2.9.1 darwin/arm64'
+
+export const ensureAntigravityProjectId = (account) => {
+  if (account.projectId) {
+    return account.projectId
+  }
+  if (account.tempProjectId) {
+    return account.tempProjectId
+  }
+  return `ag-${crypto.randomBytes(8).toString('hex')}`
 }
 
-const normalizeBaseUrl = function normalizeBaseUrl(url) {
+export const getAntigravityApiUrl = () => env.ANTIGRAVITY_API_URL || ANTIGRAVITY_DAILY_BASE_URL
+
+const normalizeBaseUrl = (url) => {
   const str = String(url || '').trim()
   return str.endsWith('/') ? str.slice(0, -1) : str
 }
 
-export const getAntigravityApiUrlCandidates = function getAntigravityApiUrlCandidates() {
+export const getAntigravityApiUrlCandidates = () => {
   const configured = normalizeBaseUrl(getAntigravityApiUrl())
-  const daily = 'https://daily-cloudcode-pa.sandbox.googleapis.com'
-  const prod = 'https://cloudcode-pa.googleapis.com'
+  const daily = ANTIGRAVITY_DAILY_BASE_URL
+  const prod = ANTIGRAVITY_PROD_BASE_URL
 
   // 若显式配置了自定义 base url，则只使用该地址（不做 fallback，避免意外路由到别的环境）。
   if (env.ANTIGRAVITY_API_URL) {
@@ -50,49 +63,51 @@ export const getAntigravityApiUrlCandidates = function getAntigravityApiUrlCandi
   return [configured, prod, daily].filter(Boolean)
 }
 
-export const getAntigravityHeaders = function getAntigravityHeaders(accessToken, baseUrl) {
+export const getAntigravityHeaders = (accessToken, baseUrl) => {
   const resolvedBaseUrl = baseUrl || getAntigravityApiUrl()
-  let host = 'daily-cloudcode-pa.sandbox.googleapis.com'
+  let { host } = new URL(ANTIGRAVITY_DAILY_BASE_URL)
   try {
     host = new URL(resolvedBaseUrl).host || host
-  } catch (e) {
-    // ignore
+  } catch (error) {
+    logger.warn(`[Antigravity] invalid base url, fallback host=${host} baseUrl=${resolvedBaseUrl}`)
+    console.error(error)
   }
 
+  // 只发 Host/UA/Authorization/Content-Type；requestType 移入 body
   return {
     Host: host,
-    'User-Agent': env.ANTIGRAVITY_USER_AGENT || 'antigravity/1.15.8 windows/amd64',
+    'User-Agent': env.ANTIGRAVITY_USER_AGENT || ANTIGRAVITY_DEFAULT_USER_AGENT,
     Authorization: `Bearer ${accessToken}`,
     'Content-Type': 'application/json',
-    'Accept-Encoding': 'gzip',
-    requestType: 'agent',
   }
 }
 
-const generateAntigravityProjectId = function generateAntigravityProjectId() {
-  return `ag-${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`
+const generateAntigravityProjectId = () => `ag-${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`
+
+// 首条 user 文本 sha256 前 8 字节取 int63，生成稳定 sessionId（对齐 CLIProxyAPI generateStableSessionID）
+const generateAntigravitySessionId = (requestPayload) => {
+  const contents = Array.isArray(requestPayload?.contents) ? requestPayload.contents : []
+  for (const content of contents) {
+    const text = content?.role === 'user' ? content?.parts?.[0]?.text : ''
+    if (typeof text === 'string' && text) {
+      const digest = crypto.createHash('sha256').update(text, 'utf8').digest()
+      return `-${(digest.readBigUInt64BE(0) & 0x7fffffffffffffffn).toString()}`
+    }
+  }
+  return `-${(crypto.randomBytes(8).readBigUInt64BE(0) & 0x7fffffffffffffffn).toString()}`
 }
 
-const generateAntigravitySessionId = function generateAntigravitySessionId() {
-  return `sess-${crypto.randomUUID()}`
-}
-
-const resolveAntigravityProjectId = function resolveAntigravityProjectId(projectId, requestData) {
+const resolveAntigravityProjectId = (projectId, requestData) => {
   const candidate = projectId || requestData?.project || requestData?.projectId || null
   return candidate || generateAntigravityProjectId()
 }
 
-const resolveAntigravitySessionId = function resolveAntigravitySessionId(sessionId, requestData) {
-  const candidate = sessionId || requestData?.request?.sessionId || requestData?.request?.session_id || null
-  return candidate || generateAntigravitySessionId()
+const resolveAntigravitySessionId = (sessionId, requestData) => {
+  const candidate = requestData?.request?.sessionId || requestData?.request?.session_id || sessionId || null
+  return candidate || generateAntigravitySessionId(requestData?.request)
 }
 
-export const buildAntigravityEnvelope = function buildAntigravityEnvelope({
-  requestData,
-  projectId,
-  sessionId,
-  userPromptId,
-}) {
+export const buildAntigravityEnvelope = ({ requestData, projectId, sessionId }) => {
   const model = mapAntigravityUpstreamModel(requestData?.model)
   const resolvedProjectId = resolveAntigravityProjectId(projectId, requestData)
   const resolvedSessionId = resolveAntigravitySessionId(sessionId, requestData)
@@ -105,26 +120,24 @@ export const buildAntigravityEnvelope = function buildAntigravityEnvelope({
   }
   requestPayload.sessionId = resolvedSessionId
 
+  // 图像模型 requestType=image_gen，其余 agent；Antigravity 不接受 user_prompt_id
+  const isImageModel = String(model || '').includes('image')
   const envelope = {
     project: resolvedProjectId,
-    requestId: `req-${crypto.randomUUID()}`,
+    requestId: isImageModel ? `image_gen/${Date.now()}/${crypto.randomUUID()}/12` : `agent-${crypto.randomUUID()}`,
     model,
     userAgent: 'antigravity',
+    requestType: isImageModel ? 'image_gen' : 'agent',
     request: {
       ...requestPayload,
     },
-  }
-
-  if (userPromptId) {
-    envelope.user_prompt_id = userPromptId
-    envelope.userPromptId = userPromptId
   }
 
   normalizeAntigravityEnvelope(envelope)
   return { model, envelope }
 }
 
-const normalizeAntigravityThinking = function normalizeAntigravityThinking(model, requestPayload) {
+const normalizeAntigravityThinking = (model, requestPayload) => {
   if (!requestPayload || typeof requestPayload !== 'object') {
     return
   }
@@ -139,7 +152,8 @@ const normalizeAntigravityThinking = function normalizeAntigravityThinking(model
   }
 
   const normalizedModel = normalizeAntigravityModelInput(model)
-  if (thinkingConfig.thinkingLevel && !normalizedModel.startsWith('gemini-3-')) {
+  // gemini-3 / 3.x 系列（含 3.1/3.5/3.6+）与 gemini-pro-agent（3.1 Pro High）支持 thinkingLevel
+  if (thinkingConfig.thinkingLevel && !/^gemini-(3(\.\d+)?-|pro-agent$)/.test(normalizedModel)) {
     delete thinkingConfig.thinkingLevel
   }
 
@@ -187,7 +201,7 @@ const normalizeAntigravityThinking = function normalizeAntigravityThinking(model
   }
 }
 
-const normalizeAntigravityEnvelope = function normalizeAntigravityEnvelope(envelope) {
+const normalizeAntigravityEnvelope = (envelope) => {
   if (!envelope || typeof envelope !== 'object') {
     return
   }
@@ -207,6 +221,23 @@ const normalizeAntigravityEnvelope = function normalizeAntigravityEnvelope(envel
     if (existing?.mode !== 'NONE') {
       const nextCfg = { ...(existing || {}), mode: 'VALIDATED' }
       requestPayload.toolConfig = { functionCallingConfig: nextCfg }
+    }
+  }
+
+  // Antigravity 只认 generationConfig.responseSchema（CLIProxyAPI dc21a426）
+  for (const containerKey of ['generationConfig', 'generation_config']) {
+    const container = requestPayload[containerKey]
+    if (!container || typeof container !== 'object') {
+      continue
+    }
+    for (const schemaKey of ['responseJsonSchema', 'response_json_schema']) {
+      if (container[schemaKey] === undefined) {
+        continue
+      }
+      if (container.responseSchema === undefined) {
+        container.responseSchema = container[schemaKey]
+      }
+      delete container[schemaKey]
     }
   }
 
@@ -257,23 +288,21 @@ const normalizeAntigravityEnvelope = function normalizeAntigravityEnvelope(envel
   }
 }
 
-export const request = async function request({
+export const request = async ({
   accessToken,
   proxyConfig = null,
   requestData,
   projectId = null,
   sessionId = null,
-  userPromptId = null,
   stream = false,
   signal = null,
   params = null,
   timeoutMs = null,
-}) {
+}) => {
   const { model, envelope } = buildAntigravityEnvelope({
     requestData,
     projectId,
     sessionId,
-    userPromptId,
   })
 
   const proxyAgent = ProxyHelper.createProxyAgent(proxyConfig)
@@ -282,26 +311,12 @@ export const request = async function request({
   // Claude 模型在 sandbox(daily) 环境下对 tool_use/tool_result 的兼容性不稳定，优先走 prod。
   // 保持可配置优先：若用户显式设置了 ANTIGRAVITY_API_URL，则不改变顺序。
   if (!env.ANTIGRAVITY_API_URL && String(model).includes('claude')) {
-    const prodHost = 'cloudcode-pa.googleapis.com'
-    const dailyHost = 'daily-cloudcode-pa.sandbox.googleapis.com'
-    const ordered = []
-    for (const u of endpoints) {
-      if (String(u).includes(prodHost)) {
-        ordered.push(u)
-      }
-    }
-    for (const u of endpoints) {
-      if (!String(u).includes(prodHost)) {
-        ordered.push(u)
-      }
-    }
-    // 去重并保持 prod -> daily 的稳定顺序
-    endpoints = Array.from(new Set(ordered)).sort((a, b) => {
-      const av = String(a)
-      const bv = String(b)
-      const aScore = av.includes(prodHost) ? 0 : av.includes(dailyHost) ? 1 : 2
-      const bScore = bv.includes(prodHost) ? 0 : bv.includes(dailyHost) ? 1 : 2
-      return aScore - bScore
+    const prodBaseUrl = normalizeBaseUrl(ANTIGRAVITY_PROD_BASE_URL)
+    // 去重并保持 prod -> 其他 的稳定顺序（按完整 base url 比较，daily 域名包含 prod 子串）
+    endpoints = Array.from(new Set(endpoints)).sort((left, right) => {
+      const leftScore = normalizeBaseUrl(left) === prodBaseUrl ? 0 : 1
+      const rightScore = normalizeBaseUrl(right) === prodBaseUrl ? 0 : 1
+      return leftScore - rightScore
     })
   }
 
@@ -480,11 +495,7 @@ export const request = async function request({
   }
 }
 
-export const fetchAvailableModels = async function fetchAvailableModels({
-  accessToken,
-  proxyConfig = null,
-  timeoutMs = 30000,
-}) {
+export const fetchAvailableModels = async ({ accessToken, proxyConfig = null, timeoutMs = 30000 }) => {
   const proxyAgent = ProxyHelper.createProxyAgent(proxyConfig)
   const endpoints = getAntigravityApiUrlCandidates()
 
@@ -528,13 +539,7 @@ export const fetchAvailableModels = async function fetchAvailableModels({
   throw lastError || new Error('Antigravity fetchAvailableModels failed')
 }
 
-export const countTokens = async function countTokens({
-  accessToken,
-  proxyConfig = null,
-  contents,
-  model,
-  timeoutMs = 30000,
-}) {
+export const countTokens = async ({ accessToken, proxyConfig = null, contents, model, timeoutMs = 30000 }) => {
   const upstreamModel = mapAntigravityUpstreamModel(model)
 
   const proxyAgent = ProxyHelper.createProxyAgent(proxyConfig)

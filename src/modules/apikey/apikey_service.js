@@ -95,7 +95,7 @@ const ACCOUNT_CATEGORY_MAP = {
 
 // normalizePermissions / hasPermission 已收拢至 src/compat/permissions.js(见顶部 require)
 
-const normalizeAccountTypeKey = function normalizeAccountTypeKey(type) {
+const normalizeAccountTypeKey = (type) => {
   if (!type) {
     return null
   }
@@ -115,7 +115,7 @@ const normalizeAccountTypeKey = function normalizeAccountTypeKey(type) {
   return lower
 }
 
-const sanitizeAccountIdForType = function sanitizeAccountIdForType(accountId, accountType) {
+const sanitizeAccountIdForType = (accountId, accountType) => {
   if (!accountId || typeof accountId !== 'string') {
     return accountId
   }
@@ -128,7 +128,7 @@ const sanitizeAccountIdForType = function sanitizeAccountIdForType(accountId, ac
   return accountId
 }
 
-const parseBooleanWithDefault = function parseBooleanWithDefault(value, defaultValue = false) {
+const parseBooleanWithDefault = (value, defaultValue = false) => {
   if (value === undefined || value === null || value === '') {
     return defaultValue
   }
@@ -144,7 +144,7 @@ const parseBooleanWithDefault = function parseBooleanWithDefault(value, defaultV
   return Boolean(value)
 }
 
-const parseOpenAIResponsesPayloadRules = function parseOpenAIResponsesPayloadRules(rawRules) {
+const parseOpenAIResponsesPayloadRules = (rawRules) => {
   if (rawRules === undefined || rawRules === null || rawRules === '') {
     return []
   }

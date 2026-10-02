@@ -121,6 +121,16 @@ export const purgeRequestDetailBodyPreviewApi = (config) =>
 export const getRequestDetailApi = (requestId) =>
   request({ url: `/admin/request-details/${requestId}`, method: 'GET' })
 
+// Grok 异步视频任务
+export const getGrokVideoTasksApi = (params = {}) =>
+  request({ url: '/admin/grok-video-tasks', method: 'GET', params })
+export const getGrokVideoTaskApi = (apiKeyId, requestId) =>
+  request({
+    url: `/admin/grok-video-tasks/${encodeURIComponent(apiKeyId)}/${encodeURIComponent(requestId)}`,
+    method: 'GET'
+  })
+export const getSecurityEventsApi = () => request({ url: '/admin/security-events', method: 'GET' })
+
 // 客户端
 export const getSupportedClientsApi = () =>
   request({ url: '/admin/supported-clients', method: 'GET' })

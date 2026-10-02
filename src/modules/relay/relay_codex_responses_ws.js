@@ -4,6 +4,22 @@
 
 export const CODEX_RESPONSES_WS_BETA = 'responses_websockets=2026-02-06'
 
+// DEC_20261001_114137 Codex 伪装/测试版本统一 0.161.0（满足 gpt-6-sol/luna minimal_client_version 0.155.0）
+export const CODEX_CLI_VERSION = '0.161.0'
+export const CODEX_ORIGINATOR = 'codex_cli_rs'
+export const CODEX_USER_AGENT = `${CODEX_ORIGINATOR}/${CODEX_CLI_VERSION}`
+
+// 官方 build_websocket_headers 下发的 Codex 会话/元数据头（客户端带则透传）
+// 证明（x-oai-attestation）、内部能力与路由（responses-lite/memgen/routing-hint）不接受客户端值
+const CODEX_WS_PASSTHROUGH_HEADERS = [
+  'x-codex-turn-state',
+  'x-codex-turn-metadata',
+  'x-codex-window-id',
+  'x-codex-parent-thread-id',
+  'x-codex-beta-features',
+  'x-codex-installation-id',
+]
+
 // 是否为 Responses WebSocket 路径（不含 realtime/live）
 export const isResponsesWebSocketPath = (pathname) => {
   const path = String(pathname || '')
@@ -58,14 +74,17 @@ export const buildResponsesWebsocketUpstreamHeaders = ({
 } = {}) => {
   const headers = {
     authorization: `Bearer ${accessToken}`,
-    originator: clientHeaders.originator || 'codex_cli_rs',
+    originator: clientHeaders.originator || CODEX_ORIGINATOR,
     version: clientHeaders.version || undefined,
     'session-id': clientHeaders['session-id'] || clientHeaders['session_id'] || undefined,
     'thread-id': clientHeaders['thread-id'] || undefined,
     'x-client-request-id': clientHeaders['x-client-request-id'] || undefined,
     'x-openai-subagent': clientHeaders['x-openai-subagent'] || undefined,
-    'user-agent': clientHeaders['user-agent'] || 'codex_cli_rs',
+    'user-agent': clientHeaders['user-agent'] || CODEX_USER_AGENT,
     'openai-beta': mergeResponsesWebsocketBetaHeader(clientHeaders['openai-beta']),
+  }
+  for (const headerName of CODEX_WS_PASSTHROUGH_HEADERS) {
+    headers[headerName] = clientHeaders[headerName] || undefined
   }
   const chatgptAccountId =
     account.accountId || account.chatgptUserId || clientHeaders['chatgpt-account-id'] || accountId

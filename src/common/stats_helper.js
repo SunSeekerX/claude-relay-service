@@ -19,7 +19,7 @@
  * - 示例：len=100, P50 → ceil(50) - 1 = 49（第50个元素，0-indexed）
  * - 示例：len=100, P99 → ceil(99) - 1 = 98（第99个元素）
  */
-export const getPercentile = function getPercentile(sortedArray, percentile) {
+export const getPercentile = (sortedArray, percentile) => {
   const len = sortedArray.length
   if (len === 0) {
     return 0
@@ -64,7 +64,7 @@ export const getPercentile = function getPercentile(sortedArray, percentile) {
  * - 样本 < 100: P99 不可靠（P90 需要 10 个样本，P99 需要 100 个样本）
  * - 即使标记为不可靠，仍返回计算值供参考
  */
-export const calculateWaitTimeStats = function calculateWaitTimeStats(waitTimes) {
+export const calculateWaitTimeStats = (waitTimes) => {
   if (!waitTimes || waitTimes.length === 0) {
     return null
   }

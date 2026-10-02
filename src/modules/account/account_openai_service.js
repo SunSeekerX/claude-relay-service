@@ -23,7 +23,7 @@ setInterval(
   10 * 60 * 1000,
 )
 
-const toNumberOrNull = function toNumberOrNull(value) {
+const toNumberOrNull = (value) => {
   if (value === undefined || value === null || value === '') {
     return null
   }
@@ -33,7 +33,7 @@ const toNumberOrNull = function toNumberOrNull(value) {
 }
 
 // 上游请求标识头名：仅 token 字符，最长 64；空=自动探测
-const normalizeUpstreamRequestIdHeader = function normalizeUpstreamRequestIdHeader(value) {
+const normalizeUpstreamRequestIdHeader = (value) => {
   if (value === undefined || value === null) {
     return ''
   }
@@ -47,7 +47,7 @@ const normalizeUpstreamRequestIdHeader = function normalizeUpstreamRequestIdHead
   return trimmed
 }
 
-const computeResetMeta = function computeResetMeta(updatedAt, resetAfterSeconds) {
+const computeResetMeta = (updatedAt, resetAfterSeconds) => {
   if (!updatedAt || resetAfterSeconds === null || resetAfterSeconds === undefined) {
     return {
       resetAt: null,
@@ -70,7 +70,7 @@ const computeResetMeta = function computeResetMeta(updatedAt, resetAfterSeconds)
   }
 }
 
-const buildCodexUsageSnapshot = function buildCodexUsageSnapshot(accountData) {
+const buildCodexUsageSnapshot = (accountData) => {
   const updatedAt = accountData.codexUsageUpdatedAt
 
   const primaryUsedPercent = toNumberOrNull(accountData.codexPrimaryUsedPercent)
@@ -114,7 +114,7 @@ const buildCodexUsageSnapshot = function buildCodexUsageSnapshot(accountData) {
 }
 
 // 刷新访问令牌
-const refreshAccessToken = async function refreshAccessToken(refreshToken, proxy = null) {
+const refreshAccessToken = async (refreshToken, proxy = null) => {
   try {
     // Codex CLI 的官方 CLIENT_ID
     const CLIENT_ID = 'app_EMoamEEZ73f0CkXaXp7hrann'
@@ -245,7 +245,7 @@ const refreshAccessToken = async function refreshAccessToken(refreshToken, proxy
 }
 
 // 检查 token 是否过期
-export const isTokenExpired = function isTokenExpired(account) {
+export const isTokenExpired = (account) => {
   if (!account.expiresAt) {
     return false
   }
@@ -257,7 +257,7 @@ export const isTokenExpired = function isTokenExpired(account) {
  * @param {Object} account - 账户对象
  * @returns {boolean} - true: 已过期, false: 未过期
  */
-const isSubscriptionExpired = function isSubscriptionExpired(account) {
+const isSubscriptionExpired = (account) => {
   if (!account.subscriptionExpiresAt) {
     return false // 未设置视为永不过期
   }
@@ -266,7 +266,7 @@ const isSubscriptionExpired = function isSubscriptionExpired(account) {
 }
 
 // 刷新账户的 access token（带分布式锁）
-export const refreshAccountToken = async function refreshAccountToken(accountId) {
+export const refreshAccountToken = async (accountId) => {
   let lockAcquired = false
   let account = null
   let accountName = accountId
@@ -427,7 +427,7 @@ export const refreshAccountToken = async function refreshAccountToken(accountId)
 }
 
 // 创建账户
-export const createAccount = async function createAccount(accountData) {
+export const createAccount = async (accountData) => {
   const accountId = crypto.randomUUID()
   const now = new Date().toISOString()
 
@@ -512,7 +512,7 @@ export const createAccount = async function createAccount(accountData) {
 }
 
 // 获取账户
-export const getAccount = async function getAccount(accountId) {
+export const getAccount = async (accountId) => {
   const client = redisClient.getClientSafe()
   const accountData = await client.hgetall(RedisKeys.accounts.openai(accountId))
 
@@ -555,7 +555,7 @@ export const getAccount = async function getAccount(accountId) {
 }
 
 // 更新账户
-export const updateAccount = async function updateAccount(accountId, updates) {
+export const updateAccount = async (accountId, updates) => {
   const existingAccount = await getAccount(accountId)
   if (!existingAccount) {
     throw new Error('Account not found')
@@ -646,7 +646,7 @@ export const updateAccount = async function updateAccount(accountId, updates) {
 }
 
 // 删除账户
-export const deleteAccount = async function deleteAccount(accountId) {
+export const deleteAccount = async (accountId) => {
   const account = await getAccount(accountId)
   if (!account) {
     throw new Error('Account not found')
@@ -675,7 +675,7 @@ export const deleteAccount = async function deleteAccount(accountId) {
   return true
 }
 
-const buildRateLimitInfoFromAccount = function buildRateLimitInfoFromAccount(account) {
+const buildRateLimitInfoFromAccount = (account) => {
   if (!account) {
     return null
   }
@@ -709,7 +709,7 @@ const buildRateLimitInfoFromAccount = function buildRateLimitInfoFromAccount(acc
 }
 
 // 获取所有账户
-export const getAllAccounts = async function getAllAccounts() {
+export const getAllAccounts = async () => {
   const _client = redisClient.getClientSafe()
   const accountIds = await redisClient.getAllIdsByIndex(
     RedisKeys.accounts.openaiIndex,
@@ -813,7 +813,7 @@ export const getAllAccounts = async function getAllAccounts() {
 }
 
 // 获取单个账户的概要信息（用于外部展示基本状态）
-export const getAccountOverview = async function getAccountOverview(accountId) {
+export const getAccountOverview = async (accountId) => {
   const client = redisClient.getClientSafe()
   const accountData = await client.hgetall(RedisKeys.accounts.openai(accountId))
 
@@ -853,7 +853,7 @@ export const getAccountOverview = async function getAccountOverview(accountId) {
 }
 
 // 选择可用账户（支持专属和共享账户）
-export const selectAvailableAccount = async function selectAvailableAccount(apiKeyId, sessionHash = null) {
+export const selectAvailableAccount = async (apiKeyId, sessionHash = null) => {
   // 首先检查是否有粘性会话
   const client = redisClient.getClientSafe()
   if (sessionHash) {
@@ -947,7 +947,7 @@ export const selectAvailableAccount = async function selectAvailableAccount(apiK
 }
 
 // 检查账户是否被限流
-const isRateLimited = function isRateLimited(account) {
+const isRateLimited = (account) => {
   if (account.rateLimitStatus === 'limited' && account.rateLimitedAt) {
     const limitedAt = new Date(account.rateLimitedAt).getTime()
     const now = Date.now()
@@ -959,11 +959,7 @@ const isRateLimited = function isRateLimited(account) {
 }
 
 // 设置账户限流状态
-export const setAccountRateLimited = async function setAccountRateLimited(
-  accountId,
-  isLimited,
-  resetsInSeconds = null,
-) {
+export const setAccountRateLimited = async (accountId, isLimited, resetsInSeconds = null) => {
   // disableAutoProtection 检查（仅在设置限流时）
   if (isLimited) {
     const account = await getAccount(accountId)
@@ -1026,10 +1022,7 @@ export const setAccountRateLimited = async function setAccountRateLimited(
 }
 
 // 标记账户为未授权状态（401错误）
-export const markAccountUnauthorized = async function markAccountUnauthorized(
-  accountId,
-  reason = 'OpenAI账号认证失败（401错误）',
-) {
+export const markAccountUnauthorized = async (accountId, reason = 'OpenAI账号认证失败（401错误）') => {
   const account = await getAccount(accountId)
   if (!account) {
     throw new Error('Account not found')
@@ -1074,7 +1067,7 @@ export const markAccountUnauthorized = async function markAccountUnauthorized(
 }
 
 // 重置账户所有异常状态
-export const resetAccountStatus = async function resetAccountStatus(accountId) {
+export const resetAccountStatus = async (accountId) => {
   const account = await getAccount(accountId)
   if (!account) {
     throw new Error('Account not found')
@@ -1118,7 +1111,7 @@ export const resetAccountStatus = async function resetAccountStatus(accountId) {
 }
 
 // 切换账户调度状态
-export const toggleSchedulable = async function toggleSchedulable(accountId) {
+export const toggleSchedulable = async (accountId) => {
   const account = await getAccount(accountId)
   if (!account) {
     throw new Error('Account not found')
@@ -1140,13 +1133,13 @@ export const toggleSchedulable = async function toggleSchedulable(accountId) {
 }
 
 // 获取账户限流信息
-export const getAccountRateLimitInfo = async function getAccountRateLimitInfo(accountId) {
+export const getAccountRateLimitInfo = async (accountId) => {
   const account = await getAccount(accountId)
   return buildRateLimitInfoFromAccount(account)
 }
 
 // 更新账户使用统计（tokens参数可选，默认为0，仅更新最后使用时间）
-export const updateAccountUsage = async function updateAccountUsage(accountId, tokens = 0) {
+export const updateAccountUsage = async (accountId, tokens = 0) => {
   const account = await getAccount(accountId)
   if (!account) {
     return
@@ -1168,7 +1161,7 @@ export const updateAccountUsage = async function updateAccountUsage(accountId, t
 // 兼容保留 recordUsage 作为 updateAccountUsage 别名
 export const recordUsage = updateAccountUsage
 
-export const updateCodexUsageSnapshot = async function updateCodexUsageSnapshot(accountId, usageSnapshot) {
+export const updateCodexUsageSnapshot = async (accountId, usageSnapshot) => {
   if (!usageSnapshot || typeof usageSnapshot !== 'object') {
     return
   }

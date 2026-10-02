@@ -1,21 +1,21 @@
-export const getDateInTimezone = function getDateInTimezone(date = new Date(), offset = 8) {
+export const getDateInTimezone = (date = new Date(), offset = 8) => {
   const offsetMs = offset * 3600000
   return new Date(date.getTime() + offsetMs)
 }
 
-export const getDateStringInTimezone = function getDateStringInTimezone(date = new Date(), offset = 8) {
+export const getDateStringInTimezone = (date = new Date(), offset = 8) => {
   const tzDate = getDateInTimezone(date, offset)
   return `${tzDate.getUTCFullYear()}-${String(tzDate.getUTCMonth() + 1).padStart(2, '0')}-${String(
     tzDate.getUTCDate(),
   ).padStart(2, '0')}`
 }
 
-export const getHourInTimezone = function getHourInTimezone(date = new Date(), offset = 8) {
+export const getHourInTimezone = (date = new Date(), offset = 8) => {
   const tzDate = getDateInTimezone(date, offset)
   return tzDate.getUTCHours()
 }
 
-export const getWeekStringInTimezone = function getWeekStringInTimezone(date = new Date(), offset = 8) {
+export const getWeekStringInTimezone = (date = new Date(), offset = 8) => {
   const tzDate = getDateInTimezone(date, offset)
   const year = tzDate.getUTCFullYear()
   const dateObj = new Date(tzDate)
@@ -29,7 +29,7 @@ export const getWeekStringInTimezone = function getWeekStringInTimezone(date = n
   return `${year}-W${String(weekNumber).padStart(2, '0')}`
 }
 
-export const getPeriodString = function getPeriodString(resetDay = 1, resetHour = 0, date = new Date(), offset = 8) {
+export const getPeriodString = (resetDay = 1, resetHour = 0, date = new Date(), offset = 8) => {
   const tzDate = getDateInTimezone(date, offset)
   const currentDay = tzDate.getUTCDay() || 7
   const currentHour = tzDate.getUTCHours()
@@ -51,7 +51,7 @@ export const getPeriodString = function getPeriodString(resetDay = 1, resetHour 
   return `${y}-${m}-${d}T${h}`
 }
 
-export const getNextResetTime = function getNextResetTime(resetDay = 1, resetHour = 0, offset = 8) {
+export const getNextResetTime = (resetDay = 1, resetHour = 0, offset = 8) => {
   const tzDate = getDateInTimezone(new Date(), offset)
   const currentDay = tzDate.getUTCDay() || 7
   const currentHour = tzDate.getUTCHours()
@@ -68,12 +68,7 @@ export const getNextResetTime = function getNextResetTime(resetDay = 1, resetHou
   return new Date(resetTz.getTime() - offset * 3600000)
 }
 
-export const getPeriodStartDate = function getPeriodStartDate(
-  resetDay = 1,
-  resetHour = 0,
-  date = new Date(),
-  offset = 8,
-) {
+export const getPeriodStartDate = (resetDay = 1, resetHour = 0, date = new Date(), offset = 8) => {
   const tzDate = getDateInTimezone(date, offset)
   const currentDay = tzDate.getUTCDay() || 7
   const currentHour = tzDate.getUTCHours()

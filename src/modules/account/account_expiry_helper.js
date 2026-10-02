@@ -1,15 +1,11 @@
 import { logger } from '../../common/logger.js'
-/**
- * Admin Routes - 共享工具函数
- * 供各个子路由模块导入使用
- */
 
 /**
  * 处理可为空的时间字段
  * @param {*} value - 输入值
  * @returns {string|null} 规范化后的值
  */
-export const normalizeNullableDate = function normalizeNullableDate(value) {
+export const normalizeNullableDate = (value) => {
   if (value === undefined || value === null) {
     return null
   }
@@ -27,7 +23,7 @@ export const normalizeNullableDate = function normalizeNullableDate(value) {
  * @param {string} accountId - 账户 ID
  * @returns {Object} 映射后的更新对象
  */
-export const mapExpiryField = function mapExpiryField(updates, accountType, accountId) {
+export const mapExpiryField = (updates, accountType, accountId) => {
   const mappedUpdates = { ...updates }
   if ('expiresAt' in mappedUpdates) {
     mappedUpdates.subscriptionExpiresAt = mappedUpdates.expiresAt
@@ -44,7 +40,7 @@ export const mapExpiryField = function mapExpiryField(updates, accountType, acco
  * @param {Object} account - 账户对象
  * @returns {Object} 格式化后的账户对象
  */
-export const formatAccountExpiry = function formatAccountExpiry(account) {
+export const formatAccountExpiry = (account) => {
   if (!account || typeof account !== 'object') {
     return account
   }

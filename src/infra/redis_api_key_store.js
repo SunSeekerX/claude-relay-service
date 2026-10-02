@@ -26,7 +26,7 @@ const getAccountNameCacheService = () => {
 // 跨域 this 调用(scanKeys/batchHgetallChunked/getKeyIdsWithModels 等)经同一单例解析。
 // ===
 
-export const attach = function attach(redisClient) {
+export const attach = (redisClient) => {
   // API Key 相关操作
   redisClient.setApiKey = async function (keyId, keyData, hashedKey = null) {
     const key = RedisKeys.apiKey.byId(keyId)

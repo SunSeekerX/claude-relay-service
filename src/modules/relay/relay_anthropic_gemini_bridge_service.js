@@ -19,6 +19,7 @@ import { cleanJsonSchemaForGemini } from './relay_gemini_schema_cleaner.js'
 import { dumpAnthropicNonStreamResponse, dumpAnthropicStreamSummary } from './relay_anthropic_response_dump.js'
 import { dumpAntigravityStreamEvent, dumpAntigravityStreamSummary } from './relay_antigravity_upstream_response_dump.js'
 import { env } from '../../../config/env.js'
+import { ensureAntigravityProjectId } from './relay_antigravity_client.js'
 /**
  * ===
  * Anthropic → Gemini/Antigravity 桥接服务
@@ -95,23 +96,13 @@ This information may or may not be relevant to the coding task, it is up for you
  * 确保 Antigravity 请求有有效的 projectId
  * 如果账户没有配置 projectId，则生成一个临时 ID
  */
-const ensureAntigravityProjectId = function ensureAntigravityProjectId(account) {
-  if (account.projectId) {
-    return account.projectId
-  }
-  if (account.tempProjectId) {
-    return account.tempProjectId
-  }
-  return `ag-${crypto.randomBytes(8).toString('hex')}`
-}
-
 /**
  * 从 Anthropic 消息内容中提取纯文本
  * 支持字符串和 content blocks 数组两种格式
  * @param {string|Array} content - Anthropic 消息内容
  * @returns {string} 提取的文本
  */
-const extractAnthropicText = function extractAnthropicText(content) {
+const extractAnthropicText = (content) => {
   if (content === null || content === undefined) {
     return ''
   }
@@ -131,7 +122,7 @@ const extractAnthropicText = function extractAnthropicText(content) {
  * 检查文本是否应该跳过（不转发给上游）
  * 主要过滤 Claude 内部的 system-reminder 消息
  */
-const shouldSkipText = function shouldSkipText(text) {
+const shouldSkipText = (text) => {
   if (!text || typeof text !== 'string') {
     return true
   }
@@ -144,7 +135,7 @@ const shouldSkipText = function shouldSkipText(text) {
  * @param {string|Array} system - Anthropic 的 system prompt
  * @returns {Array} Gemini 格式的 parts
  */
-const buildSystemParts = function buildSystemParts(system) {
+const buildSystemParts = (system) => {
   const parts = []
   if (!system) {
     return parts
@@ -174,7 +165,7 @@ const buildSystemParts = function buildSystemParts(system) {
  * @param {Array} messages - 消息列表
  * @returns {Map} tool_use_id -> tool_name 的映射
  */
-const buildToolUseIdToNameMap = function buildToolUseIdToNameMap(messages) {
+const buildToolUseIdToNameMap = (messages) => {
   const toolUseIdToName = new Map()
 
   for (const message of messages || []) {
@@ -202,7 +193,7 @@ const buildToolUseIdToNameMap = function buildToolUseIdToNameMap(messages) {
  * 标准化工具调用的输入参数
  * 确保输入始终是对象格式
  */
-const normalizeToolUseInput = function normalizeToolUseInput(input) {
+const normalizeToolUseInput = (input) => {
   if (input === null || input === undefined) {
     return {}
   }
@@ -240,7 +231,7 @@ const MAX_ANTIGRAVITY_TOOL_RESULT_CHARS = 200000
  * @param {number} maxChars - 最大字符数
  * @returns {string} 截断后的文本
  */
-const truncateText = function truncateText(text, maxChars) {
+const truncateText = (text, maxChars) => {
   if (!text || typeof text !== 'string') {
     return ''
   }
@@ -253,7 +244,7 @@ const truncateText = function truncateText(text, maxChars) {
 /**
  * 截断文本并添加截断提示（内联模式，不带换行）
  */
-const truncateInlineText = function truncateInlineText(text, maxChars) {
+const truncateInlineText = (text, maxChars) => {
   if (!text || typeof text !== 'string') {
     return ''
   }
@@ -270,7 +261,7 @@ const truncateInlineText = function truncateInlineText(text, maxChars) {
  * @param {string} description - 原始工具描述
  * @returns {string} 压缩后的描述
  */
-const compactToolDescriptionForAntigravity = function compactToolDescriptionForAntigravity(description) {
+const compactToolDescriptionForAntigravity = (description) => {
   if (!description || typeof description !== 'string') {
     return ''
   }
@@ -299,7 +290,7 @@ const compactToolDescriptionForAntigravity = function compactToolDescriptionForA
  * @param {string} description - 原始描述
  * @returns {string} 压缩后的描述
  */
-const compactSchemaDescriptionForAntigravity = function compactSchemaDescriptionForAntigravity(description) {
+const compactSchemaDescriptionForAntigravity = (description) => {
   if (!description || typeof description !== 'string') {
     return ''
   }
@@ -316,7 +307,7 @@ const compactSchemaDescriptionForAntigravity = function compactSchemaDescription
  * @param {Object} schema - JSON Schema 对象
  * @returns {Object} 压缩后的 schema
  */
-const compactJsonSchemaDescriptionsForAntigravity = function compactJsonSchemaDescriptionsForAntigravity(schema) {
+const compactJsonSchemaDescriptionsForAntigravity = (schema) => {
   if (schema === null || schema === undefined) {
     return schema
   }
@@ -348,7 +339,7 @@ const compactJsonSchemaDescriptionsForAntigravity = function compactJsonSchemaDe
  * @param {string} signature - 原始 signature
  * @returns {string} 清洗后的 signature（不合法则为空串）
  */
-const sanitizeThoughtSignatureForAntigravity = function sanitizeThoughtSignatureForAntigravity(signature) {
+const sanitizeThoughtSignatureForAntigravity = (signature) => {
   if (!signature || typeof signature !== 'string') {
     return ''
   }
@@ -381,7 +372,7 @@ const sanitizeThoughtSignatureForAntigravity = function sanitizeThoughtSignature
  * @param {Object} sanitized - sanitizeUpstreamError 处理后的错误对象
  * @returns {boolean} 是否是参数无效错误
  */
-const isInvalidAntigravityArgumentError = function isInvalidAntigravityArgumentError(sanitized) {
+const isInvalidAntigravityArgumentError = (sanitized) => {
   if (!sanitized || typeof sanitized !== 'object') {
     return false
   }
@@ -400,7 +391,7 @@ const isInvalidAntigravityArgumentError = function isInvalidAntigravityArgumentE
  * @param {Object} requestData - 发送给 Antigravity 的请求数据
  * @returns {Object} 请求摘要信息
  */
-const summarizeAntigravityRequestForDebug = function summarizeAntigravityRequestForDebug(requestData) {
+const summarizeAntigravityRequestForDebug = (requestData) => {
   const request = requestData?.request || {}
   const contents = Array.isArray(request.contents) ? request.contents : []
   const partStats = { text: 0, thought: 0, functionCall: 0, functionResponse: 0, other: 0 }
@@ -459,7 +450,7 @@ const summarizeAntigravityRequestForDebug = function summarizeAntigravityRequest
  * @param {Array} blocks - content blocks 数组
  * @returns {Array} 清洗后的 blocks
  */
-const sanitizeToolResultBlocksForAntigravity = function sanitizeToolResultBlocksForAntigravity(blocks) {
+const sanitizeToolResultBlocksForAntigravity = (blocks) => {
   const cleaned = []
   let usedChars = 0
   let removedImage = false
@@ -511,7 +502,7 @@ const sanitizeToolResultBlocksForAntigravity = function sanitizeToolResultBlocks
  * 支持字符串和 content blocks 数组两种格式
  * 对 Antigravity 会进行截断和图片移除处理
  */
-const normalizeToolResultContent = function normalizeToolResultContent(content, { vendor = null } = {}) {
+const normalizeToolResultContent = (content, { vendor = null } = {}) => {
   if (content === null || content === undefined) {
     return ''
   }
@@ -557,7 +548,7 @@ const normalizeToolResultContent = function normalizeToolResultContent(content, 
  * @param {Object} options - 选项，包含 vendor
  * @returns {Array} 标准化后的消息列表
  */
-const normalizeAnthropicMessages = function normalizeAnthropicMessages(messages, { vendor = null } = {}) {
+const normalizeAnthropicMessages = (messages, { vendor = null } = {}) => {
   if (!Array.isArray(messages) || messages.length === 0) {
     return messages
   }
@@ -760,7 +751,7 @@ const normalizeAnthropicMessages = function normalizeAnthropicMessages(messages,
  * @param {Object} options - 选项，包含 vendor
  * @returns {Array|null} Gemini 格式的工具定义，或 null
  */
-const convertAnthropicToolsToGeminiTools = function convertAnthropicToolsToGeminiTools(tools, { vendor = null } = {}) {
+const convertAnthropicToolsToGeminiTools = (tools, { vendor = null } = {}) => {
   if (!Array.isArray(tools) || tools.length === 0) {
     return null
   }
@@ -909,7 +900,9 @@ const convertAnthropicToolsToGeminiTools = function convertAnthropicToolsToGemin
 
       const schema =
         vendor === 'antigravity'
-          ? compactJsonSchemaDescriptionsForAntigravity(cleanJsonSchemaForGemini(toolDef.input_schema))
+          ? compactJsonSchemaDescriptionsForAntigravity(
+              cleanJsonSchemaForGemini(toolDef.input_schema, { preserveConstraints: true }),
+            )
           : sanitizeSchemaForFunctionDeclarations(toolDef.input_schema) || {
               type: 'object',
               properties: {},
@@ -947,7 +940,7 @@ const convertAnthropicToolsToGeminiTools = function convertAnthropicToolsToGemin
  * tool → ANY + allowedFunctionNames（指定工具）
  * none → NONE（禁止调用工具）
  */
-const convertAnthropicToolChoiceToGeminiToolConfig = function convertAnthropicToolChoiceToGeminiToolConfig(toolChoice) {
+const convertAnthropicToolChoiceToGeminiToolConfig = (toolChoice) => {
   if (!toolChoice || typeof toolChoice !== 'object') {
     return null
   }
@@ -1010,11 +1003,11 @@ const convertAnthropicToolChoiceToGeminiToolConfig = function convertAnthropicTo
  * @param {Object} options - 选项，包含 vendor、stripThinking
  * @returns {Array} Gemini 格式的 contents
  */
-const convertAnthropicMessagesToGeminiContents = function convertAnthropicMessagesToGeminiContents(
+const convertAnthropicMessagesToGeminiContents = (
   messages,
   toolUseIdToName,
   { vendor = null, stripThinking = false, sessionId = null } = {},
-) {
+) => {
   const contents = []
   for (const message of messages || []) {
     const role = message?.role === 'assistant' ? 'model' : 'user'
@@ -1204,7 +1197,7 @@ const convertAnthropicMessagesToGeminiContents = function convertAnthropicMessag
  * @param {Array} messages - 消息列表
  * @returns {boolean} 是否可以启用 thinking
  */
-const canEnableAntigravityThinking = function canEnableAntigravityThinking(messages) {
+const canEnableAntigravityThinking = (messages) => {
   if (!Array.isArray(messages) || messages.length === 0) {
     return true
   }
@@ -1277,11 +1270,7 @@ const canEnableAntigravityThinking = function canEnableAntigravityThinking(messa
  * @param {Object} options - 选项，包含 vendor
  * @returns {Object} { model, request } Gemini 请求对象
  */
-const buildGeminiRequestFromAnthropic = function buildGeminiRequestFromAnthropic(
-  body,
-  baseModel,
-  { vendor = null, sessionId = null } = {},
-) {
+const buildGeminiRequestFromAnthropic = (body, baseModel, { vendor = null, sessionId = null } = {}) => {
   const normalizedMessages = normalizeAnthropicMessages(body.messages || [], { vendor })
   const toolUseIdToName = buildToolUseIdToNameMap(normalizedMessages || [])
 
@@ -1385,7 +1374,7 @@ const buildGeminiRequestFromAnthropic = function buildGeminiRequestFromAnthropic
  * @param {boolean} includeThought - 是否包含 thinking 文本
  * @returns {string} 提取的文本
  */
-const extractGeminiText = function extractGeminiText(payload, { includeThought = false } = {}) {
+const extractGeminiText = (payload, { includeThought = false } = {}) => {
   const candidate = payload?.candidates?.[0]
   const parts = candidate?.content?.parts
   if (!Array.isArray(parts)) {
@@ -1401,7 +1390,7 @@ const extractGeminiText = function extractGeminiText(payload, { includeThought =
 /**
  * 从 Gemini 响应中提取 thinking 文本内容
  */
-const extractGeminiThoughtText = function extractGeminiThoughtText(payload) {
+const extractGeminiThoughtText = (payload) => {
   const candidate = payload?.candidates?.[0]
   const parts = candidate?.content?.parts
   if (!Array.isArray(parts)) {
@@ -1418,7 +1407,7 @@ const extractGeminiThoughtText = function extractGeminiThoughtText(payload) {
  * 从 Gemini 响应中提取 thinking signature
  * 用于在下一轮对话中传回给 Antigravity
  */
-const extractGeminiThoughtSignature = function extractGeminiThoughtSignature(payload) {
+const extractGeminiThoughtSignature = (payload) => {
   const candidate = payload?.candidates?.[0]
   const parts = candidate?.content?.parts
   if (!Array.isArray(parts)) {
@@ -1460,7 +1449,7 @@ const extractGeminiThoughtSignature = function extractGeminiThoughtSignature(pay
  * 解析 Gemini 响应的 token 使用情况
  * 计算输出 token 数（包括 candidate + thought tokens）
  */
-const resolveUsageOutputTokens = function resolveUsageOutputTokens(usageMetadata) {
+const resolveUsageOutputTokens = (usageMetadata) => {
   if (!usageMetadata || typeof usageMetadata !== 'object') {
     return 0
   }
@@ -1483,7 +1472,7 @@ const resolveUsageOutputTokens = function resolveUsageOutputTokens(usageMetadata
  * 检查环境变量是否启用
  * 支持 true/1/yes/on 等值
  */
-const isEnvEnabled = function isEnvEnabled(value) {
+const isEnvEnabled = (value) => {
   if (!value) {
     return false
   }
@@ -1496,7 +1485,7 @@ const isEnvEnabled = function isEnvEnabled(value) {
  * 处理模型在文本中输出 "Write: <path>"格式的情况
  * 这是一个兜底机制，用于处理 function calling 失败的情况
  */
-const tryExtractWriteToolFromText = function tryExtractWriteToolFromText(text, fallbackCwd) {
+const tryExtractWriteToolFromText = (text, fallbackCwd) => {
   if (!text || typeof text !== 'string') {
     return null
   }
@@ -1535,7 +1524,7 @@ const tryExtractWriteToolFromText = function tryExtractWriteToolFromText(text, f
   }
 }
 
-const mapGeminiFinishReasonToAnthropicStopReason = function mapGeminiFinishReasonToAnthropicStopReason(finishReason) {
+const mapGeminiFinishReasonToAnthropicStopReason = (finishReason) => {
   const normalized = (finishReason || '').toString().toUpperCase()
   if (normalized === 'MAX_TOKENS') {
     return 'max_tokens'
@@ -1547,15 +1536,13 @@ const mapGeminiFinishReasonToAnthropicStopReason = function mapGeminiFinishReaso
  * 生成工具调用 ID
  * 使用 toolu_ 前缀 + 随机字符串
  */
-const buildToolUseId = function buildToolUseId() {
-  return `toolu_${crypto.randomBytes(10).toString('hex')}`
-}
+const buildToolUseId = () => `toolu_${crypto.randomBytes(10).toString('hex')}`
 
 /**
  * 稳定的 JSON 序列化（键按字母顺序排列）
  * 用于生成可比较的 JSON 字符串
  */
-const stableJsonStringify = function stableJsonStringify(value) {
+const stableJsonStringify = (value) => {
   if (value === null || value === undefined) {
     return 'null'
   }
@@ -1573,7 +1560,7 @@ const stableJsonStringify = function stableJsonStringify(value) {
 /**
  * 从 Gemini 响应中提取 parts 数组
  */
-const extractGeminiParts = function extractGeminiParts(payload) {
+const extractGeminiParts = (payload) => {
   const candidate = payload?.candidates?.[0]
   const parts = candidate?.content?.parts
   if (!Array.isArray(parts)) {
@@ -1596,7 +1583,7 @@ const extractGeminiParts = function extractGeminiParts(payload) {
  *
  * 注意：thinking blocks 会被调整到数组最前面（符合 Anthropic 规范）
  */
-const convertGeminiPayloadToAnthropicContent = function convertGeminiPayloadToAnthropicContent(payload) {
+const convertGeminiPayloadToAnthropicContent = (payload) => {
   const parts = extractGeminiParts(payload)
   const content = []
   let currentText = ''
@@ -1678,21 +1665,19 @@ const convertGeminiPayloadToAnthropicContent = function convertGeminiPayloadToAn
 /**
  * 构建 Anthropic 格式的错误响应
  */
-const buildAnthropicError = function buildAnthropicError(message) {
-  return {
-    type: 'error',
-    error: {
-      type: 'api_error',
-      message: message || 'Upstream error',
-    },
-  }
-}
+const buildAnthropicError = (message) => ({
+  type: 'error',
+  error: {
+    type: 'api_error',
+    message: message || 'Upstream error',
+  },
+})
 
 /**
  * 判断是否应该在无工具模式下重试
  * 当上游报告 JSON Schema 或工具相关错误时，移除工具定义重试
  */
-const shouldRetryWithoutTools = function shouldRetryWithoutTools(sanitizedError) {
+const shouldRetryWithoutTools = (sanitizedError) => {
   const message = (sanitizedError?.upstreamMessage || sanitizedError?.message || '').toLowerCase()
   if (!message) {
     return false
@@ -1708,7 +1693,7 @@ const shouldRetryWithoutTools = function shouldRetryWithoutTools(sanitizedError)
 /**
  * 从请求中移除工具定义（用于重试）
  */
-const stripToolsFromRequest = function stripToolsFromRequest(requestData) {
+const stripToolsFromRequest = (requestData) => {
   if (!requestData || !requestData.request) {
     return requestData
   }
@@ -1727,7 +1712,7 @@ const stripToolsFromRequest = function stripToolsFromRequest(requestData) {
  * 写入 Anthropic SSE 事件
  * 将事件和数据以 SSE 格式发送给客户端
  */
-const writeAnthropicSseEvent = function writeAnthropicSseEvent(res, event, data) {
+const writeAnthropicSseEvent = (res, event, data) => {
   res.write(`event: ${event}\n`)
   res.write(`data: ${JSON.stringify(data)}\n\n`)
 }
@@ -1740,7 +1725,7 @@ const writeAnthropicSseEvent = function writeAnthropicSseEvent(res, event, data)
  * 记录工具定义到文件（调试用）
  * 只在环境变量 ANTHROPIC_DEBUG_TOOLS_DUMP 启用时生效
  */
-const dumpToolsPayload = function dumpToolsPayload({ vendor, model, tools, toolChoice }) {
+const dumpToolsPayload = ({ vendor, model, tools, toolChoice }) => {
   if (!isEnvEnabled(env[TOOLS_DUMP_ENV])) {
     return
   }
@@ -1772,14 +1757,14 @@ const dumpToolsPayload = function dumpToolsPayload({ vendor, model, tools, toolC
  * 更新速率限制计数器
  * 跟踪 token 使用量和成本
  */
-const applyRateLimitTracking = async function applyRateLimitTracking(
+const applyRateLimitTracking = async (
   rateLimitInfo,
   usageSummary,
   model,
   context = '',
   keyId = null,
   preCalculatedCost = null,
-) {
+) => {
   if (!rateLimitInfo) {
     return
   }
@@ -1827,11 +1812,7 @@ const applyRateLimitTracking = async function applyRateLimitTracking(
  * @param {Object} res - Express 响应对象
  * @param {Object} options - 包含 vendor 和 baseModel
  */
-export const handleAnthropicMessagesToGemini = async function handleAnthropicMessagesToGemini(
-  req,
-  res,
-  { vendor, baseModel },
-) {
+export const handleAnthropicMessagesToGemini = async (req, res, { vendor, baseModel }) => {
   if (!SUPPORTED_VENDORS.has(vendor)) {
     return res.status(400).json(buildAnthropicError(`Unsupported vendor: ${vendor}`))
   }
@@ -2944,11 +2925,7 @@ export const handleAnthropicMessagesToGemini = async function handleAnthropicMes
   }
 }
 
-export const handleAnthropicCountTokensToGemini = async function handleAnthropicCountTokensToGemini(
-  req,
-  res,
-  { vendor },
-) {
+export const handleAnthropicCountTokensToGemini = async (req, res, { vendor }) => {
   if (!SUPPORTED_VENDORS.has(vendor)) {
     return res.status(400).json(buildAnthropicError(`Unsupported vendor: ${vendor}`))
   }

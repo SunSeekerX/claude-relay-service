@@ -64,6 +64,30 @@ export const isChatBridgeEligible = (body) => {
   if (!Array.isArray(body.messages) || body.messages.length === 0) {
     return { ok: false, reason: 'no_messages' }
   }
+  // 无法保留的 Chat 参数继续走原生 Chat，不静默丢弃
+  const supportedFields = new Set([
+    'model',
+    'messages',
+    'stream',
+    'stream_options',
+    'temperature',
+    'top_p',
+    'max_tokens',
+    'max_completion_tokens',
+    'tools',
+    'tool_choice',
+    'user',
+    'metadata',
+    'prompt_cache_key',
+    'response_format',
+    'parallel_tool_calls',
+    'service_tier',
+  ])
+  for (const [field, value] of Object.entries(body)) {
+    if (value !== null && value !== undefined && !supportedFields.has(field)) {
+      return { ok: false, reason: `unsupported_${field}` }
+    }
+  }
   if (body.functions) {
     return { ok: false, reason: 'legacy_functions' }
   }
@@ -315,7 +339,7 @@ export const chatToResponsesBody = (body) => {
   const mapped = {
     model: body.model,
     input: messagesToResponsesInput(body.messages),
-    stream: body.stream !== false,
+    stream: body.stream === true,
   }
   if (body.temperature !== undefined) {
     mapped.temperature = body.temperature
@@ -346,6 +370,17 @@ export const chatToResponsesBody = (body) => {
   }
   if (body.prompt_cache_key) {
     mapped.prompt_cache_key = body.prompt_cache_key
+  }
+  for (const field of ['parallel_tool_calls', 'service_tier', 'stream_options']) {
+    if (body[field] !== undefined) {
+      mapped[field] = body[field]
+    }
+  }
+  if (body.response_format) {
+    const format = body.response_format
+    mapped.text = {
+      format: format.type === 'json_schema' ? { ...format.json_schema, type: 'json_schema' } : { ...format },
+    }
   }
   // Grok 不需要 store/include 的 Codex 专属语义
   mapped.store = false

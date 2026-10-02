@@ -9,7 +9,7 @@ import { RedisLua } from './redis_lua.js'
 // 均经同一单例解析。含原子性 Lua 脚本（逐字保留）。
 // ===
 
-export const attach = function attach(redisClient) {
+export const attach = (redisClient) => {
   // 获取并发配置
   redisClient._getConcurrencyConfig = function () {
     const defaults = {

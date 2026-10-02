@@ -7,9 +7,7 @@ import { logger } from '../../common/logger.js'
 import { apiKeyService } from '../apikey/apikey_service.js'
 export const router = express.Router()
 
-const hasDroidPermission = function hasDroidPermission(apiKeyData) {
-  return apiKeyService.hasPermission(apiKeyData?.permissions, 'droid')
-}
+const hasDroidPermission = (apiKeyData) => apiKeyService.hasPermission(apiKeyData?.permissions, 'droid')
 
 /**
  * Droid API 转发路由

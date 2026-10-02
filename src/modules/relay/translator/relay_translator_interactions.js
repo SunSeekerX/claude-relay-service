@@ -48,11 +48,16 @@ export const convertInteractionsToGemini = (body = {}) => {
       if (text) {
         parts.push({ text })
       }
-      // inline media
+      // inline media / 远程文件引用
       for (const part of asArray(step.content)) {
         if (part?.inline_data || part?.inlineData) {
           const inline = part.inline_data || part.inlineData
           parts.push({ inlineData: { mimeType: inline.mime_type || inline.mimeType, data: inline.data } })
+        } else if (part?.file_data || part?.fileData) {
+          const file = part.file_data || part.fileData
+          parts.push({
+            fileData: { mimeType: file.mime_type || file.mimeType, fileUri: file.file_uri || file.fileUri },
+          })
         }
       }
       contents.push({ role: 'user', parts: parts.length ? parts : [{ text: '' }] })

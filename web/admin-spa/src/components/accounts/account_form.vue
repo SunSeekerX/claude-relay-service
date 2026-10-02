@@ -4228,9 +4228,7 @@ const buildProxyPayload = (proxyState) => {
 }
 
 // 初始化代理配置
-const initProxyConfig = () => {
-  return normalizeProxyFormState(props.account?.proxy)
-}
+const initProxyConfig = () => normalizeProxyFormState(props.account?.proxy)
 
 // 由账户绑定字段派生 ProxyBinding 初始模式（mode 受控、由 form 持有）：分组 > 指定 > 自定义 > 不使用
 const deriveProxyMode = (account) => {

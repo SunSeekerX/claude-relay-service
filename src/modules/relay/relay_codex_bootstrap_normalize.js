@@ -5,7 +5,7 @@
 // 场景：Codex App/TUI 委派开线程、自动化启动时，客户端把说明塞成 function_call_output
 // 且无有效 call_id；上游 Responses 要求 call_id 对齐，直接转发会 400。
 
-const isPlainObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value)
+import { isPlainObject } from '../../common/common_helper.js'
 
 const stringField = (item, key) => {
   const value = item?.[key]

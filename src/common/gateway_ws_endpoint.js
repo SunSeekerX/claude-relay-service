@@ -35,7 +35,7 @@ export const encodeWsFrame = (opcode, payload, { fin = true } = {}) => {
   return Buffer.concat([header, data])
 }
 
-export const encodeWsText = (text) => encodeWsFrame(OP_TEXT, text)
+const encodeWsText = (text) => encodeWsFrame(OP_TEXT, text)
 
 // 作为上游客户端发帧必须 mask（RFC6455）
 export const encodeWsClientText = (text) => {
@@ -82,14 +82,14 @@ export const encodeWsClientPong = (payload = Buffer.alloc(0)) => {
   maskKey.copy(header, 2)
   return Buffer.concat([header, masked])
 }
-export const encodeWsClose = (code = 1000, reason = '') => {
+const encodeWsClose = (code = 1000, reason = '') => {
   const reasonBuf = Buffer.from(String(reason || '').slice(0, 123), 'utf8')
   const payload = Buffer.allocUnsafe(2 + reasonBuf.length)
   payload.writeUInt16BE(code, 0)
   reasonBuf.copy(payload, 2)
   return encodeWsFrame(OP_CLOSE, payload)
 }
-export const encodeWsPong = (payload = Buffer.alloc(0)) => encodeWsFrame(OP_PONG, payload)
+const encodeWsPong = (payload = Buffer.alloc(0)) => encodeWsFrame(OP_PONG, payload)
 
 /**
  * 把 HTTP upgrade 收成可收发 JSON 文本帧的本端会话

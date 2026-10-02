@@ -43,24 +43,3 @@ export const asyncRoute = (labelOrHandler, maybeHandler) => {
     }
   }
 }
-
-// 仅捕获 async 错误并 next(err)；不包装成功体。流式/特殊响应用。
-// errorHandler 仍必须 headersSent 守卫。
-export const rawRoute = (labelOrHandler, maybeHandler) => {
-  const hasLabel = typeof maybeHandler === 'function'
-  const label = hasLabel ? labelOrHandler : null
-  const handler = hasLabel ? maybeHandler : labelOrHandler
-
-  return async (req, res, next) => {
-    try {
-      await handler(req, res, next)
-    } catch (error) {
-      const logLabel = label || `${req.method} ${req.originalUrl}`
-      logger.error(logLabel, error)
-      if (res.headersSent) {
-        return
-      }
-      next(error)
-    }
-  }
-}

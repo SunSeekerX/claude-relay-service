@@ -68,6 +68,7 @@ import * as authMod from './infra/middleware_auth.js'
 import * as codexRealtime from './modules/relay/relay_codex_realtime.js'
 import * as codexResponsesWs from './modules/relay/relay_codex_responses_ws.js'
 import * as codexResponsesWsBridge from './modules/relay/relay_codex_responses_ws_bridge.js'
+import { assertModelAccess, createWsModelAccessGuard } from './modules/relay/relay_model_access.js'
 import { responsesWsSessionPool } from './modules/relay/relay_codex_responses_ws_pool.js'
 import { env } from '../config/env.js'
 import { initTranslatorRegistry } from './modules/relay/translator/relay_translator_index.js'
@@ -336,6 +337,16 @@ export class Application {
       )
       this.app.use(express.urlencoded({ extended: true, limit: '100mb' }))
       this.app.use(authMod.securityMiddleware)
+
+      // 请求明细在启用时保存完整 JSON 响应快照；敏感字段由 request_detail_helper 统一脱敏。
+      this.app.use((req, res, next) => {
+        const originalJson = res.json.bind(res)
+        res.json = (body) => {
+          req._crsResponseBody = body
+          return originalJson(body)
+        }
+        next()
+      })
 
       // 信任代理
       if (config.server.trustProxy) {
@@ -772,6 +783,14 @@ export class Application {
         // query/header 可能已带 model（握手阶段尽早用于选号）
         const handshakeModel =
           url.searchParams.get('model') || req.headers['x-model'] || req.headers['openai-model'] || null
+        try {
+          assertModelAccess(apiKeyData, handshakeModel)
+        } catch (error) {
+          await releaseAuth()
+          writeSocketError(socket, 403, error.message)
+          return
+        }
+        const validateWsModel = createWsModelAccessGuard(apiKeyData, handshakeModel)
 
         // Responses WS：env 强制 http_bridge 时可先于选号进入（bridge 内按首包 model 懒选号）
         if (isResponsesWs) {
@@ -1037,10 +1056,10 @@ export class Application {
           : {
               authorization: `Bearer ${accessToken}`,
               'chatgpt-account-id': account?.accountId || account?.chatgptUserId || accountId,
-              originator: req.headers.originator || 'codex_cli_rs',
+              originator: req.headers.originator || codexResponsesWs.CODEX_ORIGINATOR,
               'session-id': req.headers['session-id'] || sessionId,
               'thread-id': req.headers['thread-id'],
-              'user-agent': req.headers['user-agent'] || 'codex_cli_rs',
+              'user-agent': req.headers['user-agent'] || codexResponsesWs.CODEX_USER_AGENT,
               'openai-alpha': req.headers['openai-alpha'] || 'quicksilver=v2',
             }
 
@@ -1229,6 +1248,7 @@ export class Application {
           handshakeTimeoutMs: 30000,
           // 禁止协商压缩扩展：压缩帧 RSV1 会导致 usage 嗅探失败并误按时长计费
           stripExtensions: true,
+          validateClientFrames: isResponsesWs,
           onUpgrade: (upRes) => {
             upgradedOk = true
             // 原生 WS 101 响应头挂 req，供 request detail 上游 ID
@@ -1250,6 +1270,9 @@ export class Application {
             }
           },
           onClientToUpstreamText: (text) => {
+            if (isResponsesWs) {
+              validateWsModel(text)
+            }
             try {
               // 客户端只采 response.create 档位，禁止伪造 usage
               // DEC_20260906_011816

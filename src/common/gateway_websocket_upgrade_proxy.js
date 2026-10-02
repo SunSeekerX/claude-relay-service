@@ -3,6 +3,7 @@ import https from 'node:https'
 import { URL } from 'node:url'
 import { logger } from './logger.js'
 import { createWsFrameSniffer, createWsClientTextRewriter } from './gateway_ws_frame_sniffer.js'
+import { encodeWsFrame } from './gateway_ws_endpoint.js'
 // 原生 HTTP Upgrade 隧道：把客户端 WebSocket 接到上游 wss/ws
 // 不引入 ws 包；鉴权与上游头由调用方构造
 // 支持：账户代理 agent、握手超时主动关闭、上游文本帧嗅探（计费）
@@ -33,6 +34,7 @@ export const proxyWebSocketUpgrade = (
     stripExtensions = true,
     onUpstreamTextMessage = null,
     onClientToUpstreamText = null,
+    validateClientFrames = false,
     onClose = null,
     onUpgrade = null,
   } = {},
@@ -218,6 +220,7 @@ export const proxyWebSocketUpgrade = (
         ? createWsClientTextRewriter({
             label: 'client-to-upstream',
             rewriteText: onClientToUpstreamText,
+            failClosed: validateClientFrames,
           })
         : null
 
@@ -232,7 +235,29 @@ export const proxyWebSocketUpgrade = (
         }
         return
       }
-      const frames = clientRewriter.push(chunk) || []
+      let frames
+      try {
+        frames = clientRewriter.push(chunk) ?? []
+      } catch (error) {
+        upSocket.destroy()
+        const denied = error.code === 'model_not_allowed'
+        socket.end(
+          encodeWsFrame(
+            0x1,
+            JSON.stringify({
+              type: 'error',
+              status: denied ? 403 : 400,
+              error: {
+                type: denied ? 'permission_error' : 'invalid_request_error',
+                code: denied ? error.code : 'invalid_request_error',
+                message: denied ? error.message : 'Invalid WebSocket request',
+              },
+            }),
+          ),
+        )
+        settle(error)
+        return
+      }
       for (const frame of frames) {
         if (!frame || !frame.length || upSocket.destroyed) {
           continue

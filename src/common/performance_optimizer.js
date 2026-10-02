@@ -1,5 +1,4 @@
 import https from 'node:https'
-import http from 'node:http'
 import fs from 'node:fs'
 import { LRUCache } from './lru_cache.js'
 import { env } from '../../config/env.js'
@@ -32,15 +31,6 @@ const httpsAgentNonStream = new https.Agent({
   freeSocketTimeout: FREE_SOCKET_TIMEOUT,
 })
 
-// HTTP agent（非流式）
-const httpAgent = new http.Agent({
-  keepAlive: true,
-  maxSockets: NON_STREAM_MAX_SOCKETS,
-  maxFreeSockets: MAX_FREE_SOCKETS,
-  timeout: 0, // 不限制，由请求层 REQUEST_TIMEOUT 控制
-  freeSocketTimeout: FREE_SOCKET_TIMEOUT,
-})
-
 // 定价数据缓存（按文件路径区分）
 const pricingDataCache = new Map()
 const PRICING_CACHE_TTL = 5 * 60 * 1000 // 5分钟
@@ -52,23 +42,19 @@ const CONFIG_CACHE_TTL = 30 * 1000 // 30秒
 /**
  * 获取流式请求的 HTTPS agent
  */
-export const getHttpsAgentForStream = function getHttpsAgentForStream() {
-  return httpsAgentStream
-}
+export const getHttpsAgentForStream = () => httpsAgentStream
 
 /**
  * 获取非流式请求的 HTTPS agent
  */
-export const getHttpsAgentForNonStream = function getHttpsAgentForNonStream() {
-  return httpsAgentNonStream
-}
+export const getHttpsAgentForNonStream = () => httpsAgentNonStream
 
 /**
  * 获取定价数据（带缓存，按路径区分）
  * @param {string} pricingFilePath - 定价文件路径
  * @returns {Object|null} 定价数据
  */
-export const getPricingData = function getPricingData(pricingFilePath) {
+export const getPricingData = (pricingFilePath) => {
   const now = Date.now()
   const cached = pricingDataCache.get(pricingFilePath)
 
@@ -91,25 +77,11 @@ export const getPricingData = function getPricingData(pricingFilePath) {
 }
 
 /**
- * 清除定价数据缓存（用于热更新）
- * @param {string} pricingFilePath - 可选，指定路径则只清除该路径缓存
- */
-export const clearPricingCache = function clearPricingCache(pricingFilePath = null) {
-  if (pricingFilePath) {
-    pricingDataCache.delete(pricingFilePath)
-  } else {
-    pricingDataCache.clear()
-  }
-}
-
-/**
  * 获取缓存的配置
  * @param {string} key - 缓存键
  * @returns {*} 缓存值
  */
-export const getCachedConfig = function getCachedConfig(key) {
-  return configCache.get(key)
-}
+export const getCachedConfig = (key) => configCache.get(key)
 
 /**
  * 设置配置缓存
@@ -117,7 +89,7 @@ export const getCachedConfig = function getCachedConfig(key) {
  * @param {*} value - 值
  * @param {number} ttl - TTL（毫秒）
  */
-export const setCachedConfig = function setCachedConfig(key, value, ttl = CONFIG_CACHE_TTL) {
+export const setCachedConfig = (key, value, ttl = CONFIG_CACHE_TTL) => {
   configCache.set(key, value, ttl)
 }
 
@@ -125,34 +97,6 @@ export const setCachedConfig = function setCachedConfig(key, value, ttl = CONFIG
  * 删除配置缓存
  * @param {string} key - 缓存键
  */
-export const deleteCachedConfig = function deleteCachedConfig(key) {
+export const deleteCachedConfig = (key) => {
   configCache.cache.delete(key)
 }
-
-/**
- * 获取连接池统计信息
- */
-export const getAgentStats = function getAgentStats() {
-  return {
-    httpsStream: {
-      sockets: Object.keys(httpsAgentStream.sockets).length,
-      freeSockets: Object.keys(httpsAgentStream.freeSockets).length,
-      requests: Object.keys(httpsAgentStream.requests).length,
-      maxSockets: STREAM_MAX_SOCKETS,
-    },
-    httpsNonStream: {
-      sockets: Object.keys(httpsAgentNonStream.sockets).length,
-      freeSockets: Object.keys(httpsAgentNonStream.freeSockets).length,
-      requests: Object.keys(httpsAgentNonStream.requests).length,
-      maxSockets: NON_STREAM_MAX_SOCKETS,
-    },
-    http: {
-      sockets: Object.keys(httpAgent.sockets).length,
-      freeSockets: Object.keys(httpAgent.freeSockets).length,
-      requests: Object.keys(httpAgent.requests).length,
-    },
-    configCache: configCache.getStats(),
-  }
-}
-
-export const getHttpAgent = () => httpAgent

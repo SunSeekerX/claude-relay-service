@@ -1,6 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { GPT56_SERIES_FALLBACK_PRICING } from './pricing_gpt56_series_pricing.js'
+import { resolveModelFallbackPricing } from './pricing_model_fallback_pricing.js'
 import https from 'node:https'
 import http from 'node:http'
 import dns from 'node:dns'
@@ -1050,6 +1051,19 @@ class PricingService {
       const overlayPricing =
         grokMediaPricingOverlayService.getEffectiveModelPricingSync(modelName) || GROK_MEDIA_FALLBACK_PRICING[modelName]
       return this.ensureCachePricing({ ...overlayPricing })
+    }
+
+    // DEC_20261001_114137 新模型内置兜底须在模糊匹配前（防 opus-5-5 命中 opus-5 多收）
+    const bundledFallbackPricing = resolveModelFallbackPricing(modelName)
+    if (bundledFallbackPricing) {
+      const withoutRegion = modelName.replace(/\[1m\]$/, '').replace(/^(us|eu|apac|global)\./, '')
+      const seededPricing =
+        this.pricingData[withoutRegion] || this.pricingData[withoutRegion.replace(/^anthropic\./, '')]
+      if (seededPricing) {
+        return seededPricing
+      }
+      logger.debug(`Using bundled fallback pricing for ${modelName} (not in pricing table)`)
+      return this.ensureCachePricing({ ...bundledFallbackPricing })
     }
 
     // 特殊处理：gpt-5.5 回退到 gpt-5

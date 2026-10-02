@@ -23,11 +23,10 @@ import { onClientDisconnect } from '../../common/client_disconnect.js'
 export const openaiClaudeRoutes = express.Router()
 
 // 辅助函数：检查 API Key 权限
-const checkPermissions = function checkPermissions(apiKeyData, requiredPermission = 'claude') {
-  return apiKeyService.hasPermission(apiKeyData?.permissions, requiredPermission)
-}
+const checkPermissions = (apiKeyData, requiredPermission = 'claude') =>
+  apiKeyService.hasPermission(apiKeyData?.permissions, requiredPermission)
 
-const queueRateLimitUpdate = function queueRateLimitUpdate(
+const queueRateLimitUpdate = (
   rateLimitInfo,
   usageSummary,
   model,
@@ -35,7 +34,7 @@ const queueRateLimitUpdate = function queueRateLimitUpdate(
   keyId = null,
   accountType = null,
   preCalculatedCost = null,
-) {
+) => {
   if (!rateLimitInfo) {
     return
   }
@@ -185,7 +184,7 @@ openaiClaudeRoutes.get('/v1/models/:model', authenticateApiKey, async (req, res)
 })
 
 // 处理聊天完成请求的核心函数
-export const handleChatCompletion = async function handleChatCompletion(req, res, apiKeyData) {
+export const handleChatCompletion = async (req, res, apiKeyData) => {
   const startTime = Date.now()
   let abortController = null
 

@@ -1312,14 +1312,6 @@ const formatContext = (tokens) => {
   return String(tokens)
 }
 
-// 切回价格表时表格才重新可见，此刻 top 已变，需重算高度（tab 隐藏期间 offsetParent 为 null，calc 会跳过）
-const switchTab = async (key) => {
-  activeTab.value = key
-  if (key !== 'table') return
-  await nextTick()
-  calcTableHeight()
-}
-
 // 三态排序：字段升序 → 字段降序 → 恢复默认展示序（llysc）
 const toggleSort = (field) => {
   if (sortField.value !== field) {

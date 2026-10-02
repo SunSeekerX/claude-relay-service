@@ -54,7 +54,7 @@ export const normalizeKeyTokenStats = (data) => {
 }
 
 // 账户维度:旧单字段不拆分,tokens 取原值
-export const normalizeAccountTokenStats = (data) => {
+export const normalizeAccountTokenStats = (data = {}) => {
   const tokens = parseInt(data.totalTokens) || parseInt(data.tokens) || 0
   const inputTokens = parseInt(data.totalInputTokens) || parseInt(data.inputTokens) || 0
   const outputTokens = parseInt(data.totalOutputTokens) || parseInt(data.outputTokens) || 0

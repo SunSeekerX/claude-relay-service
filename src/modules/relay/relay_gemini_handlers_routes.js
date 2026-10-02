@@ -11,6 +11,7 @@ import { apiKeyService } from '../apikey/apikey_service.js'
 import { redis } from '../../infra/redis.js'
 import { updateRateLimitCounters } from './relay_rate_limit_helper.js'
 import { parseSSELine } from './relay_sse_parser.js'
+import { buildGeminiGenerateBody } from './relay_gemini_request.js'
 import axios from 'axios'
 import { getSafeMessage } from '../../common/error_sanitizer.js'
 import { ProxyHelper } from '../proxy/proxy_helper.js'
@@ -93,7 +94,7 @@ const handleGeminiUpstreamError = async (
  * @param {object} options - 额外选项 { stream: boolean, listModels: boolean }
  * @returns {string} 完整的 API URL
  */
-export const buildGeminiApiUrl = function buildGeminiApiUrl(baseUrl, model, action, apiKey, options = {}) {
+export const buildGeminiApiUrl = (baseUrl, model, action, apiKey, options = {}) => {
   const { stream = false, listModels = false } = options
 
   // 移除末尾的斜杠（如果有）
@@ -164,7 +165,7 @@ export const buildGeminiApiUrl = function buildGeminiApiUrl(baseUrl, model, acti
 /**
  * 生成会话哈希
  */
-export const generateSessionHash = function generateSessionHash(req) {
+export const generateSessionHash = (req) => {
   const apiKeyPrefix = req.headers['x-api-key']?.substring(0, 10) || req.headers['x-goog-api-key']?.substring(0, 10)
 
   const sessionData = [req.headers['user-agent'], req.ip, apiKeyPrefix].filter(Boolean).join(':')
@@ -175,14 +176,13 @@ export const generateSessionHash = function generateSessionHash(req) {
 /**
  * 检查 API Key 权限
  */
-export const checkPermissions = function checkPermissions(apiKeyData, requiredPermission = 'gemini') {
-  return apiKeyService.hasPermission(apiKeyData?.permissions, requiredPermission)
-}
+export const checkPermissions = (apiKeyData, requiredPermission = 'gemini') =>
+  apiKeyService.hasPermission(apiKeyData?.permissions, requiredPermission)
 
 /**
  * 确保请求具有 Gemini 访问权限
  */
-export const ensureGeminiPermission = function ensureGeminiPermission(req, res) {
+export const ensureGeminiPermission = (req, res) => {
   const apiKeyData = req.apiKey || {}
   if (checkPermissions(apiKeyData, 'gemini')) {
     return true
@@ -202,7 +202,7 @@ export const ensureGeminiPermission = function ensureGeminiPermission(req, res) 
 /**
  * 权限检查中间件
  */
-export const ensureGeminiPermissionMiddleware = function ensureGeminiPermissionMiddleware(req, res, next) {
+export const ensureGeminiPermissionMiddleware = (req, res, next) => {
   if (ensureGeminiPermission(req, res)) {
     return next()
   }
@@ -212,13 +212,7 @@ export const ensureGeminiPermissionMiddleware = function ensureGeminiPermissionM
 /**
  * 应用速率限制跟踪
  */
-export const applyRateLimitTracking = async function applyRateLimitTracking(
-  req,
-  usageSummary,
-  model,
-  context = '',
-  preCalculatedCost = null,
-) {
+export const applyRateLimitTracking = async (req, usageSummary, model, context = '', preCalculatedCost = null) => {
   if (!req.rateLimitInfo) {
     return
   }
@@ -249,15 +243,13 @@ export const applyRateLimitTracking = async function applyRateLimitTracking(
 /**
  * 判断对象是否为可读流
  */
-const isReadableStream = function isReadableStream(value) {
-  return value && typeof value.on === 'function' && typeof value.pipe === 'function'
-}
+const isReadableStream = (value) => value && typeof value.on === 'function' && typeof value.pipe === 'function'
 
 /**
  * 读取可读流内容为字符串
  */
-const readStreamToString = async function readStreamToString(stream) {
-  return new Promise((resolve, reject) => {
+const readStreamToString = async (stream) =>
+  new Promise((resolve, reject) => {
     let result = ''
 
     try {
@@ -280,12 +272,11 @@ const readStreamToString = async function readStreamToString(stream) {
       reject(error)
     })
   })
-}
 
 /**
  * 规范化上游 Axios 错误信息
  */
-export const normalizeAxiosStreamError = async function normalizeAxiosStreamError(error) {
+export const normalizeAxiosStreamError = async (error) => {
   const status = error.response?.status
   const statusText = error.response?.statusText
   const responseData = error.response?.data
@@ -339,7 +330,7 @@ export const normalizeAxiosStreamError = async function normalizeAxiosStreamErro
 /**
  * 解析账户代理配置
  */
-export const parseProxyConfig = function parseProxyConfig(account) {
+export const parseProxyConfig = (account) => {
   // 代理池绑定优先：已绑定则池子权威（pooled 为配置对象=用它；null=绑定但无可用，本次不走代理）
   const pooled = proxyResolver.resolveProxyConfigForAccount(account, 'gemini')
   if (pooled !== undefined) {
@@ -364,7 +355,7 @@ export const parseProxyConfig = function parseProxyConfig(account) {
 /**
  * 处理 OpenAI 兼容格式的消息请求
  */
-export const handleMessages = async function handleMessages(req, res) {
+export const handleMessages = async (req, res) => {
   const startTime = Date.now()
   let abortController = null
   let accountId
@@ -790,7 +781,7 @@ export const handleMessages = async function handleMessages(req, res) {
 /**
  * 获取可用模型列表
  */
-export const handleModels = async function handleModels(req, res) {
+export const handleModels = async (req, res) => {
   try {
     const apiKeyData = req.apiKey
 
@@ -905,7 +896,7 @@ export const handleModels = async function handleModels(req, res) {
 /**
  * 获取模型详情（标准 Gemini API 格式）
  */
-export const handleModelDetails = function handleModelDetails(req, res) {
+export const handleModelDetails = (req, res) => {
   const { modelName } = req.params
   const version = req.path.includes('v1beta') ? 'v1beta' : 'v1'
   logger.info(`Standard Gemini API model details request (${version}): ${modelName}`)
@@ -931,7 +922,7 @@ export const handleModelDetails = function handleModelDetails(req, res) {
 /**
  * 获取使用情况统计
  */
-export const handleUsage = async function handleUsage(req, res) {
+export const handleUsage = async (req, res) => {
   try {
     const keyData = req.apiKey
     // 按需查询 usage 数据
@@ -960,7 +951,7 @@ export const handleUsage = async function handleUsage(req, res) {
 /**
  * 获取 API Key 信息
  */
-export const handleKeyInfo = async function handleKeyInfo(req, res) {
+export const handleKeyInfo = async (req, res) => {
   try {
     const keyData = req.apiKey
     // 按需查询 usage 数据（仅 key-info 端点需要）
@@ -1002,82 +993,76 @@ export const handleKeyInfo = async function handleKeyInfo(req, res) {
 /**
  * 简单端点处理函数工厂（用于直接转发的端点）
  */
-export const handleSimpleEndpoint = function handleSimpleEndpoint(apiMethod) {
-  return async (req, res) => {
-    try {
-      if (!ensureGeminiPermission(req, res)) {
-        return undefined
-      }
+export const handleSimpleEndpoint = (apiMethod) => async (req, res) => {
+  try {
+    if (!ensureGeminiPermission(req, res)) {
+      return undefined
+    }
 
-      const sessionHash = sessionHelper.generateSessionHash(req.body)
+    const sessionHash = sessionHelper.generateSessionHash(req.body)
 
-      // 从路径参数或请求体中获取模型名
-      const requestedModel = req.body.model || req.params.modelName || 'gemini-2.5-flash'
-      const schedulerResult = await unifiedGeminiScheduler.selectAccountForApiKey(
-        req.apiKey,
-        sessionHash,
-        requestedModel,
-      )
-      const { accountId, accountType } = schedulerResult
+    // 从路径参数或请求体中获取模型名
+    const requestedModel = req.body.model || req.params.modelName || 'gemini-2.5-flash'
+    const schedulerResult = await unifiedGeminiScheduler.selectAccountForApiKey(req.apiKey, sessionHash, requestedModel)
+    const { accountId, accountType } = schedulerResult
 
-      // v1internal 路由只支持 OAuth 账户，不支持 API Key 账户
-      if (accountType === 'gemini-api') {
-        logger.error(`v1internal routes do not support Gemini API accounts. Account: ${accountId}`)
-        return res.status(400).json({
-          error: {
-            message:
-              'This endpoint only supports Gemini OAuth accounts. Gemini API Key accounts are not compatible with v1internal format.',
-            type: 'invalid_account_type',
-          },
-        })
-      }
-
-      const account = await geminiAccountService.getAccount(accountId)
-      if (!account) {
-        return res.status(404).json({
-          error: {
-            message: 'Gemini account not found',
-            type: 'account_not_found',
-          },
-        })
-      }
-      const { accessToken, refreshToken } = account
-
-      const version = req.path.includes('v1beta') ? 'v1beta' : 'v1internal'
-      logger.info(`${apiMethod} request (${version})`, {
-        apiKeyId: req.apiKey?.id || 'unknown',
-        requestBody: req.body,
-      })
-
-      // 解析账户的代理配置
-      const proxyConfig = parseProxyConfig(account)
-
-      const client = await geminiAccountService.getOauthClient(
-        accessToken,
-        refreshToken,
-        proxyConfig,
-        account.oauthProvider,
-      )
-
-      // 直接转发请求体，不做特殊处理
-      const response = await geminiAccountService.forwardToCodeAssist(client, apiMethod, req.body, proxyConfig)
-
-      res.json(response)
-    } catch (error) {
-      const version = req.path.includes('v1beta') ? 'v1beta' : 'v1internal'
-      logger.error(`Error in ${apiMethod} endpoint (${version})`, { error: error.message })
-      res.status(500).json({
-        error: 'Internal server error',
-        message: error.message,
+    // v1internal 路由只支持 OAuth 账户，不支持 API Key 账户
+    if (accountType === 'gemini-api') {
+      logger.error(`v1internal routes do not support Gemini API accounts. Account: ${accountId}`)
+      return res.status(400).json({
+        error: {
+          message:
+            'This endpoint only supports Gemini OAuth accounts. Gemini API Key accounts are not compatible with v1internal format.',
+          type: 'invalid_account_type',
+        },
       })
     }
+
+    const account = await geminiAccountService.getAccount(accountId)
+    if (!account) {
+      return res.status(404).json({
+        error: {
+          message: 'Gemini account not found',
+          type: 'account_not_found',
+        },
+      })
+    }
+    const { accessToken, refreshToken } = account
+
+    const version = req.path.includes('v1beta') ? 'v1beta' : 'v1internal'
+    logger.info(`${apiMethod} request (${version})`, {
+      apiKeyId: req.apiKey?.id || 'unknown',
+      requestBody: req.body,
+    })
+
+    // 解析账户的代理配置
+    const proxyConfig = parseProxyConfig(account)
+
+    const client = await geminiAccountService.getOauthClient(
+      accessToken,
+      refreshToken,
+      proxyConfig,
+      account.oauthProvider,
+    )
+
+    // 直接转发请求体，不做特殊处理
+    const response = await geminiAccountService.forwardToCodeAssist(client, apiMethod, req.body, proxyConfig)
+
+    res.json(response)
+  } catch (error) {
+    const version = req.path.includes('v1beta') ? 'v1beta' : 'v1internal'
+    logger.error(`Error in ${apiMethod} endpoint (${version})`, { error: error.message })
+    res.status(500).json({
+      error: 'Internal server error',
+      message: error.message,
+    })
   }
 }
 
 /**
  * 处理 loadCodeAssist 请求
  */
-export const handleLoadCodeAssist = async function handleLoadCodeAssist(req, res) {
+export const handleLoadCodeAssist = async (req, res) => {
   try {
     if (!ensureGeminiPermission(req, res)) {
       return undefined
@@ -1165,7 +1150,7 @@ export const handleLoadCodeAssist = async function handleLoadCodeAssist(req, res
 /**
  * 处理 onboardUser 请求
  */
-export const handleOnboardUser = async function handleOnboardUser(req, res) {
+export const handleOnboardUser = async (req, res) => {
   try {
     if (!ensureGeminiPermission(req, res)) {
       return undefined
@@ -1261,7 +1246,7 @@ export const handleOnboardUser = async function handleOnboardUser(req, res) {
  * 请求体：{ "project": "项目ID" }
  * 响应：{ "buckets": [...] }
  */
-export const handleRetrieveUserQuota = async function handleRetrieveUserQuota(req, res) {
+export const handleRetrieveUserQuota = async (req, res) => {
   try {
     // 1. 权限检查
     if (!ensureGeminiPermission(req, res)) {
@@ -1356,7 +1341,7 @@ export const handleRetrieveUserQuota = async function handleRetrieveUserQuota(re
 /**
  * 处理 countTokens 请求
  */
-export const handleCountTokens = async function handleCountTokens(req, res) {
+export const handleCountTokens = async (req, res) => {
   try {
     if (!ensureGeminiPermission(req, res)) {
       return undefined
@@ -1474,7 +1459,7 @@ export const handleCountTokens = async function handleCountTokens(req, res) {
 /**
  * 处理 embedContent 请求（标准 Gemini API Key 账户）
  */
-export const handleEmbedContent = async function handleEmbedContent(req, res) {
+export const handleEmbedContent = async (req, res) => {
   try {
     if (!ensureGeminiPermission(req, res)) {
       return undefined
@@ -1602,7 +1587,7 @@ export const handleEmbedContent = async function handleEmbedContent(req, res) {
 /**
  * 处理 generateContent 请求（v1internal 格式）
  */
-export const handleGenerateContent = async function handleGenerateContent(req, res) {
+export const handleGenerateContent = async (req, res) => {
   let accountId = null
   let accountType = null
   let sessionHash = null
@@ -1756,7 +1741,7 @@ export const handleGenerateContent = async function handleGenerateContent(req, r
           )
         : await geminiAccountService.generateContent(
             client,
-            { model, request: actualRequestData },
+            { model, request: actualRequestData, enabled_credit_types: req.body.enabled_credit_types },
             user_prompt_id,
             effectiveProjectId,
             req.apiKey?.id,
@@ -1839,7 +1824,7 @@ export const handleGenerateContent = async function handleGenerateContent(req, r
 /**
  * 处理 streamGenerateContent 请求（v1internal 格式）
  */
-export const handleStreamGenerateContent = async function handleStreamGenerateContent(req, res) {
+export const handleStreamGenerateContent = async (req, res) => {
   let abortController = null
   let accountId = null
   let accountType = null
@@ -2009,7 +1994,7 @@ export const handleStreamGenerateContent = async function handleStreamGenerateCo
           )
         : await geminiAccountService.generateContentStream(
             client,
-            { model, request: actualRequestData },
+            { model, request: actualRequestData, enabled_credit_types: req.body.enabled_credit_types },
             user_prompt_id,
             effectiveProjectId,
             req.apiKey?.id,
@@ -2243,7 +2228,7 @@ export const handleStreamGenerateContent = async function handleStreamGenerateCo
 /**
  * 处理标准 Gemini API 格式的 generateContent（支持 OAuth 和 API 账户）
  */
-export const handleStandardGenerateContent = async function handleStandardGenerateContent(req, res) {
+export const handleStandardGenerateContent = async (req, res) => {
   let account = null
   let sessionHash = null
   let accountId = null
@@ -2256,11 +2241,11 @@ export const handleStandardGenerateContent = async function handleStandardGenera
     }
 
     // 从路径参数中获取模型名
-    const model = req.params.modelName || 'gemini-2.0-flash-exp'
+    const model = req.params.modelName || 'gemini-2.5-flash'
     sessionHash = sessionHelper.generateSessionHash(req.body)
 
     // 标准 Gemini API 请求体直接包含 contents 等字段
-    const { contents, generationConfig, safetySettings, systemInstruction, tools, toolConfig } = req.body
+    const { contents } = req.body
 
     // 验证必需参数
     if (!contents || !Array.isArray(contents) || contents.length === 0) {
@@ -2272,48 +2257,7 @@ export const handleStandardGenerateContent = async function handleStandardGenera
       })
     }
 
-    // 构建内部 API 需要的请求格式
-    const actualRequestData = {
-      contents,
-      generationConfig: generationConfig || {
-        temperature: 0.7,
-        maxOutputTokens: 4096,
-        topP: 0.95,
-        topK: 40,
-      },
-    }
-
-    // 只有在 safetySettings 存在且非空时才添加
-    if (safetySettings && safetySettings.length > 0) {
-      actualRequestData.safetySettings = safetySettings
-    }
-
-    // 添加工具配置
-    if (tools) {
-      actualRequestData.tools = tools
-    }
-
-    if (toolConfig) {
-      actualRequestData.toolConfig = toolConfig
-    }
-
-    // 处理 system instruction
-    if (systemInstruction) {
-      if (typeof systemInstruction === 'string' && systemInstruction.trim()) {
-        actualRequestData.systemInstruction = {
-          role: 'user',
-          parts: [{ text: systemInstruction }],
-        }
-      } else if (systemInstruction.parts && systemInstruction.parts.length > 0) {
-        const hasContent = systemInstruction.parts.some((part) => part.text && part.text.trim() !== '')
-        if (hasContent) {
-          actualRequestData.systemInstruction = {
-            role: 'user',
-            parts: systemInstruction.parts,
-          }
-        }
-      }
-    }
+    const actualRequestData = buildGeminiGenerateBody(req.body)
 
     // 使用统一调度选择账号
     const schedulerResult = await unifiedGeminiScheduler.selectAccountForApiKey(req.apiKey, sessionHash, model, {
@@ -2525,7 +2469,7 @@ export const handleStandardGenerateContent = async function handleStandardGenera
 /**
  * 处理标准 Gemini API 格式的 streamGenerateContent（支持 OAuth 和 API 账户）
  */
-export const handleStandardStreamGenerateContent = async function handleStandardStreamGenerateContent(req, res) {
+export const handleStandardStreamGenerateContent = async (req, res) => {
   let abortController = null
   let account = null
   let sessionHash = null
@@ -2539,11 +2483,11 @@ export const handleStandardStreamGenerateContent = async function handleStandard
     }
 
     // 从路径参数中获取模型名
-    const model = req.params.modelName || 'gemini-2.0-flash-exp'
+    const model = req.params.modelName || 'gemini-2.5-flash'
     sessionHash = sessionHelper.generateSessionHash(req.body)
 
     // 标准 Gemini API 请求体直接包含 contents 等字段
-    const { contents, generationConfig, safetySettings, systemInstruction, tools, toolConfig } = req.body
+    const { contents } = req.body
 
     // 验证必需参数
     if (!contents || !Array.isArray(contents) || contents.length === 0) {
@@ -2555,46 +2499,7 @@ export const handleStandardStreamGenerateContent = async function handleStandard
       })
     }
 
-    // 构建内部 API 需要的请求格式
-    const actualRequestData = {
-      contents,
-      generationConfig: generationConfig || {
-        temperature: 0.7,
-        maxOutputTokens: 4096,
-        topP: 0.95,
-        topK: 40,
-      },
-    }
-
-    if (safetySettings && safetySettings.length > 0) {
-      actualRequestData.safetySettings = safetySettings
-    }
-
-    if (tools) {
-      actualRequestData.tools = tools
-    }
-
-    if (toolConfig) {
-      actualRequestData.toolConfig = toolConfig
-    }
-
-    // 处理 system instruction
-    if (systemInstruction) {
-      if (typeof systemInstruction === 'string' && systemInstruction.trim()) {
-        actualRequestData.systemInstruction = {
-          role: 'user',
-          parts: [{ text: systemInstruction }],
-        }
-      } else if (systemInstruction.parts && systemInstruction.parts.length > 0) {
-        const hasContent = systemInstruction.parts.some((part) => part.text && part.text.trim() !== '')
-        if (hasContent) {
-          actualRequestData.systemInstruction = {
-            role: 'user',
-            parts: systemInstruction.parts,
-          }
-        }
-      }
-    }
+    const actualRequestData = buildGeminiGenerateBody(req.body)
 
     // 使用统一调度选择账号
     const schedulerResult = await unifiedGeminiScheduler.selectAccountForApiKey(req.apiKey, sessionHash, model, {
@@ -3024,7 +2929,7 @@ export const handleStandardStreamGenerateContent = async function handleStandard
  * Gemini Interactions API：/v1beta/interactions
  * 入站 Interactions → generateContent 上游 → 再转回 Interactions
  */
-export const handleInteractions = async function handleInteractions(req, res) {
+export const handleInteractions = async (req, res) => {
   try {
     if (!ensureGeminiPermission(req, res)) {
       return undefined

@@ -10,7 +10,7 @@ import { authenticateAdmin } from '../../infra/middleware_auth.js'
 import { logger } from '../../common/logger.js'
 import { proxyResolver } from '../proxy/proxy_resolver.js'
 import { webhookNotifier } from '../webhook/webhook_notifier.js'
-import { formatAccountExpiry, mapExpiryField } from '../admin/admin_utils_routes.js'
+import { formatAccountExpiry, mapExpiryField } from './account_expiry_helper.js'
 import { stripReadonlyAccountFields } from '../../common/common_helper.js'
 import { extractErrorMessage, createGeminiTestPayload } from '../../common/test_payload_helper.js'
 import { ProxyHelper } from '../proxy/proxy_helper.js'
@@ -28,7 +28,7 @@ const resolveGeminiGroupPlatform = (accountLike = {}) =>
     : 'gemini'
 
 // Gemini OAuth 账户管理
-const getDefaultRedirectUri = function getDefaultRedirectUri(oauthProvider) {
+const getDefaultRedirectUri = (oauthProvider) => {
   if (oauthProvider === 'antigravity') {
     return env.ANTIGRAVITY_OAUTH_REDIRECT_URI || 'http://localhost:45462'
   }

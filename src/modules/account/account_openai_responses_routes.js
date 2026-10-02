@@ -12,11 +12,12 @@ import { asyncRoute } from '../../common/route_handler.js'
 import { ok, badRequest, notFound, unauthorized, fail, HttpError } from '../../common/http_result.js'
 import { logger } from '../../common/logger.js'
 import { webhookNotifier } from '../webhook/webhook_notifier.js'
-import { formatAccountExpiry, mapExpiryField } from '../admin/admin_utils_routes.js'
+import { formatAccountExpiry, mapExpiryField } from './account_expiry_helper.js'
 import { stripReadonlyAccountFields } from '../../common/common_helper.js'
 import { createOpenAITestPayload, extractErrorMessage } from '../../common/test_payload_helper.js'
 import { parseObjectBody } from '../../common/parse_body.js'
 import { ProxyHelper } from '../proxy/proxy_helper.js'
+import { normalizeAccountTokenStats } from '../../common/compat_token_stats.js'
 /**
  * Admin Routes - OpenAI-Responses 账户管理
  * 处理 OpenAI-Responses 账户的增删改查和状态管理
@@ -80,25 +81,10 @@ router.get(
       const [errDaily, daily] = statsResults[i * 3 + 1]
       const [errMonthly, monthly] = statsResults[i * 3 + 2]
 
-      const parseUsage = (data) => ({
-        requests: parseInt(data?.totalRequests || data?.requests) || 0,
-        tokens: parseInt(data?.totalTokens || data?.tokens) || 0,
-        inputTokens: parseInt(data?.totalInputTokens || data?.inputTokens) || 0,
-        outputTokens: parseInt(data?.totalOutputTokens || data?.outputTokens) || 0,
-        cacheCreateTokens: parseInt(data?.totalCacheCreateTokens || data?.cacheCreateTokens) || 0,
-        cacheReadTokens: parseInt(data?.totalCacheReadTokens || data?.cacheReadTokens) || 0,
-        allTokens:
-          parseInt(data?.totalAllTokens || data?.allTokens) ||
-          (parseInt(data?.totalInputTokens || data?.inputTokens) || 0) +
-            (parseInt(data?.totalOutputTokens || data?.outputTokens) || 0) +
-            (parseInt(data?.totalCacheCreateTokens || data?.cacheCreateTokens) || 0) +
-            (parseInt(data?.totalCacheReadTokens || data?.cacheReadTokens) || 0),
-      })
-
       allUsageStatsMap.set(accountId, {
-        total: errTotal ? {} : parseUsage(total),
-        daily: errDaily ? {} : parseUsage(daily),
-        monthly: errMonthly ? {} : parseUsage(monthly),
+        total: errTotal ? {} : normalizeAccountTokenStats(total),
+        daily: errDaily ? {} : normalizeAccountTokenStats(daily),
+        monthly: errMonthly ? {} : normalizeAccountTokenStats(monthly),
       })
     }
 

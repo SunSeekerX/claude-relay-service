@@ -23,7 +23,7 @@ import { normalizeModelName } from '../../common/common_helper.js'
 
 export const router = express.Router()
 
-const slimTrendToTopApiKeys = async function slimTrendToTopApiKeys(trendData, apiKeyTotals, limit = 10) {
+const slimTrendToTopApiKeys = async (trendData, apiKeyTotals, limit = 10) => {
   const ranked = Array.from(apiKeyTotals.entries()).sort((a, b) => b[1] - a[1])
   if (ranked.length === 0) {
     return { topApiKeys: [], totalApiKeys: 0 }
@@ -72,7 +72,7 @@ const slimTrendToTopApiKeys = async function slimTrendToTopApiKeys(trendData, ap
 
 // 辅助函数：通过索引获取数据，回退到 SCAN
 // keyPattern 支持占位符：{id}、{keyId}+{model}、{accountId}+{model}
-const getUsageDataByIndex = async function getUsageDataByIndex(indexKey, keyPattern, scanPattern) {
+const getUsageDataByIndex = async (indexKey, keyPattern, scanPattern) => {
   const members = await redis.client.smembers(indexKey)
   if (members && members.length > 0) {
     const keys = members.map((id) => {

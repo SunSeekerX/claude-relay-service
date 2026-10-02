@@ -64,7 +64,7 @@ const DEFAULT_CONFIG = {
   concurrentRequestQueueMaxRedisFailCount: 5, // 连续 Redis 失败阈值（默认5次）
   requestDetailCaptureEnabled: false, // 是否启用请求明细采集
   requestDetailRetentionHours: 6, // 请求明细保留时间（小时）
-  requestDetailBodyPreviewEnabled: false, // 是否保存请求体预览快照
+  requestDetailBodyPreviewEnabled: true, // 保存完整请求体（敏感字段仍脱敏）
   errorHistoryCollectionEnabled: true, // 账号错误收集（错误历史记录），默认开启
   // 排队健康检查配置
   concurrentRequestQueueHealthCheckEnabled: true, // 是否启用排队健康检查（默认开启）

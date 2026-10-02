@@ -6,7 +6,7 @@ import { RedisKeys, TTL } from './redis_key.js'
 // 由 app.js / bootstrap 在启动时调用 redis.migrateUsageIndex()/migrateAlltimeModelStats()。
 // ===
 
-export const attach = function attach(redisClient) {
+export const attach = (redisClient) => {
   // 自动迁移 usage 索引（启动时调用）
   redisClient.migrateUsageIndex = async function () {
     const migrationKey = RedisKeys.system.migrationUsageIndexV2 // v2: 添加 keymodel 迁移

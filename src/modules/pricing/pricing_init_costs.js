@@ -2,7 +2,7 @@
 import { costInitService } from './pricing_cost_init_service.js'
 import { logger } from '../../common/logger.js'
 import { redis } from '../../infra/redis.js'
-const main = async function main() {
+const main = async () => {
   try {
     // 连接Redis
     await redis.connect()

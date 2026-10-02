@@ -2,6 +2,7 @@
 // DEC_20260905_194420 全路径注入并对齐 fingerprint；算法对齐真实 CLI / Parrot / sub2api
 import crypto from 'node:crypto'
 
+import { insertCchPlaceholder } from './relay_claude_cch_signing.js'
 import { extractClaudeCliVersionFromUserAgent, getClaudeCliVersion } from './relay_claude_cli_version.js'
 
 // 真实 Claude Code CLI 抓包推导盐，改动会触发上游第三方判定
@@ -130,6 +131,16 @@ export const syncBillingHeaderVersion = (processedBody, userAgent) => {
     nextText = nextText.replace(CC_VERSION_RE, replacement)
     item.text = nextText
   }
+  return processedBody
+}
+
+// OAuth 官方上游：system[0] billing 块补 cch 占位，序列化后由 signClaudeMessagesBody 签名
+export const ensureBillingCchPlaceholder = (processedBody) => {
+  const first = processedBody?.system?.[0]
+  if (!first || first.type !== 'text' || !isBillingText(first.text)) {
+    return processedBody
+  }
+  first.text = insertCchPlaceholder(first.text)
   return processedBody
 }
 

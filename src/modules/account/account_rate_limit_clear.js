@@ -1,7 +1,7 @@
 import { redis } from '../../infra/redis.js'
 import { RedisLua } from '../../infra/redis_lua.js'
 
-export const applyClearedRateLimitFields = function applyClearedRateLimitFields(accountData) {
+export const applyClearedRateLimitFields = (accountData) => {
   accountData.rateLimitedAt = ''
   accountData.rateLimitStatus = ''
   accountData.rateLimitResetAt = ''
@@ -10,7 +10,7 @@ export const applyClearedRateLimitFields = function applyClearedRateLimitFields(
   accountData.errorMessage = ''
 }
 
-export const copyRateLimitFields = function copyRateLimitFields(target, source) {
+export const copyRateLimitFields = (target, source) => {
   target.rateLimitStatus = source.rateLimitStatus
   target.rateLimitedAt = source.rateLimitedAt
   target.rateLimitResetAt = source.rateLimitResetAt
@@ -19,7 +19,7 @@ export const copyRateLimitFields = function copyRateLimitFields(target, source) 
   target.errorMessage = source.errorMessage
 }
 
-export const clearExpiredRateLimitHash = async function clearExpiredRateLimitHash(accountKey) {
+export const clearExpiredRateLimitHash = async (accountKey) => {
   const client = redis.getClientSafe()
   const now = new Date()
   const result = await client.eval(

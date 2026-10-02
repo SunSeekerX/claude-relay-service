@@ -4,6 +4,8 @@
 // 2) tool_use.input 字段归一（Cursor/其它客户端 → Claude Code 官方字段）
 // 3) timeout 单位钳制（ms）
 
+import { isPlainObject } from '../../common/common_helper.js'
+
 // 运行时 timeout 上限（ms）：与官方 max 包装同量级，防 Invalid tool parameters
 export const CLAUDE_CODE_TOOL_TIMEOUT_MAX_MS = 600000
 export const CLAUDE_CODE_TOOL_TIMEOUT_MIN_MS = 1000
@@ -77,8 +79,6 @@ const FIELD_ALIASES = {
     cmd: 'command',
   },
 }
-
-const isPlainObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value)
 
 const clampTimeoutMs = (value) => {
   if (value === null || value === undefined || value === '') {

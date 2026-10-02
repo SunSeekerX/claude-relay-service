@@ -1,5 +1,5 @@
 import { config } from '../../config/config.js'
-export const parseDateTimeQuery = function parseDateTimeQuery(value) {
+export const parseDateTimeQuery = (value) => {
   if (!value) {
     return null
   }

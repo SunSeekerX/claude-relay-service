@@ -1,10 +1,10 @@
 // OpenAI Responses compact v2（body-signal）与 service_tier 别名
 // DEC_20260904_170000 compaction_trigger + remote_compaction_v2；fast→priority
 
+import { isPlainObject } from '../../common/common_helper.js'
+
 export const CODEX_REMOTE_COMPACTION_V2 = 'remote_compaction_v2'
 export const COMPACTION_TRIGGER_TYPE = 'compaction_trigger'
-
-const isPlainObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value)
 
 export const normalizeOpenAIServiceTierAlias = (tier) => {
   if (typeof tier !== 'string') {

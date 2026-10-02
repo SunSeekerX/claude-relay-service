@@ -8,7 +8,7 @@
  * @param {import('http').ServerResponse} stream - HTTP响应流
  * @returns {boolean} 如果流可写返回true，否则返回false
  */
-export const isStreamWritable = function isStreamWritable(stream) {
+export const isStreamWritable = (stream) => {
   if (!stream) {
     return false
   }

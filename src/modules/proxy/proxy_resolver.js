@@ -7,7 +7,7 @@ import { normalizeContextKey, parseProxyUrl, ProxyErrorType } from './proxy_pool
 // 误判会把好线路熔断、流量挤到更少节点引发雪崩（区别于健康探测的 isProxyTransportOk，那里 403/429=封禁）。
 // 入参 error：请求抛出的异常对象（无异常传 null/undefined 表示成功）。
 // 返回 { transportOk, errorType }：transportOk=false 时附带连接级错误分类，供熔断/权重统计。
-const classifyBusinessTraffic = function classifyBusinessTraffic(error) {
+const classifyBusinessTraffic = (error) => {
   if (!error) {
     return { transportOk: true, errorType: undefined }
   }

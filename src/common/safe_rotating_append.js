@@ -21,7 +21,7 @@ export const MAX_FILE_SIZE_ENV = 'DUMP_MAX_FILE_SIZE_BYTES'
 /**
  * 获取文件大小上限（可通过环境变量覆盖）
  */
-export const getMaxFileSize = function getMaxFileSize() {
+export const getMaxFileSize = () => {
   const raw = env[MAX_FILE_SIZE_ENV]
   if (raw) {
     const parsed = Number.parseInt(raw, 10)
@@ -35,7 +35,7 @@ export const getMaxFileSize = function getMaxFileSize() {
 /**
  * 获取文件大小，文件不存在时返回 0
  */
-const getFileSize = async function getFileSize(filepath) {
+const getFileSize = async (filepath) => {
   try {
     const stat = await fs.stat(filepath)
     return stat.size
@@ -53,7 +53,7 @@ const getFileSize = async function getFileSize(filepath) {
  * @param {Object} options - 可选配置
  * @param {number} options.maxFileSize - 文件大小上限（字节），默认从环境变量或 10MB
  */
-export const safeRotatingAppend = async function safeRotatingAppend(filepath, line, options = {}) {
+export const safeRotatingAppend = async (filepath, line, options = {}) => {
   const maxFileSize = options.maxFileSize || getMaxFileSize()
 
   const currentSize = await getFileSize(filepath)

@@ -90,19 +90,14 @@ export const CLIENT_IDS = {
 }
 
 // 获取所有客户端定义
-export const getAllClientDefinitions = function getAllClientDefinitions() {
-  return Object.values(CLIENT_DEFINITIONS)
-}
+export const getAllClientDefinitions = () => Object.values(CLIENT_DEFINITIONS)
 
 // 根据ID获取客户端定义
-export const getClientDefinitionById = function getClientDefinitionById(clientId) {
-  return Object.values(CLIENT_DEFINITIONS).find((client) => client.id === clientId)
-}
+export const getClientDefinitionById = (clientId) =>
+  Object.values(CLIENT_DEFINITIONS).find((client) => client.id === clientId)
 
 // 检查客户端ID是否有效
-export const isValidClientId = function isValidClientId(clientId) {
-  return Object.values(CLIENT_IDS).includes(clientId)
-}
+export const isValidClientId = (clientId) => Object.values(CLIENT_IDS).includes(clientId)
 
 /**
  * 检查路径是否允许指定客户端访问
@@ -110,7 +105,7 @@ export const isValidClientId = function isValidClientId(clientId) {
  * @param {string} path - 请求路径 (originalUrl 或 path)
  * @returns {boolean} 是否允许
  */
-export const isPathAllowedForClient = function isPathAllowedForClient(clientId, path) {
+export const isPathAllowedForClient = (clientId, path) => {
   const definition = getClientDefinitionById(clientId)
   if (!definition) {
     return false

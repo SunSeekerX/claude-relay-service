@@ -1,4 +1,5 @@
 import * as geminiAccountService from '../account/account_gemini_service.js'
+import { assertModelAccess } from './relay_model_access.js'
 import { geminiApiAccountService } from '../account/account_gemini_api_service.js'
 import { accountGroupService } from '../account/account_group_service.js'
 import * as groupPolicy from '../account/account_group_policy.js'
@@ -12,7 +13,7 @@ const OAUTH_PROVIDER_GEMINI_CLI = 'gemini-cli'
 const OAUTH_PROVIDER_ANTIGRAVITY = 'antigravity'
 const KNOWN_OAUTH_PROVIDERS = [OAUTH_PROVIDER_GEMINI_CLI, OAUTH_PROVIDER_ANTIGRAVITY]
 
-const normalizeOauthProvider = function normalizeOauthProvider(oauthProvider) {
+const normalizeOauthProvider = (oauthProvider) => {
   if (!oauthProvider) {
     return OAUTH_PROVIDER_GEMINI_CLI
   }
@@ -78,6 +79,7 @@ class UnifiedGeminiScheduler {
 
   // 统一调度Gemini账号
   async selectAccountForApiKey(apiKeyData, sessionHash = null, requestedModel = null, options = {}) {
+    assertModelAccess(apiKeyData, requestedModel)
     const { allowApiAccounts = false, oauthProvider = null } = options
     const normalizedOauthProvider = oauthProvider ? normalizeOauthProvider(oauthProvider) : null
 

@@ -4,7 +4,7 @@
 // - 保证 function_call_output 能对上 call_id
 // - 禁止改写 custom 工具；禁止向下游发送内部字段
 
-const isPlainObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value)
+import { isPlainObject } from '../../common/common_helper.js'
 
 const safeJsonParse = (text) => {
   if (typeof text !== 'string' || !text.trim()) {

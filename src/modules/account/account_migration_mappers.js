@@ -44,14 +44,12 @@ export const SUB2API_TYPE = {
   UPSTREAM: 'upstream',
 }
 
-export const unsupported = function unsupported(reason) {
-  return { ok: false, unsupported: true, reason }
-}
+export const unsupported = (reason) => ({ ok: false, unsupported: true, reason })
 
 // === CRS snapshot -> sub2api DataAccount ===
 // 仅 OAuth / Gemini API 可可靠映射；其余类型返回 unsupported。
 
-export const crsSnapshotToSub2api = function crsSnapshotToSub2api(snapshot) {
+export const crsSnapshotToSub2api = (snapshot) => {
   const d = snapshot.data || {}
   const base = {
     name: snapshot.name || d.name || 'Unnamed',
@@ -123,12 +121,12 @@ export const crsSnapshotToSub2api = function crsSnapshotToSub2api(snapshot) {
 }
 
 // ---------- shared helpers ----------
-const toInt = function toInt(v, dflt) {
+const toInt = (v, dflt) => {
   const n = parseInt(v, 10)
   return Number.isFinite(n) ? n : dflt
 }
 
-const pruneEmpty = function pruneEmpty(obj) {
+const pruneEmpty = (obj) => {
   const out = {}
   for (const [k, v] of Object.entries(obj || {})) {
     if (v !== undefined && v !== null && v !== '') {
@@ -139,7 +137,7 @@ const pruneEmpty = function pruneEmpty(obj) {
 }
 
 // 毫秒时间戳 / ISO 字符串 -> ISO 字符串（容错）
-const msToIso = function msToIso(v) {
+const msToIso = (v) => {
   if (!v) {
     return undefined
   }
@@ -154,7 +152,7 @@ const msToIso = function msToIso(v) {
 }
 
 // CRS proxy 对象 -> sub2api DataProxy（缺字段则返回 null）
-const normalizeProxyForExport = function normalizeProxyForExport(proxy) {
+const normalizeProxyForExport = (proxy) => {
   const p = typeof proxy === 'string' ? safeJson(proxy) : proxy
   if (!p || typeof p !== 'object') {
     return null
@@ -174,7 +172,7 @@ const normalizeProxyForExport = function normalizeProxyForExport(proxy) {
   }
 }
 
-const safeJson = function safeJson(raw, fallback = null) {
+const safeJson = (raw, fallback = null) => {
   if (!raw || typeof raw !== 'string') {
     return fallback
   }
@@ -186,7 +184,7 @@ const safeJson = function safeJson(raw, fallback = null) {
 }
 
 // ---------- sub2api 子映射 ----------
-const mapOpenAiToSub2api = function mapOpenAiToSub2api(d, base) {
+const mapOpenAiToSub2api = (d, base) => {
   const oauth = d.openaiOauth || {}
   return {
     ok: true,
@@ -208,25 +206,23 @@ const mapOpenAiToSub2api = function mapOpenAiToSub2api(d, base) {
   }
 }
 
-const mapOpenAiResponsesToSub2api = function mapOpenAiResponsesToSub2api(d, base) {
-  return {
-    ok: true,
-    account: {
-      ...base,
-      platform: SUB2API_PLATFORM.OPENAI,
-      type: SUB2API_TYPE.API_KEY,
-      credentials: pruneEmpty({
-        api_key: d.apiKey,
-        base_url: d.baseApi,
-        // 扩展字段（sub2api credentials 为 map[string]any，多余字段无害）：
-        // 落盘运行语义（relay 缺省按 responses），CRS->sub2api->CRS 往返不漂移
-        provider_endpoint: d.providerEndpoint || 'responses',
-      }),
-    },
-  }
-}
+const mapOpenAiResponsesToSub2api = (d, base) => ({
+  ok: true,
+  account: {
+    ...base,
+    platform: SUB2API_PLATFORM.OPENAI,
+    type: SUB2API_TYPE.API_KEY,
+    credentials: pruneEmpty({
+      api_key: d.apiKey,
+      base_url: d.baseApi,
+      // 扩展字段（sub2api credentials 为 map[string]any，多余字段无害）：
+      // 落盘运行语义（relay 缺省按 responses），CRS->sub2api->CRS 往返不漂移
+      provider_endpoint: d.providerEndpoint || 'responses',
+    }),
+  },
+})
 
-const mapGeminiOAuthToSub2api = function mapGeminiOAuthToSub2api(d, base) {
+const mapGeminiOAuthToSub2api = (d, base) => {
   const oauth = typeof d.geminiOauth === 'string' ? safeJson(d.geminiOauth, {}) : d.geminiOauth || {}
   const platform = d.oauthProvider === 'antigravity' ? SUB2API_PLATFORM.ANTIGRAVITY : SUB2API_PLATFORM.GEMINI
   return {
@@ -247,24 +243,22 @@ const mapGeminiOAuthToSub2api = function mapGeminiOAuthToSub2api(d, base) {
   }
 }
 
-const mapGeminiApiToSub2api = function mapGeminiApiToSub2api(d, base) {
-  return {
-    ok: true,
-    account: {
-      ...base,
-      platform: SUB2API_PLATFORM.GEMINI,
-      type: SUB2API_TYPE.API_KEY,
-      credentials: pruneEmpty({
-        api_key: d.apiKey,
-        base_url: d.baseUrl,
-      }),
-    },
-  }
-}
+const mapGeminiApiToSub2api = (d, base) => ({
+  ok: true,
+  account: {
+    ...base,
+    platform: SUB2API_PLATFORM.GEMINI,
+    type: SUB2API_TYPE.API_KEY,
+    credentials: pruneEmpty({
+      api_key: d.apiKey,
+      base_url: d.baseUrl,
+    }),
+  },
+})
 
 // === sub2api DataAccount -> CRS snapshot ===
 // 把 sub2api 账户映射回 CRS 可创建/更新的快照；不支持的组合返回 unsupported。
-export const sub2apiToCrsSnapshot = function sub2apiToCrsSnapshot(acc, proxyByKey = {}) {
+export const sub2apiToCrsSnapshot = (acc, proxyByKey = {}) => {
   const platform = String(acc.platform || '').toLowerCase()
   const type = String(acc.type || '').toLowerCase()
   const cred = acc.credentials || {}
@@ -390,7 +384,7 @@ export const sub2apiToCrsSnapshot = function sub2apiToCrsSnapshot(acc, proxyByKe
 }
 
 // ---------- import-side helpers ----------
-const isoToMs = function isoToMs(v) {
+const isoToMs = (v) => {
   if (!v) {
     return undefined
   }
@@ -402,7 +396,7 @@ const isoToMs = function isoToMs(v) {
 }
 
 // sub2api DataProxy -> CRS proxy 对象
-const proxyForImport = function proxyForImport(p) {
+const proxyForImport = (p) => {
   if (!p || typeof p !== 'object') {
     return null
   }
@@ -420,7 +414,7 @@ const proxyForImport = function proxyForImport(p) {
 }
 
 // 从凭据构造 CRS Gemini OAuth 快照（gemini-cli / antigravity 共用）
-const geminiOAuthSnapshotFromCreds = function geminiOAuthSnapshotFromCreds(cred, common, isAntigravity) {
+const geminiOAuthSnapshotFromCreds = (cred, common, isAntigravity) => {
   const geminiOauth = pruneEmpty({
     access_token: cred.access_token,
     refresh_token: cred.refresh_token,
@@ -446,7 +440,7 @@ const geminiOAuthSnapshotFromCreds = function geminiOAuthSnapshotFromCreds(cred,
 
 // === CLIProxyAPI auth 文件 <-> CRS snapshot ===
 // 单个 auth 文件 -> CRS 快照。已核实 token.go / gemini_token.go / antigravity metadata。
-export const cliproxyAuthToCrsSnapshot = function cliproxyAuthToCrsSnapshot(authFile, filename = '') {
+export const cliproxyAuthToCrsSnapshot = (authFile, filename = '') => {
   const type = String(authFile.type || '').toLowerCase()
   const name = deriveName(authFile, filename, type)
   const common = { name, description: '', proxy: null }
@@ -551,14 +545,14 @@ export const cliproxyAuthToCrsSnapshot = function cliproxyAuthToCrsSnapshot(auth
 }
 
 // Gemini auth 文件的 token 字段保留原始 OAuth 对象
-const normalizeGeminiToken = function normalizeGeminiToken(token) {
+const normalizeGeminiToken = (token) => {
   if (!token) {
     return {}
   }
   return typeof token === 'string' ? safeJson(token, {}) : token
 }
 
-const deriveName = function deriveName(authFile, filename, type) {
+const deriveName = (authFile, filename, type) => {
   if (authFile.email) {
     return authFile.email
   }
@@ -571,7 +565,7 @@ const deriveName = function deriveName(authFile, filename, type) {
 // === CRS snapshot -> CLIProxyAPI auth 文件 ===
 // 仅 OAuth 类账户可导出为 auth 文件；其余返回 unsupported。
 // 返回 { ok, file: { filename, content } } —— content 已是合法 auth json 对象（带 type）。
-export const crsSnapshotToCliproxyAuth = function crsSnapshotToCliproxyAuth(snapshot) {
+export const crsSnapshotToCliproxyAuth = (snapshot) => {
   const d = snapshot.data || {}
   switch (snapshot.platform) {
     case CRS_PLATFORM.CLAUDE: {
@@ -637,7 +631,7 @@ export const crsSnapshotToCliproxyAuth = function crsSnapshotToCliproxyAuth(snap
   }
 }
 
-const wrapAuthFile = function wrapAuthFile(provider, email, content) {
+const wrapAuthFile = (provider, email, content) => {
   const safeEmail = (email || '').replace(/[^a-zA-Z0-9._@-]/g, '_')
   const filename = safeEmail ? `${provider}-${safeEmail}.json` : `${provider}.json`
   return { ok: true, file: { filename, content } }

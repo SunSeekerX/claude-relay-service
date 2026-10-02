@@ -159,6 +159,8 @@ export const safeParseJsonArray = (value, fallback = []) => {
   return Array.isArray(parsed) ? parsed : fallback
 }
 
+export const isPlainObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value)
+
 // ===
 // 模型名称处理
 // ===

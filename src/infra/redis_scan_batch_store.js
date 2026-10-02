@@ -4,7 +4,7 @@ import * as timezone from '../common/timezone.js'
 // SCAN / 批量读写 / 索引辅助方法（从 src/models/redis.js 按域抽出）
 // 经 attach(redisClient) 挂到同一个 RedisClient 单例上，this 绑定与原文件一致。
 // ===
-export const attach = function attach(redisClient) {
+export const attach = (redisClient) => {
   /**
    * 使用 SCAN 获取匹配模式的所有 keys（避免 KEYS 命令阻塞 Redis）
    * @param {string} pattern - 匹配模式，如 'usage:model:daily:*:2025-01-01'

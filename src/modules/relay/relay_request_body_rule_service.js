@@ -1,10 +1,8 @@
 export const VALID_VALUE_TYPES = ['string', 'number', 'boolean', 'json']
 
-const isNumericSegment = function isNumericSegment(segment) {
-  return /^\d+$/.test(segment)
-}
+const isNumericSegment = (segment) => /^\d+$/.test(segment)
 
-const validatePath = function validatePath(path) {
+const validatePath = (path) => {
   if (typeof path !== 'string' || !path.trim()) {
     return 'Rule path must be a non-empty string'
   }
@@ -17,7 +15,7 @@ const validatePath = function validatePath(path) {
   return null
 }
 
-export const normalizeRule = function normalizeRule(rawRule = {}) {
+export const normalizeRule = (rawRule = {}) => {
   if (!rawRule || typeof rawRule !== 'object' || Array.isArray(rawRule)) {
     return null
   }
@@ -34,7 +32,7 @@ export const normalizeRule = function normalizeRule(rawRule = {}) {
   }
 }
 
-export const coerceRuleValue = function coerceRuleValue(rule) {
+export const coerceRuleValue = (rule) => {
   if (!rule || typeof rule !== 'object') {
     throw new Error('Invalid rule')
   }
@@ -71,7 +69,7 @@ export const coerceRuleValue = function coerceRuleValue(rule) {
   }
 }
 
-export const validateAndNormalizeRules = function validateAndNormalizeRules(rules) {
+export const validateAndNormalizeRules = (rules) => {
   if (rules === undefined || rules === null) {
     return { valid: true, rules: [] }
   }
@@ -129,7 +127,7 @@ export const validateAndNormalizeRules = function validateAndNormalizeRules(rule
   }
 }
 
-const setValueAtPath = function setValueAtPath(node, segments, value) {
+const setValueAtPath = (node, segments, value) => {
   if (!Array.isArray(segments) || segments.length === 0) {
     return value
   }
@@ -161,7 +159,7 @@ const setValueAtPath = function setValueAtPath(node, segments, value) {
   return nextNode
 }
 
-export const applyRules = function applyRules(body, rules) {
+export const applyRules = (body, rules) => {
   if (!body || typeof body !== 'object' || Array.isArray(body)) {
     return body
   }

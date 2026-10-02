@@ -2,6 +2,7 @@ import crypto from 'node:crypto'
 import { ProxyHelper } from '../modules/proxy/proxy_helper.js'
 import axios from 'axios'
 import { logger } from './logger.js'
+import { buildClaudeCliUserAgent } from '../modules/relay/relay_claude_cli_version.js'
 /**
  * OAuth助手工具
  * 基于claude-code-login.js中的OAuth流程实现
@@ -10,13 +11,15 @@ import { logger } from './logger.js'
 // OAuth 配置常量 - 从claude-code-login.js提取
 // 注：console.anthropic.com 已迁移至 platform.claude.com，旧域名对 refresh_token grant 返回 404
 export const OAUTH_CONFIG = {
-  AUTHORIZE_URL: 'https://claude.ai/oauth/authorize',
+  // DEC_20261001_114137 授权地址与 scope 对齐 Claude Code 2.1.280（CLAUDE_AI_AUTHORIZE_URL + user:plugins）
+  AUTHORIZE_URL: 'https://claude.com/cai/oauth/authorize',
   TOKEN_URL: 'https://platform.claude.com/v1/oauth/token',
   CLIENT_ID: '9d1c250a-e61b-44d9-88ed-5944d1962f5e',
   REDIRECT_URI: 'https://platform.claude.com/oauth/code/callback',
-  SCOPES: 'org:create_api_key user:profile user:inference user:sessions:claude_code user:mcp_servers user:file_upload',
+  SCOPES:
+    'org:create_api_key user:profile user:inference user:sessions:claude_code user:mcp_servers user:file_upload user:plugins',
   // Cookie/API 流程使用的 scope（不含 org:create_api_key，该 scope 仅适用于浏览器授权）
-  SCOPES_API: 'user:profile user:inference user:sessions:claude_code user:mcp_servers user:file_upload',
+  SCOPES_API: 'user:profile user:inference user:sessions:claude_code user:mcp_servers user:file_upload user:plugins',
   SCOPES_SETUP: 'user:inference', // Setup Token 只需要推理权限
 }
 
@@ -31,27 +34,22 @@ export const COOKIE_OAUTH_CONFIG = {
  * 生成随机的 state 参数
  * @returns {string} 随机生成的 state (base64url编码)
  */
-export const generateState = function generateState() {
-  return crypto.randomBytes(32).toString('base64url')
-}
+export const generateState = () => crypto.randomBytes(32).toString('base64url')
 
 /**
  * 生成随机的 code verifier（PKCE）
  * 符合 RFC 7636 标准：32字节随机数 → base64url编码 → 43字符
  * @returns {string} base64url 编码的随机字符串
  */
-export const generateCodeVerifier = function generateCodeVerifier() {
-  return crypto.randomBytes(32).toString('base64url')
-}
+export const generateCodeVerifier = () => crypto.randomBytes(32).toString('base64url')
 
 /**
  * 生成 code challenge（PKCE）
  * @param {string} codeVerifier - code verifier 字符串
  * @returns {string} SHA256 哈希后的 base64url 编码字符串
  */
-export const generateCodeChallenge = function generateCodeChallenge(codeVerifier) {
-  return crypto.createHash('sha256').update(codeVerifier).digest('base64url')
-}
+export const generateCodeChallenge = (codeVerifier) =>
+  crypto.createHash('sha256').update(codeVerifier).digest('base64url')
 
 /**
  * 生成授权 URL
@@ -59,7 +57,7 @@ export const generateCodeChallenge = function generateCodeChallenge(codeVerifier
  * @param {string} state - state 参数
  * @returns {string} 完整的授权 URL
  */
-export const generateAuthUrl = function generateAuthUrl(codeChallenge, state) {
+export const generateAuthUrl = (codeChallenge, state) => {
   const params = new URLSearchParams({
     code: 'true',
     client_id: OAUTH_CONFIG.CLIENT_ID,
@@ -78,7 +76,7 @@ export const generateAuthUrl = function generateAuthUrl(codeChallenge, state) {
  * 生成OAuth授权URL和相关参数
  * @returns {{authUrl: string, codeVerifier: string, state: string, codeChallenge: string}}
  */
-export const generateOAuthParams = function generateOAuthParams() {
+export const generateOAuthParams = () => {
   const state = generateState()
   const codeVerifier = generateCodeVerifier()
   const codeChallenge = generateCodeChallenge(codeVerifier)
@@ -99,7 +97,7 @@ export const generateOAuthParams = function generateOAuthParams() {
  * @param {string} state - state 参数
  * @returns {string} 完整的授权 URL
  */
-export const generateSetupTokenAuthUrl = function generateSetupTokenAuthUrl(codeChallenge, state) {
+export const generateSetupTokenAuthUrl = (codeChallenge, state) => {
   const params = new URLSearchParams({
     code: 'true',
     client_id: OAUTH_CONFIG.CLIENT_ID,
@@ -118,7 +116,7 @@ export const generateSetupTokenAuthUrl = function generateSetupTokenAuthUrl(code
  * 生成Setup Token授权URL和相关参数
  * @returns {{authUrl: string, codeVerifier: string, state: string, codeChallenge: string}}
  */
-export const generateSetupTokenParams = function generateSetupTokenParams() {
+export const generateSetupTokenParams = () => {
   const state = generateState()
   const codeVerifier = generateCodeVerifier()
   const codeChallenge = generateCodeChallenge(codeVerifier)
@@ -138,9 +136,7 @@ export const generateSetupTokenParams = function generateSetupTokenParams() {
  * @param {object|null} proxyConfig - 代理配置对象
  * @returns {object|null} 代理agent或null
  */
-export const createProxyAgent = function createProxyAgent(proxyConfig) {
-  return ProxyHelper.createProxyAgent(proxyConfig)
-}
+export const createProxyAgent = (proxyConfig) => ProxyHelper.createProxyAgent(proxyConfig)
 
 /**
  * 使用授权码交换访问令牌
@@ -150,12 +146,7 @@ export const createProxyAgent = function createProxyAgent(proxyConfig) {
  * @param {object|null} proxyConfig - 代理配置（可选）
  * @returns {Promise<object>} Claude格式的token响应
  */
-export const exchangeCodeForTokens = async function exchangeCodeForTokens(
-  authorizationCode,
-  codeVerifier,
-  state,
-  proxyConfig = null,
-) {
+export const exchangeCodeForTokens = async (authorizationCode, codeVerifier, state, proxyConfig = null) => {
   // 清理授权码，移除URL片段
   const cleanedCode = authorizationCode.split('#')[0]?.split('&')[0] ?? authorizationCode
 
@@ -189,7 +180,7 @@ export const exchangeCodeForTokens = async function exchangeCodeForTokens(
     const axiosConfig = {
       headers: {
         'Content-Type': 'application/json',
-        'User-Agent': 'claude-cli/1.0.56 (external, cli)',
+        'User-Agent': buildClaudeCliUserAgent(),
         Accept: 'application/json, text/plain, */*',
         'Accept-Language': 'en-US,en;q=0.9',
         Referer: 'https://claude.ai/',
@@ -320,7 +311,7 @@ export const exchangeCodeForTokens = async function exchangeCodeForTokens(
  * @param {string} input - 完整的回调 URL 或直接的授权码
  * @returns {string} 授权码
  */
-export const parseCallbackUrl = function parseCallbackUrl(input) {
+export const parseCallbackUrl = (input) => {
   if (!input || typeof input !== 'string') {
     throw new Error('请提供有效的授权码或回调 URL')
   }
@@ -372,12 +363,7 @@ export const parseCallbackUrl = function parseCallbackUrl(input) {
  * @param {object|null} proxyConfig - 代理配置（可选）
  * @returns {Promise<object>} Claude格式的token响应
  */
-export const exchangeSetupTokenCode = async function exchangeSetupTokenCode(
-  authorizationCode,
-  codeVerifier,
-  state,
-  proxyConfig = null,
-) {
+export const exchangeSetupTokenCode = async (authorizationCode, codeVerifier, state, proxyConfig = null) => {
   // 清理授权码，移除URL片段
   const cleanedCode = authorizationCode.split('#')[0]?.split('&')[0] ?? authorizationCode
 
@@ -412,7 +398,7 @@ export const exchangeSetupTokenCode = async function exchangeSetupTokenCode(
     const axiosConfig = {
       headers: {
         'Content-Type': 'application/json',
-        'User-Agent': 'claude-cli/1.0.56 (external, cli)',
+        'User-Agent': buildClaudeCliUserAgent(),
         Accept: 'application/json, text/plain, */*',
         'Accept-Language': 'en-US,en;q=0.9',
         Referer: 'https://claude.ai/',
@@ -538,27 +524,25 @@ export const exchangeSetupTokenCode = async function exchangeSetupTokenCode(
  * @param {object} tokenData - token数据
  * @returns {object} claudeAiOauth格式的数据
  */
-export const formatClaudeCredentials = function formatClaudeCredentials(tokenData) {
-  return {
-    claudeAiOauth: {
-      accessToken: tokenData.accessToken,
-      refreshToken: tokenData.refreshToken,
-      expiresAt: tokenData.expiresAt,
-      scopes: tokenData.scopes,
-      isMax: tokenData.isMax,
-      organization: tokenData.organization || null,
-      account: tokenData.account || null,
-      extInfo: tokenData.extInfo || null,
-    },
-  }
-}
+export const formatClaudeCredentials = (tokenData) => ({
+  claudeAiOauth: {
+    accessToken: tokenData.accessToken,
+    refreshToken: tokenData.refreshToken,
+    expiresAt: tokenData.expiresAt,
+    scopes: tokenData.scopes,
+    isMax: tokenData.isMax,
+    organization: tokenData.organization || null,
+    account: tokenData.account || null,
+    extInfo: tokenData.extInfo || null,
+  },
+})
 
 /**
  * 从令牌响应中提取扩展信息
  * @param {object} data - 令牌响应
  * @returns {object|null} 包含组织与账户UUID的扩展信息
  */
-export const extractExtInfo = function extractExtInfo(data) {
+export const extractExtInfo = (data) => {
   if (!data || typeof data !== 'object') {
     return null
   }
@@ -592,18 +576,16 @@ export const extractExtInfo = function extractExtInfo(data) {
  * @param {string} sessionKey - sessionKey值
  * @returns {object} 请求头对象
  */
-export const buildCookieHeaders = function buildCookieHeaders(sessionKey) {
-  return {
-    Accept: 'application/json',
-    'Accept-Language': 'en-US,en;q=0.9',
-    'Cache-Control': 'no-cache',
-    Cookie: `sessionKey=${sessionKey}`,
-    Origin: COOKIE_OAUTH_CONFIG.CLAUDE_AI_URL,
-    Referer: `${COOKIE_OAUTH_CONFIG.CLAUDE_AI_URL}/new`,
-    'User-Agent':
-      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-  }
-}
+export const buildCookieHeaders = (sessionKey) => ({
+  Accept: 'application/json',
+  'Accept-Language': 'en-US,en;q=0.9',
+  'Cache-Control': 'no-cache',
+  Cookie: `sessionKey=${sessionKey}`,
+  Origin: COOKIE_OAUTH_CONFIG.CLAUDE_AI_URL,
+  Referer: `${COOKIE_OAUTH_CONFIG.CLAUDE_AI_URL}/new`,
+  'User-Agent':
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+})
 
 /**
  * 使用Cookie获取组织UUID和能力列表
@@ -611,7 +593,7 @@ export const buildCookieHeaders = function buildCookieHeaders(sessionKey) {
  * @param {object|null} proxyConfig - 代理配置（可选）
  * @returns {Promise<{organizationUuid: string, capabilities: string[]}>}
  */
-export const getOrganizationInfo = async function getOrganizationInfo(sessionKey, proxyConfig = null) {
+export const getOrganizationInfo = async (sessionKey, proxyConfig = null) => {
   const headers = buildCookieHeaders(sessionKey)
   const agent = createProxyAgent(proxyConfig)
 
@@ -704,12 +686,7 @@ export const getOrganizationInfo = async function getOrganizationInfo(sessionKey
  * @param {object|null} proxyConfig - 代理配置（可选）
  * @returns {Promise<{authorizationCode: string, codeVerifier: string, state: string}>}
  */
-export const authorizeWithCookie = async function authorizeWithCookie(
-  sessionKey,
-  organizationUuid,
-  scope,
-  proxyConfig = null,
-) {
+export const authorizeWithCookie = async (sessionKey, organizationUuid, scope, proxyConfig = null) => {
   // 生成PKCE参数
   const codeVerifier = generateCodeVerifier()
   const codeChallenge = generateCodeChallenge(codeVerifier)
@@ -832,7 +809,7 @@ export const authorizeWithCookie = async function authorizeWithCookie(
  * @param {boolean} isSetupToken - 是否为Setup Token模式
  * @returns {Promise<{claudeAiOauth: object, organizationUuid: string, capabilities: string[]}>}
  */
-export const oauthWithCookie = async function oauthWithCookie(sessionKey, proxyConfig = null, isSetupToken = false) {
+export const oauthWithCookie = async (sessionKey, proxyConfig = null, isSetupToken = false) => {
   logger.info('Starting Cookie-based OAuth flow', {
     isSetupToken,
     hasProxy: !!proxyConfig,

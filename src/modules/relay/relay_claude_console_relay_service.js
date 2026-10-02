@@ -1,4 +1,5 @@
 import axios from 'axios'
+import { StringDecoder } from 'node:string_decoder'
 import { claudeConsoleAccountService } from '../account/account_claude_console_service.js'
 import { redis } from '../../infra/redis.js'
 import { logger } from '../../common/logger.js'
@@ -22,6 +23,7 @@ import crypto from 'node:crypto'
 import { sanitizeClaudeBodyFallbacks } from './translator/relay_translator_body_sanitize.js'
 import { buildClaudeCliUserAgent } from './relay_claude_cli_version.js'
 import { ensureAlignedBillingHeader } from './relay_claude_billing_header.js'
+import { normalizeClaudeRequestForModel } from './translator/relay_translator_thinking.js'
 class ClaudeConsoleRelayService {
   constructor() {
     this.defaultUserAgent = buildClaudeCliUserAgent()
@@ -236,6 +238,8 @@ class ClaudeConsoleRelayService {
 
       // DEC_20260905_194420 Console 全路径也注入 billing 并与出站 UA 对齐
       ensureAlignedBillingHeader(modifiedRequestBody, { userAgent })
+      // DEC_20261001_114137 按映射后模型能力归一 thinking 与采样参数
+      normalizeClaudeRequestForModel(modifiedRequestBody, modifiedRequestBody.model)
 
       // 准备请求配置：先 spread 再强制 User-Agent，避免客户端 ua 覆盖
       const requestConfig = {
@@ -812,6 +816,8 @@ class ClaudeConsoleRelayService {
       // DEC_20260905_194420 Console 流式也注入 billing 并与出站 UA 对齐
       if (body && typeof body === 'object') {
         ensureAlignedBillingHeader(body, { userAgent })
+        // DEC_20261001_114137 按映射后模型能力归一 thinking 与采样参数
+        normalizeClaudeRequestForModel(body, body.model)
       }
 
       // 准备请求配置：先 spread 再强制 User-Agent
@@ -1063,6 +1069,7 @@ class ClaudeConsoleRelayService {
           }
 
           let buffer = ''
+          const streamDecoder = new StringDecoder('utf8')
           let finalUsageReported = false
           // 流处理致命错误后停止转发
           // DEC_20260905_163148
@@ -1080,7 +1087,7 @@ class ClaudeConsoleRelayService {
                 return
               }
 
-              const chunkStr = chunk.toString()
+              const chunkStr = streamDecoder.write(chunk)
               buffer += chunkStr
 
               // 处理完整的SSE行
@@ -1245,6 +1252,7 @@ class ClaudeConsoleRelayService {
                 return
               }
 
+              buffer += streamDecoder.end()
               // 处理缓冲区中剩余数据：aborted 时只解析 usage 不写回
               // DEC_20260905_195558 drain 完再计费，禁止半截 output=0 落账
               if (buffer.trim()) {

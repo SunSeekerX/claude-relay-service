@@ -14,15 +14,13 @@ export const sanitizeErrorMsg = (msg) => {
  * @param {number} bytes - 字节数
  * @returns {string} 十六进制字符串
  */
-export const randomHex = function randomHex(bytes = 32) {
-  return crypto.randomBytes(bytes).toString('hex')
-}
+export const randomHex = (bytes = 32) => crypto.randomBytes(bytes).toString('hex')
 
 /**
  * 生成 Claude Code 风格的会话字符串
  * @returns {string} 会话字符串，格式: user_{64位hex}_account__session_{uuid}
  */
-export const generateSessionString = function generateSessionString() {
+export const generateSessionString = () => {
   const hex64 = randomHex(32) // 32 bytes => 64 hex characters
   const uuid = crypto.randomUUID()
   return `user_${hex64}_account__session_${uuid}`
@@ -37,10 +35,7 @@ export const generateSessionString = function generateSessionString() {
  * @param {number} options.maxTokens - 最大输出 token（默认 1000）
  * @returns {object} 测试请求体
  */
-export const createClaudeTestPayload = function createClaudeTestPayload(
-  model = 'claude-sonnet-4-5-20250929',
-  options = {},
-) {
+export const createClaudeTestPayload = (model = 'claude-sonnet-4-5-20250929', options = {}) => {
   const { stream, prompt = 'hi', maxTokens = 1000 } = options
   const payload = {
     model,
@@ -93,7 +88,7 @@ export const createClaudeTestPayload = function createClaudeTestPayload(
  * @param {object} [options.extraHeaders] - 额外的请求头
  * @returns {Promise<void>}
  */
-export const sendStreamTestRequest = async function sendStreamTestRequest(options) {
+export const sendStreamTestRequest = async (options) => {
   const {
     apiUrl,
     authorization,
@@ -257,7 +252,7 @@ export const sendStreamTestRequest = async function sendStreamTestRequest(option
  * @param {number} options.maxTokens - 最大输出 token（默认 100）
  * @returns {object} 测试请求体
  */
-export const createGeminiTestPayload = function createGeminiTestPayload(_model = 'gemini-2.5-pro', options = {}) {
+export const createGeminiTestPayload = (_model = 'gemini-2.5-pro', options = {}) => {
   const { prompt = 'hi', maxTokens = 100 } = options
   return {
     contents: [
@@ -281,7 +276,7 @@ export const createGeminiTestPayload = function createGeminiTestPayload(_model =
  * @param {number} options.maxTokens - 最大输出 token（默认 100）
  * @returns {object} 测试请求体
  */
-export const createOpenAITestPayload = function createOpenAITestPayload(model = 'gpt-5', options = {}) {
+export const createOpenAITestPayload = (model = 'gpt-5', options = {}) => {
   const { prompt = 'hi', maxTokens = 100, stream = true } = options
   return {
     model,
@@ -304,10 +299,7 @@ export const createOpenAITestPayload = function createOpenAITestPayload(model = 
  * @param {number} options.maxTokens - 最大输出 token（默认 100）
  * @returns {object} 测试请求体
  */
-export const createChatCompletionsTestPayload = function createChatCompletionsTestPayload(
-  model = 'gpt-4o-mini',
-  options = {},
-) {
+export const createChatCompletionsTestPayload = (model = 'gpt-4o-mini', options = {}) => {
   const { prompt = 'hi', maxTokens = 100 } = options
   return {
     model,
@@ -328,7 +320,7 @@ export const createChatCompletionsTestPayload = function createChatCompletionsTe
  * @param {string} fallback - 提取失败时的回退信息
  * @returns {string} 错误信息
  */
-export const extractErrorMessage = function extractErrorMessage(json, fallback) {
+export const extractErrorMessage = (json, fallback) => {
   if (!json || typeof json !== 'object') {
     return fallback
   }

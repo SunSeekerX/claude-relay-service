@@ -63,7 +63,7 @@
               <AppTooltip placement="top">
                 <template #content>
                   <div class="max-w-xs text-sm leading-relaxed">
-                    清理所有已保存的历史请求体预览数据；仅影响历史预览，不影响当前请求体预览开关设置
+                    清理所有已保存的历史请求/响应快照数据；仅影响历史预览，不影响当前请求/响应快照开关设置
                   </div>
                 </template>
                 <button
@@ -295,7 +295,7 @@
                 <AppTooltip placement="top">
                   <template #content>
                     <div class="max-w-xs text-sm leading-relaxed">
-                      清理所有已保存的历史请求体预览数据；仅影响历史预览，不影响当前请求体预览开关设置
+                      清理所有已保存的历史请求/响应快照数据；仅影响历史预览，不影响当前请求/响应快照开关设置
                     </div>
                   </template>
                   <button
@@ -920,18 +920,18 @@ const handleRequestDetailBodyPreviewPurge = async () => {
     const statsResponse = await getRequestDetailBodyPreviewStatsApi()
 
     if (!isOk(statsResponse)) {
-      showToast(msgOf(statsResponse, '检查历史请求体预览失败'), 'error')
+      showToast(msgOf(statsResponse, '检查历史请求/响应快照失败'), 'error')
       return
     }
 
     const snapshotCount = Number(statsResponse?.data?.snapshotCount || 0)
     if (snapshotCount <= 0) {
-      showToast('暂无历史请求体预览需要清理', 'success')
+      showToast('暂无历史请求/响应快照需要清理', 'success')
       return
     }
 
     const confirmed = window.confirm(
-      `检测到当前仍有 ${snapshotCount} 条请求明细保存了请求体预览。\n清理后将仅移除历史请求体预览，保留请求明细摘要字段。\n\n是否继续？`
+      `检测到当前仍有 ${snapshotCount} 条请求明细保存了请求/响应快照。\n清理后将仅移除历史请求/响应快照，保留请求明细摘要字段。\n\n是否继续？`
     )
     if (!confirmed) return
 
@@ -939,13 +939,13 @@ const handleRequestDetailBodyPreviewPurge = async () => {
     const purgeResponse = await purgeRequestDetailBodyPreviewApi()
 
     if (!isOk(purgeResponse)) {
-      showToast(msgOf(purgeResponse, '清理历史请求体预览失败'), 'error')
+      showToast(msgOf(purgeResponse, '清理历史请求/响应快照失败'), 'error')
       return
     }
 
     showToast(msgOf(purgeResponse, '清理完毕'), 'success')
   } catch (error) {
-    showToast('清理历史请求体预览失败', 'error')
+    showToast('清理历史请求/响应快照失败', 'error')
     console.error(error)
   } finally {
     requestDetailBodyPreviewPurging.value = false

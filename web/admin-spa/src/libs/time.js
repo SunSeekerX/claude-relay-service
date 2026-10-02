@@ -1,16 +1,5 @@
 import dayjs from 'dayjs'
 
-export const formatDateTimeLocalValue = (value) => {
-  if (!value) return ''
-  const date = dayjs(value)
-  if (!date.isValid()) return ''
-  return date.format('YYYY-MM-DDTHH:mm')
-}
-
-export const getDateTimeLocalMinValue = (minutesFromNow = 1) => {
-  return dayjs().add(minutesFromNow, 'minute').format('YYYY-MM-DDTHH:mm')
-}
-
 export const localDateTimeInputToISOString = (value) => {
   if (!value) return ''
   const date = dayjs(value)
@@ -61,19 +50,6 @@ export const toStoreDateTime = (value) => {
   const date = dayjs(value)
   if (!date.isValid()) return ''
   return date.format('YYYY-MM-DD HH:mm:ss')
-}
-
-export const toDateTimeLocalInput = (value) => {
-  if (value == null || value === '') return ''
-  if (typeof value === 'string' && value.includes('T') && value.length >= 16) {
-    return value.slice(0, 16)
-  }
-  if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2} /.test(value)) {
-    return value.replace(' ', 'T').slice(0, 16)
-  }
-  const date = dayjs(value)
-  if (!date.isValid()) return ''
-  return date.format('YYYY-MM-DDTHH:mm')
 }
 
 // 日期范围预设：返回 [start, end] 存库字符串，或 null（全部）

@@ -26,7 +26,7 @@ export class WorkOSDeviceAuthError extends Error {
  * @param {object|null} proxyConfig - 代理配置
  * @returns {Promise<object>} WorkOS 返回的数据
  */
-export const startDeviceAuthorization = async function startDeviceAuthorization(proxyConfig = null) {
+export const startDeviceAuthorization = async (proxyConfig = null) => {
   const form = new URLSearchParams({
     client_id: WORKOS_CLIENT_ID,
   })
@@ -98,7 +98,7 @@ export const startDeviceAuthorization = async function startDeviceAuthorization(
  * @param {object|null} proxyConfig - 代理配置
  * @returns {Promise<object>} WorkOS 返回的 token 数据
  */
-export const pollDeviceAuthorization = async function pollDeviceAuthorization(deviceCode, proxyConfig = null) {
+export const pollDeviceAuthorization = async (deviceCode, proxyConfig = null) => {
   if (!deviceCode) {
     throw new WorkOSDeviceAuthError('缺少设备码，无法查询授权结果', 'missing_device_code')
   }

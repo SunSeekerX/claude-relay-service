@@ -307,7 +307,6 @@
 </template>
 
 <script setup>
-/* eslint-disable no-unused-vars */
 import { computed } from 'vue'
 import { storeToRefs } from 'pinia'
 import dayjs from 'dayjs'
@@ -315,7 +314,7 @@ import { useApiStatsStore } from '@/stores/api_stats'
 import { copyText, formatNumber, formatDate } from '@/libs/tools'
 import { formatLocalDateTime } from '@/libs/time'
 
-const props = defineProps({
+defineProps({
   showTimelineButton: {
     type: Boolean,
     default: false

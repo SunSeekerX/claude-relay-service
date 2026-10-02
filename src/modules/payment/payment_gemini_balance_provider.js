@@ -3,7 +3,7 @@ import * as antigravityClient from '../relay/relay_antigravity_client.js'
 import * as geminiAccountService from '../account/account_gemini_service.js'
 const OAUTH_PROVIDER_ANTIGRAVITY = 'antigravity'
 
-const clamp01 = function clamp01(value) {
+const clamp01 = (value) => {
   if (typeof value !== 'number' || !Number.isFinite(value)) {
     return null
   }
@@ -16,14 +16,14 @@ const clamp01 = function clamp01(value) {
   return value
 }
 
-const round2 = function round2(value) {
+const round2 = (value) => {
   if (typeof value !== 'number' || !Number.isFinite(value)) {
     return null
   }
   return Math.round(value * 100) / 100
 }
 
-const normalizeQuotaCategory = function normalizeQuotaCategory(displayName, modelId) {
+const normalizeQuotaCategory = (displayName, modelId) => {
   const name = String(displayName || '')
   const id = String(modelId || '')
 
@@ -57,7 +57,7 @@ const normalizeQuotaCategory = function normalizeQuotaCategory(displayName, mode
   return name || id || 'Unknown'
 }
 
-const buildAntigravityQuota = function buildAntigravityQuota(modelsResponse) {
+const buildAntigravityQuota = (modelsResponse) => {
   const models = modelsResponse && typeof modelsResponse === 'object' ? modelsResponse.models : null
 
   if (!models || typeof models !== 'object') {

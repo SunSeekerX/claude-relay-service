@@ -10,6 +10,7 @@ import * as openaiAccountService from '../account/account_openai_service.js'
 import { serviceRatesService } from '../payment/payment_service_rates_service.js'
 import { modelsConfig } from '../../../config/models.js'
 import { testModelConfigService } from '../relay/relay_test_model_config_service.js'
+import { CODEX_USER_AGENT } from '../relay/relay_codex_responses_ws.js'
 import { getSafeMessage } from '../../common/error_sanitizer.js'
 import { parseDateTimeQuery } from '../../common/date_time.js'
 import { config } from '../../../config/config.js'
@@ -1319,7 +1320,7 @@ router.post(
         headers: {
           'Content-Type': 'application/json',
           'x-api-key': apiKey,
-          'User-Agent': 'codex_cli_rs/1.0.0',
+          'User-Agent': CODEX_USER_AGENT,
         },
         timeout: 60000,
         responseType: 'stream',

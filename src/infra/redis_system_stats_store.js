@@ -9,7 +9,7 @@ import { config as configLocal } from '../../config/config.js'
 // 均经同一单例解析。
 // ===
 
-export const attach = function attach(redisClient) {
+export const attach = (redisClient) => {
   // 系统统计（使用 scanKeys 替代 keys）
   redisClient.getSystemStats = async function () {
     const keys = await Promise.all([

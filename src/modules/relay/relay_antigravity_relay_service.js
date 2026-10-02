@@ -3,7 +3,7 @@ import { buildTokenUsagePayload } from './relay_request_detail_helper.js'
 import { convertMessagesToGemini, convertGeminiResponse } from './relay_gemini_relay_service.js'
 import { normalizeAntigravityModelInput } from './relay_antigravity_model.js'
 import * as antigravityClient from './relay_antigravity_client.js'
-const buildRequestData = function buildRequestData({ messages, model, temperature, maxTokens, sessionId }) {
+const buildRequestData = ({ messages, model, temperature, maxTokens, sessionId }) => {
   const requestedModel = normalizeAntigravityModelInput(model)
   const { contents, systemInstruction } = convertMessagesToGemini(messages)
 
@@ -117,7 +117,7 @@ async function* handleStreamResponse(response, model, apiKeyId, accountId, reque
   }
 }
 
-export const sendAntigravityRequest = async function sendAntigravityRequest({
+export const sendAntigravityRequest = async ({
   messages,
   model,
   temperature = 0.7,
@@ -130,7 +130,7 @@ export const sendAntigravityRequest = async function sendAntigravityRequest({
   projectId,
   accountId = null,
   requestMeta = null,
-}) {
+}) => {
   const requestedModel = normalizeAntigravityModelInput(model)
 
   const requestData = buildRequestData({

@@ -63,8 +63,89 @@ export const convertBudgetToLevel = (budget) => {
   return { ok: true, level: ThinkingLevel.xhigh }
 }
 
+// DEC_20261001_114137 Claude 模型 thinking 能力（对齐 Claude Code 2.1.280 内置目录）
+// adaptiveOnly：rejects_disabled_thinking；betweenTools：Sonnet 5.5 关闭语义；xhigh：xhigh_effort
+const normalizeClaudeModelId = (modelId) =>
+  String(modelId || '')
+    .toLowerCase()
+    .replace(/\[1m\]$/, '')
+    .replace(/^(us|eu|apac|global)\./, '')
+    .replace(/^anthropic\./, '')
+
+const ADAPTIVE_ONLY_MODEL_RE = /claude-(opus-5-5|sonnet-5-5|fable-5|fable-5-1|mythos-5-1)(?![-.]?\d)/
+const BETWEEN_TOOLS_MODEL_RE = /claude-sonnet-5-5(?![-.]?\d)/
+const XHIGH_EFFORT_MODEL_RE =
+  /claude-(opus-4-7|opus-4-8|opus-5|opus-5-5|sonnet-5|sonnet-5-5|fable-5|fable-5-1|mythos-5|mythos-5-1)(?![-.]?\d)/
+
+export const getClaudeThinkingCapabilities = (modelId) => {
+  const model = normalizeClaudeModelId(modelId)
+  return {
+    adaptiveOnly: ADAPTIVE_ONLY_MODEL_RE.test(model),
+    betweenTools: BETWEEN_TOOLS_MODEL_RE.test(model),
+    xhighEffort: XHIGH_EFFORT_MODEL_RE.test(model),
+  }
+}
+
+// budget_tokens → adaptive effort（与 LEVEL_TO_BUDGET 档位一致）
+const budgetToAdaptiveEffort = (budget) => {
+  const mapped = convertBudgetToLevel(budget)
+  if (!mapped.ok || mapped.level === ThinkingLevel.auto || mapped.level === ThinkingLevel.none) {
+    return null
+  }
+  return mapped.level === ThinkingLevel.minimal ? ThinkingLevel.low : mapped.level
+}
+
+// adaptive-only 模型：disabled/enabled 改写为可接受形态；其余模型原样返回
+export const normalizeClaudeThinkingForModel = (body, modelId) => {
+  if (!body || typeof body !== 'object' || !body.thinking || typeof body.thinking !== 'object') {
+    return body
+  }
+  const capabilities = getClaudeThinkingCapabilities(modelId || body.model)
+  if (!capabilities.adaptiveOnly) {
+    return body
+  }
+  const type = String(body.thinking.type || '').toLowerCase()
+  if (type === 'disabled') {
+    body.thinking = capabilities.betweenTools ? { type: 'between_tools' } : { type: 'adaptive' }
+    if (!capabilities.betweenTools) {
+      body.output_config = { ...(body.output_config || {}), effort: ThinkingLevel.low }
+    }
+    return body
+  }
+  if (type === 'enabled') {
+    const effort = budgetToAdaptiveEffort(body.thinking.budget_tokens)
+    const { budget_tokens: _budgetTokens, type: _type, ...rest } = body.thinking
+    body.thinking = { ...rest, type: 'adaptive' }
+    if (effort && !body.output_config?.effort) {
+      body.output_config = { ...(body.output_config || {}), effort }
+    }
+  }
+  return body
+}
+
+// 直达 Messages 路径：adaptive-only 模型归一 thinking 后同步采样参数规则（与转换器路径一致）
+export const normalizeClaudeRequestForModel = (body, modelId) => {
+  if (!body || typeof body !== 'object' || !getClaudeThinkingCapabilities(modelId || body.model).adaptiveOnly) {
+    return body
+  }
+  normalizeClaudeThinkingForModel(body, modelId)
+  applyThinkingSamplingRules(body, isThinkingEnabled(body.thinking))
+  return body
+}
+
+// xhigh 仅 xhigh_effort 模型原生支持，其余降为 max
+const resolveAdaptiveEffort = (level, modelId) => {
+  if (level === 'auto' || level === 'adaptive') {
+    return 'high'
+  }
+  if (level === 'xhigh' && !getClaudeThinkingCapabilities(modelId).xhighEffort) {
+    return 'max'
+  }
+  return level
+}
+
 // OpenAI reasoning_effort / Claude output_config.effort → Claude thinking 配置
-export const effortToClaudeThinking = (effort, { supportsAdaptive = true } = {}) => {
+export const effortToClaudeThinking = (effort, { supportsAdaptive = true, modelId = '' } = {}) => {
   if (effort === undefined || effort === null || effort === '') {
     return null
   }
@@ -73,10 +154,9 @@ export const effortToClaudeThinking = (effort, { supportsAdaptive = true } = {})
     return { thinking: { type: 'disabled' } }
   }
   if (supportsAdaptive && (level === 'auto' || level === 'adaptive' || level === 'max' || level === 'xhigh')) {
-    const outputEffort = level === 'auto' || level === 'adaptive' ? 'high' : level === 'xhigh' ? 'max' : level
     return {
       thinking: { type: 'adaptive' },
-      output_config: { effort: outputEffort },
+      output_config: { effort: resolveAdaptiveEffort(level, modelId) },
     }
   }
   const mapped = convertLevelToBudget(level)
@@ -138,7 +218,7 @@ export const isThinkingEnabled = (thinking) => {
     return false
   }
   const type = String(thinking.type || '').toLowerCase()
-  return type === 'enabled' || type === 'adaptive' || type === 'auto'
+  return type === 'enabled' || type === 'adaptive' || type === 'auto' || type === 'between_tools'
 }
 
 // 从 assistant content blocks 提取可公开的 reasoning 文本；忽略 redacted_thinking
