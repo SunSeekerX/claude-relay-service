@@ -7,8 +7,8 @@
         <!-- Tab Navigation -->
         <SegmentedTabs
           :model-value="activeTab"
-          variant="underline"
           :tabs="apiKeySectionTabs"
+          variant="underline"
           @update:model-value="onApiKeyTabChange"
         />
 
@@ -34,9 +34,9 @@
               <!-- 自定义日期范围选择器 - 在选择自定义时显示 -->
               <div v-if="globalDateFilter.type === 'custom'" class="flex items-center">
                 <AppDateRangePicker
+                  class="w-[320px]"
                   :clearable="true"
                   :model-value="globalDateFilter.customRange"
-                  class="w-[320px]"
                   :presets="false"
                   size="sm"
                   @update:model-value="onGlobalCustomDateRangeChange"
@@ -352,7 +352,7 @@
                       <i v-else class="i-lucide-arrow-up-down ml-1 text-gray-400" />
                     </th>
                     <th
-                      class="operations-column sticky right-0 min-w-[120px] px-3 py-4 text-left text-sm font-bold uppercase tracking-wider text-gray-700 dark:text-gray-300"
+                      class="operations-column sticky right-0 min-w-[284px] px-3 py-4 text-left text-sm font-bold uppercase tracking-wider text-gray-700 dark:text-gray-300"
                     >
                       操作
                     </th>
@@ -522,8 +522,8 @@
                       <td class="whitespace-nowrap px-3 py-3">
                         <div class="flex items-center gap-2">
                           <AppSwitch
-                            :model-value="!!key.isActive"
                             color="green"
+                            :model-value="!!key.isActive"
                             size="sm"
                             :title="key.isActive ? '点击禁用' : '点击激活'"
                             @change="toggleApiKeyStatus(key)"
@@ -839,7 +839,15 @@
                         style="font-size: 14px"
                       >
                         <!-- 操作按钮：自动换行平铺 -->
-                        <div class="flex max-w-[260px] flex-wrap items-center gap-1">
+                        <div class="flex min-w-[260px] max-w-[260px] flex-wrap items-center gap-1">
+                          <button
+                            class="rounded px-2 py-1 text-sm font-medium text-blue-600 transition-colors hover:bg-blue-50 hover:text-blue-900 dark:hover:bg-blue-900/20"
+                            title="编辑"
+                            @click="openEditApiKeyModal(key)"
+                          >
+                            <i class="i-lucide-pen-line" />
+                            <span class="ml-1">编辑</span>
+                          </button>
                           <button
                             class="rounded px-2 py-1 text-sm font-medium text-purple-600 transition-colors hover:bg-purple-50 hover:text-purple-900 dark:hover:bg-purple-900/20"
                             title="查看详细统计"
@@ -868,14 +876,6 @@
                               ]"
                             />
                             <span class="ml-1">模型</span>
-                          </button>
-                          <button
-                            class="rounded px-2 py-1 text-sm font-medium text-blue-600 transition-colors hover:bg-blue-50 hover:text-blue-900 dark:hover:bg-blue-900/20"
-                            title="编辑"
-                            @click="openEditApiKeyModal(key)"
-                          >
-                            <i class="i-lucide-pen-line" />
-                            <span class="ml-1">编辑</span>
                           </button>
                           <button
                             class="rounded px-2 py-1 text-sm font-medium text-amber-600 transition-colors hover:bg-amber-50 hover:text-amber-900 dark:hover:bg-amber-900/20"

@@ -134,6 +134,9 @@
                 </td>
                 <td class="px-4 py-3 text-right text-sm">
                   <div class="flex flex-wrap items-center justify-end gap-1">
+                    <button class="op-btn op-gray" @click="openProxyModal(proxy)">
+                      <i class="i-lucide-pen-line" />编辑
+                    </button>
                     <button class="op-btn op-cyan" @click="runHealthCheck(proxy)">
                       <i class="i-lucide-heart-pulse" />健康检查
                     </button>
@@ -142,9 +145,6 @@
                     </button>
                     <button class="op-btn op-blue" @click="openDetail(proxy)">
                       <i class="i-lucide-info" />详情
-                    </button>
-                    <button class="op-btn op-gray" @click="openProxyModal(proxy)">
-                      <i class="i-lucide-pen-line" />编辑
                     </button>
                     <button class="op-btn op-red" @click="removeProxy(proxy)">
                       <i class="i-lucide-trash-2" />删除
@@ -206,6 +206,9 @@
             <div
               class="flex flex-wrap items-center gap-2 border-t border-gray-100 pt-3 dark:border-gray-700"
             >
+              <button class="op-btn op-gray" @click="openProxyModal(proxy)">
+                <i class="i-lucide-pen-line" />编辑
+              </button>
               <button class="op-btn op-cyan" @click="runHealthCheck(proxy)">
                 <i class="i-lucide-heart-pulse" />健康检查
               </button>
@@ -214,9 +217,6 @@
               </button>
               <button class="op-btn op-blue" @click="openDetail(proxy)">
                 <i class="i-lucide-info" />详情
-              </button>
-              <button class="op-btn op-gray" @click="openProxyModal(proxy)">
-                <i class="i-lucide-pen-line" />编辑
               </button>
               <button class="op-btn op-red" @click="removeProxy(proxy)">
                 <i class="i-lucide-trash-2" />删除

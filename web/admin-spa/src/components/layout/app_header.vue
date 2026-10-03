@@ -1,22 +1,22 @@
 <template>
   <!-- 顶部导航 -->
   <div
-    class="glass-strong mb-3 rounded-xl p-2 shadow-xl sm:rounded-2xl sm:p-3 md:mb-4 md:rounded-2xl md:p-4"
+    class="app-header glass-strong mb-3 rounded-xl p-2 shadow-xl sm:rounded-2xl sm:p-3 md:mb-4 md:rounded-2xl md:p-4"
     style="z-index: 10; position: relative"
   >
-    <div class="flex flex-col items-center justify-between gap-2 sm:flex-row sm:gap-3">
-      <div
-        class="flex w-full items-center justify-center gap-2 sm:w-auto sm:justify-start sm:gap-3 md:gap-4"
-      >
+    <div class="flex items-center justify-between gap-2 md:gap-3">
+      <div class="flex min-w-0 flex-1 items-center gap-2 md:gap-4">
         <LogoTitle
+          class="app-header-brand min-w-0"
           :loading="oemLoading"
           :logo-src="oemSettings.siteIconData || oemSettings.siteIcon"
+          preview-title
           :title="oemSettings.siteName"
           title-class="text-white dark:text-gray-100"
         >
           <template #after-title>
             <!-- 版本信息 -->
-            <div class="flex items-center gap-1 sm:gap-2">
+            <div class="hidden items-center gap-2 md:flex">
               <span class="font-mono text-sm text-gray-400 dark:text-gray-500 sm:text-sm"
                 >v{{ versionInfo.current || '...' }}</span
               >
@@ -36,27 +36,31 @@
         </LogoTitle>
       </div>
       <!-- 主题切换和用户菜单 -->
-      <div class="flex items-center gap-2 sm:gap-4">
+      <div class="flex shrink-0 items-center gap-2 md:gap-4">
         <!-- 主题切换按钮 -->
-        <div class="flex items-center">
+        <div class="app-header-theme md:hidden">
+          <ThemeToggle mode="compact" />
+        </div>
+        <div class="hidden items-center md:flex">
           <ThemeToggle mode="dropdown" />
         </div>
 
         <!-- 分隔线 -->
         <div
-          class="h-8 w-px bg-gradient-to-b from-transparent via-gray-300 to-transparent opacity-50 dark:via-gray-600"
+          class="hidden h-8 w-px bg-gradient-to-b from-transparent via-gray-300 to-transparent opacity-50 dark:via-gray-600 md:block"
         />
 
         <!-- 用户菜单 -->
         <div class="user-menu-container relative">
           <button
-            class="user-menu-button flex items-center gap-2 rounded-2xl px-3 py-2 text-sm font-semibold text-white shadow-lg transition-all duration-200 hover:scale-105 hover:shadow-xl active:scale-95 sm:px-4 sm:py-2.5"
+            aria-label="用户菜单"
+            class="user-menu-button flex h-10 w-10 items-center justify-center gap-2 rounded-2xl text-sm font-semibold text-white shadow-lg transition-all duration-200 hover:scale-105 hover:shadow-xl active:scale-95 md:h-auto md:w-auto md:px-4 md:py-2.5"
             @click="userMenuOpen = !userMenuOpen"
           >
             <i class="i-lucide-circle-user text-sm sm:text-base" />
-            <span class="hidden sm:inline">{{ currentUser.username || 'Admin' }}</span>
+            <span class="hidden md:inline">{{ currentUser.username || 'Admin' }}</span>
             <i
-              class="i-lucide-chevron-down ml-1 text-sm transition-transform duration-200"
+              class="i-lucide-chevron-down ml-1 hidden text-sm transition-transform duration-200 md:inline-block"
               :class="{ 'rotate-180': userMenuOpen }"
             />
           </button>
@@ -498,6 +502,29 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
+@media (max-width: 767px) {
+  .app-header {
+    margin-bottom: 0.5rem;
+    padding: 0.5rem;
+  }
+
+  .app-header-brand {
+    gap: 0.5rem;
+  }
+
+  .app-header-brand :deep(.header-title) {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .app-header-theme :deep(.color-scheme-button),
+  .app-header-theme :deep(.theme-toggle-button) {
+    width: 2.5rem;
+    height: 2.5rem;
+  }
+}
+
 /* 用户菜单按钮样式 */
 .user-menu-button {
   position: relative;

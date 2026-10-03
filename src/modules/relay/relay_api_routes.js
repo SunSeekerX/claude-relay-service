@@ -30,6 +30,7 @@ import {
 import { tryDedicatedBindingCrossProtocol } from './relay_messages_gateway.js'
 import { listTranslators, initTranslatorRegistry } from './translator/relay_translator_index.js'
 import { normalizeClaudeCodeToolsInRequest } from './relay_claude_code_tool_schemas.js'
+import { getAppVersion } from '../../common/common_helper.js'
 
 // Bedrock 等无上游 count_tokens 时的本地启发式：字符粗估
 const estimateAnthropicInputTokens = (body = {}) => {
@@ -1560,7 +1561,7 @@ apiRoutes.get('/health', async (req, res) => {
     res.status(healthStatus.healthy ? 200 : 503).json({
       status: healthStatus.healthy ? 'healthy' : 'unhealthy',
       service: 'claude-relay-service',
-      version: '1.0.0',
+      version: getAppVersion(),
       ...healthStatus,
     })
   } catch (error) {

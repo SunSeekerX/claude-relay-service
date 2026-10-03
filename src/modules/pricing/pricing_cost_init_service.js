@@ -294,7 +294,7 @@ class CostInitService {
     }
 
     if (reconstructed > 0) {
-      logger.warn(
+      logger.debug(
         `[audit] 按当前价格为 API Key ${apiKeyId} 重建了 ${reconstructed} 条缺失费用（可能与请求当时价格有出入）`,
       )
     }

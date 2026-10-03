@@ -24,7 +24,6 @@ const ApiStatsTutorialTab = () => import('@/views/api_stats/tutorial_tab.vue')
 const QuotaCardsView = () => import('@/views/quota_cards_view.vue')
 const RequestDetailsView = () => import('@/views/request_details_view.vue')
 const GrokVideoTasksView = () => import('@/views/grok_video_tasks_view.vue')
-const SecurityEventsView = () => import('@/views/security_events_view.vue')
 const ProxyPoolView = () => import('@/views/proxy_pool_view.vue')
 
 const routes = [
@@ -260,9 +259,8 @@ const routes = [
   },
   {
     path: '/security-events',
-    component: MainLayout,
-    meta: { requiresAuth: true },
-    children: [{ path: '', name: 'SecurityEvents', component: SecurityEventsView }]
+    redirect: { name: 'Settings', params: { section: 'securityEvents' } },
+    meta: { requiresAuth: true }
   },
   {
     path: '/proxy-pool',

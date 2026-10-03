@@ -1,12 +1,13 @@
 <template>
   <ModalTransition>
-    <div v-if="show" class="modal fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4">
-      <!-- 背景遮罩 -->
-      <div class="fixed inset-0 bg-gray-900 bg-opacity-50 backdrop-blur-sm" @click="close" />
-
+    <div
+      v-if="show"
+      class="modal fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4"
+      @click.self="close"
+    >
       <!-- 模态框 -->
       <div
-        class="modal-content relative mx-auto flex max-h-[90vh] w-[95%] max-w-2xl flex-col p-4 sm:w-full sm:p-3 sm:p-4"
+        class="modal-content relative mx-auto flex max-h-[90vh] w-[95%] max-w-2xl flex-col p-4 sm:w-full sm:p-4"
       >
         <!-- 标题栏 -->
         <div class="mb-3 flex items-center justify-between">

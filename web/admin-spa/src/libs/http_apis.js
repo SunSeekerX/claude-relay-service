@@ -129,7 +129,8 @@ export const getGrokVideoTaskApi = (apiKeyId, requestId) =>
     url: `/admin/grok-video-tasks/${encodeURIComponent(apiKeyId)}/${encodeURIComponent(requestId)}`,
     method: 'GET'
   })
-export const getSecurityEventsApi = () => request({ url: '/admin/security-events', method: 'GET' })
+export const getSecurityEventsApi = (params) =>
+  request({ url: '/admin/security-events', method: 'GET', params })
 
 // 客户端
 export const getSupportedClientsApi = () =>

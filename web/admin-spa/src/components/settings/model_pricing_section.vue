@@ -22,8 +22,8 @@
             </span>
             <button
               class="btn btn-primary h-8 inline-flex items-center text-sm font-medium"
-              type="button"
               :disabled="refreshing"
+              type="button"
               @click="handleRefresh"
             >
               <i
@@ -371,17 +371,17 @@
                 <td class="px-3 py-2 text-right align-middle">
                   <div class="inline-flex flex-wrap items-center justify-end gap-1">
                     <button
+                      class="t-table-action t-table-action--primary"
+                      @click="openEditInternalByName(model.id || model.name)"
+                    >
+                      <i class="i-lucide-pen-line" />编辑
+                    </button>
+                    <button
                       class="t-table-action"
                       title="复制为新的内部模型并编辑"
                       @click="copyToInternalEditor(model.id || model.name)"
                     >
                       <i class="i-lucide-copy" />复制
-                    </button>
-                    <button
-                      class="t-table-action t-table-action--primary"
-                      @click="openEditInternalByName(model.id || model.name)"
-                    >
-                      <i class="i-lucide-pen-line" />编辑
                     </button>
                     <button
                       class="t-table-action"

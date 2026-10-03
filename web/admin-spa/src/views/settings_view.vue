@@ -25,18 +25,23 @@
           class="t-side-nav custom-scrollbar hidden h-full w-44 shrink-0 flex-col overflow-y-auto border-r pr-3 md:flex"
           style="border-color: var(--divider-color)"
         >
-          <router-link
-            v-for="tab in sectionTabs"
-            :key="tab.key"
-            class="t-side-nav__item"
-            :class="{ 'is-active': activeSection === tab.key }"
-            :to="{ name: 'Settings', params: { section: tab.key } }"
-          >
-            <span class="t-side-nav__icon">
-              <i v-if="tab.icon" :class="tab.icon" />
-            </span>
-            <span class="t-side-nav__label">{{ tab.label }}</span>
-          </router-link>
+          <template v-for="group in sectionGroups" :key="group.key">
+            <div class="px-2 pb-1 pt-3 text-xs font-semibold text-gray-400 first:pt-1 dark:text-gray-500">
+              {{ group.label }}
+            </div>
+            <router-link
+              v-for="tab in group.tabs"
+              :key="tab.key"
+              class="t-side-nav__item"
+              :class="{ 'is-active': activeSection === tab.key }"
+              :to="{ name: 'Settings', params: { section: tab.key } }"
+            >
+              <span class="t-side-nav__icon">
+                <i v-if="tab.icon" :class="tab.icon" />
+              </span>
+              <span class="t-side-nav__label">{{ tab.label }}</span>
+            </router-link>
+          </template>
         </nav>
       </div>
 
@@ -82,6 +87,10 @@
             v-if="visitedSections.protocol"
             v-show="activeSection === 'protocol'"
           />
+          <SecurityEventsView
+            v-if="visitedSections.securityEvents"
+            v-show="activeSection === 'securityEvents'"
+          />
         </div>
       </div>
     </div>
@@ -102,6 +111,7 @@ import GrokMediaPricingSection from '@/components/settings/grok_media_pricing_se
 import TestModelsSettingsSection from '@/components/settings/test_models_settings_section.vue'
 import ModelPricingSection from '@/components/settings/model_pricing_section.vue'
 import TranslatorRegistrySection from '@/components/settings/translator_registry_section.vue'
+import SecurityEventsView from '@/views/security_events_view.vue'
 
 defineOptions({
   name: 'SettingsView'
@@ -111,16 +121,42 @@ const route = useRoute()
 const router = useRouter()
 const settingsStore = useSettingsStore()
 
-const sectionTabs = [
-  { key: 'branding', label: '品牌设置', icon: 'i-lucide-palette', hint: '站点名称、图标与入口展示' },
-  { key: 'webhook', label: '通知设置', icon: 'i-lucide-bell', hint: 'Webhook 推送与通知渠道' },
-  { key: 'claude', label: '转发配置', icon: 'i-lucide-bot', hint: '客户端限制、会话绑定、请求明细与错误收集' },
-  { key: 'serviceRates', label: '服务倍率', icon: 'i-lucide-scale', hint: '各服务计费倍率' },
-  { key: 'grokMediaPricing', label: 'Grok 媒体', icon: 'i-lucide-image', hint: 'Grok 图片/视频按张按秒单价' },
-  { key: 'modelPricing', label: '模型价格', icon: 'i-lucide-coins', hint: '模型单价与价格表' },
-  { key: 'testModels', label: '测试模型', icon: 'i-lucide-flask-conical', hint: '连通性测试默认模型' },
-  { key: 'protocol', label: '协议转换', icon: 'i-lucide-git-branch', hint: '跨协议转换注册表与桥接说明' }
+const sectionGroups = [
+  {
+    key: 'general',
+    label: '基础设置',
+    tabs: [
+      { key: 'branding', label: '品牌设置', icon: 'i-lucide-palette', hint: '站点名称、图标与入口展示' },
+      { key: 'webhook', label: '通知设置', icon: 'i-lucide-bell', hint: 'Webhook 推送与通知渠道' }
+    ]
+  },
+  {
+    key: 'relay',
+    label: '转发与协议',
+    tabs: [
+      { key: 'claude', label: '转发配置', icon: 'i-lucide-bot', hint: '客户端限制、会话绑定、请求明细与错误收集' },
+      { key: 'protocol', label: '协议转换', icon: 'i-lucide-git-branch', hint: '跨协议转换注册表与桥接说明' }
+    ]
+  },
+  {
+    key: 'pricing',
+    label: '计费与模型',
+    tabs: [
+      { key: 'serviceRates', label: '服务倍率', icon: 'i-lucide-scale', hint: '各服务计费倍率' },
+      { key: 'grokMediaPricing', label: 'Grok 媒体', icon: 'i-lucide-image', hint: 'Grok 图片/视频按张按秒单价' },
+      { key: 'modelPricing', label: '模型价格', icon: 'i-lucide-coins', hint: '模型单价与价格表' }
+    ]
+  },
+  {
+    key: 'operations',
+    label: '安全与运维',
+    tabs: [
+      { key: 'testModels', label: '测试模型', icon: 'i-lucide-flask-conical', hint: '连通性测试默认模型' },
+      { key: 'securityEvents', label: '安全事件', icon: 'i-lucide-shield-alert', hint: '管理员登录尝试和限速结果' }
+    ]
+  }
 ]
+const sectionTabs = sectionGroups.flatMap((group) => group.tabs)
 const validSections = sectionTabs.map((tab) => tab.key)
 
 const activeSection = computed(() => {

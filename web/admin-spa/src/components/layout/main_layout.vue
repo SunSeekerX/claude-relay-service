@@ -1,18 +1,20 @@
 <template>
-  <div class="flex h-full min-h-0 flex-col overflow-hidden p-3 sm:p-4 md:p-5">
+  <div
+    class="h-full min-h-0 overflow-x-hidden overflow-y-auto p-2 sm:p-3 md:flex md:flex-col md:overflow-hidden md:p-5"
+  >
     <!-- 顶部导航 -->
     <AppHeader />
 
-    <!-- 主内容区域：flex-1 自动填满 header 之外的剩余高度，避免魔数算高导致页面恒定溢出 -->
+    <!-- 移动端与头部共用外层滚动；桌面端内容区填满剩余高度并独立滚动 -->
     <div
-      class="glass-strong flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl p-3 shadow-xl sm:rounded-2xl sm:p-4 md:rounded-2xl md:p-5"
+      class="main-panel glass-strong flex min-h-0 flex-col rounded-xl shadow-xl sm:rounded-2xl md:flex-1 md:overflow-hidden md:rounded-2xl md:p-5"
       style="z-index: 1"
     >
       <!-- 标签栏 -->
       <TabBar :active-tab="activeTab" @tab-change="handleTabChange" />
 
       <!-- 内容区域 -->
-      <div class="tab-content min-h-0 flex-1 overflow-y-auto">
+      <div class="tab-content min-h-0 md:flex-1 md:overflow-y-auto">
         <router-view />
       </div>
     </div>
@@ -41,7 +43,6 @@ const tabRouteMap = computed(() => {
     accounts: '/accounts',
     requestDetails: '/request-details',
     grokVideoTasks: '/grok-video-tasks',
-    securityEvents: '/security-events',
     quotaCards: '/quota-cards',
     paymentManage: '/payment-manage',
     proxyPool: '/proxy-pool',
@@ -65,7 +66,6 @@ const nameToTabMap = {
   AccountUsageRecords: 'accounts',
   RequestDetails: 'requestDetails',
   GrokVideoTasks: 'grokVideoTasks',
-  SecurityEvents: 'securityEvents',
   QuotaCards: 'quotaCards',
   PaymentManage: 'paymentManage',
   ProxyPool: 'proxyPool',
@@ -132,3 +132,11 @@ const handleTabChange = async (tabKey) => {
 
 // OEM设置已在App.vue中加载，无需重复加载
 </script>
+
+<style scoped>
+@media (max-width: 767px) {
+  .main-panel {
+    padding: 0.5rem;
+  }
+}
+</style>

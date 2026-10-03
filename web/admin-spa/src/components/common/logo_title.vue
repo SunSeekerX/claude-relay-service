@@ -33,7 +33,17 @@
               titleClass
             ]"
           >
-            {{ title }}
+            <button
+              v-if="previewTitle"
+              aria-haspopup="dialog"
+              class="title-preview-trigger block max-w-full cursor-pointer overflow-hidden text-ellipsis text-left"
+              title="点击查看完整内容"
+              type="button"
+              @click="titlePreviewVisible = true"
+            >
+              {{ title }}
+            </button>
+            <template v-else>{{ title }}</template>
           </h1>
         </template>
         <div
@@ -47,6 +57,27 @@
         {{ subtitle }}
       </p>
     </div>
+
+    <AppDialog v-model="titlePreviewVisible" size="lg" title="站点信息">
+      <p
+        class="select-text whitespace-pre-wrap break-words text-base leading-relaxed text-gray-900 dark:text-gray-100"
+      >
+        {{ title }}
+      </p>
+      <template #footer>
+        <button class="btn btn-secondary flex-1" type="button" @click="titlePreviewVisible = false">
+          关闭
+        </button>
+        <button
+          class="btn btn-primary flex-1"
+          type="button"
+          @click="copyText(title, '完整内容已复制')"
+        >
+          <i class="i-lucide-copy mr-2" />
+          复制全部
+        </button>
+      </template>
+    </AppDialog>
 
     <!-- 大图预览：z-index 高于 AppHeader 用户菜单(999999)，避免菜单浮在遮罩上 -->
     <ModalTransition @after-leave="onPreviewAfterLeave">
@@ -78,7 +109,9 @@
 <script setup>
 import { ref, computed, watch, onBeforeUnmount } from 'vue'
 
+import AppDialog from '@/components/common/app_dialog.vue'
 import ModalTransition from '@/components/common/modal_transition.vue'
+import { copyText } from '@/libs/tools'
 
 const props = defineProps({
   loading: {
@@ -100,9 +133,14 @@ const props = defineProps({
   titleClass: {
     type: String,
     default: 'text-gray-900'
+  },
+  previewTitle: {
+    type: Boolean,
+    default: false
   }
 })
 
+const titlePreviewVisible = ref(false)
 const previewVisible = ref(false)
 // 图片加载失败后禁止预览，避免坏链仍显示手型/弹出空图
 const logoLoadFailed = ref(false)
@@ -189,5 +227,18 @@ onBeforeUnmount(() => {
 /* 标题样式 */
 .header-title {
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+}
+
+.title-preview-trigger {
+  background: inherit;
+  -webkit-background-clip: text;
+  background-clip: text;
+  font: inherit !important;
+  white-space: inherit;
+}
+
+.title-preview-trigger:focus-visible {
+  outline: 2px solid var(--primary-color);
+  outline-offset: -2px;
 }
 </style>

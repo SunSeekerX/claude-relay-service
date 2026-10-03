@@ -1337,6 +1337,14 @@
                 >
                   <div class="flex max-w-[230px] flex-wrap items-center gap-1.5">
                     <button
+                      class="rounded bg-blue-100 px-2.5 py-1 text-sm font-medium text-blue-700 transition-colors hover:bg-blue-200"
+                      title="编辑账户"
+                      @click="editAccount(account)"
+                    >
+                      <i class="i-lucide-pen-line" />
+                      <span class="ml-1">编辑</span>
+                    </button>
+                    <button
                       v-if="showResetButton(account)"
                       :class="[
                         'rounded px-2.5 py-1 text-sm font-medium transition-colors',
@@ -1410,14 +1418,6 @@
                     >
                       <i class="i-lucide-clock" />
                       <span class="ml-1">定时</span>
-                    </button>
-                    <button
-                      class="rounded bg-blue-100 px-2.5 py-1 text-sm font-medium text-blue-700 transition-colors hover:bg-blue-200"
-                      title="编辑账户"
-                      @click="editAccount(account)"
-                    >
-                      <i class="i-lucide-pen-line" />
-                      <span class="ml-1">编辑</span>
                     </button>
                     <button
                       class="rounded bg-red-100 px-2.5 py-1 text-sm font-medium text-red-700 transition-colors hover:bg-red-200"

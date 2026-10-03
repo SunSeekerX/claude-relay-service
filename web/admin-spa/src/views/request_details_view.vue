@@ -30,9 +30,6 @@
                 {{ formatRetentionHours(retentionHours) }}
               </span>
             </div>
-            <p class="mt-1 text-sm text-gray-600 dark:text-gray-400 sm:text-base">
-              {{ pageDescription }}
-            </p>
           </div>
         </div>
 
@@ -724,12 +721,6 @@ const summary = reactive({
   cacheHitFormula: 'cacheReadTokens / (inputTokens + cacheReadTokens + cacheCreateTokens)',
   cacheCreateNotApplicable: false
 })
-
-const pageDescription = computed(() =>
-  bodyPreviewEnabled.value
-    ? '搜索每次请求的 API Key、使用账户、模型、接口、Token、费用、耗时与脱敏后的请求快照'
-    : '搜索每次请求的 API Key、使用账户、模型、接口、Token、费用、耗时与请求摘要'
-)
 
 const emptyHint = computed(() => {
   if (

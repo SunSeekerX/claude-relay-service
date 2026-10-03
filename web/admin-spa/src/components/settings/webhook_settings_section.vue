@@ -15,8 +15,8 @@
           </div>
           <div class="t-setting-row__control flex items-center gap-3">
             <AppSwitch
-              :model-value="!!webhookConfig.enabled"
               color="blue"
+              :model-value="!!webhookConfig.enabled"
               size="md"
               title="启用通知"
               @change="onEnabledChange"
@@ -51,8 +51,8 @@
               </div>
             </div>
             <AppSwitch
-              :model-value="!!webhookConfig.notificationTypes[type]"
               color="blue"
+              :model-value="!!webhookConfig.notificationTypes[type]"
               size="sm"
               :title="getNotificationTypeName(type)"
               @change="(value) => onNotificationTypeChange(type, value)"
@@ -102,8 +102,8 @@
               </div>
             </div>
             <AppSwitch
-              :model-value="!!platform.enabled"
               color="blue"
+              :model-value="!!platform.enabled"
               size="sm"
               title="启用渠道"
               @change="() => togglePlatform(platform.id)"
@@ -517,8 +517,8 @@
             </button>
             <button
               class="btn btn-secondary h-8 px-3 text-sm"
-              type="button"
               :disabled="testingConnection"
+              type="button"
               @click="testPlatformForm"
             >
               <i
@@ -533,8 +533,8 @@
             </button>
             <button
               class="btn btn-primary h-8 px-3 text-sm"
-              type="button"
               :disabled="!isPlatformFormValid || savingPlatform"
+              type="button"
               @click="savePlatform"
             >
               <i
@@ -811,18 +811,18 @@ const getPlatformSummary = (platform) => {
 
 const platformActions = (platform) => [
   {
-    key: 'test',
-    label: '测试',
-    icon: 'i-lucide-flask-conical',
-    color: 'blue',
-    handler: () => testPlatform(platform)
-  },
-  {
     key: 'edit',
     label: '编辑',
     icon: 'i-lucide-pen-line',
     color: 'gray',
     handler: () => editPlatform(platform)
+  },
+  {
+    key: 'test',
+    label: '测试',
+    icon: 'i-lucide-flask-conical',
+    color: 'blue',
+    handler: () => testPlatform(platform)
   },
   {
     key: 'delete',
