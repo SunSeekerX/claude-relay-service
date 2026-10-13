@@ -109,6 +109,9 @@ export const assertGroupRequestAllowed = async (group, context = {}) => {
     }
   }
 
+  if (context.deferAdmission === true) {
+                return
+              }
   const client = redis.getClientSafe()
   const parts = getBusinessParts()
   const dailyLimit = parseNonNegativeNumber(group.dailyLimitUsd, 0)

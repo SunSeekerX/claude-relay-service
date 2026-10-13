@@ -4,12 +4,24 @@ import { Readable } from 'node:stream'
 import { IncrementalSSEParser } from '../src/modules/relay/relay_sse_parser.js'
 
 const axios = jest.fn()
+const videoDb = {
+  eval: jest.fn().mockResolvedValue(1),
+  hgetall: jest.fn(),
+  hset: jest.fn(),
+  hdel: jest.fn()
+}
+const reserveCost = jest.fn().mockResolvedValue()
+const releaseCostReservation = jest.fn().mockResolvedValue()
 const logger = new Proxy({}, { get: () => jest.fn() })
 const apiKeyService = {
   recordUsage: jest.fn().mockResolvedValue({ realCost: 1, ratedCost: 1 }),
   hasPermission: jest.fn().mockReturnValue(true),
+  calculateRatedCost: jest.fn(async (_key, _service, base) => base * 2)
 }
-const requestDetailService = { captureUnmeteredRequest: jest.fn().mockResolvedValue({ captured: true }) }
+const requestDetailService = {
+  captureUnmeteredRequest: jest.fn().mockResolvedValue({ captured: true }),
+  captureRequestDetail: jest.fn().mockResolvedValue({ captured: true })
+}
 const openaiResponsesAccountService = {
   updateAccountUsage: jest.fn().mockResolvedValue(undefined),
   updateUsageQuota: jest.fn().mockResolvedValue(undefined),
@@ -28,8 +40,13 @@ const modules = {
   axios: { default: axios },
   '../config/config.js': { config: { requestTimeout: 1000, proxy: { timeout: 1000 } } },
   '../src/common/logger.js': { logger },
-  '../src/infra/redis.js': { redis: {} },
-  '../src/infra/redis_key.js': { RedisKeys: {} },
+  '../src/infra/redis.js': {
+    redis: { getClientSafe: () => videoDb, reserveCost, releaseCostReservation }
+  },
+  '../src/infra/redis_key.js': {
+    RedisKeys: { session: { grokVideoTask: (_key, id) => `fixture-video:${id}` } },
+    TTL: { grokVideoTask: 172800, grokVideoSettlementLease: 60 }
+  },
   '../src/modules/apikey/apikey_service.js': { apiKeyService },
   '../src/modules/account/account_grok_service.js': { grokAccountService },
   '../src/modules/account/account_openai_responses_service.js': { openaiResponsesAccountService },
@@ -60,7 +77,14 @@ const modules = {
   '../src/common/xai_helper.js': {},
   '../src/common/common_helper.js': { getMappedModelName: jest.fn() },
   '../src/modules/pricing/pricing_cost_calculator.js': { CostCalculator: {} },
-  '../src/modules/pricing/pricing_service.js': { pricingService: {} },
+  '../src/modules/pricing/pricing_service.js': {
+    pricingService: { calculateCost: () => ({ totalCost: 3.25 }) }
+  },
+  '../src/modules/payment/payment_service_rates_service.js': {
+    serviceRatesService: { getService: () => 'grok' }
+  },
+  '../src/modules/account/account_claude_console_service.js': { claudeConsoleAccountService: {} },
+  '../src/modules/user/user_message_queue_service.js': { userMessageQueueService: {} },
   '../src/modules/relay/relay_rate_limit_helper.js': { updateRateLimitCounters: jest.fn() },
   '../src/modules/relay/relay_upstream_protocol_guard.js': {
     isNonProtocolUpstreamBody: jest.fn(),
@@ -77,12 +101,14 @@ const modules = {
   '../src/modules/relay/relay_session_helper.js': {
     sessionHelper: { generateSessionHash: () => 'fixture-session' },
   },
-  '../src/modules/relay/translator/relay_translator_interactions.js': {},
+  '../src/modules/relay/translator/relay_translator_interactions.js': {}
 }
 for (const [name, exports] of Object.entries(modules)) {
   jest.unstable_mockModule(name, () => exports)
 }
 
+const { claudeConsoleRelayService } =
+  await import('../src/modules/relay/relay_claude_console_relay_service.js')
 const { grokRelayService } = await import('../src/modules/relay/relay_grok_relay_service.js')
 const { CodexToOpenAIConverter } = await import('../src/modules/relay/relay_codex_to_openai.js')
 const { openaiResponsesRelayService } = await import('../src/modules/relay/relay_openai_responses_relay_service.js')
@@ -146,6 +172,8 @@ const usage = { input_tokens: 1000, output_tokens: 40, input_tokens_details: { c
 beforeEach(() => {
   jest.clearAllMocks()
   axios.mockReset()
+  apiKeyService.recordUsage.mockReset().mockResolvedValue({ realCost: 1, ratedCost: 1 })
+  videoDb.eval.mockReset().mockResolvedValue(1)
 })
 
 describe('Grok forwarding contracts', () => {
@@ -442,5 +470,149 @@ describe('Gemini API Key tool responses', () => {
     expect(res.statusCode).toBe(200)
     expect(axios).toHaveBeenCalledTimes(1)
     expect(axios.mock.calls[0][0].data.contents[0].parts[0]).toEqual({ functionResponse })
+  })
+})
+
+
+describe('Gemini UTF-8 success stream', () => {
+  it('preserves multibyte content when the network splits every byte', async () => {
+    const event = {
+      candidates: [{ content: { parts: [{ text: '中文测试' }] } }],
+      usageMetadata: { promptTokenCount: 1, candidatesTokenCount: 1, totalTokenCount: 2 }
+    }
+    const wire = Buffer.from(`data: ${JSON.stringify(event)}\n\n`)
+    const res = makeResponse()
+    const req = makeRequest(res, { contents: [{ role: 'user', parts: [{ text: 'hello' }] }] })
+    req.params.modelName = 'gemini-test'
+    req.path = '/v1beta/models/gemini-test:streamGenerateContent'
+    axios.mockResolvedValue({
+      status: 200,
+      headers: {},
+      data: Readable.from([...wire].map((byte) => Buffer.from([byte])))
+    })
+    await handleStandardStreamGenerateContent(req, res)
+    await res.completion
+    const parser = new IncrementalSSEParser()
+    expect(
+      parser
+        .feed(res.chunks.join(''))
+        .filter((value) => value.type === 'data')
+        .map((value) => value.data)
+    ).toContainEqual(event)
+    expect(res.chunks.join('')).not.toContain('\uFFFD')
+  })
+})
+
+describe('Claude Console UTF-8 error stream', () => {
+  it('retains the complete Chinese error and context when every byte is a separate chunk', async () => {
+    const message = '中文参数错误'
+    const wire = Buffer.from(JSON.stringify({ error: { type: 'invalid_request_error', message } }))
+    const res = makeResponse()
+    res.writeHead = jest.fn((status) => {
+         res.statusCode = status
+         return res
+       })
+    const req = makeRequest(res, { model: 'claude-test', messages: [] })
+    res.req = req
+    axios.mockResolvedValue({
+      status: 400,
+      headers: {},
+      data: Readable.from([...wire].map((byte) => Buffer.from([byte])))
+    })
+    await claudeConsoleRelayService._makeClaudeConsoleStreamRequest(
+      req.body,
+      { id: 'console', apiUrl: 'https://example.invalid', apiKey: 'fixture' },
+      null,
+      {},
+      res,
+      'console',
+      jest.fn()
+    )
+    const parser = new IncrementalSSEParser()
+    const errors = parser.feed(res.chunks.join('')).filter((event) => event.type === 'data')
+    expect(errors[0].data.error.message).toContain(message)
+    expect(res.chunks.join('')).not.toContain('\uFFFD')
+  })
+})
+
+describe('Grok video reservation and settlement', () => {
+  it('reserves the price calculation total after the customer rate', async () => {
+    const reservation = await grokRelayService._reserveVideoCost(
+      { id: 'key', dailyCostLimit: 10 },
+      'grok-video',
+      { duration: 6 }
+    )
+    expect(reservation.amount).toBe(6.5)
+    expect(reserveCost.mock.calls[0][2]).toBe(6.5)
+  })
+
+  it('leaves processing polls unclaimed and unbilled', async () => {
+    expect(
+      await grokRelayService._claimVideoSettlement('key', 'task', { status: 'processing' })
+    ).toBeNull()
+    expect(videoDb.eval).not.toHaveBeenCalled()
+  })
+
+  it('captures submission without charging its estimate or a completed duplicate poll', async () => {
+    const res = makeResponse()
+    const req = makeRequest(res, { model: 'grok-video', duration: 6 })
+    req._crsVideoTaskId = 'task'
+    await grokRelayService._handleNormalResponse(
+      { status: 200, headers: {}, data: { request_id: 'task', usage } },
+      res,
+      account,
+      req.apiKey,
+      'grok-video',
+      req,
+      { endpointKind: 'videos_generations' }
+    )
+    expect(apiKeyService.recordUsage).not.toHaveBeenCalled()
+    const pollRes = makeResponse()
+    const pollReq = makeRequest(pollRes, {})
+    await grokRelayService._handleNormalResponse(
+      { status: 200, headers: {}, data: { video: { url: 'fixture', duration: 3 }, usage } },
+      pollRes,
+      account,
+      req.apiKey,
+      'grok-video',
+      pollReq,
+      { endpointKind: 'video_status' }
+    )
+    expect(apiKeyService.recordUsage).not.toHaveBeenCalled()
+  })
+
+  it('retains billing inputs and the reservation when the completion ledger write fails', async () => {
+    const res = makeResponse()
+    const req = makeRequest(res, {})
+    req._crsVideoSettlement = {
+      requestId: 'task',
+      key: 'fixture-video:task',
+      settlementOwner: 'owner',
+      model: 'grok-video',
+      reservationId: 'reservation',
+      billingUsage: '{"video_resolution":"720p","video_input_seconds":4}'
+    }
+    apiKeyService.recordUsage.mockRejectedValueOnce(new Error('ledger offline'))
+    await grokRelayService._handleNormalResponse(
+      { status: 200, headers: {}, data: { video: { url: 'fixture', duration: 3 } } },
+      res,
+      account,
+      req.apiKey,
+      'grok-video',
+      req,
+      { endpointKind: 'video_status' }
+    )
+    expect(apiKeyService.recordUsage.mock.calls[0][1]).toMatchObject({
+      video_output_seconds: 3,
+      video_input_seconds: 4,
+      video_resolution: '720p'
+    })
+    expect(apiKeyService.recordUsage.mock.calls[0][5]).toMatchObject({
+      throwOnBillingFailure: true,
+      billingDedupTtl: 172800
+    })
+    expect(videoDb.hset).not.toHaveBeenCalled()
+    expect(releaseCostReservation).not.toHaveBeenCalled()
+    expect(videoDb.eval.mock.calls.at(-1).slice(1)).toEqual([1, 'fixture-video:task', 'owner'])
   })
 })

@@ -492,6 +492,9 @@ export const TTL = {
   costMonthly: DAY * 366, // >= 用量月 365
   costHourly: DAY * 7,
   costDedup: 600, // 计费关键写幂等去重标记（只需覆盖 incrementDailyCost 重试窗口）
+  wsBillingDedup: 7200,
+  grokVideoTask: DAY * 2,
+  grokVideoSettlementLease: 60,
   // —— 会话 ——
   adminSession: DAY, // session:${id} 参数默认 86400
   oauthSession: 600, // oauth:${id} 参数默认 600(10 分钟)
@@ -570,7 +573,7 @@ export const TTL = {
   // 限流窗口(per-key 参数,毫秒)
   rateLimitWindowMs: (rateLimitWindow) => rateLimitWindow * 60 * 1000,
   // 并发租约(参数派生,毫秒)
-  concurrencyLeaseMs: (leaseSeconds, graceSeconds) => Math.max((leaseSeconds + graceSeconds) * 1000, 60000),
+  concurrencyLeaseMs: (leaseSeconds, graceSeconds) => Math.max((leaseSeconds + graceSeconds) * 1000, 60000)
 }
 
 // ===

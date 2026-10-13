@@ -1,4 +1,5 @@
 import { logger } from '../../common/logger.js'
+import { StringDecoder } from 'node:string_decoder'
 import { onClientDisconnect } from '../../common/client_disconnect.js'
 import * as geminiAccountService from '../account/account_gemini_service.js'
 import { geminiApiAccountService } from '../account/account_gemini_api_service.js'
@@ -2707,6 +2708,7 @@ export const handleStandardStreamGenerateContent = async (req, res) => {
     heartbeatTimer = setInterval(sendHeartbeat, HEARTBEAT_INTERVAL)
 
     let sseBuffer = ''
+    const sseDecoder = new StringDecoder('utf8')
 
     const handleEventBlock = (evt) => {
       if (!evt.trim()) {
@@ -2773,7 +2775,7 @@ export const handleStandardStreamGenerateContent = async (req, res) => {
       try {
         lastDataTime = Date.now()
 
-        sseBuffer += chunk.toString()
+        sseBuffer += sseDecoder.write(chunk)
         const events = sseBuffer.split(/\r?\n\r?\n/)
         sseBuffer = events.pop() || ''
 
@@ -2788,6 +2790,7 @@ export const handleStandardStreamGenerateContent = async (req, res) => {
     streamResponse.on('end', () => {
       logger.info('Stream completed successfully')
 
+      sseBuffer += sseDecoder.end()
       if (sseBuffer.trim()) {
         try {
           handleEventBlock(sseBuffer)

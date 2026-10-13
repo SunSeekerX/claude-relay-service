@@ -1,4 +1,4 @@
-import {
+import { normalizeGrokImageBody,
   normalizeToolsForResponses,
   chatToResponsesBody,
   isChatBridgeEligible,
@@ -99,5 +99,14 @@ describe('chatToResponsesBody tools', () => {
     expect(isChatBridgeEligible(req).ok).toBe(true)
     const mapped = chatToResponsesBody(req)
     expect(mapped.tools[0].name).toBe('lookup')
+  })
+})
+
+
+describe('Grok image official parameters', () => {
+  it('maps legacy image dimensions and keeps explicit official aspect ratio and resolution', () => {
+    expect(normalizeGrokImageBody({ model: 'grok-image', size: '2048x2048' })).toEqual({ model: 'grok-image', aspect_ratio: '1:1', resolution: '2k' })
+    expect(normalizeGrokImageBody({ size: '1024x1536', aspect_ratio: '9:16', resolution: '1k' })).toEqual({ aspect_ratio: '9:16', resolution: '1k' })
+    expect(() => normalizeGrokImageBody({ size: 'invalid' })).toThrow()
   })
 })

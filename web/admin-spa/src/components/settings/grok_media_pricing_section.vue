@@ -2,12 +2,12 @@
   <div class="grok-media-pricing-settings max-w-4xl">
     <div v-if="loading" class="py-12 text-center">
       <div class="loading-spinner mx-auto mb-4"></div>
-      <p class="t-text-secondary text-sm">正在加载 Grok 媒体计费配置...</p>
+      <p class="t-text-secondary text-sm">正在加载 Grok 计费配置...</p>
     </div>
 
     <div v-else-if="loadFailed" class="py-12 text-center">
       <p class="mb-3 text-sm text-red-600 dark:text-red-400">
-        {{ loadError || '加载 Grok 媒体计费配置失败' }}
+        {{ loadError || '加载 Grok 计费配置失败' }}
       </p>
       <button class="btn btn-primary h-8 px-3 text-sm" type="button" @click="loadConfig">
         <i class="i-lucide-refresh-cw mr-1.5"></i>
@@ -17,7 +17,7 @@
 
     <template v-else>
       <p class="mb-4 t-text-secondary text-sm">
-        配置 Grok Imagine 图片/视频按张、按秒与分档单价。保存后覆盖内置官方兜底价；内部完整计费模型仍优先。
+        配置 Grok 图片、视频与服务端工具单价。客户按价表和现有倍率计费，上游实付另记真实成本。
       </p>
 
       <div class="space-y-4">
@@ -28,9 +28,15 @@
         >
           <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
             <div>
-              <div class="text-sm font-semibold text-gray-900 dark:text-gray-100">{{ modelName }}</div>
+              <div class="text-sm font-semibold text-gray-900 dark:text-gray-100">
+                {{ modelName === 'grok-server-tools' ? 'Grok 服务端工具（所有模型）' : modelName }}
+              </div>
               <div class="t-text-secondary text-sm">
-                {{ draft[modelName]?.mode || '-' }}
+                {{
+                  draft[modelName]?.mode === 'server_tools'
+                    ? '按上游报告用量计费'
+                    : draft[modelName]?.mode || '-'
+                }}
                 <span v-if="hasOverride(modelName)" class="ml-2 text-amber-600 dark:text-amber-400"
                   >已覆盖</span
                 >
@@ -51,12 +57,36 @@
               :key="`${modelName}-${field.key}`"
               class="block"
             >
-              <span class="mb-1 block text-sm text-gray-700 dark:text-gray-200">{{ field.label }}</span>
+              <span class="mb-1 block text-sm text-gray-700 dark:text-gray-200">{{
+                field.label
+              }}</span>
               <input
                 v-model.number="draft[modelName][field.key]"
                 class="form-input w-full"
                 min="0"
                 step="0.001"
+                type="number"
+              />
+            </label>
+          </div>
+
+          <div
+            v-if="draft[modelName].xai_tool_costs_per_unit"
+            class="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2"
+          >
+            <label
+              v-for="(value, unit) in draft[modelName].xai_tool_costs_per_unit"
+              :key="unit"
+              class="block"
+            >
+              <span class="mb-1 block text-sm text-gray-700 dark:text-gray-200"
+                >{{ toolUnitLabels[unit] }} ($/单位)</span
+              >
+              <input
+                v-model.number="draft[modelName].xai_tool_costs_per_unit[unit]"
+                class="form-input w-full"
+                min="0"
+                step="0.0001"
                 type="number"
               />
             </label>
@@ -160,6 +190,14 @@ const updatedAt = ref(null)
 const updatedBy = ref(null)
 
 const modelNames = computed(() => Object.keys(draft.value || {}))
+const toolUnitLabels = {
+  web_search_calls: '网页搜索 / 次',
+  x_posts_fetched: 'X 帖子 / 篇',
+  x_users_fetched: 'X 用户资料 / 份',
+  code_interpreter_calls: '代码执行 / 次',
+  file_search_calls: '集合搜索 / 次',
+  document_search_calls: '文件附件搜索 / 次'
+}
 
 const flatFieldsFor = (modelName) => {
   const model = draft.value[modelName] || {}
@@ -223,7 +261,11 @@ const buildOverlayPayload = () => {
         entry[key] = Number(current[key])
       }
     }
-    for (const tierField of ['xai_image_output_tiers', 'xai_video_output_tiers']) {
+    for (const tierField of [
+      'xai_image_output_tiers',
+      'xai_video_output_tiers',
+      'xai_tool_costs_per_unit'
+    ]) {
       if (!current[tierField]) continue
       const tiers = {}
       for (const [tier, value] of Object.entries(current[tierField])) {

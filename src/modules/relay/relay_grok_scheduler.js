@@ -39,6 +39,9 @@ class GrokScheduler {
   }
 
   async _isGrokAccountUsable(account, requestedModel, options = {}) {
+    if (account && Number(account.dailyQuota) > 0) {
+      account = { ...account, dailyUsage: await redis.getAccountDailyCost(account.id) }
+    }
     if (!this._passesGrokSyncGates(account, requestedModel)) {
       return false
     }
@@ -163,7 +166,11 @@ class GrokScheduler {
     }
 
     try {
-      await groupPolicy.assertGroupRequestAllowed(group, { requestedModel, holdTarget })
+      await groupPolicy.assertGroupRequestAllowed(group, {
+        requestedModel,
+        holdTarget,
+        deferAdmission: options.deferGroupAdmission === true
+      })
 
       const memberIds = await accountGroupService.getGroupMembers(groupId)
       if (!memberIds || memberIds.length === 0) {
@@ -214,6 +221,7 @@ class GrokScheduler {
         candidates = await this._loadGroupAccounts(groupId, requestedModel, {
           mediaGeneration,
           holdTarget: apiKeyData,
+          deferGroupAdmission: options.deferGroupAdmission === true
         })
         // 分组绑定：只在组内选，绝不退回共享池
         if (!candidates.length) {
@@ -317,6 +325,37 @@ class GrokScheduler {
       `[GrokScheduler] selected account=${selected.id} model=${requestedModel || '-'} candidates=${candidates.length} binding=${hasBinding}`,
     )
     return selected
+  }
+
+  async assertAccountForWebSocket(apiKeyData, accountId, requestedModel, options = {}) {
+    assertModelAccess(apiKeyData, requestedModel)
+    const account = await grokAccountService.getAccount(accountId, { decryptSecrets: false })
+    if (!(await this._isGrokAccountUsable(account, requestedModel))) {
+      throw Object.assign(new Error('Grok account is unavailable for this model'), {
+        statusCode: 503
+      })
+    }
+    const upstreamModel = commonHelper.getMappedModelName(account.modelMapping, requestedModel)
+    assertModelAccess(apiKeyData, upstreamModel)
+    const binding = apiKeyData.grokAccountId
+    if (binding?.startsWith('group:')) {
+      const groupId = binding.slice('group:'.length)
+      const group = await accountGroupService.getGroup(groupId)
+      const members = await accountGroupService.getGroupMembers(groupId)
+      if (!group || (group.platform && group.platform !== 'grok') || !members.includes(accountId)) {
+        throw Object.assign(new Error('Account is outside the bound Grok group'), {
+          statusCode: 403
+        })
+      }
+      await groupPolicy.assertGroupRequestAllowed(group, {
+        requestedModel,
+        holdTarget: apiKeyData,
+        deferAdmission: options.deferGroupAdmission === true
+      })
+    } else if (binding && binding !== accountId) {
+      throw Object.assign(new Error('Grok account binding changed; reconnect'), { statusCode: 403 })
+    }
+    return upstreamModel
   }
 }
 

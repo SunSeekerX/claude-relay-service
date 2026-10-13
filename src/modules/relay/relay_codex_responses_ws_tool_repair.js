@@ -95,13 +95,13 @@ const normalizeFunctionCallOutput = (item, _knownCallIds) => {
   if (next.output === undefined) {
     next.output = ''
   }
-  if (typeof next.output !== 'string') {
-    try {
-      next.output = JSON.stringify(next.output)
-    } catch {
-      next.output = String(next.output)
-    }
-  }
+  if (typeof next.output !== 'string' && !Array.isArray(next.output)) {
+                                   try {
+                                     next.output = JSON.stringify(next.output)
+                                   } catch {
+                                     next.output = String(next.output)
+                                   }
+                                 }
   // 剥内部字段
   delete next._crs_unmatched_call
   return next

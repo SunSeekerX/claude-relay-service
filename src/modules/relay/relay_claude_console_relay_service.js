@@ -884,12 +884,14 @@ class ClaudeConsoleRelayService {
 
             // 收集错误数据用于检测
             let errorDataForCheck = ''
+            const errorDecoder = new StringDecoder('utf8')
 
             response.data.on('data', (chunk) => {
-              errorDataForCheck += chunk.toString()
+              errorDataForCheck += errorDecoder.write(chunk)
             })
 
             response.data.on('end', async () => {
+              errorDataForCheck += errorDecoder.end()
               const autoProtectionDisabled = account.disableAutoProtection === true
               // 日志只打脱敏文案，禁止上游原文
               // DEC_20260905_161107

@@ -86,7 +86,7 @@ export const attach = function attach(redisClient) {
   // [人工决策-2026-06-04 10:38:30] 计费关键写（usage:cost:total / costRealTotal——prepaid 派生余额
   // 与 postpaid 限额的真相源）幂等化（去重 Lua）+ 有限重试，消灭瞬时故障的免费消费窗口；持续故障
   // 重试耗尽后抛出，由上层 recordUsage catch 的含金额 ERROR 兜底对账。统计写失败不再连带计费失败。
-  redisClient.incrementDailyCost = async function (keyId, amount, realAmount = null) {
+  redisClient.incrementDailyCost = async function (keyId, amount, realAmount = null, options = {}) {
     const today = timezone.getDateStringInTimezone()
     const tzDate = timezone.getDateInTimezone()
     const currentMonth = `${tzDate.getUTCFullYear()}-${String(tzDate.getUTCMonth() + 1).padStart(2, '0')}`
@@ -104,13 +104,14 @@ export const attach = function attach(redisClient) {
 
     logger.debug(`Incrementing cost for ${keyId}, rated: $${amount}, real: $${actualRealAmount}, date: ${today}`)
 
-    // ① 计费关键写：幂等 Lua + 最多 3 次重试。dedupId 本次调用内生成——跨调用每笔用量本就各自累加，
-    // 幂等只需保护重试环内「脚本已执行但响应丢失」不重复累加
-    const dedupId = crypto.randomUUID()
+    // ① 关键写最多 3 次重试；业务 ID 跨调用去重，owner 区分本次响应丢失与外部重复结算。
+    const dedupId = options.dedupId ?? crypto.randomUUID()
+    const owner = crypto.randomUUID()
+    const dedupTtl = options.dedupTtl ?? (options.dedupId ? TTL.wsBillingDedup : TTL.costDedup)
     let lastError = null
     for (let attempt = 1; attempt <= 3; attempt++) {
       try {
-        await this.client.eval(
+        const applied = await this.client.eval(
           RedisLua.cost.incrementTotal,
           3,
           RedisKeys.usage.costDedup(dedupId),
@@ -118,8 +119,12 @@ export const attach = function attach(redisClient) {
           realTotalKey,
           String(amount),
           String(actualRealAmount),
-          String(TTL.costDedup),
+          String(dedupTtl),
+          owner
         )
+        if (Number(applied) === 0) {
+          return false
+        }
         lastError = null
         break
       } catch (error) {
@@ -152,6 +157,7 @@ export const attach = function attach(redisClient) {
     } catch (error) {
       logger.error(`Cost stats write failed for ${keyId} (billing already recorded):`, error)
     }
+    return true
   }
 
   // 获取费用统计（包含倍率成本和真实成本）

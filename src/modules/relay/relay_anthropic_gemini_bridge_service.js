@@ -14,12 +14,25 @@ import * as signatureCache from '../../common/signature_cache.js'
 import { apiKeyService } from '../apikey/apikey_service.js'
 import { updateRateLimitCounters } from './relay_rate_limit_helper.js'
 import { parseSSELine } from './relay_sse_parser.js'
-import { sanitizeUpstreamError } from '../../common/error_sanitizer.js'
+import { sanitizeUpstreamError as sanitizeProviderError } from '../../common/error_sanitizer.js'
+import { extractSafeMessage } from '../../common/client_error_builder.js'
 import { cleanJsonSchemaForGemini } from './relay_gemini_schema_cleaner.js'
 import { dumpAnthropicNonStreamResponse, dumpAnthropicStreamSummary } from './relay_anthropic_response_dump.js'
 import { dumpAntigravityStreamEvent, dumpAntigravityStreamSummary } from './relay_antigravity_upstream_response_dump.js'
 import { env } from '../../../config/env.js'
 import { ensureAntigravityProjectId } from './relay_antigravity_client.js'
+
+const sanitizeUpstreamError = (error) =>
+  error?.code === 'unsupported_tool_schema'
+    ? {
+        statusCode: 400,
+        error: {
+          type: 'invalid_request_error',
+          code: error.code,
+          message: extractSafeMessage(error.message)
+        }
+      }
+    : sanitizeProviderError(error)
 /**
  * ===
  * Anthropic → Gemini/Antigravity 桥接服务
@@ -745,7 +758,7 @@ const normalizeAnthropicMessages = (messages, { vendor = null } = {}) => {
  * 3. Schema description 压缩（Antigravity: 200 字符上限，保留关键约束）
  * 4. 输出格式差异：
  * - Antigravity: 使用 parametersJsonSchema
- * - Gemini: 使用 parameters
+ * - Gemini: 使用 parametersJsonSchema
  *
  * @param {Array} tools - Anthropic 格式的工具定义数组
  * @param {Object} options - 选项，包含 vendor
@@ -754,136 +767,6 @@ const normalizeAnthropicMessages = (messages, { vendor = null } = {}) => {
 const convertAnthropicToolsToGeminiTools = (tools, { vendor = null } = {}) => {
   if (!Array.isArray(tools) || tools.length === 0) {
     return null
-  }
-
-  // 说明：Gemini / Antigravity 对工具 schema 的接受程度不同；这里做“尽可能兼容”的最小清洗，降低 400 概率。
-  const sanitizeSchemaForFunctionDeclarations = (schema) => {
-    const allowedKeys = new Set([
-      'type',
-      'properties',
-      'required',
-      'description',
-      'enum',
-      'items',
-      'anyOf',
-      'oneOf',
-      'allOf',
-      'additionalProperties',
-      'minimum',
-      'maximum',
-      'minItems',
-      'maxItems',
-      'minLength',
-      'maxLength',
-    ])
-
-    if (schema === null || schema === undefined) {
-      return null
-    }
-
-    // primitives: keep as-is (e.g. type/description/nullable/minimum...)
-    if (typeof schema !== 'object') {
-      return schema
-    }
-
-    if (Array.isArray(schema)) {
-      return schema
-        .map((item) => sanitizeSchemaForFunctionDeclarations(item))
-        .filter((item) => item !== null && item !== undefined)
-    }
-
-    const sanitized = {}
-    for (const [key, value] of Object.entries(schema)) {
-      // Antigravity/Cloud Code 的 function_declarations.parameters 不接受 $schema / $id 等元字段
-      if (key === '$schema' || key === '$id') {
-        continue
-      }
-      // 去除常见的非必要字段，减少上游 schema 校验失败概率
-      if (key === 'title' || key === 'default' || key === 'examples' || key === 'example') {
-        continue
-      }
-      // 上游对 JSON Schema "format"支持不稳定（特别是 format=uri），直接移除以降低 400 概率
-      if (key === 'format') {
-        continue
-      }
-      if (!allowedKeys.has(key)) {
-        continue
-      }
-
-      if (key === 'properties') {
-        if (value && typeof value === 'object' && !Array.isArray(value)) {
-          const props = {}
-          for (const [propName, propSchema] of Object.entries(value)) {
-            const sanitizedProp = sanitizeSchemaForFunctionDeclarations(propSchema)
-            if (sanitizedProp && typeof sanitizedProp === 'object') {
-              props[propName] = sanitizedProp
-            }
-          }
-          sanitized.properties = props
-        }
-        continue
-      }
-
-      if (key === 'required') {
-        if (Array.isArray(value)) {
-          const req = value.filter((item) => typeof item === 'string')
-          if (req.length > 0) {
-            sanitized.required = req
-          }
-        }
-        continue
-      }
-
-      if (key === 'enum') {
-        if (Array.isArray(value)) {
-          const en = value.filter(
-            (item) => typeof item === 'string' || typeof item === 'number' || typeof item === 'boolean',
-          )
-          if (en.length > 0) {
-            sanitized.enum = en
-          }
-        }
-        continue
-      }
-
-      if (key === 'additionalProperties') {
-        if (typeof value === 'boolean') {
-          sanitized.additionalProperties = value
-        } else if (value && typeof value === 'object') {
-          const ap = sanitizeSchemaForFunctionDeclarations(value)
-          if (ap && typeof ap === 'object') {
-            sanitized.additionalProperties = ap
-          }
-        }
-        continue
-      }
-
-      const sanitizedValue = sanitizeSchemaForFunctionDeclarations(value)
-      if (sanitizedValue === null || sanitizedValue === undefined) {
-        continue
-      }
-      sanitized[key] = sanitizedValue
-    }
-
-    // 兜底：确保 schema 至少是一个 object schema
-    if (!sanitized.type) {
-      if (sanitized.items) {
-        sanitized.type = 'array'
-      } else if (sanitized.properties || sanitized.required || sanitized.additionalProperties) {
-        sanitized.type = 'object'
-      } else if (sanitized.enum) {
-        sanitized.type = 'string'
-      } else {
-        sanitized.type = 'object'
-        sanitized.properties = {}
-      }
-    }
-
-    if (sanitized.type === 'object' && !sanitized.properties) {
-      sanitized.properties = {}
-    }
-
-    return sanitized
   }
 
   const functionDeclarations = tools
@@ -903,21 +786,14 @@ const convertAnthropicToolsToGeminiTools = (tools, { vendor = null } = {}) => {
           ? compactJsonSchemaDescriptionsForAntigravity(
               cleanJsonSchemaForGemini(toolDef.input_schema, { preserveConstraints: true }),
             )
-          : sanitizeSchemaForFunctionDeclarations(toolDef.input_schema) || {
-              type: 'object',
-              properties: {},
-            }
+          : cleanJsonSchemaForGemini(toolDef.input_schema, { preserveConstraints: true })
 
       const baseDecl = {
         name: toolDef.name,
         description: toolDescription,
       }
 
-      // CLIProxyAPI/Antigravity 侧使用 parametersJsonSchema（而不是 parameters）。
-      if (vendor === 'antigravity') {
-        return { ...baseDecl, parametersJsonSchema: schema }
-      }
-      return { ...baseDecl, parameters: schema }
+      return { ...baseDecl, parametersJsonSchema: schema }
     })
     .filter(Boolean)
 

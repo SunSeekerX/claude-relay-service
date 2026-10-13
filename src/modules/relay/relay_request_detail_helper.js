@@ -545,6 +545,9 @@ export const createRequestDetailMeta = (req, overrides = {}) => {
   const firstTokenMsOverride = toFiniteNumber(overrides.firstTokenMs)
   const meta = {
     requestId: overrides.requestId || req?.requestId || null,
+    billingDedupId: overrides.billingDedupId ?? null,
+    billingDedupTtl: overrides.billingDedupTtl ?? null,
+    throwOnBillingFailure: overrides.throwOnBillingFailure === true,
     endpoint: overrides.endpoint || getRequestEndpoint(req),
     method: overrides.method || req?.method || null,
     statusCode: statusCode ?? req?.res?.statusCode ?? 200,
@@ -556,11 +559,14 @@ export const createRequestDetailMeta = (req, overrides = {}) => {
     responseBody,
     videoTaskId: req?._crsVideoTaskId || null,
     errorCode: overrides.errorCode ?? null,
-    errorMessage: overrides.errorMessage ?? null,
+    errorMessage: overrides.errorMessage ?? null
   }
   const groupCostHoldGroupId = overrides.groupCostHoldGroupId || req?.apiKey?.groupCostHoldGroupId
   if (groupCostHoldGroupId) {
     meta.groupCostHoldGroupId = String(groupCostHoldGroupId)
+  }
+  if (overrides.groupCostHoldMeta ?? req?.apiKey?.groupCostHoldMeta) {
+    meta.groupCostHoldMeta = overrides.groupCostHoldMeta ?? req.apiKey.groupCostHoldMeta
   }
   // firstTokenMs 用 getter：流式可能在 create 之后才写出首包，finalize/spread 时再读 req 实时值
   // [人工决策] 对齐 new-api：TTFT 取「首次内容写出」而非 create 时刻快照
@@ -1090,6 +1096,12 @@ export const buildTokenUsagePayload = ({
   }
   if (raw.output_token_details) {
     payload.output_token_details = raw.output_token_details
+  }
+  if (raw.server_side_tool_usage_details) {
+    payload.server_side_tool_usage_details = raw.server_side_tool_usage_details
+  }
+  if (raw.cost_in_usd_ticks !== undefined && raw.cost_in_usd_ticks !== null) {
+    payload.cost_in_usd_ticks = raw.cost_in_usd_ticks
   }
   if (
     raw.thoughtsTokenCount !== undefined &&

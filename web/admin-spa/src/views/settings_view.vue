@@ -143,7 +143,7 @@ const sectionGroups = [
     label: '计费与模型',
     tabs: [
       { key: 'serviceRates', label: '服务倍率', icon: 'i-lucide-scale', hint: '各服务计费倍率' },
-      { key: 'grokMediaPricing', label: 'Grok 媒体', icon: 'i-lucide-image', hint: 'Grok 图片/视频按张按秒单价' },
+      { key: 'grokMediaPricing', label: 'Grok 计费', icon: 'i-lucide-image', hint: 'Grok 图片、视频与服务端工具单价' },
       { key: 'modelPricing', label: '模型价格', icon: 'i-lucide-coins', hint: '模型单价与价格表' }
     ]
   },

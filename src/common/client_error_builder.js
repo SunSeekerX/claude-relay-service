@@ -28,6 +28,23 @@ export const normalizeStatusCode = (upstreamStatus) => {
   return upstreamStatus
 }
 
+export const buildWebSocketClientError = (error) => {
+  const result = buildClientError({
+    statusCode: error.statusCode ?? error.response?.status ?? 502,
+    protocol: 'openai',
+    upstreamBody: { error: { code: error.code, message: error.message } }
+  })
+  if (Number.isInteger(error.statusCode) && !error.response && !error.upstream) {
+    result.statusCode = error.statusCode
+    result.body.error.message = extractSafeMessage(error.message) || result.body.error.message
+    result.body.error.code = extractUpstreamErrorCode({ error }) || result.body.error.code
+    if (error.statusCode === 403) {
+      result.body.error.type = 'permission_error'
+    }
+  }
+  return { type: 'error', status: result.statusCode, ...result.body }
+}
+
 // 是否把（脱敏后的）上游 message 透给客户端：仅普通 4xx（客户端请求自身问题，需知道哪错了）
 export const shouldExposeUpstreamMessage = (clientStatus) =>
   clientStatus >= 400 && clientStatus < 500 && clientStatus !== 429

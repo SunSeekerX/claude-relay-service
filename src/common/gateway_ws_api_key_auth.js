@@ -134,7 +134,15 @@ export const startConcurrencyLeaseRenewal = ({
  * @param {{ requiredPermission?: string, maxLifetimeMinutes?: number }} [opts]
  */
 export const authenticateApiKeyForUpgrade = async (req, url, opts = {}) => {
-  const requiredPermission = opts.requiredPermission || 'openai'
+  const auth = await validateWsApiKey(req, url, opts.requiredPermission ?? 'openai')
+  if (!auth.ok) {
+    return auth
+  }
+  const { keyData } = auth
+  return acquireWsTurnConcurrency(keyData, opts)
+}
+
+export const validateWsApiKey = async (req, url, requiredPermission = 'openai') => {
   const apiKey = extractBearerOrQueryKey(req, url)
   if (!apiKey) {
     return fail(401, 'Missing API key')
@@ -183,7 +191,11 @@ export const authenticateApiKeyForUpgrade = async (req, url, opts = {}) => {
     }
   }
 
-  const concurrencyLimit = keyData.concurrencyLimit || 0
+  return { ok: true, keyData }
+}
+
+export const acquireWsTurnConcurrency = async (keyData, opts = {}) => {
+  const concurrencyLimit = opts.acquireConcurrency === false ? 0 : keyData.concurrencyLimit || 0
   let requestId = null
   let hasSlot = false
   let leaseSeconds = null

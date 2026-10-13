@@ -45,16 +45,18 @@ export const modelAccessErrorBody = (req, error) => {
 }
 
 export const createWsModelAccessGuard = (apiKey, initialModel = null) => {
-  let currentModel = initialModel
+  const currentModels = new Map()
   return (text) => {
     const message = JSON.parse(text)
     if (!message || typeof message !== 'object' || Array.isArray(message)) {
       throw new Error('Invalid WebSocket request')
     }
     if (['response.create', 'response.append'].includes(message.type)) {
-      const model = message.response?.model ?? message.model ?? currentModel
+      const streamId = message.stream_id ?? message.response?.stream_id ?? null
+      const model =
+        message.response?.model ?? message.model ?? currentModels.get(streamId) ?? initialModel
       assertModelAccess(apiKey, model)
-      currentModel = model
+      currentModels.set(streamId, model)
     }
     return text
   }

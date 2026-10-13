@@ -1,6 +1,7 @@
 import { redis } from '../../infra/redis.js'
 import { logger } from '../../common/logger.js'
 import { RedisKeys as RedisRegistry } from '../../infra/redis_key.js'
+import { apiKeyIndexService } from '../apikey/apikey_index_service.js'
 /**
  * 费用排序索引服务
  *
@@ -476,8 +477,12 @@ class CostRankService {
    * @returns {Promise<string[]>}
    */
   async _getActiveApiKeyIds() {
+    if (await apiKeyIndexService.isIndexReady()) {
+      const client = redis.getClientSafe()
+      return client.sdiff(RedisRegistry.apiKey.idx.all, RedisRegistry.apiKey.set.deleted)
+    }
     // 使用现有的 scanApiKeyIds 获取所有 ID
-    const allKeyIds = await redis.scanApiKeyIds()
+    const allKeyIds = await redis.scanApiKeyIdsFromHashes()
 
     if (allKeyIds.length === 0) {
       return []

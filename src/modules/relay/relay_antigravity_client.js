@@ -2,7 +2,7 @@ import axios from 'axios'
 import https from 'node:https'
 import { ProxyHelper } from '../proxy/proxy_helper.js'
 import { logger } from '../../common/logger.js'
-import { cleanJsonSchemaForGemini } from './relay_gemini_schema_cleaner.js'
+import { convertAntigravityToolSchema } from './relay_gemini_schema_cleaner.js'
 import { dumpAntigravityUpstreamRequest } from './relay_antigravity_upstream_dump.js'
 import {
   mapAntigravityUpstreamModel,
@@ -250,7 +250,7 @@ const normalizeAntigravityEnvelope = (envelope) => {
     return
   }
 
-  // Claude 模型：parametersJsonSchema -> parameters + schema 清洗（避免 $schema / additionalProperties 等触发 400）
+  // Claude 的 typed Schema 只允许等价转换，禁止把无法表达的约束降为说明文字。
   if (!Array.isArray(requestPayload.tools)) {
     return
   }
@@ -277,12 +277,12 @@ const normalizeAntigravityEnvelope = (envelope) => {
       if (typeof schema === 'string' && schema) {
         try {
           schema = JSON.parse(schema)
-        } catch (_) {
-          schema = null
+        } catch {
+          schema = false
         }
       }
 
-      decl.parameters = cleanJsonSchemaForGemini(schema)
+      decl.parameters = convertAntigravityToolSchema(schema ?? { type: 'object', properties: {} })
       delete decl.parametersJsonSchema
     }
   }

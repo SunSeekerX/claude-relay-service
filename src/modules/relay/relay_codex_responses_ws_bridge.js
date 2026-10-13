@@ -3,15 +3,19 @@
 // 对照：CLIProxyAPI responses websocket HTTP mode + sub2api http_bridge
 import axios from 'axios'
 import crypto from 'node:crypto'
-import http from 'node:http'
-import https from 'node:https'
 import { URL } from 'node:url'
 
 import { config } from '../../../config/config.js'
 import { env } from '../../../config/env.js'
 import { logger } from '../../common/logger.js'
-import { acceptWebSocketEndpoint, encodeWsClientText, encodeWsClientPong } from '../../common/gateway_ws_endpoint.js'
-import { createWsFrameSniffer } from '../../common/gateway_ws_frame_sniffer.js'
+import {
+  acceptWebSocketEndpoint,
+  encodeWsClientText,
+  encodeWsClientPong,
+  encodeWsClientClose
+} from '../../common/gateway_ws_endpoint.js'
+import { connectWebSocketUpstream } from '../../common/gateway_ws_upstream.js'
+import { createWsFrameSniffer, parseWsClientMessage } from '../../common/gateway_ws_frame_sniffer.js'
 import { IncrementalSSEParser } from './relay_sse_parser.js'
 import { ResponsesStreamState } from './relay_responses_stream_state.js'
 import * as groupPolicy from '../account/account_group_policy.js'
@@ -20,6 +24,7 @@ import { proxyResolver } from '../proxy/proxy_resolver.js'
 import { unifiedOpenAIScheduler } from './relay_unified_openai_scheduler.js'
 import * as openaiAccountService from '../account/account_openai_service.js'
 import { apiKeyService } from '../apikey/apikey_service.js'
+import { validateWsApiKey, acquireWsTurnConcurrency } from '../../common/gateway_ws_api_key_auth.js'
 import {
   createRequestDetailMeta,
   buildFailedRequestDetailPayload,
@@ -32,7 +37,11 @@ import { sanitizeOpenAICapacityShedForClient } from './relay_openai_capacity_she
 import { applyOpenAIServiceTierAlias } from './relay_openai_compact_v2.js'
 import { applyOpenAIPublicModelAlias } from './relay_openai_model_alias.js'
 import { normalizeCodexBootstrapBody } from './relay_codex_bootstrap_normalize.js'
-import { extractUpstreamErrorCode, extractSafeMessage } from '../../common/client_error_builder.js'
+import {
+  extractUpstreamErrorCode,
+  extractSafeMessage,
+  buildWebSocketClientError
+} from '../../common/client_error_builder.js'
 import { assertModelAccess, createWsModelAccessGuard } from './relay_model_access.js'
 
 // 与 relay_openai_routes.getCodexCompatibleModel 同语义（避免跨文件非导出依赖）
@@ -281,12 +290,6 @@ export const buildHttpResponsesBodyFromWsMessage = (message, state) => {
   }
   const source =
     message.response && typeof message.response === 'object' ? { ...message, ...message.response } : message
-  if (source.stream_id) {
-    throw Object.assign(new Error('Named streams require native WebSocket transport'), {
-      statusCode: 400,
-      code: 'unsupported_stream_id',
-    })
-  }
   const model = source.model ?? state.model
   if (!model) {
     throw Object.assign(new Error('Missing model in response.create'), { statusCode: 400 })
@@ -399,7 +402,7 @@ const resolveUpstreamUrl = (accountType) => {
 /**
  * 处理一条 WS 客户端消息：HTTP SSE 上游 → 回写 WS 事件
  */
-const runOneTurn = async ({
+const relayOneHttpTurn = async ({
   body,
   accessToken,
   account,
@@ -410,7 +413,7 @@ const runOneTurn = async ({
   apiKeyData,
   reqMeta,
   state,
-  abortSignal: contextAbortSignal = null,
+  abortSignal: contextAbortSignal = null
 }) => {
   if (body.generate === false) {
     for (const event of completeHttpBridgeWarmup(body, state)) {
@@ -644,6 +647,7 @@ const runOneTurn = async ({
 
   const success = !streamError && !terminalFailed
   let usageRecorded = false
+  let billingError = null
   if (usagePayload && apiKeyData?.id) {
     try {
       const effectiveTier = resolveOpenAIServiceTier(
@@ -660,15 +664,36 @@ const runOneTurn = async ({
         createRequestDetailMeta(reqMeta || {}, {
           stream: true,
           ...result,
+          requestId: completedId ?? reqMeta.requestId,
+          throwOnBillingFailure: true,
+          billingDedupId: crypto.createHash('sha256').update([apiKeyData.id, accountId, completedId ?? reqMeta.requestId].join(':'))
+            .digest('hex'),
           billingUsage: usagePayload,
-          requestBody: { wsBridge: true, model: actualModel, serviceTier: effectiveTier },
-        }),
+          requestBody: { wsBridge: true, model: actualModel, serviceTier: effectiveTier }
+        })
       )
       usageRecorded = true
+      reqMeta.apiKey.groupCostHoldGroupId = null
+      reqMeta.apiKey.groupCostHoldMeta = null
     } catch (error) {
-      console.error(error)
-      logger.error(`[ResponsesWS-bridge] billing failed: ${error.message}`)
+      billingError = error
+      logger.error('Responses WebSocket bridge billing failed', error)
     }
+  }
+
+  if (billingError) {
+    throw Object.assign(new Error('WebSocket billing unavailable'), {
+      statusCode: 503,
+      code: 'billing_unavailable'
+    })
+  }
+  if (success && !usageRecorded) {
+    await requestDetailService.captureUnmeteredRequest(reqMeta, {
+      apiKeyId: apiKeyData.id,
+      accountId,
+      accountType,
+      result: createRequestDetailMeta(reqMeta, { ...result, stream: true, model: actualModel })
+    })
   }
 
   if (!success && !usageRecorded) {
@@ -733,177 +758,251 @@ const runOneTurn = async ({
  * 入口：把 upgrade 收成 http_bridge 会话
  * 账户在首条 response.create（已知 model）时再选号，避免握手 null 模型选错号
  */
+const runOneTurn = async (args) => {
+  const reqMeta = {
+    ...args.reqMeta,
+    body: args.body,
+    requestId: crypto.randomUUID(),
+    requestStartedAt: Date.now()
+  }
+  const url = new URL(reqMeta.url, `http://${reqMeta.headers.host ?? 'localhost'}`)
+  const auth = await validateWsApiKey(reqMeta, url)
+  if (!auth.ok) {
+    throw Object.assign(new Error(auth.message), { statusCode: auth.status, code: auth.code })
+  }
+  assertModelAccess(auth.keyData, args.body.model)
+  if (args.body.generate === false) {
+    return relayOneHttpTurn({ ...args, reqMeta })
+  }
+  const lease = await acquireWsTurnConcurrency(auth.keyData)
+  if (!lease.ok) {
+    throw Object.assign(new Error(lease.message), { statusCode: lease.status, code: lease.code })
+  }
+  try {
+    await unifiedOpenAIScheduler.assertAccountForWebSocket(
+      auth.keyData,
+      args.accountId,
+      args.body.model,
+      args.apiKeyData.openaiAccountId
+    )
+    reqMeta.apiKey = auth.keyData
+    return await relayOneHttpTurn({ ...args, reqMeta })
+  } finally {
+    await lease.release()
+  }
+}
+
+
+// HTTP 上游按 lane 串行；跨 lane 并行，最近回包上下文只保留每条 lane 的最新版本。
+export const createHttpBridgeLanes = ({ run, sendText, signal, initialModel = null }) => {
+  const lanes = new Map()
+  const recentResponses = new Map()
+  let pendingBytes = 0
+  let pendingCount = 0
+  let blocked = null
+
+  const getLane = (streamId) => {
+    if (
+      streamId !== null &&
+      (typeof streamId !== 'string' || !/^[A-Za-z0-9_.-]{1,256}$/.test(streamId))
+    ) {
+      throw Object.assign(new Error('Invalid stream_id'), {
+        code: 'invalid_stream_id',
+        statusCode: 400
+      })
+    }
+    if (!lanes.has(streamId)) {
+      if (streamId !== null && [...lanes.keys()].filter((key) => key !== null).length >= 32) {
+        throw Object.assign(new Error('WebSocket stream limit reached'), {
+          code: 'websocket_stream_limit_reached',
+          statusCode: 400
+        })
+      }
+      lanes.set(streamId, {
+        state: { ...createBridgeSessionState(), model: initialModel },
+        queue: Promise.resolve()
+      })
+    }
+    return lanes.get(streamId)
+  }
+
+  const emit = (streamId, text) => {
+    if (streamId === null) {
+      sendText(text)
+      return
+    }
+    sendText(JSON.stringify({ ...JSON.parse(text), stream_id: streamId }))
+  }
+
+  const processText = (text) => {
+    let message
+    let streamId = null
+    let lane
+    try {
+      message = parseWsClientMessage(text)
+      streamId = message.stream_id ?? message.response?.stream_id ?? null
+      if (message.type === 'response.steer') {
+        throw Object.assign(new Error('Mid-turn steering requires native WebSocket transport'), {
+          code: 'steering_not_supported',
+          statusCode: 400
+        })
+      }
+      lane = getLane(streamId)
+      if (pendingCount >= 64 || pendingBytes + Buffer.byteLength(text) > 16 * 1024 * 1024) {
+        throw Object.assign(new Error('Too many queued WebSocket requests'), {
+          code: 'rate_limit_exceeded',
+          statusCode: 429
+        })
+      }
+    } catch (error) {
+      emit(streamId, JSON.stringify(buildWebSocketClientError(error)))
+      return Promise.resolve()
+    }
+    const bytes = Buffer.byteLength(text)
+    pendingBytes += bytes
+    pendingCount += 1
+    const task = lane.queue
+      .then(async () => {
+        if (signal?.aborted) {
+                   return
+                 }
+        if (blocked) {
+          throw Object.assign(new Error(blocked.message), {
+            code: blocked.code,
+            statusCode: blocked.statusCode
+          })
+        }
+        const previousId = message.previous_response_id ?? message.response?.previous_response_id
+        if (previousId && previousId !== lane.state.lastResponseId) {
+          const parent = recentResponses.get(previousId)
+          if (!parent) {
+            throw Object.assign(
+              new Error('Previous response is unavailable; resend the full input context'),
+              { code: 'previous_response_not_found', statusCode: 400 }
+            )
+          }
+          lane.state = { ...parent.state, inputItems: [...parent.state.inputItems] }
+        }
+        const oldId = lane.state.lastResponseId
+        const body = buildHttpResponsesBodyFromWsMessage(message, lane.state)
+        try {
+          await run(body, lane.state, (output) => emit(streamId, output))
+        } finally {
+          if (lane.state.cyberPolicyBlocked) {
+            blocked = {
+              code: lane.state.cyberPolicyCode,
+              message: lane.state.cyberPolicyMessage,
+              statusCode: 403
+            }
+          }
+        }
+        if (lane.state.lastResponseId && lane.state.lastResponseId !== oldId) {
+          if (recentResponses.get(oldId)?.owner === streamId) {
+            recentResponses.delete(oldId)
+          }
+          recentResponses.set(lane.state.lastResponseId, {
+            owner: streamId,
+            state: { ...lane.state, inputItems: [...lane.state.inputItems] }
+          })
+        }
+      })
+      .catch((error) => {
+        logger.error('Responses WebSocket bridge turn failed', error)
+        if (error.code === 'billing_unavailable') {
+          blocked = { code: error.code, message: error.message, statusCode: 503 }
+        }
+        if (!signal?.aborted) {
+          emit(streamId, JSON.stringify(buildWebSocketClientError(error)))
+        }
+      })
+      .finally(() => {
+        pendingBytes -= bytes
+        pendingCount -= 1
+      })
+    lane.queue = task
+    return task
+  }
+
+  return { processText, drain: () => Promise.all([...lanes.values()].map((lane) => lane.queue)) }
+}
+
 export const handleResponsesWebSocketHttpBridge = async (
   req,
   socket,
   head,
-  { apiKeyData, releaseAuth = async () => {}, preselectedAccount = null, preselectedAccountId = null } = {},
+  {
+    apiKeyData,
+    releaseAuth = async () => {},
+    initialModel = null,
+    preselectedAccountId = null
+  } = {}
 ) => {
   const sessionId = req.headers['session-id'] || req.headers['session_id'] || req.headers['x-session-id'] || null
   const sessionHash = sessionId ? crypto.createHash('sha256').update(String(sessionId)).digest('hex') : null
 
   // 连接级 abort：客户端断开则中止进行中的上游 SSE
   const connectionAbort = new AbortController()
-  let accessToken = null
-  let accountId = preselectedAccountId || null
-  let account = preselectedAccount || null
-  let accountType = 'openai'
-  let accountReady = Boolean(account && accountId)
-
+  const accountId = preselectedAccountId
   const ensureAccount = async (requestedModel = null) => {
-    if (accountReady && !requestedModel) {
-      return
-    }
-    // 有 model 时按白名单重选；首次无 model 可用预选
     const selected = await unifiedOpenAIScheduler.selectAccountForApiKey(
       apiKeyData,
       sessionHash,
-      requestedModel || null,
+      requestedModel,
+      { deferGroupAdmission: true }
     )
-    ;({ accountId } = selected)
-    accountType = selected.accountType || 'openai'
-    if (accountType !== 'openai') {
-      throw new Error('http_bridge requires OpenAI OAuth account')
+    if (selected.accountType !== 'openai') {
+               throw new Error('http_bridge requires OpenAI OAuth account')
+             }
+    let selectedAccount = await openaiAccountService.getAccount(selected.accountId)
+    if (openaiAccountService.isTokenExpired(selectedAccount) && selectedAccount.refreshToken) {
+      await openaiAccountService.refreshAccountToken(selected.accountId)
+      selectedAccount = await openaiAccountService.getAccount(selected.accountId)
     }
-    account = await openaiAccountService.getAccount(accountId)
-    if (!account) {
-      throw new Error('OpenAI account not found')
+    const selectedToken =
+      selected.accessToken || openaiAccountService.decrypt(selectedAccount.accessToken)
+    if (!selectedToken) {
+      throw new Error('Missing OpenAI access token')
     }
-    if (openaiAccountService.isTokenExpired(account) && account.refreshToken) {
-      await openaiAccountService.refreshAccountToken(accountId)
-      account = await openaiAccountService.getAccount(accountId)
-    }
-    accessToken = selected.accessToken || openaiAccountService.decrypt(account.accessToken)
-    if (!accessToken) {
-      throw new Error('missing accessToken')
-    }
-    accountReady = true
-  }
-
-  // 预选账户（app 层为读 mode 已选过）可先填 token
-  if (account && accountId) {
-    try {
-      if (openaiAccountService.isTokenExpired(account) && account.refreshToken) {
-        await openaiAccountService.refreshAccountToken(accountId)
-        account = await openaiAccountService.getAccount(accountId)
-      }
-      accessToken = openaiAccountService.decrypt(account.accessToken)
-      accountReady = Boolean(accessToken)
-    } catch (error) {
-      console.error(error)
-      accountReady = false
+    return {
+      accessToken: selectedToken,
+      account: selectedAccount,
+      accountId: selected.accountId,
+      accountType: 'openai'
     }
   }
 
-  const state = createBridgeSessionState()
-  // 串行队列：同一连接上 response.create/append 必须排队，避免竞争 lastResponseId
-  let queue = Promise.resolve()
-  let currentUpstreamAbort = null
-
-  const endpoint = acceptWebSocketEndpoint(req, socket, head, {
+  let endpoint = null
+  const lanes = createHttpBridgeLanes({
+    signal: connectionAbort.signal,
+    initialModel,
+    sendText: (text) => endpoint.sendText(text),
+    run: async (body, state, sendText) => {
+      assertModelAccess(apiKeyData, body.model)
+      const selected = await ensureAccount(body.model)
+      await runOneTurn({
+        body,
+        ...selected,
+        clientHeaders: req.headers,
+        sendText,
+        apiKeyData,
+        reqMeta: req,
+        state,
+        abortSignal: connectionAbort.signal
+      })
+    }
+  })
+  endpoint = acceptWebSocketEndpoint(req, socket, head, {
     label: 'responses-http-bridge',
     onTextMessage: (text) => {
-      queue = queue
-        .then(async () => {
-          let message
-          try {
-            message = JSON.parse(text)
-          } catch {
-            endpoint.sendText(
-              JSON.stringify({
-                type: 'error',
-                error: { message: 'invalid json', type: 'invalid_request_error' },
-              }),
-            )
-            return
-          }
-
-          try {
-            // DEC_20260905_194420 同连接已命中 cyber policy 时，后续 turn 直接拒绝，避免反复打上游
-            if (state.cyberPolicyBlocked) {
-              endpoint.sendText(
-                JSON.stringify({
-                  type: 'error',
-                  error: {
-                    message: state.cyberPolicyMessage || 'Session blocked by cyber policy; start a new session',
-                    type: 'permission_error',
-                    code: state.cyberPolicyCode || 'session_blocked_by_cyber_policy',
-                  },
-                }),
-              )
-              return
-            }
-
-            // 选号传原始 modelHint；公开别名由调度白名单候选覆盖
-            const modelHint = message?.model || message?.response?.model || state.model || null
-            assertModelAccess(apiKeyData, modelHint)
-            await ensureAccount(modelHint)
-
-            const body = buildHttpResponsesBodyFromWsMessage(message, state)
-            currentUpstreamAbort = new AbortController()
-            const onConnAbort = () => {
-              try {
-                currentUpstreamAbort.abort()
-              } catch (e) {
-                console.error(e)
-              }
-            }
-            connectionAbort.signal.addEventListener('abort', onConnAbort, { once: true })
-            try {
-              await runOneTurn({
-                body,
-                accessToken,
-                account,
-                accountId,
-                accountType,
-                clientHeaders: req.headers,
-                sendText: (t) => endpoint.sendText(t),
-                apiKeyData,
-                reqMeta: req,
-                state,
-                abortSignal: currentUpstreamAbort.signal,
-              })
-            } finally {
-              connectionAbort.signal.removeEventListener('abort', onConnAbort)
-              currentUpstreamAbort = null
-            }
-          } catch (error) {
-            console.error(error)
-            if (error.name === 'CanceledError' || error.code === 'ERR_CANCELED' || connectionAbort.signal.aborted) {
-              logger.info('[ResponsesWS-bridge] turn aborted (client gone)')
-            } else {
-              endpoint.sendText(
-                JSON.stringify({
-                  type: 'error',
-                  error: {
-                    message: error.message || 'bridge turn failed',
-                    type: 'invalid_request_error',
-                    code: error.code ?? 'invalid_request_error',
-                  },
-                }),
-              )
-            }
-          }
-        })
-        .catch((error) => {
-          console.error(error)
-        })
+      lanes.processText(text)
     },
     onClose: () => {
-      try {
-        connectionAbort.abort()
-      } catch (e) {
-        console.error(e)
-      }
-      if (currentUpstreamAbort) {
-        try {
-          currentUpstreamAbort.abort()
-        } catch (e) {
-          console.error(e)
-        }
-      }
-      releaseAuth().catch((e) => console.error(e))
-    },
+      connectionAbort.abort()
+      lanes
+        .drain()
+        .finally(releaseAuth)
+        .catch((error) => logger.error('Failed to release WebSocket bridge', error))
+    }
   })
 
   if (!endpoint) {
@@ -946,9 +1045,11 @@ export const handleResponsesWebSocketLazyPassthrough = async (
     sessionId = null,
     onUpstreamTextMessage = null,
     onClientTextMessage = null,
+    beforeClientText = null,
     onUpgrade = null,
     onClose = null,
-  } = {},
+    hasActiveTurns = null
+  } = {}
 ) => {
   const sessionHash = sessionId ? crypto.createHash('sha256').update(String(sessionId)).digest('hex') : null
   let upstreamSocket = null
@@ -959,6 +1060,9 @@ export const handleResponsesWebSocketLazyPassthrough = async (
   const PENDING_MAX_FRAMES = 20
   const PENDING_MAX_BYTES = 1 * 1024 * 1024
   let pendingBytes = 0
+  let clientForwardQueue = Promise.resolve()
+  let forwardingBytes = 0
+  let forwardingCount = 0
   const validateModelAccess = createWsModelAccessGuard(apiKeyData)
 
   const settleClose = async (err = null) => {
@@ -966,6 +1070,7 @@ export const handleResponsesWebSocketLazyPassthrough = async (
       return
     }
     closed = true
+    connectionAbort.abort()
     try {
       if (upstreamSocket && !upstreamSocket.destroyed) {
         upstreamSocket.destroy()
@@ -981,35 +1086,21 @@ export const handleResponsesWebSocketLazyPassthrough = async (
       console.error(e)
     }
     try {
+      await clientForwardQueue
+      await endpoint?._crsBridgeDrain?.()
       await releaseAuth()
     } catch (e) {
       console.error(e)
     }
   }
 
-  const openUpstream = async (model) => {
-    const selected = await unifiedOpenAIScheduler.selectAccountForApiKey(apiKeyData, sessionHash, model)
-    if (selected.accountType && selected.accountType !== 'openai') {
-      throw new Error('Responses WS requires OpenAI OAuth account')
-    }
-    let account = await openaiAccountService.getAccount(selected.accountId)
-    if (!account) {
-      throw new Error('OpenAI account not found')
-    }
-    if (openaiAccountService.isTokenExpired(account) && account.refreshToken) {
-      await openaiAccountService.refreshAccountToken(selected.accountId)
-      account = await openaiAccountService.getAccount(selected.accountId)
-    }
-    const accessToken = selected.accessToken || openaiAccountService.decrypt(account.accessToken)
-    if (!accessToken) {
-      throw new Error('missing accessToken')
-    }
-
-    const isChatGptOAuth = Boolean(account?.accountId || account?.chatgptUserId)
+  const connectionAbort = new AbortController()
+  const openUpstream = async ({ selected, account, accessToken }) => {
+    const isChatGptOAuth = Boolean(account.accountId || account.chatgptUserId)
     const targetUrl = responsesWs.resolveResponsesUpstreamWebSocketUrl({
-      pathname: (req.url || '').split('?')[0] || '/api/codex/responses',
+      pathname: (req.url ?? '').split('?')[0],
       search: '',
-      isChatGptOAuth,
+      isChatGptOAuth
     })
     const headers = responsesWs.buildResponsesWebsocketUpstreamHeaders({
       accessToken,
@@ -1018,73 +1109,71 @@ export const handleResponsesWebSocketLazyPassthrough = async (
       clientHeaders: req.headers,
     })
     const proxyResolution = proxyResolver.resolveAgent(account, 'codex')
-
-    const upstreamUrl = new URL(targetUrl)
-    if (upstreamUrl.protocol === 'http:') {
-      upstreamUrl.protocol = 'ws:'
-    }
-    if (upstreamUrl.protocol === 'https:') {
-      upstreamUrl.protocol = 'wss:'
-    }
-    const isTls = upstreamUrl.protocol === 'wss:'
-    const lib = isTls ? https : http
-
-    const outboundHeaders = {
-      host: upstreamUrl.host,
-      connection: 'Upgrade',
-      upgrade: 'websocket',
-      'sec-websocket-version': '13',
-      'sec-websocket-key': crypto.randomBytes(16).toString('base64'),
-      ...headers,
-    }
-    delete outboundHeaders['sec-websocket-extensions']
-
-    const upSocket = await new Promise((resolve, reject) => {
-      const requestOptions = {
-        protocol: isTls ? 'https:' : 'http:',
-        hostname: upstreamUrl.hostname,
-        port: upstreamUrl.port || (isTls ? 443 : 80),
-        path: `${upstreamUrl.pathname}${upstreamUrl.search}`,
-        method: 'GET',
-        headers: outboundHeaders,
-        timeout: 30000,
-      }
-      if (proxyResolution?.agent) {
-        requestOptions.agent = proxyResolution.agent
-      }
-      const upstreamReq = lib.request(requestOptions)
-      upstreamReq.on('timeout', () => {
-        upstreamReq.destroy(new Error('upstream websocket handshake timeout'))
-      })
-      upstreamReq.on('upgrade', (upRes, sock) => {
-        // 101 响应头挂到 req，供 request detail 上游 ID
-        if (req && typeof req === 'object' && upRes?.headers) {
-          req._crsUpstreamHeaders = upRes.headers
-          req._crsUpstreamRequestIdHeader =
-            account?.upstreamRequestIdHeader || account?.extra?.upstreamRequestIdHeader || null
-        }
-        resolve(sock)
-      })
-      upstreamReq.on('error', reject)
-      upstreamReq.on('response', (res) => {
-        reject(new Error(`upstream websocket rejected status=${res.statusCode}`))
-      })
-      upstreamReq.end()
+    const connection = await connectWebSocketUpstream({
+      targetUrl,
+      headers,
+      agent: proxyResolution.agent,
+      signal: connectionAbort.signal
     })
-
+    req._crsUpstreamHeaders = connection.headers
+    req._crsUpstreamRequestIdHeader =
+      account.upstreamRequestIdHeader ?? account.extra?.upstreamRequestIdHeader ?? null
     return {
-      upSocket,
+      upSocket: connection.socket,
+      head: connection.head,
       accountId: selected.accountId,
-      account,
-      accessToken,
-      proxyResolution,
+      proxyResolution
     }
   }
 
   let endpoint = null
+  const enqueueClientText = (text) => {
+    const bytes = Buffer.byteLength(text)
+    if (forwardingCount >= 64 || forwardingBytes + bytes > 16 * 1024 * 1024) {
+      endpoint.sendText(
+        JSON.stringify(
+          buildWebSocketClientError(
+            Object.assign(new Error('Too many queued WebSocket requests'), {
+              statusCode: 429,
+              code: 'rate_limit_exceeded'
+            })
+          )
+        )
+      )
+      return
+    }
+    forwardingBytes += bytes
+    forwardingCount += 1
+    socket.pause()
+    clientForwardQueue = clientForwardQueue
+      .then(async () => {
+        if (closed) {
+          return
+        }
+        await beforeClientText?.(text)
+        if (closed) {
+          return
+        }
+        onClientTextMessage?.(text)
+        upstreamSocket.write(encodeWsClientText(rewriteClientWsTextForUpstream(text)))
+      })
+      .catch((error) => {
+        logger.error('WebSocket request rejected', error)
+        if (!closed) {
+          endpoint.sendText(JSON.stringify(buildWebSocketClientError(error)))
+        }
+      })
+      .finally(() => {
+        forwardingBytes -= bytes
+        forwardingCount -= 1
+        if (!closed && forwardingCount === 0 && !upstreamSocket.writableNeedDrain) {
+          socket.resume()
+        }
+      })
+  }
   endpoint = acceptWebSocketEndpoint(req, socket, head, {
     label: 'responses-lazy-passthrough',
-    onTextMessage: (text) => {
+    onTextMessage: async (text) => {
       if (closed) {
         return
       }
@@ -1107,40 +1196,26 @@ export const handleResponsesWebSocketLazyPassthrough = async (
 
       // 已切入 http_bridge：必须优先处理，否则 !upstreamSocket 会再次入队并重选号
       if (endpoint._crsBridgeMode && typeof endpoint._crsBridgeProcess === 'function') {
-        endpoint._crsBridgeQueue = (endpoint._crsBridgeQueue || Promise.resolve())
-          .then(() => endpoint._crsBridgeProcess(text))
-          .catch((error) => {
-            console.error(error)
-            if (!closed) {
-              endpoint.sendText(
-                JSON.stringify({
-                  type: 'error',
-                  error: {
-                    message: error.message || 'bridge turn failed',
-                    type: 'api_error',
-                  },
-                }),
-              )
-            }
-          })
+        endpoint._crsBridgeProcess(text).catch((error) => {
+                                          console.error(error)
+                                          if (!closed) {
+                                            endpoint.sendText(
+                                              JSON.stringify({
+                                                type: 'error',
+                                                error: {
+                                                  message: error.message || 'bridge turn failed',
+                                                  type: 'api_error',
+                                                },
+                                              }),
+                                            )
+                                          }
+                                        })
         return
       }
 
       // 已连上游 WSS：转发
       if (upstreamSocket && !upstreamSocket.destroyed) {
-        try {
-          if (typeof onClientTextMessage === 'function') {
-            try {
-              onClientTextMessage(text)
-            } catch (e) {
-              console.error(e)
-            }
-          }
-          upstreamSocket.write(encodeWsClientText(rewriteClientWsTextForUpstream(text)))
-        } catch (error) {
-          console.error(error)
-          settleClose(error)
-        }
+        enqueueClientText(text)
         return
       }
 
@@ -1172,7 +1247,12 @@ export const handleResponsesWebSocketLazyPassthrough = async (
       // 选号传原始 model；白名单候选含公开别名，避免破坏账户映射键
       connecting = true
       ;(async () => {
-        const selected = await unifiedOpenAIScheduler.selectAccountForApiKey(apiKeyData, sessionHash, model)
+        const selected = await unifiedOpenAIScheduler.selectAccountForApiKey(
+          apiKeyData,
+          sessionHash,
+          model,
+          { deferGroupAdmission: true }
+        )
         if (selected.accountType && selected.accountType !== 'openai') {
           throw new Error('Responses WS requires OpenAI OAuth account')
         }
@@ -1190,6 +1270,9 @@ export const handleResponsesWebSocketLazyPassthrough = async (
         }
 
         const mode = resolveResponsesWsMode({ account })
+        if (closed) {
+          return
+        }
         if (mode === 'http_bridge') {
           logger.info(
             `[ResponsesWS] lazy→http_bridge key=${apiKeyData.id} account=${selected.accountId} model=${model}`,
@@ -1202,92 +1285,40 @@ export const handleResponsesWebSocketLazyPassthrough = async (
           } catch (e) {
             console.error(e)
           }
-          const state = createBridgeSessionState()
-          if (model) {
-            state.model = model
-          }
-          const connectionAbort = new AbortController()
-          let bridgeBusy = Promise.resolve()
-          const processText = (frameText) => {
-            bridgeBusy = bridgeBusy
-              .then(async () => {
-                if (closed || connectionAbort.signal.aborted) {
-                  return
-                }
-                if (state.cyberPolicyBlocked) {
-                  endpoint.sendText(
-                    JSON.stringify({
-                      type: 'error',
-                      error: {
-                        message: state.cyberPolicyMessage || 'Session blocked by cyber policy; start a new session',
-                        type: 'permission_error',
-                        code: state.cyberPolicyCode || 'session_blocked_by_cyber_policy',
-                      },
-                    }),
-                  )
-                  return
-                }
-                const message = JSON.parse(frameText)
-                const body = buildHttpResponsesBodyFromWsMessage(message, state)
-                const turnAbort = new AbortController()
-                const onAbort = () => {
-                  try {
-                    turnAbort.abort()
-                  } catch (e) {
-                    console.error(e)
-                  }
-                }
-                connectionAbort.signal.addEventListener('abort', onAbort, { once: true })
-                try {
-                  await runOneTurn({
-                    body,
-                    accessToken,
-                    account,
-                    accountId: selected.accountId,
-                    accountType: 'openai',
-                    clientHeaders: req.headers,
-                    sendText: (t) => endpoint.sendText(t),
-                    apiKeyData,
-                    reqMeta: req,
-                    state,
-                    abortSignal: turnAbort.signal,
-                  })
-                } finally {
-                  connectionAbort.signal.removeEventListener('abort', onAbort)
-                }
+          const lanes = createHttpBridgeLanes({
+            signal: connectionAbort.signal,
+            initialModel: model,
+            sendText: (outputText) => endpoint.sendText(outputText),
+            run: (body, state, sendText) =>
+              runOneTurn({
+                body,
+                accessToken,
+                account,
+                accountId: selected.accountId,
+                accountType: 'openai',
+                clientHeaders: req.headers,
+                sendText,
+                apiKeyData,
+                reqMeta: req,
+                state,
+                abortSignal: connectionAbort.signal
               })
-              .catch((error) => {
-                console.error(error)
-                if (!closed) {
-                  endpoint.sendText(
-                    JSON.stringify({
-                      type: 'error',
-                      error: {
-                        message: error.message || 'bridge turn failed',
-                        type: 'api_error',
-                      },
-                    }),
-                  )
-                }
-              })
-            return bridgeBusy
-          }
+          })
+          const { processText } = lanes
           // 先置 bridge 标志，再冲刷队列，避免冲刷期间新帧误入 connecting 路径
           endpoint._crsBridgeMode = true
           endpoint._crsBridgeProcess = processText
           endpoint._crsBridgeAbort = connectionAbort
-          endpoint._crsBridgeQueue = Promise.resolve()
+          endpoint._crsBridgeDrain = lanes.drain
           connecting = false
           const queued = pendingTexts.splice(0, pendingTexts.length)
           pendingBytes = 0
-          for (const pending of queued) {
-            await processText(pending)
-          }
+          await Promise.all(queued.map(processText))
           return
         }
 
         // passthrough：连上游 WSS
-        const opened = await openUpstream(model)
+        const opened = await openUpstream({ selected, account, accessToken })
         if (closed) {
           try {
             opened.upSocket.destroy()
@@ -1297,6 +1328,16 @@ export const handleResponsesWebSocketLazyPassthrough = async (
           return
         }
         upstreamSocket = opened.upSocket
+        upstreamSocket.on('drain', () => {
+          if (!closed && forwardingCount === 0) {
+            socket.resume()
+          }
+        })
+        socket.on('drain', () => {
+          if (!closed) {
+            upstreamSocket.resume()
+          }
+        })
         connecting = false
         logger.info(
           `[ResponsesWS] lazy passthrough connected key=${apiKeyData.id} account=${opened.accountId} model=${model}`,
@@ -1311,6 +1352,13 @@ export const handleResponsesWebSocketLazyPassthrough = async (
 
         const upSniffer = createWsFrameSniffer({
           label: 'lazy-up-decode',
+          onParseError: (error) => {
+            endpoint.close(1011, 'invalid upstream message')
+            settleClose(error)
+          },
+          onCloseFrame: (payload) => {
+            upstreamSocket.end(encodeWsClientClose(payload))
+          },
           onTextMessage: (upText) => {
             // 跟踪 turn 终端事件：response.created 后无 terminal 就关 = 半截失败
             try {
@@ -1348,7 +1396,9 @@ export const handleResponsesWebSocketLazyPassthrough = async (
                 console.error(e)
               }
             }
-            endpoint.sendText(clientText)
+            if (!endpoint.sendText(clientText)) {
+              upstreamSocket.pause()
+            }
           },
           onPing: (payload) => {
             // 本服务作为上游 WS 客户端，必须回 masked Pong，否则上游心跳超时断连
@@ -1359,30 +1409,36 @@ export const handleResponsesWebSocketLazyPassthrough = async (
             } catch (error) {
               console.error(error)
             }
-          },
+          }
         })
 
         upstreamSocket.on('data', (chunk) => {
           upSniffer.push(chunk)
         })
+        if (opened.head.length) {
+          upSniffer.push(opened.head)
+        }
         upstreamSocket.on('error', (err) => {
           console.error(err)
           // 先发终端 error frame 再 settleClose，避免 closed 抢先导致无说明断连
           // DEC_20260905_155232
           try {
-            if (endpoint._crsTurnStarted && !endpoint._crsTurnTerminal && !closed) {
-              endpoint.sendText(
-                JSON.stringify({
-                  type: 'error',
-                  error: {
-                    message: 'Upstream socket error',
-                    type: 'api_error',
-                    code: 'upstream_error',
-                  },
-                }),
-              )
-              endpoint._crsTurnTerminal = true
-            }
+            if (
+              (hasActiveTurns?.() ?? (endpoint._crsTurnStarted && !endpoint._crsTurnTerminal)) &&
+              !closed
+            ) {
+endpoint.sendText(
+JSON.stringify({
+type: 'error',
+error: {
+message: 'Upstream socket error',
+type: 'api_error',
+code: 'upstream_error',
+},
+}),
+)
+endpoint._crsTurnTerminal = true
+}
           } catch (e) {
             console.error(e)
           }
@@ -1397,19 +1453,22 @@ export const handleResponsesWebSocketLazyPassthrough = async (
           // active turn 无 terminal：对客户端报失败，禁止假成功 1000
           // DEC_20260904_170000 对齐 sub2api close-before-terminal
           try {
-            if (endpoint._crsTurnStarted && !endpoint._crsTurnTerminal && !closed) {
-              endpoint.sendText(
-                JSON.stringify({
-                  type: 'error',
-                  error: {
-                    message: 'Upstream closed before response completed',
-                    type: 'api_error',
-                    code: 'upstream_incomplete',
-                  },
-                }),
-              )
-              endpoint.close(1011, 'upstream incomplete')
-            } else {
+            if (
+              (hasActiveTurns?.() ?? (endpoint._crsTurnStarted && !endpoint._crsTurnTerminal)) &&
+              !closed
+            ) {
+endpoint.sendText(
+JSON.stringify({
+type: 'error',
+error: {
+message: 'Upstream closed before response completed',
+type: 'api_error',
+code: 'upstream_incomplete',
+},
+}),
+)
+endpoint.close(1011, 'upstream incomplete')
+} else {
               endpoint.close(1000, 'upstream closed')
             }
           } catch (e) {
@@ -1421,19 +1480,9 @@ export const handleResponsesWebSocketLazyPassthrough = async (
         const queued = pendingTexts.splice(0, pendingTexts.length)
         pendingBytes = 0
         for (const pending of queued) {
-          try {
-            if (typeof onClientTextMessage === 'function') {
-              try {
-                onClientTextMessage(pending)
-              } catch (e) {
-                console.error(e)
-              }
-            }
-            upstreamSocket.write(encodeWsClientText(rewriteClientWsTextForUpstream(pending)))
-          } catch (e) {
-            console.error(e)
-          }
+          enqueueClientText(pending)
         }
+        await clientForwardQueue
       })().catch((error) => {
         console.error(error)
         connecting = false
@@ -1456,7 +1505,7 @@ export const handleResponsesWebSocketLazyPassthrough = async (
         console.error(e)
       }
       settleClose()
-    },
+    }
   })
 
   if (!endpoint) {

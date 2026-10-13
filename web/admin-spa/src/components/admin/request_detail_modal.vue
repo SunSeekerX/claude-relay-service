@@ -290,6 +290,11 @@
                       }}
                     </td>
                   </tr>
+                  <tr v-if="detail.accountType === 'grok'">
+                    <td class="px-2.5 py-1.5 text-gray-600 dark:text-gray-300">服务端工具</td>
+                    <td class="px-2.5 py-1.5 text-right">{{ toolUsageSummary }}</td>
+                    <td class="px-2.5 py-1.5 text-right">{{ formatCost(costBreakdown.tools) }}</td>
+                  </tr>
                   <tr class="bg-gray-50/80 dark:bg-gray-800/40">
                     <td class="px-2.5 py-1.5 font-semibold text-gray-800 dark:text-gray-100">
                       合计
@@ -316,6 +321,15 @@
                   </tr>
                 </tbody>
               </table>
+              <p
+                v-if="detail.accountType === 'grok'"
+                class="mt-2 text-sm text-gray-500 dark:text-gray-400"
+              >
+                价表成本 {{ formatCost(detail.baseCost ?? costBreakdown.total) }} · 客户扣费
+                {{ formatCost(detail.cost) }} ·
+                {{ detail.realCostSource === 'upstream' ? '官方实付' : '估算真实成本' }}
+                {{ formatCost(detail.realCost) }}
+              </p>
             </div>
 
             <!-- Request Body -->
@@ -415,15 +429,32 @@ const loading = ref(false)
 const detail = ref(null)
 const bodyPreviewEnabled = ref(false)
 const isMobileViewport = ref(false)
+const toolUsageSummary = computed(() => {
+  const labels = {
+    web_search_calls: '网页搜索',
+    x_posts_fetched: 'X 帖子',
+    x_users_fetched: 'X 用户资料',
+    code_interpreter_calls: '代码执行',
+    file_search_calls: '集合搜索',
+    document_search_calls: '附件搜索'
+  }
+  return (
+    Object.entries(detail.value?.toolUsage || {})
+      .map(([unit, count]) => `${labels[unit] || unit} ${formatNumber(count)}`)
+      .join('，') || '0'
+  )
+})
 
 const costBreakdown = computed(() => {
-  const breakdown = detail.value?.realCostBreakdown || detail.value?.costBreakdown || {}
+  const breakdown = detail.value?.costBreakdown ?? detail.value?.realCostBreakdown ?? {}
   return {
     input: breakdown.input || 0,
     output: breakdown.output || 0,
     cacheCreate: breakdown.cacheCreate || breakdown.cacheWrite || 0,
     cacheRead: breakdown.cacheRead || 0,
-    total: breakdown.total || detail.value?.realCost || detail.value?.cost || 0
+    tools: breakdown.tools ?? 0,
+    total:
+      breakdown.total ?? detail.value?.baseCost ?? detail.value?.realCost ?? detail.value?.cost ?? 0
   }
 })
 

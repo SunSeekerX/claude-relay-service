@@ -726,6 +726,11 @@ class RequestDetailService {
       totalTokens,
       cost,
       realCost,
+      baseCost: normalizeOptionalNumber(detail.baseCost),
+      toolUsage: detail.toolUsage ?? null,
+      toolCost: normalizeNumber(detail.toolCost, 6),
+      upstreamCostTicks: detail.upstreamCostTicks ?? null,
+      realCostSource: detail.realCostSource ?? null,
       costBreakdown: detail.costBreakdown || null,
       realCostBreakdown: detail.realCostBreakdown || null,
       pricingSource: detail.pricingSource || null,
@@ -744,7 +749,7 @@ class RequestDetailService {
         typeof detail.upstreamRequestId === 'string' && detail.upstreamRequestId.trim()
           ? detail.upstreamRequestId.trim().slice(0, 200)
           : null,
-      videoTaskId: detail.videoTaskId || null,
+      videoTaskId: detail.videoTaskId || null
     }
 
     if (options.bodyPreviewEnabled && requestBodySource !== undefined) {
@@ -778,7 +783,7 @@ class RequestDetailService {
       apiKeyId,
       accountId,
       accountType,
-      model: req?._crsRequestedModel ?? req?.body?.model ?? 'unknown',
+      model: result?.model ?? req?._crsRequestedModel ?? req?.body?.model ?? 'unknown',
       timestamp: new Date().toISOString(),
       inputTokens: 0,
       outputTokens: 0,
@@ -786,7 +791,7 @@ class RequestDetailService {
       cacheCreateTokens: 0,
       totalTokens: 0,
       cost: 0,
-      realCost: 0,
+      realCost: 0
     })
   }
 

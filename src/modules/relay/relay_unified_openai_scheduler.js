@@ -285,7 +285,12 @@ class UnifiedOpenAIScheduler {
   }
 
   // 统一调度OpenAI账号
-  async selectAccountForApiKey(apiKeyData, sessionHash = null, requestedModel = null) {
+  async selectAccountForApiKey(
+    apiKeyData,
+    sessionHash = null,
+    requestedModel = null,
+    options = {}
+  ) {
     assertModelAccess(apiKeyData, requestedModel)
     try {
       // 如果API Key绑定了专属账户或分组，优先使用
@@ -294,7 +299,13 @@ class UnifiedOpenAIScheduler {
         if (apiKeyData.openaiAccountId.startsWith('group:')) {
           const groupId = apiKeyData.openaiAccountId.replace('group:', '')
           logger.info(`API key ${apiKeyData.name} is bound to group ${groupId}, selecting from group`)
-          return await this.selectAccountFromGroup(groupId, sessionHash, requestedModel, apiKeyData)
+          return await this.selectAccountFromGroup(
+            groupId,
+            sessionHash,
+            requestedModel,
+            apiKeyData,
+            options
+          )
         }
 
         // 普通专属账户 - 根据前缀判断是 OpenAI 还是 OpenAI-Responses 类型
@@ -1030,7 +1041,13 @@ class UnifiedOpenAIScheduler {
   }
 
   // 从分组中选择账户
-  async selectAccountFromGroup(groupId, sessionHash = null, requestedModel = null, holdTarget = null) {
+  async selectAccountFromGroup(
+    groupId,
+    sessionHash = null,
+    requestedModel = null,
+    holdTarget = null,
+    options = {}
+  ) {
     let releaseGroupCostHoldOnce = null
     try {
       // 获取分组信息
@@ -1067,7 +1084,11 @@ class UnifiedOpenAIScheduler {
           console.error(error)
         }
       }
-      await groupPolicy.assertGroupRequestAllowed(group, { requestedModel, holdTarget })
+      await groupPolicy.assertGroupRequestAllowed(group, {
+        requestedModel,
+        holdTarget,
+        deferAdmission: options.deferGroupAdmission === true
+      })
 
       // 如果有会话哈希，检查是否有已映射的账户
       if (sessionHash) {
@@ -1177,6 +1198,43 @@ class UnifiedOpenAIScheduler {
   }
 
   // 检查账户是否在分组中
+  async assertAccountForWebSocket(
+    apiKeyData,
+    accountId,
+    requestedModel,
+    originalBinding = null,
+    options = {}
+  ) {
+    if (!(await this._isAccountAvailable(accountId, 'openai', requestedModel))) {
+      throw Object.assign(new Error('OpenAI account is unavailable for this model'), {
+        statusCode: 503
+      })
+    }
+    const binding = apiKeyData.openaiAccountId
+    if (binding?.startsWith('group:')) {
+      const groupId = binding.slice('group:'.length)
+      const group = await accountGroupService.getGroup(groupId)
+      if (
+        !group ||
+        (group.platform && group.platform !== 'openai') ||
+        !(await this._isAccountInGroup(accountId, groupId))
+      ) {
+        throw Object.assign(new Error('Account is outside the bound OpenAI group'), {
+          statusCode: 403
+        })
+      }
+      await groupPolicy.assertGroupRequestAllowed(group, {
+        requestedModel,
+        holdTarget: apiKeyData,
+        deferAdmission: options.deferGroupAdmission === true
+      })
+    } else if (binding && binding !== accountId && binding !== originalBinding) {
+      throw Object.assign(new Error('OpenAI account binding changed; reconnect'), {
+        statusCode: 403
+      })
+    }
+  }
+
   async _isAccountInGroup(accountId, groupId) {
     const members = await accountGroupService.getGroupMembers(groupId)
     return members.includes(accountId)

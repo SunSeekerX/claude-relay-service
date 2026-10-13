@@ -1,3 +1,5 @@
+import { jest } from '@jest/globals'
+import { encodeWsFrame } from '../src/common/gateway_ws_endpoint.js'
 import {
   createWsFrameSniffer,
   createWsClientTextRewriter,
@@ -193,5 +195,53 @@ describe('wsClientTextRewriter', () => {
     const out = rewriter.push(start)
     expect(rewriter.isBypass()).toBe(true)
     expect(out[0].equals(start)).toBe(true)
+  })
+})
+
+describe('WebSocket billing observation boundaries', () => {
+  it('observes a terminal larger than the old 4 MiB buffer across network chunks', () => {
+    const event = {
+      type: 'response.completed',
+      response: {
+        id: 'large',
+        output: [{ data: 'x'.repeat(5 * 1024 * 1024) }],
+        usage: { input_tokens: 1, output_tokens: 1 }
+      }
+    }
+    const messages = []
+    const sniffer = createWsFrameSniffer({
+      onTextMessage: (text) => messages.push(JSON.parse(text))
+    })
+    const wire = encodeWsFrame(0x1, JSON.stringify(event))
+    for (let offset = 0; offset < wire.length; offset += 65536)
+      {sniffer.push(wire.subarray(offset, offset + 65536))}
+    expect(messages).toEqual([event])
+  })
+
+  it('bounds empty fragment floods and reports an observation failure', () => {
+    const onParseError = jest.fn()
+    const sniffer = createWsFrameSniffer({ onParseError })
+    sniffer.push(buildUnmaskedTextFrame('', { fin: false }))
+    for (let index = 0; index < 4096; index += 1)
+      {sniffer.push(buildUnmaskedTextFrame('', { fin: false, opcode: 0x0 }))}
+    expect(onParseError).toHaveBeenCalledTimes(1)
+  })
+
+  it('waits for async admission before rewriting and forwarding a client request', async () => {
+    let allow
+    const gate = new Promise((resolve) => {
+      allow = resolve
+    })
+    const rewriteText = jest.fn((text) => text)
+    const rewriter = createWsClientTextRewriter({
+      beforeText: () => gate,
+      rewriteText,
+      failClosed: true
+    })
+    const frames = rewriter.push(buildMaskedTextFrame('{"type":"response.create"}'))
+    const pending = frames[0]()
+    expect(rewriteText).not.toHaveBeenCalled()
+    allow()
+    expect(decodeMaskedTextFrames([await pending])).toEqual(['{"type":"response.create"}'])
   })
 })

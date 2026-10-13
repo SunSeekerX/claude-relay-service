@@ -54,6 +54,11 @@ import { accountGroupService } from './modules/account/account_group_service.js'
 import { proxyPoolService } from './modules/proxy/proxy_pool_service.js'
 import { proxyWebSocketUpgrade } from './common/gateway_websocket_upgrade_proxy.js'
 import { authenticateApiKeyForUpgrade } from './common/gateway_ws_api_key_auth.js'
+import { createResponsesWsBilling } from './modules/relay/relay_responses_ws_billing.js'
+import {
+  isGrokResponsesWebSocketPath,
+  handleGrokResponsesWebSocket
+} from './modules/relay/relay_grok_responses_ws.js'
 import { unifiedOpenAIScheduler } from './modules/relay/relay_unified_openai_scheduler.js'
 import * as openaiAccountService from './modules/account/account_openai_service.js'
 import { apiKeyService } from './modules/apikey/apikey_service.js'
@@ -740,6 +745,10 @@ export class Application {
         const host = req.headers.host || 'localhost'
         const url = new URL(req.url || '/', `http://${host}`)
         const pathname = url.pathname || ''
+        if (isGrokResponsesWebSocketPath(pathname)) {
+          await handleGrokResponsesWebSocket(req, socket, head)
+          return
+        }
         const isResponsesWs = codexResponsesWs.isResponsesWebSocketPath(pathname)
         const isRealtimeWs = codexRealtime.isRealtimeWebSocketPath(pathname)
 
@@ -754,6 +763,7 @@ export class Application {
         let forceCloseSocket = null
         const auth = await authenticateApiKeyForUpgrade(req, url, {
           requiredPermission: 'openai',
+          acquireConcurrency: !isResponsesWs,
           // 与 codexRealtimeCall TTL(2h) 对齐，避免 5 分钟后槽位蒸发
           maxLifetimeMinutes: parseInt(env.CONCURRENCY_WS_MAX_LIFETIME_MINUTES, 10) || 120,
           onLeaseExpired: () => {
@@ -767,7 +777,7 @@ export class Application {
             } catch (e) {
               console.error(e)
             }
-          },
+          }
         })
         releaseAuth = auth.release || releaseAuth
         if (!auth.ok) {
@@ -807,142 +817,74 @@ export class Application {
           // 默认 passthrough 且握手无 model：延迟选号，等首帧 response.create
           if (!handshakeModel && !callId && envOnlyMode !== 'http_bridge') {
             logger.info(`[ResponsesWS] mode=lazy-passthrough(no handshake model) key=${apiKeyData.id}`)
-            // 计费/收尾与下方 passthrough 共用结构较重；此处最小闭环：懒选号 + 上游透传 + releaseAuth
-            const usageAcc = codexRealtime.createRealtimeUsageAccumulator()
-            const startedAt = Date.now()
-            let billed = false
-            let upgradedOk = false
-            let lazyAccountId = null
+            const wsBilling = createResponsesWsBilling({
+              req,
+              apiKeyData,
+              onLeaseExpired: () => socket.destroy()
+            })
+            const usageAcc = wsBilling
             const finalizeBilling = async () => {
-              if (billed) {
-                return
-              }
-              billed = true
-              if (!upgradedOk || !lazyAccountId) {
-                return
-              }
-              try {
-                const snap = usageAcc.snapshot()
-                const durationMs = Math.max(0, Date.now() - startedAt)
-                const model = snap.lastModel || 'gpt-5'
-                const cyberEvent = snap.cyberPolicyEvent || snap.lastErrorEvent
-                if (
-                  cyberEvent &&
-                  typeof codexResponsesWsBridge.isSessionCyberPolicyBlock === 'function' &&
-                  codexResponsesWsBridge.isSessionCyberPolicyBlock(cyberEvent)
-                ) {
-                  logger.warn(
-                    `[ResponsesWS] cyber policy hit on lazy-passthrough key=${apiKeyData.id} account=${lazyAccountId}`,
-                  )
-                  req._crsCyberPolicyBlocked = true
-                }
-                const tierUsages = Array.isArray(snap.tierUsages) && snap.tierUsages.length > 0 ? snap.tierUsages : null
-                if (tierUsages) {
-                  for (const tierUsage of tierUsages) {
-                    const cacheRead = Math.max(0, Number(tierUsage.cache_read_input_tokens) || 0)
-                    const cacheCreate = Math.max(0, Number(tierUsage.cache_creation_input_tokens) || 0)
-                    const totalInput = Math.max(0, Number(tierUsage.input_tokens) || 0)
-                    const usagePayload = {
-                      input_tokens: Math.max(0, totalInput - cacheRead),
-                      output_tokens: Math.max(0, Number(tierUsage.output_tokens) || 0),
-                      cache_read_input_tokens: cacheRead,
-                      cache_creation_input_tokens: cacheCreate,
-                    }
-                    if (
-                      usagePayload.input_tokens <= 0 &&
-                      usagePayload.output_tokens <= 0 &&
-                      usagePayload.cache_read_input_tokens <= 0 &&
-                      usagePayload.cache_creation_input_tokens <= 0
-                    ) {
-                      continue
-                    }
-                    await apiKeyService.recordUsage(
-                      apiKeyData.id,
-                      usagePayload,
-                      tierUsage.lastModel || model,
-                      lazyAccountId,
-                      'openai',
-                      tierUsage.serviceTier || null,
-                      createRequestDetailMeta(req, {
-                        stream: true,
-                        statusCode: 101,
-                        billingUsage: usagePayload,
-                        requestBody: {
-                          path: pathname,
-                          durationMs,
-                          wsKind,
-                          lazy: true,
-                          serviceTier: tierUsage.serviceTier || null,
-                        },
-                      }),
-                    )
-                  }
-                } else if (durationMs >= 1000) {
-                  const usagePayload = { input_tokens: 0, output_tokens: 0, request_count: 1 }
-                  await apiKeyService.recordUsage(
-                    apiKeyData.id,
-                    usagePayload,
-                    model,
-                    lazyAccountId,
-                    'openai',
-                    null,
-                    createRequestDetailMeta(req, {
-                      stream: true,
-                      statusCode: 101,
-                      billingUsage: usagePayload,
-                      requestBody: { path: pathname, durationMs, wsKind, lazy: true },
-                    }),
-                  )
-                } else {
-                  return
-                }
-              } catch (e) {
-                console.error(e)
+              await wsBilling.close()
+              const snap = usageAcc.snapshot()
+              const event = snap.cyberPolicyEvent ?? snap.lastErrorEvent
+              if (event && codexResponsesWsBridge.isSessionCyberPolicyBlock(event)) {
+                req._crsCyberPolicyBlocked = true
               }
             }
-            await codexResponsesWsBridge.handleResponsesWebSocketLazyPassthrough(req, socket, head, {
-              apiKeyData,
-              releaseAuth: async () => {
-                try {
-                  await finalizeBilling()
-                } catch (e) {
-                  console.error(e)
-                }
-                await releaseAuth()
-              },
-              sessionId,
-              onUpstreamTextMessage: (text) => {
-                try {
-                  // 仅上游帧可入账 usage
-                  if (typeof usageAcc.ingestUpstreamText === 'function') {
-                    usageAcc.ingestUpstreamText(text)
-                  } else {
-                    usageAcc.ingestText(text)
+            await codexResponsesWsBridge.handleResponsesWebSocketLazyPassthrough(
+              req,
+              socket,
+              head,
+              {
+                apiKeyData,
+                releaseAuth: async () => {
+                  try {
+                    await finalizeBilling()
+                  } catch (e) {
+                    console.error(e)
                   }
-                } catch (e) {
-                  console.error(e)
-                }
-              },
-              onClientTextMessage: (text) => {
-                try {
-                  // 客户端只采 response.create 档位，禁止伪造 usage
-                  // DEC_20260906_011816
-                  if (typeof usageAcc.ingestClientText === 'function') {
-                    usageAcc.ingestClientText(text)
+                  await releaseAuth()
+                },
+                sessionId,
+                beforeClientText: wsBilling.beforeClientText,
+                onUpstreamTextMessage: (text) => {
+                  try {
+                    // 仅上游帧可入账 usage
+                    if (typeof usageAcc.ingestUpstreamText === 'function') {
+                      usageAcc.ingestUpstreamText(text)
+                    } else {
+                      usageAcc.ingestText(text)
+                    }
+                  } catch (e) {
+                    console.error(e)
                   }
-                } catch (e) {
-                  console.error(e)
+                },
+                onClientTextMessage: (text) => {
+                  try {
+                    // 客户端只采 response.create 档位，禁止伪造 usage
+                    // DEC_20260906_011816
+                    if (typeof usageAcc.ingestClientText === 'function') {
+                      usageAcc.ingestClientText(text)
+                    }
+                  } catch (e) {
+                    console.error(e)
+                  }
+                },
+                hasActiveTurns: wsBilling.hasActiveTurns,
+                onUpgrade: ({ accountId, selfBilled = false } = {}) => {
+                  wsBilling.setAccount(accountId, selfBilled, (model, keyData, options) =>
+                    unifiedOpenAIScheduler.assertAccountForWebSocket(
+                      keyData,
+                      accountId,
+                      model,
+                      apiKeyData.openaiAccountId,
+                      options
+                    )
+                  )
+                  // http_bridge 内 runOneTurn 已 recordUsage；外层不可再兜底记 request_count
                 }
-              },
-              onUpgrade: ({ accountId, selfBilled = false } = {}) => {
-                upgradedOk = true
-                lazyAccountId = accountId
-                // http_bridge 内 runOneTurn 已 recordUsage；外层不可再兜底记 request_count
-                if (selfBilled === true) {
-                  billed = true
-                }
-              },
-            })
+              }
+            )
             return
           }
         }
@@ -984,8 +926,8 @@ export class Application {
               sessionId ? crypto.createHash('sha256').update(String(sessionId)).digest('hex') : null,
               // Responses/Realtime 握手尽量带 model，避免共享池选到不支持模型的账户
               boundModel,
-            )
-            ;({ accountId } = selected)
+              { deferGroupAdmission: isResponsesWs }
+            )(({ accountId } = selected))
             if (selected.accountType && selected.accountType !== 'openai') {
               throw new Error(`${wsKind} requires OpenAI OAuth account`)
             }
@@ -1065,7 +1007,24 @@ export class Application {
 
         // usage 嗅探 + 时长兜底计费（仅 101 升级成功后的会话可计费）
         // Responses WS 同样嗅探；无 token 事件时按时长兜底（与 Realtime 一致）
-        const usageAcc = codexRealtime.createRealtimeUsageAccumulator()
+        const wsBilling = isResponsesWs
+          ? createResponsesWsBilling({
+              req,
+              apiKeyData,
+              initialModel: boundModel,
+              onLeaseExpired: () => socket.destroy()
+            })
+          : null
+        wsBilling?.setAccount(accountId, false, (model, keyData, options) =>
+          unifiedOpenAIScheduler.assertAccountForWebSocket(
+            keyData,
+            accountId,
+            model,
+            apiKeyData.openaiAccountId,
+            options
+          )
+        )
+        const usageAcc = wsBilling ?? codexRealtime.createRealtimeUsageAccumulator()
         const startedAt = Date.now()
         let billed = false
         let upgradedOk = false
@@ -1083,6 +1042,10 @@ export class Application {
             return
           }
           try {
+            if (wsBilling) {
+              await wsBilling.close()
+              return
+            }
             const snap = usageAcc.snapshot()
             const durationMs = Math.max(0, Date.now() - startedAt)
             const durationSec = durationMs / 1000
@@ -1249,6 +1212,7 @@ export class Application {
           // 禁止协商压缩扩展：压缩帧 RSV1 会导致 usage 嗅探失败并误按时长计费
           stripExtensions: true,
           validateClientFrames: isResponsesWs,
+          beforeClientText: wsBilling?.beforeClientText ?? null,
           onUpgrade: (upRes) => {
             upgradedOk = true
             // 原生 WS 101 响应头挂 req，供 request detail 上游 ID
@@ -1308,7 +1272,7 @@ export class Application {
               console.error(e)
             }
             releaseOnce(err).catch((e) => console.error(e))
-          },
+          }
         })
       } catch (error) {
         console.error(error)

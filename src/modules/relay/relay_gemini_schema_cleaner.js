@@ -87,6 +87,175 @@ const pickBestFromAlternatives = (alternatives) => {
 // parametersJsonSchema 保留的标准 JSON Schema 约束（CLIProxyAPI b532db9c）
 const PRESERVED_JSON_SCHEMA_KEYS = [...CONSTRAINT_KEYS, 'minimum', 'maximum', 'format', 'default', 'title']
 
+const schemaError = (path, keyword) => {
+  const message = `Antigravity Claude cannot preserve tool schema ${keyword} at ${path}`
+  return Object.assign(new Error(message), {
+    statusCode: 400,
+    code: 'unsupported_tool_schema',
+    response: { status: 400, data: { error: { code: 'unsupported_tool_schema', message } } }
+  })
+}
+
+// DEC_20261013_165233 Antigravity Claude 工具 Schema 仅作语义等价转换，无法表达的约束返回 400。
+export const convertAntigravityToolSchema = (schema) => {
+  const annotations = new Set([
+    '$schema',
+    '$id',
+    '$anchor',
+    '$comment',
+    '$defs',
+    'definitions',
+    'default',
+    'examples'
+  ])
+  const merge = (left, right, path) => {
+    const result = { ...left }
+    for (const [key, value] of Object.entries(right)) {
+      if (key === 'description' || key === 'title') {
+result[key] = value
+} else if (key === 'properties') {
+        result.properties = { ...result.properties }
+        for (const [name, property] of Object.entries(value)) {
+          const merged = Object.hasOwn(result.properties, name)
+            ? merge(result.properties[name], property, `${path}/properties/${name}`)
+            : property
+          result.properties = { ...result.properties, [name]: merged }
+        }
+      } else if (key === 'required') {
+        result.required = [...new Set([...(result.required ?? []), ...value])]
+      } else if (key === 'items' && result.items) {
+        result.items = merge(result.items, value, `${path}/items`)
+      } else if (key === 'nullable' && Object.hasOwn(result, key)) {
+        result.nullable = result.nullable && value
+      } else if (
+        key === 'type' &&
+        [result.type, value].every((type) => ['number', 'integer'].includes(type))
+      ) {
+        result.type = result.type === 'integer' || value === 'integer' ? 'integer' : 'number'
+      } else if (
+        Object.hasOwn(result, key) &&
+        JSON.stringify(result[key]) !== JSON.stringify(value)
+      ) {
+        throw schemaError(path, key)
+      } else {
+result[key] = value
+}
+    }
+    return result
+  }
+  const convert = (node, path, refs = new Set()) => {
+    if (!node || typeof node !== 'object' || Array.isArray(node)) {
+      throw schemaError(path, 'schema')
+    }
+    let result = {}
+    if (node.$ref !== undefined) {
+      const ref = node.$ref
+      if (typeof ref !== 'string' || !ref.startsWith('#/') || refs.has(ref)) {
+        throw schemaError(path, '$ref')
+      }
+      let target = schema
+      let pointer
+      try {
+        pointer = decodeURIComponent(ref.slice(2))
+          .split('/')
+          .map((part) => part.replace(/~1/g, '/').replace(/~0/g, '~'))
+      } catch {
+        throw schemaError(path, '$ref')
+      }
+      for (const part of pointer) {
+        if (!target || typeof target !== 'object' || !Object.hasOwn(target, part)) {
+          throw schemaError(path, '$ref')
+        }
+        target = target[part]
+      }
+      result = convert(target, ref, new Set([...refs, ref]))
+    }
+    for (const [key, value] of Object.entries(node)) {
+      if (annotations.has(key) || key === '$ref') {
+continue
+}
+      if (key === 'allOf') {
+        if (!Array.isArray(value) || !value.length) {
+          throw schemaError(path, key)
+        }
+        for (let index = 0; index < value.length; index += 1) {
+          result = merge(result, convert(value[index], `${path}/allOf/${index}`, refs), path)
+        }
+        continue
+      }
+      if (key === 'anyOf' || key === 'oneOf') {
+        if (!Array.isArray(value) || !value.length) {
+          throw schemaError(path, key)
+        }
+        const branches = value.filter(
+          (branch) =>
+            !(
+              branch?.type === 'null' &&
+              Object.keys(branch).every(
+                (name) =>
+                  name === 'type' ||
+                  annotations.has(name) ||
+                  name === 'description' ||
+                  name === 'title'
+              )
+            )
+        )
+        if (branches.length !== 1 || value.length - branches.length > 1) {
+          throw schemaError(path, key)
+        }
+        const branch = convert(branches[0], `${path}/${key}`, refs)
+        if (value.length > branches.length) {
+          if (!branch.type || branch.nullable === true) {
+            throw schemaError(path, key)
+          }
+          branch.nullable = true
+        }
+        result = merge(result, branch, path)
+        continue
+      }
+      let field = value
+      if (key === 'type') {
+        const types = [...new Set(Array.isArray(value) ? value : [value])]
+        const nonNull = types.filter((type) => type !== 'null')
+        if (
+          nonNull.length !== 1 ||
+          !['object', 'array', 'string', 'number', 'integer', 'boolean'].includes(nonNull[0])
+        ) {
+          throw schemaError(path, key)
+        }
+        field = nonNull[0]
+        result = merge(result, { nullable: types.includes('null') || node.nullable === true }, path)
+      } else if (key === 'properties') {
+        if (!value || typeof value !== 'object' || Array.isArray(value)) {
+          throw schemaError(path, key)
+        }
+        field = Object.fromEntries(
+          Object.entries(value).map(([name, child]) => [
+            name,
+            convert(child, `${path}/properties/${name}`, refs)
+          ])
+        )
+      } else if (key === 'items') {
+        field = convert(value, `${path}/items`, refs)
+      } else if (key === 'required') {
+        if (!Array.isArray(value) || value.some((name) => typeof name !== 'string')) {
+          throw schemaError(path, key)
+        }
+        field = [...new Set(value)]
+      } else if (key === 'additionalProperties' && value === true) {
+continue
+} else if (key === 'nullable' && typeof value !== 'boolean') {
+        throw schemaError(path, key)
+      } else if (!['description', 'title', 'nullable'].includes(key)) {
+        throw schemaError(path, key)
+      }
+      result = merge(result, { [key]: field }, path)
+    }
+    return result
+  }
+  return convert(schema, '#')
+}
+
 // options.preserveConstraints：parametersJsonSchema 形态，保留约束与 additionalProperties
 export const cleanJsonSchemaForGemini = (schema, options = {}) => {
   const preserveConstraints = options.preserveConstraints === true
@@ -97,6 +266,10 @@ export const cleanJsonSchemaForGemini = (schema, options = {}) => {
   }
   if (schema === null || schema === undefined) {
     return { type: 'object', properties: {} }
+  }
+  // JSON Schema 字段保留引用、组合、类型数组和原约束；typed Schema 清洗仅用于旧字段。
+  if (preserveConstraints) {
+    return structuredClone(schema)
   }
   if (typeof schema !== 'object') {
     return { type: 'object', properties: {} }

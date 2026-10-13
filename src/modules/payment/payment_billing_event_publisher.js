@@ -2,6 +2,51 @@ import { redis } from '../../infra/redis.js'
 import { logger } from '../../common/logger.js'
 import { RedisKeys, LIMITS } from '../../infra/redis_key.js'
 import { env } from '../../../config/env.js'
+import crypto from 'node:crypto'
+
+export const buildBillingEvent = (eventData) => ({
+  eventId: crypto.randomUUID(),
+  eventType: 'usage.recorded',
+  timestamp: new Date().toISOString(),
+  version: '1.0',
+  apiKey: {
+    id: eventData.keyId,
+    name: eventData.keyName ?? null,
+    userId: eventData.userId ?? null
+  },
+  usage: {
+    model: eventData.model,
+    inputTokens: eventData.inputTokens ?? 0,
+    outputTokens: eventData.outputTokens ?? 0,
+    cacheCreateTokens: eventData.cacheCreateTokens ?? 0,
+    cacheReadTokens: eventData.cacheReadTokens ?? 0,
+    ephemeral5mTokens: eventData.ephemeral5mTokens ?? 0,
+    ephemeral1hTokens: eventData.ephemeral1hTokens ?? 0,
+    totalTokens: eventData.totalTokens ?? 0,
+    toolUsage: eventData.toolUsage ?? null
+  },
+  cost: {
+    total: eventData.realCost ?? eventData.cost ?? 0,
+    currency: 'USD',
+    base: eventData.baseCost ?? eventData.realCost ?? eventData.cost ?? 0,
+    rated: eventData.ratedCost ?? eventData.cost ?? 0,
+    real: eventData.realCost ?? eventData.cost ?? 0,
+    upstreamTicks: eventData.upstreamCostTicks ?? null,
+    realCostSource: eventData.realCostSource ?? 'price_table',
+    tools: eventData.toolCost ?? 0,
+    breakdown: eventData.costBreakdown ?? null,
+    baseBreakdown: eventData.baseCostBreakdown ?? eventData.costBreakdown ?? null
+  },
+  account: { id: eventData.accountId ?? null, type: eventData.accountType ?? null },
+  context: {
+    requestId: eventData.requestId ?? null,
+    endpoint: eventData.endpoint ?? null,
+    statusCode: eventData.statusCode ?? null,
+    serviceTier: eventData.serviceTier ?? null,
+    isLongContext: eventData.isLongContext === true,
+    requestTimestamp: eventData.requestTimestamp ?? new Date().toISOString()
+  }
+})
 
 /**
  * 计费事件发布器 - 使用 Redis Stream 解耦计费系统
@@ -32,59 +77,7 @@ class BillingEventPublisher {
     try {
       const client = redis.getClientSafe()
 
-      // 构建标准化事件
-      const event = {
-        // 事件元数据
-        eventId: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-        eventType: 'usage.recorded',
-        timestamp: new Date().toISOString(),
-        version: '1.0',
-
-        // 核心计费数据
-        apiKey: {
-          id: eventData.keyId,
-          name: eventData.keyName || null,
-          userId: eventData.userId || null,
-        },
-
-        // 使用量详情
-        usage: {
-          model: eventData.model,
-          inputTokens: eventData.inputTokens || 0,
-          outputTokens: eventData.outputTokens || 0,
-          cacheCreateTokens: eventData.cacheCreateTokens || 0,
-          cacheReadTokens: eventData.cacheReadTokens || 0,
-          ephemeral5mTokens: eventData.ephemeral5mTokens || 0,
-          ephemeral1hTokens: eventData.ephemeral1hTokens || 0,
-          totalTokens: eventData.totalTokens || 0,
-        },
-
-        // 费用详情
-        cost: {
-          total: eventData.cost || 0,
-          currency: 'USD',
-          breakdown: {
-            input: eventData.costBreakdown?.input || 0,
-            output: eventData.costBreakdown?.output || 0,
-            cacheCreate: eventData.costBreakdown?.cacheCreate || 0,
-            cacheRead: eventData.costBreakdown?.cacheRead || 0,
-            ephemeral5m: eventData.costBreakdown?.ephemeral5m || 0,
-            ephemeral1h: eventData.costBreakdown?.ephemeral1h || 0,
-          },
-        },
-
-        // 账户信息
-        account: {
-          id: eventData.accountId || null,
-          type: eventData.accountType || null,
-        },
-
-        // 请求上下文
-        context: {
-          isLongContext: eventData.isLongContext || false,
-          requestTimestamp: eventData.requestTimestamp || new Date().toISOString(),
-        },
-      }
+      const event = buildBillingEvent(eventData)
 
       // 使用 XADD 发布事件到 Stream
       // MAXLEN ~ 10000: 近似截断，保持性能
@@ -125,26 +118,7 @@ class BillingEventPublisher {
       const pipeline = client.pipeline()
 
       events.forEach((eventData) => {
-        const event = {
-          eventId: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-          eventType: 'usage.recorded',
-          timestamp: new Date().toISOString(),
-          version: '1.0',
-          apiKey: {
-            id: eventData.keyId,
-            name: eventData.keyName || null,
-          },
-          usage: {
-            model: eventData.model,
-            inputTokens: eventData.inputTokens || 0,
-            outputTokens: eventData.outputTokens || 0,
-            totalTokens: eventData.totalTokens || 0,
-          },
-          cost: {
-            total: eventData.cost || 0,
-            currency: 'USD',
-          },
-        }
+        const event = buildBillingEvent(eventData)
 
         pipeline.xadd(this.streamKey, 'MAXLEN', '~', this.maxLength, '*', 'data', JSON.stringify(event))
       })

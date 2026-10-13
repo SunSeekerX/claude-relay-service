@@ -18,6 +18,12 @@ import { apiKeyIndexService } from './apikey_index_service.js'
 import { costRankService } from '../pricing/pricing_cost_rank_service.js'
 import { CostCalculator } from '../pricing/pricing_cost_calculator.js'
 import { billingEventPublisher } from '../payment/payment_billing_event_publisher.js'
+import { grokMediaPricingOverlayService } from '../pricing/pricing_grok_media_overlay_service.js'
+import {
+  GROK_TOOL_PRICING_MODEL,
+  calculateGrokToolCost,
+  getGrokUpstreamCost
+} from '../pricing/pricing_grok_tool_pricing.js'
 import { createRequire } from 'node:module'
 
 const require = createRequire(import.meta.url)
@@ -1844,7 +1850,7 @@ class ApiKeyService {
     accountId = null,
     accountType = null,
     serviceTier = null,
-    requestMeta = null,
+    requestMeta = null
   ) {
     // 重载：recordUsage(keyId, usageObject, model, accountId, accountType, serviceTier?, requestMeta?)
     // usageObject 可含 input_tokens / image_count / audio_input_seconds 等，供媒体路由一次传入
@@ -1948,18 +1954,40 @@ class ApiKeyService {
       const isLongContextRequest = costInfo.debug?.isLongContextRequest === true
 
       // 计算费用（应用服务倍率）
-      realCost = costInfo.costs.total
-      ratedCost = realCost
-      if (realCost > 0) {
+      let upstreamCost = null
+      let toolCost = null
+      if (accountType === 'grok') {
+        const toolPricing =
+          await grokMediaPricingOverlayService.getEffectiveModelPricing(GROK_TOOL_PRICING_MODEL)
+        toolCost = calculateGrokToolCost(usageExtras, toolPricing.xai_tool_costs_per_unit)
+        upstreamCost = getGrokUpstreamCost(usageExtras)
+        costInfo.costs = {
+          ...costInfo.costs,
+          tools: toolCost.total,
+          toolBreakdown: toolCost.breakdown,
+          total: costInfo.costs.total + toolCost.total
+        }
+      }
+      // DEC_20261013_143953 客户沿用价表与倍率，Grok 官方实付仅记真实成本。
+      const baseCost = costInfo.costs.total
+      realCost = upstreamCost?.amount ?? baseCost
+      ratedCost = baseCost
+      if (baseCost > 0) {
         const service = serviceRatesService.getService(accountType, model)
-        ratedCost = await this.calculateRatedCost(keyId, service, realCost, accountType)
+        ratedCost = await this.calculateRatedCost(keyId, service, baseCost, accountType)
       }
 
       // 预付费余额为派生（净充值 − usage:cost:total 基线后增量），消费由计费落账反映，不再实时扣减。
       // 计费关键写先于一切统计写：incrementDailyCost 内部幂等+重试落 usage:cost:total，
       // 统计写失败不再连带计费丢失（见 payment/balanceLedger 与 redis.incrementDailyCost）
-      if (realCost > 0) {
-        await redis.incrementDailyCost(keyId, ratedCost, realCost)
+      if (ratedCost > 0 || realCost > 0 || finalizedRequestMeta?.billingDedupId) {
+        const applied = await redis.incrementDailyCost(keyId, ratedCost, realCost, {
+          dedupId: finalizedRequestMeta?.billingDedupId ?? null,
+          dedupTtl: finalizedRequestMeta?.billingDedupTtl ?? null
+        })
+        if (applied === false) {
+          return { realCost, ratedCost, duplicate: true }
+        }
         costRecorded = true
         logger.database(
           `Recorded cost for ${keyId}: rated=$${ratedCost.toFixed(6)}, real=$${realCost.toFixed(6)}, model: ${model}`,
@@ -2049,10 +2077,15 @@ class ApiKeyService {
         thinkingTokens,
         totalTokens,
         cost: Number(ratedCost.toFixed(6)),
-        realCost: Number(realCost.toFixed(6)),
+        realCost: upstreamCost ? realCost : Number(realCost.toFixed(6)),
+        baseCost: Number(baseCost.toFixed(6)),
+        toolUsage: toolCost?.counts ?? null,
+        toolCost: toolCost?.total ?? 0,
+        upstreamCostTicks: upstreamCost?.ticks ?? null,
+        realCostSource: upstreamCost ? 'upstream' : 'price_table',
         costBreakdown: costInfo?.costs || undefined,
-        realCostBreakdown: costInfo?.costs || undefined,
-        isLongContext: isLongContextRequest,
+        realCostBreakdown: upstreamCost ? { total: realCost } : costInfo?.costs,
+        isLongContext: isLongContextRequest
       }
 
       await redis.addUsageRecord(keyId, usageRecord)
@@ -2082,6 +2115,9 @@ class ApiKeyService {
 
       logger.database(`Recorded usage: ${keyId} - ${logParts.join(', ')}`)
 
+      this._publishUsageRecordEvent(keyId, keyData, usageRecord).catch((error) => {
+        logger.warn('Failed to publish billing event:', error)
+      })
       return { realCost, ratedCost }
     } catch (error) {
       // 计费关键写已在 incrementDailyCost 内幂等化+重试；至此失败二分：
@@ -2091,6 +2127,9 @@ class ApiKeyService {
         `Failed to record usage (billing-critical): key=${keyId} model=${model} realCost=${realCost} ratedCost=${ratedCost} costRecorded=${costRecorded}`,
         error,
       )
+      if (requestMeta?.throwOnBillingFailure === true && !costRecorded) {
+        throw error
+      }
       // 计费已落时如实返回成本（调用方据此更新限流计数），未落才返回 0
       return costRecorded ? { realCost, ratedCost } : { realCost: 0, ratedCost: 0 }
     }
@@ -2135,7 +2174,7 @@ class ApiKeyService {
     model = 'unknown',
     accountId = null,
     accountType = null,
-    requestMeta = null,
+    requestMeta = null
   ) {
     // 计费要素提升到 try 外：catch 中完整记录（同 recordUsage）
     let realCostWithDetails = 0
@@ -2405,35 +2444,8 @@ class ApiKeyService {
 
       logger.database(`Recorded usage: ${keyId} - ${logParts.join(', ')}`)
 
-      // 发布计费事件到消息队列（异步非阻塞）
-      this._publishBillingEvent({
-        keyId,
-        keyName: keyData?.name,
-        userId: keyData?.userId,
-        model,
-        inputTokens,
-        outputTokens,
-        cacheCreateTokens,
-        cacheReadTokens,
-        ephemeral5mTokens,
-        ephemeral1hTokens,
-        totalTokens,
-        cost: costInfo.totalCost || 0,
-        costBreakdown: {
-          input: costInfo.inputCost || 0,
-          output: costInfo.outputCost || 0,
-          cacheCreate: costInfo.cacheCreateCost || 0,
-          cacheRead: costInfo.cacheReadCost || 0,
-          ephemeral5m: costInfo.ephemeral5mCost || 0,
-          ephemeral1h: costInfo.ephemeral1hCost || 0,
-        },
-        accountId,
-        accountType,
-        isLongContext: costInfo.isLongContextRequest || false,
-        requestTimestamp: usageRecord.timestamp,
-      }).catch((err) => {
-        // 发布失败不影响主流程，只记录错误
-        logger.warn('Failed to publish billing event:', err.message)
+      this._publishUsageRecordEvent(keyId, keyData, usageRecord).catch((error) => {
+        logger.warn('Failed to publish billing event:', error)
       })
 
       return { realCost: realCostWithDetails, ratedCost: ratedCostWithDetails }
@@ -2485,12 +2497,18 @@ class ApiKeyService {
       cacheCreateTokens: usageRecord.cacheCreateTokens || 0,
       totalTokens: usageRecord.totalTokens || 0,
       cost: usageRecord.cost || 0,
-      realCost: usageRecord.realCost || usageRecord.cost || 0,
+      realCost: usageRecord.realCost ?? usageRecord.cost ?? 0,
+      baseCost: usageRecord.baseCost ?? null,
+      toolUsage: usageRecord.toolUsage ?? null,
+      toolCost: usageRecord.toolCost ?? 0,
+      upstreamCostTicks: usageRecord.upstreamCostTicks ?? null,
+      realCostSource: usageRecord.realCostSource ?? null,
       costBreakdown: usageRecord.costBreakdown || null,
-      realCostBreakdown: usageRecord.realCostBreakdown || usageRecord.costBreakdown || null,
+      realCostBreakdown: usageRecord.realCostBreakdown ?? usageRecord.costBreakdown ?? null,
       pricingSource: usageRecord.pricingSource || null,
       usedFallbackPricing: usageRecord.usedFallbackPricing === true,
-      isLongContextRequest: usageRecord.isLongContext === true || usageRecord.isLongContextRequest === true,
+      isLongContextRequest:
+        usageRecord.isLongContext === true || usageRecord.isLongContextRequest === true
     })
   }
 
@@ -2646,6 +2664,23 @@ class ApiKeyService {
   }
 
   // 发布计费事件（内部方法）
+  async _publishUsageRecordEvent(keyId, keyData, record) {
+    return this._publishBillingEvent({
+      ...record,
+      keyId,
+      keyName: keyData?.name ?? null,
+      userId: keyData?.userId ?? null,
+      cost: record.realCost,
+      realCost: record.realCost,
+      ratedCost: record.cost,
+      baseCost: record.baseCost ?? record.realCost,
+      costBreakdown: record.realCostBreakdown ?? record.costBreakdown,
+      baseCostBreakdown: record.costBreakdown,
+      isLongContext: record.isLongContext === true,
+      requestTimestamp: record.timestamp
+    })
+  }
+
   async _publishBillingEvent(eventData) {
     try {
       await billingEventPublisher.publishBillingEvent(eventData)
@@ -2684,11 +2719,11 @@ class ApiKeyService {
 
     // API 兼容：同时输出 costBreakdown 和 realCostBreakdown
     const compatibleRecords = recentRecords.map((record) => {
-      const breakdown = record.realCostBreakdown || record.costBreakdown
+      const breakdown = record.costBreakdown ?? record.realCostBreakdown
       return {
         ...record,
         costBreakdown: breakdown,
-        realCostBreakdown: breakdown,
+        realCostBreakdown: record.realCostBreakdown ?? breakdown
       }
     })
 

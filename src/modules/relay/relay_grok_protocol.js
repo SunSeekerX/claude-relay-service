@@ -1,4 +1,37 @@
 import crypto from 'node:crypto'
+
+const IMAGE_SIZE_ALIASES = {
+  '256x256': '1:1',
+  '512x512': '1:1',
+  '1024x1024': '1:1',
+  '1536x1024': '3:2',
+  '1024x1536': '2:3',
+  '1792x1024': '16:9',
+  '1024x1792': '9:16',
+  '2048x2048': '1:1'
+}
+
+export const normalizeGrokImageBody = (body) => {
+  const result = { ...body }
+  if (result.size === undefined || result.size === null) {
+    return result
+  }
+  const size = String(result.size).trim().toLowerCase()
+  if (size !== 'auto' && !IMAGE_SIZE_ALIASES[size]) {
+    throw Object.assign(new Error('Unsupported image size; use aspect_ratio and resolution'), {
+      statusCode: 400,
+      code: 'invalid_image_size'
+    })
+  }
+  if (result.aspect_ratio === undefined && size !== 'auto') {
+    result.aspect_ratio = IMAGE_SIZE_ALIASES[size]
+  }
+  if (result.resolution === undefined && size === '2048x2048') {
+    result.resolution = '2k'
+  }
+  delete result.size
+  return result
+}
 /**
  * Grok 协议增强：
  * - chat↔responses 桥

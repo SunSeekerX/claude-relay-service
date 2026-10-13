@@ -69,7 +69,7 @@ export const encodeWsClientText = (text) => {
   return Buffer.concat([header, masked])
 }
 
-export const encodeWsClientPong = (payload = Buffer.alloc(0)) => {
+const encodeWsClientControl = (opcode, payload = Buffer.alloc(0)) => {
   const data = Buffer.isBuffer(payload) ? payload : Buffer.from(String(payload ?? ''), 'utf8')
   const maskKey = crypto.randomBytes(4)
   const masked = Buffer.allocUnsafe(data.length)
@@ -77,11 +77,13 @@ export const encodeWsClientPong = (payload = Buffer.alloc(0)) => {
     masked[i] = data[i] ^ maskKey[i & 3]
   }
   const header = Buffer.allocUnsafe(2 + 4)
-  header[0] = 0x80 | OP_PONG
+  header[0] = 0x80 | opcode
   header[1] = 0x80 | (masked.length & 0x7f)
   maskKey.copy(header, 2)
   return Buffer.concat([header, masked])
 }
+export const encodeWsClientPong = (payload) => encodeWsClientControl(OP_PONG, payload)
+export const encodeWsClientClose = (payload) => encodeWsClientControl(OP_CLOSE, payload)
 const encodeWsClose = (code = 1000, reason = '') => {
   const reasonBuf = Buffer.from(String(reason || '').slice(0, 123), 'utf8')
   const payload = Buffer.allocUnsafe(2 + reasonBuf.length)
@@ -155,10 +157,12 @@ export const acceptWebSocketEndpoint = (
   let buffer = Buffer.alloc(0)
   let fragmentedOpcode = null
   let fragmentedChunks = []
+  let fragmentedBytes = 0
 
   const resetFragment = () => {
     fragmentedOpcode = null
     fragmentedChunks = []
+    fragmentedBytes = 0
   }
 
   const settleClose = (err = null) => {
@@ -189,8 +193,7 @@ export const acceptWebSocketEndpoint = (
       return false
     }
     try {
-      socket.write(buf)
-      return true
+      return socket.write(buf)
     } catch (error) {
       console.error(error)
       destroy(error)
@@ -201,6 +204,7 @@ export const acceptWebSocketEndpoint = (
   const sendText = (text) => sendRaw(encodeWsText(text))
   const close = (code = 1000, reason = '') => {
     sendRaw(encodeWsClose(code, reason))
+    settleClose()
     // 半关闭后等对端或短延时销毁
     setTimeout(() => destroy(), 500)
   }
@@ -229,11 +233,11 @@ export const acceptWebSocketEndpoint = (
       return
     }
     buffer = buffer.length ? Buffer.concat([buffer, chunk]) : Buffer.from(chunk)
-    if (buffer.length > 8 * 1024 * 1024) {
-      logger.warn(`[WsEndpoint:${label}] buffer overflow, closing`)
-      close(1009, 'message too big')
-      return
-    }
+    if (buffer.length > 8 * 1024 * 1024 + 14) {
+           logger.warn(`[WsEndpoint:${label}] buffer overflow, closing`)
+           close(1009, 'message too big')
+           return
+         }
 
     while (!closed) {
       if (buffer.length < 2) {
@@ -319,6 +323,12 @@ export const acceptWebSocketEndpoint = (
           continue
         }
         fragmentedChunks.push(payload)
+        fragmentedBytes += payload.length
+        if (fragmentedBytes > 8 * 1024 * 1024 || fragmentedChunks.length > 4096) {
+          resetFragment()
+          close(1009, 'message too big')
+          return
+        }
         if (fin) {
           const full = Buffer.concat(fragmentedChunks)
           const op = fragmentedOpcode
@@ -333,6 +343,7 @@ export const acceptWebSocketEndpoint = (
       if (!fin) {
         fragmentedOpcode = opcode
         fragmentedChunks = [payload]
+        fragmentedBytes = payload.length
         continue
       }
 
@@ -344,7 +355,13 @@ export const acceptWebSocketEndpoint = (
   }
 
   if (head && head.length) {
-    push(head)
+    socket.pause()
+    queueMicrotask(() => {
+      push(head)
+      if (!socket.destroyed) {
+        socket.resume()
+      }
+    })
   }
   socket.on('data', push)
   socket.on('error', (error) => {

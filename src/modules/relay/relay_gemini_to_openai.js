@@ -116,6 +116,9 @@ export class GeminiToOpenAIConverter {
               name: part.functionCall.name,
               arguments: JSON.stringify(part.functionCall.args || {}),
             },
+            ...(part.thoughtSignature
+              ? { extra_content: { google: { thought_signature: part.thoughtSignature } } }
+              : {})
           })
           fnIndex++
         } else if (part.text !== undefined) {
@@ -239,8 +242,11 @@ export class GeminiToOpenAIConverter {
                   name: part.functionCall.name,
                   arguments: JSON.stringify(part.functionCall.args || {}),
                 },
-              },
-            ],
+                ...(part.thoughtSignature
+                  ? { extra_content: { google: { thought_signature: part.thoughtSignature } } }
+                  : {})
+              }
+            ]
           }
           this._injectRole(state, chunk.choices[0].delta)
           state.functionIndex++

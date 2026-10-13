@@ -2,6 +2,7 @@ import { redis } from '../../infra/redis.js'
 import { logger } from '../../common/logger.js'
 import { RedisKeys } from '../../infra/redis_key.js'
 import { GROK_MEDIA_FALLBACK_PRICING } from './pricing_grok_media_pricing.js'
+import { GROK_TOOL_FALLBACK_PRICING, GROK_TOOL_UNIT_PRICES } from './pricing_grok_tool_pricing.js'
 
 // DEC_20260912_232856 Grok 媒体单价用 Redis 覆盖层，设置页可改，覆盖硬编码兜底
 // DEC_20260913_005550 保存用 WATCH+版本 CAS；Pub/Sub 失效各实例 L1，避免并发覆盖与延迟生效
@@ -15,7 +16,12 @@ const ALLOWED_FLAT_FIELDS = [
   'input_cost_per_query',
 ]
 
-const ALLOWED_TIER_FIELDS = ['xai_image_output_tiers', 'xai_video_output_tiers']
+const ALLOWED_TIER_FIELDS = [
+  'xai_image_output_tiers',
+  'xai_video_output_tiers',
+  'xai_tool_costs_per_unit'
+]
+const BUILTIN_PRICING = { ...GROK_MEDIA_FALLBACK_PRICING, ...GROK_TOOL_FALLBACK_PRICING }
 const MAX_SAVE_ATTEMPTS = 5
 
 const toNonNegNumber = (value, fieldName) => {
@@ -44,7 +50,7 @@ class GrokMediaPricingOverlayService {
   }
 
   getBuiltinDefaults() {
-    return deepClone(GROK_MEDIA_FALLBACK_PRICING)
+    return deepClone(BUILTIN_PRICING)
   }
 
   getEmptyOverlay() {
@@ -148,11 +154,11 @@ class GrokMediaPricingOverlayService {
   }
 
   async getEffectiveModelPricing(modelName) {
-    if (!modelName || !GROK_MEDIA_FALLBACK_PRICING[modelName]) {
-      return null
-    }
+    if (!modelName || !BUILTIN_PRICING[modelName]) {
+return null
+}
     const overlay = await this.getOverlay()
-    const builtin = GROK_MEDIA_FALLBACK_PRICING[modelName]
+    const builtin = BUILTIN_PRICING[modelName]
     const override = overlay.models?.[modelName]
     return override ? this._mergeModelPricing(builtin, override) : deepClone(builtin)
   }
@@ -160,10 +166,10 @@ class GrokMediaPricingOverlayService {
   // 同步读取覆盖价。
   // DEC_20260913_153908 过期不回落内置价：继续用 lastKnown/cached，并后台刷新
   getEffectiveModelPricingSync(modelName) {
-    if (!modelName || !GROK_MEDIA_FALLBACK_PRICING[modelName]) {
-      return null
-    }
-    const builtin = GROK_MEDIA_FALLBACK_PRICING[modelName]
+    if (!modelName || !BUILTIN_PRICING[modelName]) {
+return null
+}
+    const builtin = BUILTIN_PRICING[modelName]
     const overlay = this.cached || this.lastKnown
     if (overlay) {
       if (!this.cached || Date.now() >= this.cacheExpiry) {
@@ -375,7 +381,7 @@ class GrokMediaPricingOverlayService {
       throw new Error('models must be an object')
     }
 
-    const allowedNames = new Set(Object.keys(GROK_MEDIA_FALLBACK_PRICING))
+    const allowedNames = new Set(Object.keys(BUILTIN_PRICING))
     const cleaned = {}
 
     for (const [name, raw] of Object.entries(modelsInput)) {
@@ -401,6 +407,11 @@ class GrokMediaPricingOverlayService {
         }
         const tiers = {}
         for (const [tierKey, tierValue] of Object.entries(raw[field])) {
+          if (field === 'xai_tool_costs_per_unit' && !Object.hasOwn(GROK_TOOL_UNIT_PRICES, tierKey)) {
+            throw Object.assign(new Error(`unknown Grok tool billing unit: ${tierKey}`), {
+              code: 'BAD_REQUEST'
+            })
+          }
           if (tierValue === undefined || tierValue === null || tierValue === '') {
             continue
           }

@@ -313,7 +313,7 @@ unifiedRoutes.post('/v1/completions', authenticateApiKey, async (req, res) => {
 
 // --- OpenAI Chat Completions → Gemini 原生请求转换（OpenAI → Gemini 格式映射） ---
 
-const buildGeminiRequestFromOpenAI = (body) => {
+export const buildGeminiRequestFromOpenAI = (body) => {
   const request = {}
   const generationConfig = {}
   const messages = body.messages || []
@@ -361,6 +361,9 @@ const buildGeminiRequestFromOpenAI = (body) => {
             }
             parts.push({
               functionCall: { name: tc.function.name, args },
+              ...(tc.extra_content?.google?.thought_signature
+                ? { thoughtSignature: tc.extra_content.google.thought_signature }
+                : {})
             })
           }
         }
@@ -456,9 +459,11 @@ const buildGeminiRequestFromOpenAI = (body) => {
   if (body.response_format) {
     if (body.response_format.type === 'json_object') {
       generationConfig.responseMimeType = 'application/json'
-    } else if (body.response_format.type === 'json_schema' && body.response_format.json_schema?.schema) {
+    } else if (
+      body.response_format.type === 'json_schema' && body.response_format.json_schema?.schema
+    ) {
       generationConfig.responseMimeType = 'application/json'
-      generationConfig.responseSchema = body.response_format.json_schema.schema
+      generationConfig.responseJsonSchema = body.response_format.json_schema.schema
     }
   }
 

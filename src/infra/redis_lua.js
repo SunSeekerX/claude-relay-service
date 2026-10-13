@@ -8,6 +8,27 @@
 // ===
 
 export const RedisLua = {
+  grokVideo: {
+    claimSettlement: `
+if not redis.call('HGET', KEYS[1], 'requestId') then return 0 end
+if redis.call('HGET', KEYS[1], 'settled') == 'true' then return 0 end
+local started = tonumber(redis.call('HGET', KEYS[1], 'settlementStartedAt') or '0')
+if redis.call('HEXISTS', KEYS[1], 'settlementInProgress') == 1 and started + tonumber(ARGV[3]) > tonumber(ARGV[1]) then return 0 end
+redis.call('HSET', KEYS[1], 'settlementInProgress', ARGV[2], 'settlementStartedAt', ARGV[1])
+return 1
+`,
+    releaseSettlement: `
+if redis.call('HGET', KEYS[1], 'settlementInProgress') ~= ARGV[1] then return 0 end
+redis.call('HDEL', KEYS[1], 'settlementInProgress', 'settlementStartedAt')
+return 1
+`,
+    finishSettlement: `
+if redis.call('HGET', KEYS[1], 'settlementInProgress') ~= ARGV[1] then return 0 end
+redis.call('HSET', KEYS[1], 'settled', 'true', 'status', ARGV[2], 'actualDuration', ARGV[3], 'actualCost', ARGV[4], 'settledAt', ARGV[5])
+redis.call('HDEL', KEYS[1], 'settlementInProgress', 'settlementStartedAt')
+return 1
+`
+  },
   adminLogin: {
     consumeAttempt: `
 local count = tonumber(redis.call('GET', KEYS[1]) or '0')
@@ -158,12 +179,23 @@ return 0
 
   // === 计费关键写 ===
   cost: {
-    // KEYS: dedupKey, costTotal, costRealTotal; ARGV: ratedAmount, realAmount, dedupTtl
+    // KEYS: dedupKey, costTotal, costRealTotal; ARGV: ratedAmount, realAmount, dedupTtl, owner
     incrementTotal: `
 if redis.call('EXISTS', KEYS[1]) == 1 then
+  if ARGV[4] and redis.call('GET', KEYS[1]) == ARGV[4] then return 2 end
   return 0
 end
-redis.call('SET', KEYS[1], '1', 'EX', tonumber(ARGV[3]))
+local rated = tonumber(ARGV[1])
+local real = tonumber(ARGV[2])
+local ratedTotal = tonumber(redis.call('GET', KEYS[2]) or '0')
+local realTotal = tonumber(redis.call('GET', KEYS[3]) or '0')
+if not rated or not real or not ratedTotal or not realTotal then
+  return redis.error_reply('Invalid billing amount or counter')
+end
+if rated + ratedTotal ~= rated + ratedTotal or real + realTotal ~= real + realTotal or math.abs(rated + ratedTotal) == math.huge or math.abs(real + realTotal) == math.huge then
+  return redis.error_reply('Non-finite billing total')
+end
+redis.call('SET', KEYS[1], ARGV[4] or '1', 'EX', tonumber(ARGV[3]))
 redis.call('INCRBYFLOAT', KEYS[2], ARGV[1])
 redis.call('INCRBYFLOAT', KEYS[3], ARGV[2])
 return 1
@@ -201,7 +233,7 @@ return 1
 redis.call('DEL', KEYS[2])
 redis.call('ZREM', KEYS[1], KEYS[2])
 return 1
-`,
+`
   },
 
   // === 锁 / 用户消息队列 ===
@@ -615,5 +647,5 @@ redis.call('HSET', KEYS[1],
   'errorMessage', '')
 return 1
 `,
-  },
+  }
 }

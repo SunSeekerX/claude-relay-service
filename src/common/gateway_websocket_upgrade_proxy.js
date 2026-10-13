@@ -4,6 +4,7 @@ import { URL } from 'node:url'
 import { logger } from './logger.js'
 import { createWsFrameSniffer, createWsClientTextRewriter } from './gateway_ws_frame_sniffer.js'
 import { encodeWsFrame } from './gateway_ws_endpoint.js'
+import { buildWebSocketClientError } from './client_error_builder.js'
 // 原生 HTTP Upgrade 隧道：把客户端 WebSocket 接到上游 wss/ws
 // 不引入 ws 包；鉴权与上游头由调用方构造
 // 支持：账户代理 agent、握手超时主动关闭、上游文本帧嗅探（计费）
@@ -34,10 +35,11 @@ export const proxyWebSocketUpgrade = (
     stripExtensions = true,
     onUpstreamTextMessage = null,
     onClientToUpstreamText = null,
+    beforeClientText = null,
     validateClientFrames = false,
     onClose = null,
-    onUpgrade = null,
-  } = {},
+    onUpgrade = null
+  } = {}
 ) => {
   let settled = false
   const settle = (err = null) => {
@@ -186,7 +188,8 @@ export const proxyWebSocketUpgrade = (
       typeof onUpstreamTextMessage === 'function'
         ? createWsFrameSniffer({
             onTextMessage: onUpstreamTextMessage,
-            label: 'upstream',
+            onParseError: (error) => queueMicrotask(() => closeBoth(error)),
+            label: 'upstream'
           })
         : null
 
@@ -220,11 +223,12 @@ export const proxyWebSocketUpgrade = (
         ? createWsClientTextRewriter({
             label: 'client-to-upstream',
             rewriteText: onClientToUpstreamText,
-            failClosed: validateClientFrames,
+            beforeText: beforeClientText,
+            failClosed: validateClientFrames
           })
         : null
 
-    const writeClientChunkToUpstream = (chunk) => {
+    const writeClientChunkToUpstream = async (chunk) => {
       if (!chunk || !chunk.length || upSocket.destroyed) {
         return
       }
@@ -259,27 +263,56 @@ export const proxyWebSocketUpgrade = (
         return
       }
       for (const frame of frames) {
-        if (!frame || !frame.length || upSocket.destroyed) {
-          continue
+        let output
+        try {
+          output = typeof frame === 'function' ? await frame() : frame
+        } catch (error) {
+          if (Number.isInteger(error.statusCode)) {
+            socket.write(encodeWsFrame(0x1, JSON.stringify(buildWebSocketClientError(error))))
+            continue
+          }
+          throw error
         }
-        const ok = upSocket.write(frame)
+        if (!output || !output.length || upSocket.destroyed) {
+            continue
+          }
+        const ok = upSocket.write(output)
         if (!ok) {
           socket.pause()
         }
       }
     }
 
-    if (head && head.length) {
-      writeClientChunkToUpstream(head)
+    let clientWriteQueue = Promise.resolve()
+    let writingClient = false
+    const enqueueClientChunk = (chunk) => {
+      socket.pause()
+      clientWriteQueue = clientWriteQueue
+        .then(async () => {
+          writingClient = true
+          try {
+            await writeClientChunkToUpstream(chunk)
+            if (!socket.destroyed && !upSocket.writableNeedDrain) {
+                                             socket.resume()
+                                           }
+          } finally {
+            writingClient = false
+          }
+        })
+        .catch((error) => {
+          upSocket.destroy()
+          socket.end(encodeWsFrame(0x1, JSON.stringify(buildWebSocketClientError(error))))
+          settle(error)
+        })
     }
-
-    socket.on('data', (chunk) => {
-      writeClientChunkToUpstream(chunk)
-    })
+    if (head && head.length) {
+      enqueueClientChunk(head)
+    }
+    socket.on('data', enqueueClientChunk)
     upSocket.on('drain', () => {
-      if (!socket.destroyed) {
-        socket.resume()
-      }
+      if (!socket.destroyed && !writingClient) {
+                          socket.resume()
+                        }
     })
 
     const closeBoth = (err = null) => {

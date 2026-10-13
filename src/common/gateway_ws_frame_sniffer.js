@@ -10,16 +10,48 @@ const OP_BINARY = 0x2
 const OP_CLOSE = 0x8
 const OP_PING = 0x9
 
-export const createWsFrameSniffer = ({ onTextMessage, onCloseFrame, onPing, label = 'ws' } = {}) => {
+export const parseWsClientMessage = (text) => {
+  let message
+  try {
+    message = JSON.parse(text)
+  } catch {
+    throw Object.assign(new Error('Invalid WebSocket JSON'), { statusCode: 400, code: 'invalid_request_error' })
+  }
+  if (!message || typeof message !== 'object' || Array.isArray(message)) {
+    throw Object.assign(new Error('WebSocket request must be an object'), { statusCode: 400, code: 'invalid_request_error' })
+  }
+  return message
+}
+
+const WS_SNIFFER_MAX_MESSAGE = 16 * 1024 * 1024
+const WS_SNIFFER_MAX_FRAGMENTS = 4096
+
+export const createWsFrameSniffer = ({
+  onTextMessage,
+  onCloseFrame,
+  onPing,
+  onParseError,
+  label = 'ws'
+} = {}) => {
   let buffer = Buffer.alloc(0)
   let fragmentedOpcode = null
   let fragmentedChunks = []
   let fragmentedRsv1 = false
+  let fragmentedBytes = 0
 
   const resetFragment = () => {
     fragmentedOpcode = null
     fragmentedChunks = []
     fragmentedRsv1 = false
+    fragmentedBytes = 0
+  }
+
+  const overflow = () => {
+    buffer = Buffer.alloc(0)
+    resetFragment()
+    const error = new Error('WebSocket message exceeds observation limit')
+    logger.warn(`[WsSniffer:${label}] ${error.message}`)
+    onParseError?.(error)
   }
 
   const emitText = (text) => {
@@ -31,6 +63,7 @@ export const createWsFrameSniffer = ({ onTextMessage, onCloseFrame, onPing, labe
     } catch (error) {
       console.error(error)
       logger.warn(`[WsSniffer:${label}] onTextMessage error: ${error.message}`)
+      onParseError?.(error)
     }
   }
 
@@ -40,11 +73,8 @@ export const createWsFrameSniffer = ({ onTextMessage, onCloseFrame, onPing, labe
     }
     buffer = buffer.length ? Buffer.concat([buffer, chunk]) : Buffer.from(chunk)
 
-    // 防止异常流量把 buffer 撑爆：只保留最近 4MB 未完成帧
-    if (buffer.length > 4 * 1024 * 1024) {
-      logger.warn(`[WsSniffer:${label}] buffer overflow, reset`)
-      buffer = Buffer.alloc(0)
-      resetFragment()
+    if (buffer.length > WS_SNIFFER_MAX_MESSAGE + 14) {
+      overflow()
       return
     }
 
@@ -75,9 +105,8 @@ export const createWsFrameSniffer = ({ onTextMessage, onCloseFrame, onPing, labe
         const high = buffer.readUInt32BE(2)
         const low = buffer.readUInt32BE(6)
         // 超大帧不解析（仍由隧道原样转发）
-        if (high !== 0 || low > 8 * 1024 * 1024) {
-          buffer = Buffer.alloc(0)
-          resetFragment()
+        if (high !== 0 || low > WS_SNIFFER_MAX_MESSAGE) {
+          overflow()
           return
         }
         payloadLen = low
@@ -136,6 +165,14 @@ export const createWsFrameSniffer = ({ onTextMessage, onCloseFrame, onPing, labe
           continue
         }
         fragmentedChunks.push(payload)
+        fragmentedBytes += payload.length
+        if (
+          fragmentedBytes > WS_SNIFFER_MAX_MESSAGE ||
+          fragmentedChunks.length > WS_SNIFFER_MAX_FRAGMENTS
+        ) {
+          overflow()
+          return
+        }
         if (fin) {
           const full = Buffer.concat(fragmentedChunks)
           const op = fragmentedOpcode
@@ -154,6 +191,7 @@ export const createWsFrameSniffer = ({ onTextMessage, onCloseFrame, onPing, labe
         fragmentedOpcode = opcode
         fragmentedRsv1 = rsv1
         fragmentedChunks = [payload]
+        fragmentedBytes = payload.length
         continue
       }
 
@@ -190,7 +228,12 @@ const WS_REWRITE_MAX_FRAME = 16 * 1024 * 1024
 // DEC_20260906_103722
 const WS_REWRITE_MAX_FRAGMENT_FRAMES = 4096
 
-export const createWsClientTextRewriter = ({ rewriteText, label = 'ws-rewrite', failClosed = false } = {}) => {
+export const createWsClientTextRewriter = ({
+  rewriteText,
+  beforeText = null,
+  label = 'ws-rewrite',
+  failClosed = false
+} = {}) => {
   let buffer = Buffer.alloc(0)
   let bypass = false
   // 不可改写的分片消息：逐帧原样转发直到 FIN
@@ -297,6 +340,14 @@ export const createWsClientTextRewriter = ({ rewriteText, label = 'ws-rewrite', 
   }
 
   const emitRewrittenText = (out, text) => {
+    if (typeof beforeText === 'function') {
+      out.push(async () => {
+        await beforeText(text)
+        const rewritten = typeof rewriteText === 'function' ? rewriteText(text) : text
+        return encodeMaskedText(typeof rewritten === 'string' ? rewritten : text)
+      })
+      return
+    }
     if (typeof rewriteText !== 'function') {
       out.push(encodeMaskedText(text))
       return

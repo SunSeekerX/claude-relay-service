@@ -9,6 +9,7 @@ const TERMINAL_EVENTS = new Set([
   'response.canceled',
   'error',
 ])
+export const isResponsesTerminalEvent = (type) => TERMINAL_EVENTS.has(type)
 const RATE_LIMIT_CODES = new Set(['rate_limit_error', 'rate_limit_exceeded', 'usage_limit_reached', 'slow_down'])
 
 export const isResponsesRateLimitError = (error) =>
@@ -106,7 +107,9 @@ export class ResponsesStreamState {
       return { statusCode: 200, errorCode: null, errorMessage: null, clientError: null }
     }
     if (this.terminalType === 'response.incomplete') {
-      const limited = this.incompleteReason === 'max_output_tokens' || this.incompleteReason === 'max_tokens'
+      const limited = ['max_output_tokens', 'max_tokens', 'steered', 'interrupted'].includes(
+        this.incompleteReason
+      )
       return {
         statusCode: limited ? 200 : 502,
         errorCode: 'response_incomplete',
