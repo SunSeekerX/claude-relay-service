@@ -451,8 +451,7 @@ router.get(
       `Getting global model stats, period: ${period}, startDate: ${startDate}, endDate: ${endDate}, today: ${today}, currentMonth: ${currentMonth}`,
     )
 
-    // 收集所有需要扫描的日期
-    const datePatterns = []
+    const dates = []
 
     if (startDate && endDate) {
       // 自定义日期范围
@@ -471,21 +470,22 @@ router.get(
       const currentDate = new Date(start)
       while (currentDate <= end) {
         const dateStr = redis.getDateStringInTimezone(currentDate)
-        datePatterns.push({ dateStr, pattern: `usage:model:daily:*:${dateStr}` })
+        dates.push({ dateStr, period: 'daily' })
         currentDate.setDate(currentDate.getDate() + 1)
       }
 
-      logger.info(`Generated ${datePatterns.length} search patterns for date range`)
+      logger.debug(`Getting model usage indexes for ${dates.length} dates`)
     } else {
       // 使用默认的period
-      const pattern = period === 'daily' ? `usage:model:daily:*:${today}` : `usage:model:monthly:*:${currentMonth}`
-      datePatterns.push({ dateStr: period === 'daily' ? today : currentMonth, pattern })
+      dates.push({
+        dateStr: period === 'daily' ? today : currentMonth,
+        period: period === 'daily' ? 'daily' : 'monthly'
+      })
     }
 
-    // 按日期集合扫描，串行避免并行触发多次全库 SCAN
     const allResults = []
-    for (const { pattern } of datePatterns) {
-      const results = await redis.scanAndGetAllChunked(pattern)
+    for (const { period: datePeriod, dateStr } of dates) {
+      const results = await redis.getGlobalModelUsage(datePeriod, dateStr)
       allResults.push(...results)
     }
 

@@ -10,6 +10,25 @@ import { normalizeModelName } from '../common/common_helper.js'
 // 均经同一单例解析。_normalizeModelName 与 common_helper.normalizeModelName 同一实现。
 // ===
 export const attach = (redisClient) => {
+  redisClient.getGlobalModelUsage = async function (period, date) {
+    const daily = period === 'daily'
+    const indexKey = daily
+      ? RedisKeys.usage.modelDailyIndex(date)
+      : RedisKeys.usage.modelMonthlyIndex(date)
+    const modelKey = daily ? RedisKeys.usage.modelDaily : RedisKeys.usage.modelMonthly
+    const models = await this.getAllIdsByIndex(
+      indexKey,
+      modelKey('*', date),
+      daily
+        ? /^usage:model:daily:(.+):\d{4}-\d{2}-\d{2}$/
+        : /^usage:model:monthly:(.+):\d{4}-\d{2}$/,
+      daily ? TTL.usageDaily : TTL.usageMonthly
+    )
+    const keys = models.map((model) => modelKey(model, date))
+    const data = await this.batchHgetallChunked(keys)
+    return keys.map((key, i) => ({ key, data: data[i] })).filter((item) => item.data !== null)
+  }
+
   // 使用统计相关操作（支持缓存token统计和模型信息）
   redisClient._normalizeModelName = function (model) {
     return normalizeModelName(model)

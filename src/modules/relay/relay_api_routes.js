@@ -469,7 +469,7 @@ export const handleMessagesRequest = async (req, res) => {
           _apiKey,
           res,
           _headers,
-          (usageData) => {
+          (usageData, result = {}) => {
             // 回调函数：当检测到完整usage数据时记录真实token使用量
             logger.info('Usage callback triggered with complete data:', JSON.stringify(usageData, null, 2))
 
@@ -521,7 +521,7 @@ export const handleMessagesRequest = async (req, res) => {
                 }
               }
 
-              apiKeyService
+              const recordedUsage = apiKeyService
                 .recordUsageWithDetails(
                   _apiKeyId,
                   usageObject,
@@ -532,6 +532,7 @@ export const handleMessagesRequest = async (req, res) => {
                     requestBody: _requestBody,
                     stream: true,
                     statusCode: res.statusCode,
+                    ...result,
                   }),
                 )
                 .then((costs) => {
@@ -572,6 +573,7 @@ export const handleMessagesRequest = async (req, res) => {
               logger.api(
                 `Stream usage recorded (real) - Model: ${model}, Input: ${inputTokens}, Output: ${outputTokens}, Cache Create: ${cacheCreateTokens}, Cache Read: ${cacheReadTokens}, Total: ${inputTokens + outputTokens + cacheCreateTokens + cacheReadTokens} tokens`,
               )
+              return recordedUsage
             } else {
               logger.warn('Usage callback triggered but data is incomplete:', JSON.stringify(usageData))
             }
@@ -591,7 +593,7 @@ export const handleMessagesRequest = async (req, res) => {
           _apiKeyConsole,
           res,
           _headersConsole,
-          (usageData) => {
+          (usageData, result = {}) => {
             // 回调函数：当检测到完整usage数据时记录真实token使用量
             logger.info('Usage callback triggered with complete data:', JSON.stringify(usageData, null, 2))
 
@@ -645,7 +647,7 @@ export const handleMessagesRequest = async (req, res) => {
                 }
               }
 
-              apiKeyService
+              const recordedUsage = apiKeyService
                 .recordUsageWithDetails(
                   _apiKeyIdConsole,
                   usageObject,
@@ -656,6 +658,7 @@ export const handleMessagesRequest = async (req, res) => {
                     requestBody: _requestBodyConsole,
                     stream: true,
                     statusCode: res.statusCode,
+                    ...result,
                   }),
                 )
                 .then((costs) => {
@@ -695,6 +698,7 @@ export const handleMessagesRequest = async (req, res) => {
               logger.api(
                 `Stream usage recorded (real) - Model: ${model}, Input: ${inputTokens}, Output: ${outputTokens}, Cache Create: ${cacheCreateTokens}, Cache Read: ${cacheReadTokens}, Total: ${inputTokens + outputTokens + cacheCreateTokens + cacheReadTokens} tokens`,
               )
+              return recordedUsage
             } else {
               logger.warn('Usage callback triggered but data is incomplete:', JSON.stringify(usageData))
             }

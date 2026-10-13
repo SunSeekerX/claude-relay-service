@@ -1,4 +1,5 @@
 import { logger } from '../../common/logger.js'
+import { parseSSEEvent } from './relay_sse_parser.js'
 import * as thinkingMap from './translator/relay_translator_thinking.js'
 /**
  * OpenAI 到 Claude 格式转换服务
@@ -198,39 +199,29 @@ class OpenAIToClaudeConverter {
       return ''
     }
 
-    // 解析 SSE 数据
-    const lines = chunk.split('\n')
+    const frames = chunk.split(/\r\n\r\n|\r\n\n|\n\r\n|\n\n|\r\r/)
     const convertedChunks = []
     let hasMessageStop = false
-    const streamState = this.streamUsage.get(sessionId) || { input: 0, cacheRead: 0, cacheCreate: 0 }
+    const streamState = this.streamUsage.get(sessionId) ?? { input: 0, cacheRead: 0, cacheCreate: 0 }
     this.streamUsage.set(sessionId, streamState)
 
-    for (const line of lines) {
-      if (line.startsWith('data: ')) {
-        const data = line.substring(6)
-        if (data === '[DONE]') {
-          convertedChunks.push('data: [DONE]\n\n')
-          continue
-        }
-
-        try {
-          const claudeEvent = JSON.parse(data)
-
-          // 检查是否是 message_stop 事件
-          if (claudeEvent.type === 'message_stop') {
-            hasMessageStop = true
-          }
-
-          const openaiChunk = this._convertStreamEvent(claudeEvent, requestModel, sessionId, streamState)
-          if (openaiChunk) {
-            convertedChunks.push(`data: ${JSON.stringify(openaiChunk)}\n\n`)
-          }
-        } catch (e) {
-          // 跳过无法解析的数据，不传递非JSON格式的行
-          continue
-        }
+    for (const frame of frames) {
+      const event = parseSSEEvent(frame)
+      if (event.type === 'done') {
+        convertedChunks.push('data: [DONE]\n\n')
+        continue
       }
-      // 忽略 event: 行和空行，OpenAI 格式不包含这些
+      if (event.type !== 'data') {
+        continue
+      }
+      const claudeEvent = event.data
+      if (claudeEvent.type === 'message_stop') {
+        hasMessageStop = true
+      }
+      const openaiChunk = this._convertStreamEvent(claudeEvent, requestModel, sessionId, streamState)
+      if (openaiChunk) {
+        convertedChunks.push(`data: ${JSON.stringify(openaiChunk)}\n\n`)
+      }
     }
 
     // 如果收到 message_stop 事件，添加 [DONE] 标记

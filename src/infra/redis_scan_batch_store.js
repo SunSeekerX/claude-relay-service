@@ -326,9 +326,15 @@ export const attach = (redisClient) => {
    * @param {string} indexKey - 索引 Set 的 key
    * @param {string} scanPattern - SCAN 的 pattern
    * @param {RegExp} extractRegex - 从 key 中提取 ID 的正则
+   * @param {number|null} indexTtl - 重建用量索引时沿用对应统计周期的 TTL
    * @returns {Promise<string[]>} ID 列表
    */
-  redisClient.getAllIdsByIndex = async function (indexKey, scanPattern, extractRegex) {
+  redisClient.getAllIdsByIndex = async function (
+    indexKey,
+    scanPattern,
+    extractRegex,
+    indexTtl = null
+  ) {
     const client = this.getClientSafe()
     const emptyKey = RedisKeys.emptyMarker(indexKey)
     const reservedIds = new Set([indexKey, emptyKey]
@@ -357,7 +363,11 @@ export const attach = (redisClient) => {
       .filter((id) => id && !reservedIds.has(id))
     // 建立索引
     if (ids.length > 0) {
-      await client.sadd(indexKey, ...ids)
+      if (indexTtl === null) {
+        await client.sadd(indexKey, ...ids)
+      } else {
+        await client.multi().sadd(indexKey, ...ids).expire(indexKey, indexTtl).exec()
+      }
     }
     return ids
   }

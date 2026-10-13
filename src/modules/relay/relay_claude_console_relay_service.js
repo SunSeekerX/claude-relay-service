@@ -1,5 +1,8 @@
 import axios from 'axios'
 import { StringDecoder } from 'node:string_decoder'
+import { IncrementalSSEParser, parseSSEEvent } from './relay_sse_parser.js'
+import { ClaudeStreamState } from './relay_claude_stream_state.js'
+import { createClaudeStreamFinalizer } from './relay_claude_stream_usage.js'
 import { claudeConsoleAccountService } from '../account/account_claude_console_service.js'
 import { redis } from '../../infra/redis.js'
 import { logger } from '../../common/logger.js'
@@ -785,7 +788,6 @@ class ClaudeConsoleRelayService {
     return new Promise((resolve, reject) => {
       let aborted = false
       let waitingForClientFinish = false
-      let finalUsageReported = false
       let backpressure = null
       const onClientClose = () => {
         aborted = true
@@ -1062,18 +1064,6 @@ class ClaudeConsoleRelayService {
             }
           }
 
-          // 成功响应，检查并移除错误状态
-          claudeConsoleAccountService.isAccountRateLimited(accountId).then((isRateLimited) => {
-            if (isRateLimited) {
-              claudeConsoleAccountService.removeAccountRateLimit(accountId)
-            }
-          })
-          claudeConsoleAccountService.isAccountOverloaded(accountId).then((isOverloaded) => {
-            if (isOverloaded) {
-              claudeConsoleAccountService.removeAccountOverload(accountId)
-            }
-          })
-
           // 设置响应头
           // 关键修复：尊重 auth.js 提前设置的 Connection: close
           // 当并发队列功能启用时，auth.js 会设置 Connection: close 来禁用 Keep-Alive
@@ -1091,373 +1081,158 @@ class ClaudeConsoleRelayService {
             })
           }
 
-          let buffer = ''
-          const streamDecoder = new StringDecoder('utf8')
-          // 流处理致命错误后停止转发
-          // DEC_20260905_163148
-          let streamFatal = false
-          const collectedUsageData = {
-            model: body.model || account?.defaultModel || null,
+          const parser = new IncrementalSSEParser()
+          const state = new ClaudeStreamState({
+            model: body.model ?? account?.defaultModel ?? null
+          })
+          const finalizeUsage = createClaudeStreamFinalizer({
+            state,
+            usageCallback,
+            clientRequest: clientReq,
+            accountId,
+            accountType: 'claude-console'
+          })
+          let finishing = false
+          let errorForwarded = false
+          backpressure = createStreamBackpressure(response.data, responseStream)
+
+          const forwardFrames = (frames) => {
+            let output = ''
+            for (const frame of frames) {
+              if (state.terminalType) {
+                break
+              }
+              const event = parseSSEEvent(frame)
+              if (event.type === 'data') {
+                state.observe(event.data)
+              }
+              if (state.terminalType === 'error') {
+                if (output && !aborted && isStreamWritable(responseStream)) {
+                  const transformed = streamTransformer ? streamTransformer(output) : output
+                  if (transformed) {
+                    responseStream.write(transformed)
+                  }
+                }
+                output = ''
+                const result = state.result()
+                this._writeStreamClientError(responseStream, {
+                  statusCode: result.statusCode,
+                  rawBody: { error: state.error },
+                  streamTransformer
+                })
+                errorForwarded = true
+              } else {
+                output += frame
+              }
+            }
+            if (output && !aborted && isStreamWritable(responseStream)) {
+              const transformed = streamTransformer ? streamTransformer(output) : output
+              if (transformed) {
+                return responseStream.write(transformed)
+              }
+            }
+            return !responseStream.writableNeedDrain
           }
 
-          // 处理流数据
-          backpressure = createStreamBackpressure(response.data, responseStream)
-          response.data.on('data', (chunk) => {
+          const finishStream = async (transportError = null) => {
+            if (finishing) {
+              return
+            }
+            finishing = true
             try {
-              // fatal 才停 drain；客户端断开仍继续解析 usage 再计费
-              // DEC_20260905_195558 对齐官方 Claude / OpenAI-Responses drain-for-usage
-              if (streamFatal) {
+              if (!transportError && !forwardFrames(parser.finishFrames())) {
+                aborted ||= !(await backpressure.waitForDrain())
+              }
+              const result = await finalizeUsage(transportError)
+              if (result.statusCode !== 200 && !errorForwarded) {
+                this._writeStreamClientError(responseStream, {
+                  statusCode: result.statusCode,
+                  rawBody: { error: state.error },
+                  streamTransformer
+                })
+                errorForwarded = true
+              }
+              if (result.statusCode === 200) {
+                await Promise.all([
+                  claudeConsoleAccountService
+                    .isAccountRateLimited(accountId)
+                    .then((limited) =>
+                      limited ? claudeConsoleAccountService.removeAccountRateLimit(accountId) : null
+                    ),
+                  claudeConsoleAccountService
+                    .isAccountOverloaded(accountId)
+                    .then((overloaded) =>
+                      overloaded
+                        ? claudeConsoleAccountService.removeAccountOverload(accountId)
+                        : null
+                    )
+                ]).catch((error) => {
+                  logger.error('Failed to clear Console stream account errors:', error)
+                })
+              }
+              if (transportError || aborted || !isStreamWritable(responseStream)) {
+                if (isStreamWritable(responseStream)) {
+                  responseStream.end()
+                }
+                settleStreamErr(transportError ?? new Error('Client disconnected'))
                 return
               }
-
-              const chunkStr = streamDecoder.write(chunk)
-              buffer += chunkStr
-
-              // 处理完整的SSE行
-              const lines = buffer.split('\n')
-              buffer = lines.pop() || ''
-
-              // 转发数据并解析usage
-              if (lines.length > 0) {
-                // 检查流是否可写（客户端连接是否有效）
-                if (!aborted && isStreamWritable(responseStream)) {
-                  const linesToForward = lines.join('\n') + (lines.length > 0 ? '\n' : '')
-
-                  // 应用流转换器如果有
-                  let dataToWrite = linesToForward
-                  if (streamTransformer) {
-                    const transformed = streamTransformer(linesToForward)
-                    if (transformed) {
-                      dataToWrite = transformed
-                    } else {
-                      dataToWrite = null
-                    }
-                  }
-
-                  if (dataToWrite) {
-                    if (!responseStream.write(dataToWrite)) {
-                      backpressure.waitForDrain().then((writable) => {
-                        aborted ||= !writable
-                      })
-                    }
-                  }
-                } else if (aborted || !isStreamWritable(responseStream)) {
-                  // 客户端已断：跳过写回，继续解析 usage
-                  logger.info(
-                    ` [Console] Client disconnected during stream, draining for usage (${lines.length} lines) account=${accountId}`,
-                  )
-                }
-
-                // 解析SSE数据寻找usage信息（无论连接状态如何）
-                for (const line of lines) {
-                  if (line.startsWith('data:')) {
-                    const jsonStr = line.slice(5).trimStart()
-                    if (!jsonStr || jsonStr === '[DONE]') {
-                      continue
-                    }
-                    try {
-                      const data = JSON.parse(jsonStr)
-
-                      // 收集usage数据
-                      if (data.type === 'message_start' && data.message && data.message.usage) {
-                        collectedUsageData.input_tokens = data.message.usage.input_tokens || 0
-                        collectedUsageData.cache_creation_input_tokens =
-                          data.message.usage.cache_creation_input_tokens || 0
-                        collectedUsageData.cache_read_input_tokens = data.message.usage.cache_read_input_tokens || 0
-                        collectedUsageData.model = data.message.model
-
-                        // 检查是否有详细的 cache_creation 对象
-                        if (
-                          data.message.usage.cache_creation &&
-                          typeof data.message.usage.cache_creation === 'object'
-                        ) {
-                          collectedUsageData.cache_creation = {
-                            ephemeral_5m_input_tokens: data.message.usage.cache_creation.ephemeral_5m_input_tokens || 0,
-                            ephemeral_1h_input_tokens: data.message.usage.cache_creation.ephemeral_1h_input_tokens || 0,
-                          }
-                          logger.info(
-                            'Collected detailed cache creation data:',
-                            JSON.stringify(collectedUsageData.cache_creation),
-                          )
-                        }
-                      }
-
-                      if (data.type === 'message_delta' && data.usage) {
-                        // 提取所有usage字段，message_delta可能包含完整的usage信息
-                        if (data.usage.output_tokens !== undefined) {
-                          collectedUsageData.output_tokens = data.usage.output_tokens || 0
-                        }
-
-                        // 提取input_tokens（如果存在）
-                        if (data.usage.input_tokens !== undefined) {
-                          collectedUsageData.input_tokens = data.usage.input_tokens || 0
-                        }
-
-                        // 提取cache相关的tokens
-                        if (data.usage.cache_creation_input_tokens !== undefined) {
-                          collectedUsageData.cache_creation_input_tokens = data.usage.cache_creation_input_tokens || 0
-                        }
-                        if (data.usage.cache_read_input_tokens !== undefined) {
-                          collectedUsageData.cache_read_input_tokens = data.usage.cache_read_input_tokens || 0
-                        }
-
-                        // 检查是否有详细的 cache_creation 对象
-                        if (data.usage.cache_creation && typeof data.usage.cache_creation === 'object') {
-                          collectedUsageData.cache_creation = {
-                            ephemeral_5m_input_tokens: data.usage.cache_creation.ephemeral_5m_input_tokens || 0,
-                            ephemeral_1h_input_tokens: data.usage.cache_creation.ephemeral_1h_input_tokens || 0,
-                          }
-                        }
-
-                        logger.info(
-                          ' [Console] Collected usage data from message_delta:',
-                          JSON.stringify(collectedUsageData),
-                        )
-
-                        // 如果已经收集到了完整数据，触发回调
-                        if (
-                          collectedUsageData.input_tokens !== undefined &&
-                          collectedUsageData.output_tokens !== undefined &&
-                          !finalUsageReported
-                        ) {
-                          if (!collectedUsageData.model) {
-                            collectedUsageData.model = body.model || account?.defaultModel || null
-                          }
-                          logger.info('[Console] Complete usage data collected:', JSON.stringify(collectedUsageData))
-                          if (usageCallback && typeof usageCallback === 'function') {
-                            usageCallback({ ...collectedUsageData, accountId })
-                          }
-                          finalUsageReported = true
-                        }
-                      }
-
-                      // 不因模型不支持而 block 账号
-                    } catch (e) {
-                      // 忽略解析错误
-                    }
-                  }
-                }
+              if (responseStream.socket && !responseStream.socket.destroyed) {
+                responseStream.socket.setNoDelay(true)
               }
+              waitingForClientFinish = true
+              responseStream.end(settleStreamOk)
             } catch (error) {
-              logger.error(
-                `Error processing Claude Console stream data (Account: ${account?.name || accountId}):`,
-                summarizeErrorForLog(error),
-              )
-              // 写终端错误后 reject：外层才能记失败并上报代理不健康
-              // DEC_20260905_165339 对齐官方 Claude fatal reject
-              streamFatal = true
-              aborted = true
-              this._writeStreamClientError(responseStream, {
-                statusCode: 500,
-                streamTransformer,
-                fallbackMessage: 'Stream processing error',
-              })
-              try {
-                if (response.data && typeof response.data.destroy === 'function') {
-                  response.data.destroy()
-                }
-              } catch (e) {
-                console.error(summarizeErrorForLog(e))
+              logger.error('Error processing Console stream end:', summarizeErrorForLog(error))
+              // 转换器或分帧失败仍须结算此前已报告的合法用量。
+              error.code = 'STREAM_FATAL'
+              await finalizeUsage(error)
+              if (!errorForwarded) {
+                this._writeStreamClientError(responseStream, {
+                  statusCode: 502,
+                  streamTransformer,
+                  fallbackMessage: 'Stream processing error'
+                })
               }
               if (isStreamWritable(responseStream)) {
                 responseStream.end()
               }
-              const fatalError = new Error('Stream processing error')
-              fatalError.code = 'STREAM_FATAL'
-              settleStreamErr(fatalError)
-            }
-          })
-
-          response.data.on('end', async () => {
-            try {
-              // fatal 已 reject：只收尾，不再 settle
-              // DEC_20260905_165339
-              if (streamFatal) {
-                if (isStreamWritable(responseStream)) {
-                  responseStream.end()
-                }
-                return
-              }
-
-              buffer += streamDecoder.end()
-              // 处理缓冲区中剩余数据：aborted 时只解析 usage 不写回
-              // DEC_20260905_195558 drain 完再计费，禁止半截 output=0 落账
-              if (buffer.trim()) {
-                const remainingLines = buffer.split('\n')
-                if (!aborted && isStreamWritable(responseStream)) {
-                  if (streamTransformer) {
-                    const transformed = streamTransformer(buffer)
-                    if (transformed) {
-                      if (!responseStream.write(transformed)) {
-                        aborted ||= !(await backpressure.waitForDrain())
-                      }
-                    }
-                  } else {
-                    if (!responseStream.write(buffer)) {
-                      aborted ||= !(await backpressure.waitForDrain())
-                    }
-                  }
-                }
-                for (const line of remainingLines) {
-                  if (!line.startsWith('data:')) {
-                    continue
-                  }
-                  const jsonStr = line.slice(5).trimStart()
-                  if (!jsonStr || jsonStr === '[DONE]') {
-                    continue
-                  }
-                  try {
-                    const data = JSON.parse(jsonStr)
-                    if (data.type === 'message_start' && data.message && data.message.usage) {
-                      collectedUsageData.input_tokens = data.message.usage.input_tokens || 0
-                      collectedUsageData.cache_creation_input_tokens =
-                        data.message.usage.cache_creation_input_tokens || 0
-                      collectedUsageData.cache_read_input_tokens = data.message.usage.cache_read_input_tokens || 0
-                      collectedUsageData.model = data.message.model
-                      if (data.message.usage.cache_creation && typeof data.message.usage.cache_creation === 'object') {
-                        collectedUsageData.cache_creation = {
-                          ephemeral_5m_input_tokens: data.message.usage.cache_creation.ephemeral_5m_input_tokens || 0,
-                          ephemeral_1h_input_tokens: data.message.usage.cache_creation.ephemeral_1h_input_tokens || 0,
-                        }
-                      }
-                    }
-                    if (data.type === 'message_delta' && data.usage) {
-                      if (data.usage.output_tokens !== undefined) {
-                        collectedUsageData.output_tokens = data.usage.output_tokens || 0
-                      }
-                      if (data.usage.input_tokens !== undefined) {
-                        collectedUsageData.input_tokens = data.usage.input_tokens || 0
-                      }
-                      if (data.usage.cache_creation_input_tokens !== undefined) {
-                        collectedUsageData.cache_creation_input_tokens = data.usage.cache_creation_input_tokens || 0
-                      }
-                      if (data.usage.cache_read_input_tokens !== undefined) {
-                        collectedUsageData.cache_read_input_tokens = data.usage.cache_read_input_tokens || 0
-                      }
-                      if (data.usage.cache_creation && typeof data.usage.cache_creation === 'object') {
-                        collectedUsageData.cache_creation = {
-                          ephemeral_5m_input_tokens: data.usage.cache_creation.ephemeral_5m_input_tokens || 0,
-                          ephemeral_1h_input_tokens: data.usage.cache_creation.ephemeral_1h_input_tokens || 0,
-                        }
-                      }
-                    }
-                    if (
-                      (data.type === 'message_delta' || data.type === 'message_stop') &&
-                      !finalUsageReported &&
-                      collectedUsageData.output_tokens !== undefined
-                    ) {
-                      if (usageCallback && typeof usageCallback === 'function') {
-                        usageCallback({ ...collectedUsageData, accountId })
-                      }
-                      finalUsageReported = true
-                    }
-                  } catch {
-                    // 忽略解析错误
-                  }
-                }
-                buffer = ''
-              }
-
-              // 兜底：仅在已拿到 output_tokens（message_delta）时落账，禁止半截补 0
-              // DEC_20260905_195558
-              if (!finalUsageReported) {
-                if (
-                  collectedUsageData.output_tokens !== undefined &&
-                  (collectedUsageData.input_tokens !== undefined ||
-                    collectedUsageData.cache_read_input_tokens !== undefined)
-                ) {
-                  if (collectedUsageData.input_tokens === undefined) {
-                    collectedUsageData.input_tokens = 0
-                    logger.warn(
-                      ' [Console] message_delta missing input_tokens, setting to 0. This may indicate incomplete usage data.',
-                    )
-                  }
-                  if (!collectedUsageData.model) {
-                    collectedUsageData.model = body.model || account?.defaultModel || null
-                  }
-                  logger.info(` [Console] Saving usage data via end fallback: ${JSON.stringify(collectedUsageData)}`)
-                  if (usageCallback && typeof usageCallback === 'function') {
-                    usageCallback({ ...collectedUsageData, accountId })
-                  }
-                  finalUsageReported = true
-                } else if (
-                  collectedUsageData.input_tokens !== undefined &&
-                  collectedUsageData.output_tokens === undefined
-                ) {
-                  // 仅 message_start、无 message_delta：不落账，避免 output=0 少计
-                  logger.warn(
-                    ` [Console] Stream end without output_tokens; skip billing to avoid undercount account=${accountId} input=${collectedUsageData.input_tokens}`,
-                  )
-                } else {
-                  logger.warn(
-                    ' [Console] Stream completed but no usage data was captured! This indicates a problem with SSE parsing or API response format.',
-                  )
-                }
-              }
-
-              // 客户端断开：usage 已按 drain 结果处理，再 settle 释放并发
-              clientReq?._crsRecordRelayResult?.({
-                statusCode: 200, hasUsage: finalUsageReported, final: true
-              })
-              // DEC_20260905_165725 / DEC_20260905_195558
-              if (aborted) {
-                if (isStreamWritable(responseStream)) {
-                  responseStream.end()
-                }
-                settleStreamErr(new Error('Client disconnected'))
-                return
-              }
-
-              // 确保流正确结束
-              if (isStreamWritable(responseStream)) {
-                // 诊断日志：流结束前状态
-                logger.info(
-                  ` [STREAM] Ending response | destroyed: ${responseStream.destroyed}, ` +
-                    `socketDestroyed: ${responseStream.socket?.destroyed}, ` +
-                    `socketBytesWritten: ${responseStream.socket?.bytesWritten || 0}`,
-                )
-
-                // 禁用 Nagle 算法确保数据立即发送
-                if (responseStream.socket && !responseStream.socket.destroyed) {
-                  responseStream.socket.setNoDelay(true)
-                }
-
-                // 等待数据完全 flush 到客户端后再 resolve
-                waitingForClientFinish = true
-                responseStream.end(() => {
-                  logger.info(
-                    ` [STREAM] Response ended and flushed | socketBytesWritten: ${responseStream.socket?.bytesWritten || 'unknown'}`,
-                  )
-                  settleStreamOk()
-                })
-              } else {
-                // 连接已断开，记录警告
-                logger.warn(
-                  ` [Console] Client disconnected before stream end, data may not have been received | account: ${account?.name || accountId}`,
-                )
-                settleStreamErr(new Error('Client disconnected'))
-              }
-            } catch (error) {
-              logger.error('Error processing stream end:', summarizeErrorForLog(error))
               settleStreamErr(error)
             }
-          })
+          }
 
-          response.data.on('error', (error) => {
-            logger.error(
-              `Claude Console stream error (Account: ${account?.name || accountId}):`,
-              summarizeErrorForLog(error),
-            )
-            // DEC_20260905_162636 协议化脱敏，禁止 error.message 原文
-            this._writeStreamClientError(responseStream, {
-              statusCode: 500,
-              streamTransformer,
-              fallbackMessage: 'Stream error',
-            })
-            if (isStreamWritable(responseStream)) {
-              responseStream.end()
+          response.data.on('data', (chunk) => {
+            if (finishing) {
+              return
             }
-            settleStreamErr(error)
+            try {
+              // DEC_20260905_195558 客户端断开仍继续读取累计用量再计费。
+              if (!forwardFrames(parser.feedFrames(chunk))) {
+                backpressure.waitForDrain().then((writable) => {
+                  aborted ||= !writable
+                })
+              }
+              if (state.terminalType) {
+                void finishStream()
+                response.data.destroy()
+              }
+            } catch (error) {
+              logger.error('Error processing Console stream data:', summarizeErrorForLog(error))
+              error.code = 'STREAM_FATAL'
+              void finishStream(error)
+              response.data.destroy()
+            }
+          })
+          response.data.on('end', () => {
+            void finishStream()
+          })
+          response.data.on('error', (error) => {
+            void finishStream(error)
+          })
+          response.data.on('close', () => {
+            if (!response.data.readableEnded) {
+              void finishStream(new Error('Upstream stream closed before end'))
+            }
           })
         })
         .catch((error) => {

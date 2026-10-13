@@ -286,7 +286,7 @@ export const handleChatCompletion = async (req, res, apiKeyData) => {
 
       // 使用转换后的响应流 (根据账户类型选择转发服务)
       // 创建 usage 回调函数
-      const usageCallback = (usage) => {
+      const usageCallback = (usage, result = {}) => {
         // 记录使用统计
         if (usage && usage.input_tokens !== undefined && usage.output_tokens !== undefined) {
           const model = usage.model || claudeRequest.model
@@ -307,7 +307,7 @@ export const handleChatCompletion = async (req, res, apiKeyData) => {
           }
 
           // 使用新的 recordUsageWithDetails 方法来支持详细的缓存数据
-          apiKeyService
+          return apiKeyService
             .recordUsageWithDetails(
               apiKeyData.id,
               usageWithRequestMeta, // 传递 usage + 请求模式元信息（beta/speed）
@@ -318,6 +318,7 @@ export const handleChatCompletion = async (req, res, apiKeyData) => {
                 requestBody: req.body,
                 stream: true,
                 statusCode: res.statusCode,
+                ...result,
               }),
             )
             .then((costs) => {
@@ -359,38 +360,42 @@ export const handleChatCompletion = async (req, res, apiKeyData) => {
       const sessionId = `chatcmpl-${Math.random().toString(36).substring(2, 15)}${Math.random().toString(36).substring(2, 15)}`
       const streamTransformer = (chunk) => openaiToClaude.convertStreamChunk(chunk, req.body.model, sessionId)
 
-      // 根据账户类型选择转发服务
-      if (accountType === 'claude-console') {
-        // Claude Console 账户使用 Console 转发服务
-        await claudeConsoleRelayService.relayStreamRequestWithUsageCapture(
-          claudeRequest,
-          apiKeyData,
-          res,
-          claudeCodeHeaders,
-          usageCallback,
-          accountId,
-          streamTransformer,
-        )
-      } else {
-        // Claude Official 账户使用标准转发服务
-        await claudeRelayService.relayStreamRequestWithUsageCapture(
-          claudeRequest,
-          apiKeyData,
-          res,
-          claudeCodeHeaders,
-          usageCallback,
-          streamTransformer,
-          {
-            betaHeader: buildClaudeBetaHeader({
-              modelId: claudeRequest.model || req.body.model,
-              accountType: 'claude-official',
-              clientBetaHeader: req.headers['anthropic-beta'],
-              body: claudeRequest,
-              isRealClaudeCode: false,
-              oauthMimic: true,
-            }),
-          },
-        )
+      try {
+        // 根据账户类型选择转发服务
+        if (accountType === 'claude-console') {
+          // Claude Console 账户使用 Console 转发服务
+          await claudeConsoleRelayService.relayStreamRequestWithUsageCapture(
+            claudeRequest,
+            apiKeyData,
+            res,
+            claudeCodeHeaders,
+            usageCallback,
+            accountId,
+            streamTransformer,
+          )
+        } else {
+          // Claude Official 账户使用标准转发服务
+          await claudeRelayService.relayStreamRequestWithUsageCapture(
+            claudeRequest,
+            apiKeyData,
+            res,
+            claudeCodeHeaders,
+            usageCallback,
+            streamTransformer,
+            {
+              betaHeader: buildClaudeBetaHeader({
+                modelId: claudeRequest.model || req.body.model,
+                accountType: 'claude-official',
+                clientBetaHeader: req.headers['anthropic-beta'],
+                body: claudeRequest,
+                isRealClaudeCode: false,
+                oauthMimic: true,
+              }),
+            },
+          )
+        }
+      } finally {
+        openaiToClaude.streamUsage.delete(sessionId)
       }
     } else {
       // 非流式请求

@@ -48,7 +48,7 @@ export const attach = (redisClient) => {
     await this.client.hset(RedisKeys.usage.globalTotal, total)
 
     // 迁移月份索引（从现有的 usage:model:monthly:* key 中提取月份）
-    const monthlyKeys = await this.client.keys(RedisKeys.usage.modelMonthlyPattern)
+    const monthlyKeys = await this.scanKeys(RedisKeys.usage.modelMonthlyPattern)
     const months = new Set()
     for (const key of monthlyKeys) {
       const match = key.match(/:(\d{4}-\d{2})$/)
@@ -68,7 +68,7 @@ export const attach = (redisClient) => {
   // 确保月份索引完整（后台检查，补充缺失的月份）
   redisClient.ensureMonthlyMonthsIndex = async function () {
     // 扫描所有月份 key
-    const monthlyKeys = await this.client.keys(RedisKeys.usage.modelMonthlyPattern)
+    const monthlyKeys = await this.scanKeys(RedisKeys.usage.modelMonthlyPattern)
     const allMonths = new Set()
     for (const key of monthlyKeys) {
       const match = key.match(/:(\d{4}-\d{2})$/)
