@@ -97,7 +97,7 @@ class CostRankService {
       // 设置定时更新
       for (const [timeRange, interval] of Object.entries(UPDATE_INTERVALS)) {
         this.timers[timeRange] = setInterval(() => {
-          this.updateRank(timeRange).catch((err) => {
+          this.updateRank(timeRange, { skipUnchanged: true }).catch((err) => {
             logger.error(`Failed to update cost rank for ${timeRange}:`, err)
           })
         }, interval)
@@ -152,7 +152,7 @@ class CostRankService {
    * 更新指定时间范围的排序索引
    * @param {string} timeRange - 时间范围
    */
-  async updateRank(timeRange) {
+  async updateRank(timeRange, { skipUnchanged = false } = {}) {
     const client = redis.getClient()
     if (!client) {
       logger.warn('Redis client not available, skipping cost rank update')
@@ -173,6 +173,26 @@ class CostRankService {
     const startTime = Date.now()
 
     try {
+      const dateRange = this._getDateRange(timeRange)
+      const sourcePeriod = JSON.stringify({
+        ...dateRange,
+        businessDate: redis.getDateStringInTimezone()
+      })
+      // DEC_20261014_042905 原刷新周期不变，无数据变化跳过重算，业务日切换重建。
+      await client.set(RedisRegistry.costRank.sourceRevision, '0', 'NX')
+      const revision = await client.get(RedisRegistry.costRank.sourceRevision).catch((error) => {
+        logger.warn('Failed to read cost rank change marker; rebuilding rank', error)
+        return null
+      })
+      const previous = await client.hgetall(metaKey)
+      if (skipUnchanged && revision !== null && /^\d+$/.test(revision) &&
+          previous.status === 'ready' && previous.sourceRevision === revision &&
+          previous.sourcePeriod === sourcePeriod &&
+          (previous.keyCount === '0' || await client.exists(rankKey))) {
+        logger.debug(`Skipped unchanged cost rank for ${timeRange}`)
+        return
+      }
+      const source = { sourceRevision: revision ?? '', sourcePeriod }
       // 标记为更新中
       await client.hset(metaKey, 'status', 'updating')
 
@@ -182,12 +202,9 @@ class CostRankService {
       if (keyIds.length === 0) {
         // 无数据时清空索引
         await client.del(rankKey)
-        await this._updateMeta(client, metaKey, startTime, 0)
+        await this._updateMeta(client, metaKey, startTime, 0, source)
         return
       }
-
-      // 2. 计算日期范围
-      const dateRange = this._getDateRange(timeRange)
 
       // 3. 分批计算费用
       const costs = await this._calculateCostsInBatches(keyIds, dateRange)
@@ -196,7 +213,7 @@ class CostRankService {
       await this._atomicUpdateIndex(client, rankKey, costs)
 
       // 5. 更新元数据
-      await this._updateMeta(client, metaKey, startTime, keyIds.length)
+      await this._updateMeta(client, metaKey, startTime, keyIds.length, source)
 
       logger.info(`Updated cost rank for ${timeRange}: ${keyIds.length} keys in ${Date.now() - startTime}ms`)
     } catch (error) {
@@ -244,8 +261,9 @@ class CostRankService {
    * 更新元数据
    * @private
    */
-  async _updateMeta(client, metaKey, startTime, keyCount) {
+  async _updateMeta(client, metaKey, startTime, keyCount, source) {
     await client.hmset(metaKey, {
+      ...source,
       lastUpdate: new Date().toISOString(),
       keyCount: keyCount.toString(),
       status: 'ready',

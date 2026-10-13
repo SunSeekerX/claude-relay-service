@@ -1,3 +1,4 @@
+import { startUpstreamTiming, finishUpstreamTiming } from '../../common/request_timing.js'
 import axios from 'axios'
 import { StringDecoder } from 'node:string_decoder'
 import { IncrementalSSEParser, parseSSEEvent } from './relay_sse_parser.js'
@@ -295,7 +296,9 @@ class ClaudeConsoleRelayService {
         'Sending request to Claude Console API with headers:',
         JSON.stringify(requestConfig.headers, null, 2),
       )
+      startUpstreamTiming(clientRequest)
       const response = await axios(requestConfig)
+      finishUpstreamTiming(clientRequest, { headersOnly: false })
 
       // DEC_20260905_194420 上游响应头挂 clientRequest
       if (clientRequest && typeof clientRequest === 'object') {
@@ -879,6 +882,7 @@ class ClaudeConsoleRelayService {
       }
 
       // 发送请求
+      startUpstreamTiming(responseStream.req)
       const request = axios(requestConfig)
 
       // 注意：使用 .then(async ...) 模式处理响应
@@ -886,6 +890,7 @@ class ClaudeConsoleRelayService {
       // - queueLockAcquired = false 的赋值会在 finally 执行前完成（JS 单线程保证）
       request
         .then(async (response) => {
+          finishUpstreamTiming(responseStream.req)
           logger.debug(`Claude Console Claude stream response status: ${response.status}`)
 
           // DEC_20260905_194420 流式上游头挂到 responseStream.req

@@ -1,5 +1,6 @@
 import { redis } from '../../infra/redis.js'
 import { logger } from '../../common/logger.js'
+import { normalizeRequestTimings } from '../../common/request_timing.js'
 import { claudeRelayConfigService } from './relay_claude_relay_config_service.js'
 import { claudeAccountService } from '../account/account_claude_service.js'
 import { claudeConsoleAccountService } from '../account/account_claude_console_service.js'
@@ -738,6 +739,7 @@ class RequestDetailService {
       costRecomputed: detail.costRecomputed === true,
       durationMs,
       firstTokenMs,
+      timings: normalizeRequestTimings(detail.timings),
       isLongContextRequest: detail.isLongContextRequest === true,
       reasoningDisplay: detail.reasoningDisplay || reasoningInfo.reasoningDisplay || null,
       reasoningSource: detail.reasoningSource || reasoningInfo.reasoningSource || null,

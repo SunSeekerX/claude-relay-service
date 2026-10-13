@@ -9,6 +9,7 @@ import * as _scanBatchStore from './redis_scan_batch_store.js'
 import * as _globalStatsStore from './redis_global_stats_store.js'
 import * as _proxyStore from './redis_proxy_store.js'
 import * as _accountStore from './redis_account_store.js'
+import * as _accountUsageStore from './redis_account_usage_store.js'
 import * as _sessionStore from './redis_session_store.js'
 import * as _systemStatsStore from './redis_system_stats_store.js'
 import * as _concurrencyStore from './redis_concurrency_store.js'
@@ -401,6 +402,7 @@ _proxyStore.attach(redis)
 // 账户 CRUD（Claude/Droid/OpenAI）— 已抽出至 ./redis/accountStore.js（attach 挂同一单例）
 // ===
 _accountStore.attach(redis)
+_accountUsageStore.attach(redis)
 
 // 会话/OAuth/会话映射 — 已抽出至 ./redis/sessionStore.js
 _sessionStore.attach(redis)

@@ -1,3 +1,8 @@
+import {
+  startUpstreamTiming,
+  finishUpstreamTiming,
+  trackRequestTiming
+} from '../../common/request_timing.js'
 import { fileURLToPath } from 'node:url'
 import https from 'node:https'
 import zlib from 'node:zlib'
@@ -23,7 +28,7 @@ import { formatDateWithTimezone } from '../../common/date_helper.js'
 import * as requestIdentityService from './relay_request_identity_service.js'
 import { createClaudeTestPayload } from '../../common/test_payload_helper.js'
 import { userMessageQueueService } from '../user/user_message_queue_service.js'
-import { isStreamWritable } from '../../common/stream_helper.js'
+import { createStreamBackpressure, isStreamWritable } from '../../common/stream_helper.js'
 import * as upstreamErrorHelper from './relay_upstream_error_helper.js'
 import * as metadataUserIdHelper from './relay_metadata_user_id_helper.js'
 import { RedisKeys, TTL } from '../../infra/redis_key.js'
@@ -488,13 +493,15 @@ class ClaudeRelayService {
       // 选择可用的Claude账户（支持专属绑定和sticky会话）
       let accountSelection
       try {
-        accountSelection = await unifiedClaudeScheduler.selectAccountForApiKey(
-          {
-            ...apiKeyData,
-            _isClaudeCode: this.isRealClaudeCodeRequest(requestBody) === true,
-          },
-          sessionHash,
-          requestBody.model,
+        accountSelection = await trackRequestTiming(clientRequest, 'scheduling', () =>
+          unifiedClaudeScheduler.selectAccountForApiKey(
+            {
+              ...apiKeyData,
+              _isClaudeCode: this.isRealClaudeCodeRequest(requestBody) === true
+            },
+            sessionHash,
+            requestBody.model
+          )
         )
       } catch (error) {
         if (error.code === 'CLAUDE_DEDICATED_RATE_LIMITED') {
@@ -726,7 +733,7 @@ class ClaudeRelayService {
         return { response, retryCount }
       }
 
-      let requestOptions = options
+      let requestOptions = { ...options, clientRequest }
       let { response, retryCount } = await makeRequestWithRetries(requestOptions)
 
       // 被动健康检查：拿到 HTTP 响应即代理传输成功（含 4xx/5xx，不归咎代理）
@@ -1687,7 +1694,9 @@ class ClaudeRelayService {
         timeout: config.requestTimeout || 600000,
       }
 
+      startUpstreamTiming(requestOptions.clientRequest)
       const req = https.request(options, (res) => {
+        finishUpstreamTiming(requestOptions.clientRequest)
         // 使用数组收集 chunks，避免 O(n²) 的 Buffer.concat
         const chunks = []
 
@@ -1696,6 +1705,7 @@ class ClaudeRelayService {
         })
 
         res.on('end', () => {
+          finishUpstreamTiming(requestOptions.clientRequest, { headersOnly: false })
           try {
             // 一次性合并所有 chunks
             const responseData = Buffer.concat(chunks)
@@ -1822,13 +1832,18 @@ class ClaudeRelayService {
       // 选择可用的Claude账户（支持专属绑定和sticky会话）
       let accountSelection
       try {
-        accountSelection = await unifiedClaudeScheduler.selectAccountForApiKey(
-          {
-            ...apiKeyData,
-            _isClaudeCode: this.isRealClaudeCodeRequest(requestBody) === true,
-          },
-          sessionHash,
-          requestBody.model,
+        accountSelection = await trackRequestTiming(
+          responseStream.req,
+          'scheduling',
+          () =>
+            unifiedClaudeScheduler.selectAccountForApiKey(
+              {
+                ...apiKeyData,
+                _isClaudeCode: this.isRealClaudeCodeRequest(requestBody) === true
+              },
+              sessionHash,
+              requestBody.model
+            )
         )
       } catch (error) {
         if (error.code === 'CLAUDE_DEDICATED_RATE_LIMITED') {
@@ -2108,6 +2123,7 @@ class ClaudeRelayService {
       // destroy() 常走 close 不走 end；settle 必须本地完成，否则 Promise 挂死泄漏并发/队列
       // DEC_20260905_163907
       let streamSettled = false
+      let backpressure = null
       let finishStreamResponse = null
       const onClientClose = () => {
         if (!responseStream.writableEnded) {
@@ -2119,6 +2135,7 @@ class ClaudeRelayService {
           return
         }
         streamSettled = true
+        backpressure?.dispose()
         responseStream.removeListener('close', onClientClose)
         if (isStreamWritable(responseStream)) {
           responseStream.end()
@@ -2133,6 +2150,7 @@ class ClaudeRelayService {
           return
         }
         streamSettled = true
+        backpressure?.dispose()
         responseStream.removeListener('close', onClientClose)
         if (isStreamWritable(responseStream)) {
           responseStream.end()
@@ -2154,7 +2172,10 @@ class ClaudeRelayService {
         timeout: config.requestTimeout || 600000,
       }
 
+      const timingRequest = responseStream.req ?? requestOptions.clientRequest
+      startUpstreamTiming(timingRequest)
       const req = https.request(options, async (res) => {
+        finishUpstreamTiming(timingRequest)
         logger.debug(`Claude stream response status: ${res.statusCode}`)
 
         // DEC_20260905_194420 上游响应头挂到 client req，供 request detail 落 upstreamRequestId
@@ -2730,8 +2751,10 @@ class ClaudeRelayService {
               ? res.pipe(zlib.createInflate())
               : res
 
+        backpressure = createStreamBackpressure(dataSource, responseStream)
         const forwardFrames = (frames) => {
           let output = ''
+          let writable = true
           for (const frame of frames) {
             if (state.terminalType) {
               break
@@ -2746,7 +2769,7 @@ class ClaudeRelayService {
                   ? toolNameStreamTransformer(output)
                   : output
                 if (transformed) {
-                  responseStream.write(transformed)
+                  writable = responseStream.write(transformed) && writable
                 }
               }
               output = ''
@@ -2768,9 +2791,10 @@ class ClaudeRelayService {
               ? toolNameStreamTransformer(output)
               : output
             if (transformed) {
-              responseStream.write(transformed)
+              writable = responseStream.write(transformed) && writable
             }
           }
+          return writable && !responseStream.writableNeedDrain
         }
 
         finishStreamResponse = async (transportError = null) => {
@@ -3013,7 +3037,9 @@ class ClaudeRelayService {
           }
           try {
             // 客户端断开时跳过写回，仍读取官方累计用量。
-            forwardFrames(parser.feedFrames(chunk))
+            if (!forwardFrames(parser.feedFrames(chunk))) {
+              void backpressure.waitForDrain()
+            }
             if (state.terminalType) {
               void finishStreamResponse()
               dataSource.destroy()

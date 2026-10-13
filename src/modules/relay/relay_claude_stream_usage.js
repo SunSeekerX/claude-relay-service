@@ -1,3 +1,4 @@
+import { getRequestTimings } from '../../common/request_timing.js'
 import { logger } from '../../common/logger.js'
 import { requestDetailService } from './relay_request_detail_service.js'
 
@@ -35,6 +36,15 @@ export const createClaudeStreamFinalizer = ({
       } catch (error) {
         logger.error('Failed to record Claude stream usage:', error)
       }
+      logger.info('Claude stream finished', {
+        requestId: clientRequest?.requestId,
+        accountId,
+        accountType,
+        terminalType: state.terminalType,
+        statusCode: result.statusCode,
+        hasUsage: Boolean(usage),
+        timings: getRequestTimings(clientRequest)
+      })
       return result
     })
     return finalized

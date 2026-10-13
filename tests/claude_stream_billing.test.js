@@ -525,6 +525,69 @@ for (const provider of ['official', 'console']) {
   })
 }
 
+describe('native Claude backpressure', () => {
+  it('pauses generation reads until the client drains, then bills the last cumulative usage', async () => {
+    const res = makeResponse()
+    const source = new PassThrough()
+    const callback = jest.fn()
+    const { write } = res
+    res.writableNeedDrain = true
+    res.write = jest.fn((chunk) => { write(chunk); return false })
+    const completion = run('official', res, source, callback)
+    await nextTick()
+    source.write(wire([start, delta(4)]))
+    expect(source.isPaused()).toBe(true)
+    source.write(wire([delta(9), stop]))
+    await nextTick()
+    expect(callback).not.toHaveBeenCalled()
+    res.writableNeedDrain = false
+    res.write = jest.fn((chunk) => { write(chunk); return true })
+    res.emit('drain')
+    await completion
+    expect(callback).toHaveBeenCalledTimes(1)
+    expect(callback.mock.calls[0][0].output_tokens).toBe(9)
+    expect(res.listenerCount('drain')).toBe(0)
+    expect(res.listenerCount('close')).toBe(0)
+  })
+
+  it('resumes paused upstream reads when the client disconnects and still settles once', async () => {
+    const res = makeResponse()
+    const source = new PassThrough()
+    const callback = jest.fn()
+    res.writableNeedDrain = true
+    res.write.mockReturnValue(false)
+    const completion = run('official', res, source, callback)
+    await nextTick()
+    source.write(wire([start, delta(4)]))
+    source.write(wire([delta(9), stop]))
+    expect(source.isPaused()).toBe(true)
+    res.destroyed = true
+    res.emit('close')
+    await completion
+    expect(callback).toHaveBeenCalledTimes(1)
+    expect(callback.mock.calls[0][0].output_tokens).toBe(9)
+    expect(res.listenerCount('drain')).toBe(0)
+  })
+
+  it('releases a paused stream after upstream failure without waiting for client drain', async () => {
+    const res = makeResponse()
+    const source = new PassThrough()
+    const callback = jest.fn()
+    res.writableNeedDrain = true
+    res.write.mockReturnValue(false)
+    const completion = run('official', res, source, callback)
+    const rejected = expect(completion).rejects.toThrow('fixture failure')
+    await nextTick()
+    source.write(wire([start, delta(4)]))
+    source.destroy(new Error('fixture failure'))
+    await rejected
+    expect(callback).toHaveBeenCalledTimes(1)
+    expect(callback.mock.calls[0][0].output_tokens).toBe(4)
+    expect(res.listenerCount('drain')).toBe(0)
+    expect(res.listenerCount('close')).toBe(0)
+  })
+})
+
 describe('Claude stream state validation and shared finalization', () => {
   it.each([null, -1, '9', 1.5, Number.NaN])('rejects invalid output snapshot %s', (invalid) => {
     const state = new ClaudeStreamState()

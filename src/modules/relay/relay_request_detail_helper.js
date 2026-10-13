@@ -1,3 +1,5 @@
+import { getRequestTimings, normalizeRequestTimings } from '../../common/request_timing.js'
+
 const SENSITIVE_KEY_PATTERN =
   /(authorization|proxy-authorization|api[_-]?key|access[_-]?token|refresh[_-]?token|token|secret|password|cookie|set-cookie|client_secret|private[_-]?key|proxy)/i
 const DEFAULT_MAX_STRING_CHARS = 80
@@ -582,6 +584,12 @@ export const createRequestDetailMeta = (req, overrides = {}) => {
     },
   })
   // 计费附加量（按图张数/音频秒等），仅透传给 recordUsage → calculateCost，不进请求体快照语义
+  // DEC_20261014_042905 分段耗时沿用明细开关及保留期，同时写日志并在详情展示。
+  Object.defineProperty(meta, 'timings', {
+    enumerable: true,
+    get: () => overrides.timings !== undefined
+      ? normalizeRequestTimings(overrides.timings) : getRequestTimings(req)
+  })
   if (overrides.billingUsage && typeof overrides.billingUsage === 'object') {
     meta.billingUsage = overrides.billingUsage
   }
@@ -899,6 +907,7 @@ export const buildFailedRequestDetailPayload = ({ req, statusCode, durationMs, r
     stream: Boolean(body && body.stream === true),
     durationMs: toFiniteNumber(durationMs),
     firstTokenMs: toFiniteNumber(req?.firstTokenMs),
+    timings: getRequestTimings(req),
     requestBody: body || undefined,
     apiKeyId: req?.apiKey?.id || null,
     accountId: req?._crsAccountId || req?.account?.id || null,

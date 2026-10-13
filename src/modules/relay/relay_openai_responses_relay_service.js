@@ -1,3 +1,9 @@
+import {
+  startUpstreamTiming,
+  finishUpstreamTiming,
+  getRequestTimings,
+  timedUpstreamRequest
+} from '../../common/request_timing.js'
 import axios from 'axios'
 import { redis } from '../../infra/redis.js'
 import { proxyResolver } from '../proxy/proxy_resolver.js'
@@ -54,9 +60,7 @@ class OpenAIResponsesRelayService {
     }
 
     lastUsedAtThrottle.set(accountId, now, LAST_USED_AT_THROTTLE_MS)
-    await openaiResponsesAccountService.updateAccount(accountId, {
-      lastUsedAt: new Date().toISOString(),
-    })
+    await openaiResponsesAccountService.recordUsage(accountId, 0)
   }
 
   // 处理请求转发
@@ -251,7 +255,9 @@ class OpenAIResponsesRelayService {
       })
 
       // 发送请求
+      startUpstreamTiming(req)
       const response = await axios(requestOptions)
+      finishUpstreamTiming(req, { headersOnly: requestOptions.responseType === 'stream' })
 
       // DEC_20260905_194420 上游响应头挂到 req，供 request detail 落 upstreamRequestId
       if (req && typeof req === 'object') {
@@ -916,6 +922,7 @@ class OpenAIResponsesRelayService {
 
       logger.info('OpenAI-Responses stream finished', {
         requestId: req.requestId,
+        timings: getRequestTimings(req),
         accountId: account.id,
         hasUsage: Boolean(upstreamState.usage),
         terminalType: upstreamState.terminalType,
@@ -1218,7 +1225,7 @@ class OpenAIResponsesRelayService {
         axiosConfig.httpsAgent = proxyResolution.agent
       }
 
-      const response = await axios(axiosConfig)
+      const response = await timedUpstreamRequest(req, () => axios(axiosConfig))
       if (req && typeof req === 'object') {
         req._crsUpstreamHeaders = response.headers || null
         req._crsUpstreamRequestIdHeader =
@@ -1423,7 +1430,7 @@ class OpenAIResponsesRelayService {
         axiosConfig.httpsAgent = proxyResolution.agent
       }
 
-      const response = await axios(axiosConfig)
+      const response = await timedUpstreamRequest(req, () => axios(axiosConfig))
       if (req && typeof req === 'object') {
         req._crsUpstreamHeaders = response.headers || null
         req._crsUpstreamRequestIdHeader =

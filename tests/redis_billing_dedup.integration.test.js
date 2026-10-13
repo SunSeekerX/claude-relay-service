@@ -41,7 +41,7 @@ suite('billing Lua on isolated Redis', () => {
     const adapter = {
       client: {
         eval: async (...args) => {
-          args.slice(2, 5).forEach((key) => createdKeys.add(key))
+          args.slice(2, 2 + args[1]).forEach((key) => createdKeys.add(key))
           const result = await client.eval(...args)
           if (loseReply) {
             loseReply = false
@@ -72,7 +72,7 @@ suite('billing Lua on isolated Redis', () => {
     const real = uniqueKey('real')
     await client.set(real, 'corrupt')
     await expect(
-      client.eval(RedisLua.cost.incrementTotal, 3, dedup, total, real, '1', '2', 60, 'owner')
+      client.eval(RedisLua.cost.incrementTotal, 4, dedup, total, real, uniqueKey('rank-revision'), '1', '2', 60, 'owner')
     ).rejects.toThrow()
     expect(await client.exists(dedup, total)).toBe(0)
     expect(await client.get(real)).toBe('corrupt')

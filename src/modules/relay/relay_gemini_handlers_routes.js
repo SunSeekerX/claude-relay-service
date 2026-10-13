@@ -1,3 +1,4 @@
+import { trackRequestTiming, timedUpstreamRequest } from '../../common/request_timing.js'
 import { logger } from '../../common/logger.js'
 import { StringDecoder } from 'node:string_decoder'
 import { onClientDisconnect } from '../../common/client_disconnect.js'
@@ -395,11 +396,13 @@ export const handleMessages = async (req, res) => {
 
     // 使用统一调度选择可用的 Gemini 账户（传递请求的模型）
     try {
-      const schedulerResult = await unifiedGeminiScheduler.selectAccountForApiKey(
-        apiKeyData,
-        sessionHash,
-        model, // 传递请求的模型进行过滤
-        { allowApiAccounts: true }, // 允许调度 API 账户
+      const schedulerResult = await trackRequestTiming(req, 'scheduling', () =>
+        unifiedGeminiScheduler.selectAccountForApiKey(
+          apiKeyData,
+          sessionHash,
+          model, // 传递请求的模型进行过滤
+          { allowApiAccounts: true } // 允许调度 API 账户
+        )
       )
       ;({ accountId, accountType } = schedulerResult)
     } catch (error) {
@@ -510,7 +513,7 @@ export const handleMessages = async (req, res) => {
       }
 
       try {
-        const apiResponse = await axios(axiosConfig)
+        const apiResponse = await timedUpstreamRequest(req, () => axios(axiosConfig))
         if (stream) {
           geminiResponse = apiResponse.data
         } else {
@@ -800,9 +803,11 @@ export const handleModels = async (req, res) => {
     let account = null
     let isApiAccount
     try {
-      const accountSelection = await unifiedGeminiScheduler.selectAccountForApiKey(apiKeyData, null, null, {
-        allowApiAccounts: true,
-      })
+      const accountSelection = await trackRequestTiming(req, 'scheduling', () =>
+        unifiedGeminiScheduler.selectAccountForApiKey(apiKeyData, null, null, {
+          allowApiAccounts: true
+        })
+      )
       isApiAccount = accountSelection.accountType === 'gemini-api'
       if (isApiAccount) {
         account = await geminiApiAccountService.getAccount(accountSelection.accountId)
@@ -846,7 +851,7 @@ export const handleModels = async (req, res) => {
           axiosConfig.httpsAgent = ProxyHelper.createProxyAgent(proxyConfig)
           axiosConfig.httpAgent = ProxyHelper.createProxyAgent(proxyConfig)
         }
-        const response = await axios(axiosConfig)
+        const response = await timedUpstreamRequest(req, () => axios(axiosConfig))
         models = (response.data.models || []).map((m) => ({
           id: m.name?.replace('models/', '') || m.name,
           object: 'model',
@@ -1004,7 +1009,13 @@ export const handleSimpleEndpoint = (apiMethod) => async (req, res) => {
 
     // 从路径参数或请求体中获取模型名
     const requestedModel = req.body.model || req.params.modelName || 'gemini-2.5-flash'
-    const schedulerResult = await unifiedGeminiScheduler.selectAccountForApiKey(req.apiKey, sessionHash, requestedModel)
+    const schedulerResult = await trackRequestTiming(req, 'scheduling', () =>
+      unifiedGeminiScheduler.selectAccountForApiKey(
+        req.apiKey,
+        sessionHash,
+        requestedModel
+      )
+    )
     const { accountId, accountType } = schedulerResult
 
     // v1internal 路由只支持 OAuth 账户，不支持 API Key 账户
@@ -1073,7 +1084,13 @@ export const handleLoadCodeAssist = async (req, res) => {
 
     // 从路径参数或请求体中获取模型名
     const requestedModel = req.body.model || req.params.modelName || 'gemini-2.5-flash'
-    const schedulerResult = await unifiedGeminiScheduler.selectAccountForApiKey(req.apiKey, sessionHash, requestedModel)
+    const schedulerResult = await trackRequestTiming(req, 'scheduling', () =>
+      unifiedGeminiScheduler.selectAccountForApiKey(
+        req.apiKey,
+        sessionHash,
+        requestedModel
+      )
+    )
     const { accountId, accountType } = schedulerResult
 
     // v1internal 路由只支持 OAuth 账户，不支持 API Key 账户
@@ -1163,7 +1180,13 @@ export const handleOnboardUser = async (req, res) => {
 
     // 从路径参数或请求体中获取模型名
     const requestedModel = req.body.model || req.params.modelName || 'gemini-2.5-flash'
-    const schedulerResult = await unifiedGeminiScheduler.selectAccountForApiKey(req.apiKey, sessionHash, requestedModel)
+    const schedulerResult = await trackRequestTiming(req, 'scheduling', () =>
+      unifiedGeminiScheduler.selectAccountForApiKey(
+        req.apiKey,
+        sessionHash,
+        requestedModel
+      )
+    )
     const { accountId, accountType } = schedulerResult
 
     // v1internal 路由只支持 OAuth 账户，不支持 API Key 账户
@@ -1259,7 +1282,13 @@ export const handleRetrieveUserQuota = async (req, res) => {
 
     // 3. 账户选择
     const requestedModel = req.body.model || req.params.modelName || 'gemini-2.5-flash'
-    const schedulerResult = await unifiedGeminiScheduler.selectAccountForApiKey(req.apiKey, sessionHash, requestedModel)
+    const schedulerResult = await trackRequestTiming(req, 'scheduling', () =>
+      unifiedGeminiScheduler.selectAccountForApiKey(
+        req.apiKey,
+        sessionHash,
+        requestedModel
+      )
+    )
     const { accountId, accountType } = schedulerResult
 
     // 4. 账户类型验证 - v1internal 路由只支持 OAuth 账户
@@ -1366,9 +1395,11 @@ export const handleCountTokens = async (req, res) => {
     }
 
     // 使用统一调度选择账号（允许 API 账户）
-    const schedulerResult = await unifiedGeminiScheduler.selectAccountForApiKey(req.apiKey, sessionHash, model, {
-      allowApiAccounts: true,
-    })
+    const schedulerResult = await trackRequestTiming(req, 'scheduling', () =>
+      unifiedGeminiScheduler.selectAccountForApiKey(req.apiKey, sessionHash, model, {
+        allowApiAccounts: true
+      })
+    )
     const { accountId, accountType } = schedulerResult
     const isApiAccount = accountType === 'gemini-api'
 
@@ -1418,7 +1449,7 @@ export const handleCountTokens = async (req, res) => {
       }
 
       try {
-        const apiResponse = await axios(axiosConfig)
+        const apiResponse = await timedUpstreamRequest(req, () => axios(axiosConfig))
         response = {
           totalTokens: apiResponse.data.totalTokens || 0,
           totalBillableCharacters: apiResponse.data.totalBillableCharacters || 0,
@@ -1480,9 +1511,11 @@ export const handleEmbedContent = async (req, res) => {
       })
     }
 
-    const schedulerResult = await unifiedGeminiScheduler.selectAccountForApiKey(req.apiKey, sessionHash, model, {
-      allowApiAccounts: true,
-    })
+    const schedulerResult = await trackRequestTiming(req, 'scheduling', () =>
+      unifiedGeminiScheduler.selectAccountForApiKey(req.apiKey, sessionHash, model, {
+        allowApiAccounts: true
+      })
+    )
     const { accountId, accountType } = schedulerResult
     const isApiAccount = accountType === 'gemini-api'
 
@@ -1554,7 +1587,7 @@ export const handleEmbedContent = async (req, res) => {
     }
 
     try {
-      const apiResponse = await axios(axiosConfig)
+      const apiResponse = await timedUpstreamRequest(req, () => axios(axiosConfig))
       return res.json(apiResponse.data)
     } catch (error) {
       logger.error('Gemini embedContent request failed:', {
@@ -1638,7 +1671,9 @@ export const handleGenerateContent = async (req, res) => {
     }
 
     // 使用统一调度选择账号（v1internal 不允许 API 账户）
-    const schedulerResult = await unifiedGeminiScheduler.selectAccountForApiKey(req.apiKey, sessionHash, model)
+    const schedulerResult = await trackRequestTiming(req, 'scheduling', () =>
+      unifiedGeminiScheduler.selectAccountForApiKey(req.apiKey, sessionHash, model)
+    )
     ;({ accountId, accountType } = schedulerResult)
 
     // v1internal 路由只支持 OAuth 账户，不支持 API Key 账户
@@ -1876,7 +1911,9 @@ export const handleStreamGenerateContent = async (req, res) => {
     }
 
     // 使用统一调度选择账号（v1internal 不允许 API 账户）
-    const schedulerResult = await unifiedGeminiScheduler.selectAccountForApiKey(req.apiKey, sessionHash, model)
+    const schedulerResult = await trackRequestTiming(req, 'scheduling', () =>
+      unifiedGeminiScheduler.selectAccountForApiKey(req.apiKey, sessionHash, model)
+    )
     ;({ accountId, accountType } = schedulerResult)
 
     // v1internal 路由只支持 OAuth 账户，不支持 API Key 账户
@@ -2261,9 +2298,11 @@ export const handleStandardGenerateContent = async (req, res) => {
     const actualRequestData = buildGeminiGenerateBody(req.body)
 
     // 使用统一调度选择账号
-    const schedulerResult = await unifiedGeminiScheduler.selectAccountForApiKey(req.apiKey, sessionHash, model, {
-      allowApiAccounts: true,
-    })
+    const schedulerResult = await trackRequestTiming(req, 'scheduling', () =>
+      unifiedGeminiScheduler.selectAccountForApiKey(req.apiKey, sessionHash, model, {
+        allowApiAccounts: true
+      })
+    )
     ;({ accountId, accountType } = schedulerResult)
 
     isApiAccount = accountType === 'gemini-api'
@@ -2327,7 +2366,7 @@ export const handleStandardGenerateContent = async (req, res) => {
       }
 
       try {
-        const apiResponse = await axios(axiosConfig)
+        const apiResponse = await timedUpstreamRequest(req, () => axios(axiosConfig))
         response = { response: apiResponse.data }
       } catch (error) {
         logger.error('Gemini API request failed:', {
@@ -2503,9 +2542,11 @@ export const handleStandardStreamGenerateContent = async (req, res) => {
     const actualRequestData = buildGeminiGenerateBody(req.body)
 
     // 使用统一调度选择账号
-    const schedulerResult = await unifiedGeminiScheduler.selectAccountForApiKey(req.apiKey, sessionHash, model, {
-      allowApiAccounts: true,
-    })
+    const schedulerResult = await trackRequestTiming(req, 'scheduling', () =>
+      unifiedGeminiScheduler.selectAccountForApiKey(req.apiKey, sessionHash, model, {
+        allowApiAccounts: true
+      })
+    )
     ;({ accountId, accountType } = schedulerResult)
 
     isApiAccount = accountType === 'gemini-api'
@@ -2590,7 +2631,7 @@ export const handleStandardStreamGenerateContent = async (req, res) => {
       }
 
       try {
-        const apiResponse = await axios(axiosConfig)
+        const apiResponse = await timedUpstreamRequest(req, () => axios(axiosConfig))
         streamResponse = apiResponse.data
       } catch (error) {
         logger.error('Gemini API stream request failed:', {

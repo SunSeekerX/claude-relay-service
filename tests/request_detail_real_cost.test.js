@@ -79,3 +79,19 @@ it.each([0, 1e-10, 0.00001585])(
     expect(calculateCost).not.toHaveBeenCalled()
   }
 )
+
+it('stores timing zeros and leaves unavailable timing fields null', async () => {
+  await requestDetailService.captureRequestDetail({
+    requestId: 'timed', timestamp: new Date().toISOString(), model: 'fixture',
+    durationMs: 30, firstTokenMs: 20,
+    timings: { authenticationMs: 0, schedulingMs: 3, upstreamHeadersMs: 12,
+      firstContentWaitMs: 8, upstreamAttempts: 1 }
+  })
+  const saved = JSON.parse(stored.get('request_detail:item:timed'))
+  expect(saved.timings).toMatchObject({
+    authenticationMs: 0, schedulingMs: 3, upstreamHeadersMs: 12,
+    upstreamResponseMs: null, firstContentWaitMs: 8, upstreamAttempts: 1
+  })
+  const result = await requestDetailService.getRequestDetail('timed')
+  expect(result.record.timings).toEqual(saved.timings)
+})

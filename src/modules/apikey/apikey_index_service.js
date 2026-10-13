@@ -297,6 +297,7 @@ class ApiKeyIndexService {
 
       // 4. 更新版本号
       await client.set(this.INDEX_VERSION_KEY, this.CURRENT_VERSION)
+      await client.incr(RedisKeys.costRank.sourceRevision)
 
       const duration = ((Date.now() - startTime) / 1000).toFixed(2)
       logger.success(`API Key 索引重建完成，共 ${keyIds.length} 条，耗时 ${duration}s`)
@@ -526,6 +527,7 @@ class ApiKeyIndexService {
       pipeline.zadd(this.INDEX_KEYS.LAST_USED_AT, lastUsedAt, keyId)
       pipeline.zadd(this.INDEX_KEYS.NAME, 0, `${name}\x00${keyId}`)
       pipeline.sadd(this.INDEX_KEYS.ALL_SET, keyId)
+      pipeline.incr(RedisKeys.costRank.sourceRevision)
 
       // 注意：deletedAt 有序索引不在此维护，统一由软删/恢复/彻底删的原子操作 + 索引重建负责
       if (isDeleted) {
@@ -595,6 +597,9 @@ class ApiKeyIndexService {
         pipeline.zadd(this.INDEX_KEYS.LAST_USED_AT, lastUsedAt, keyId)
       }
 
+      if (updates.isDeleted !== undefined) {
+        pipeline.incr(RedisKeys.costRank.sourceRevision)
+      }
       // 状态集合（deletedAt 有序索引不在此维护，由原子操作 + 重建负责）
       if (updates.isActive !== undefined || updates.isDeleted !== undefined) {
         const isActive = updates.isActive ?? oldData.isActive
@@ -676,6 +681,7 @@ class ApiKeyIndexService {
       pipeline.zrem(this.INDEX_KEYS.LAST_USED_AT, keyId)
       pipeline.zrem(this.INDEX_KEYS.NAME, `${name}\x00${keyId}`)
       pipeline.srem(this.INDEX_KEYS.ALL_SET, keyId)
+      pipeline.incr(RedisKeys.costRank.sourceRevision)
       pipeline.srem(this.INDEX_KEYS.ACTIVE_SET, keyId)
       pipeline.srem(this.INDEX_KEYS.DELETED_SET, keyId)
       // deletedAt 有序索引由彻底删除的原子操作负责移除，这里不重复处理

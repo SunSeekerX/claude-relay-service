@@ -111,6 +111,7 @@ export const RedisKeys = {
     costTotal: (keyId) => `usage:cost:total:${keyId}`,
     costRealTotal: (keyId) => `usage:cost:real:total:${keyId}`,
     costDedup: (dedupId) => `usage:cost:dedup:${dedupId}`, // 计费关键写幂等去重标记（重试窗口内）
+    costStatsDedup: (dedupId) => `usage:cost:stats_dedup:${dedupId}`, // 周期费用写操作重发去重
     costRealDaily: (keyId, date) => `usage:cost:real:daily:${keyId}:${date}`,
     costReservation: (keyId, reservationId) => `usage:cost:reservation:${keyId}:${reservationId}`,
     costReservationIndex: (keyId) => `usage:cost:reservation:index:${keyId}`,
@@ -138,6 +139,7 @@ export const RedisKeys = {
 
   // === Usage 统计(账户维度) ===
   accountUsage: {
+    operationDedup: (operationId) => `account_usage_dedup:${operationId}`, // String: 写操作重发去重
     total: (accountId) => `account_usage:${accountId}`,
     daily: (accountId, date) => `account_usage:daily:${accountId}:${date}`,
     monthly: (accountId, month) => `account_usage:monthly:${accountId}:${month}`,
@@ -338,6 +340,7 @@ export const RedisKeys = {
 
   // === 成本排名 ===
   costRank: {
+    sourceRevision: 'cost_rank:source_revision', // String: 费用及成员变化水位，随数据持续累加
     rank: (timeRange) => `cost_rank:${timeRange}`, // ZSet
     temp: (timeRange) => `cost_rank:${timeRange}:temp:${Date.now()}`, // ZSet: 重建临时
     meta: (timeRange) => `cost_rank_meta:${timeRange}`,
@@ -492,6 +495,7 @@ export const TTL = {
   costMonthly: DAY * 366, // >= 用量月 365
   costHourly: DAY * 7,
   costDedup: 600, // 计费关键写幂等去重标记（只需覆盖 incrementDailyCost 重试窗口）
+  accountUsageDedup: 600, // 覆盖 Redis 客户端断线重发窗口
   wsBillingDedup: 7200,
   grokVideoTask: DAY * 2,
   grokVideoSettlementLease: 60,

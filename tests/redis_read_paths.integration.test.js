@@ -28,6 +28,7 @@ suite('typed Redis read paths on an isolated fixture', () => {
     await client.ping()
   })
   afterEach(async () => {
+    jest.useRealTimers()
     if (cleanup.size) {
       await client.del([...cleanup])
       cleanup.clear()
@@ -38,6 +39,8 @@ suite('typed Redis read paths on an isolated fixture', () => {
   })
 
   it('reads only API Key hashes for today and average stats while indexes are missing', async () => {
+    jest.useFakeTimers({ doNotFake: ['nextTick', 'setImmediate', 'setTimeout'] })
+      .setSystemTime(new Date('2026-10-13T19:00:00.000Z'))
     const keyId = id()
     const today = getDateStringInTimezone()
     await client.hset(remember(RedisKeys.apiKey.byId(keyId)), {

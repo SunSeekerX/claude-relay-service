@@ -1,3 +1,8 @@
+import {
+  trackRequestTiming,
+  timedUpstreamRequest,
+  getRequestTimings
+} from '../../common/request_timing.js'
 import axios from 'axios'
 import crypto from 'node:crypto'
 import { logger } from '../../common/logger.js'
@@ -279,9 +284,11 @@ return null
         }
       }
       if (!account) {
-        account = await grokScheduler.selectAccount(apiKeyData, requestedModel, sessionHash, {
-          mediaGeneration,
-        })
+        account = await trackRequestTiming(req, 'scheduling', () =>
+          grokScheduler.selectAccount(apiKeyData, requestedModel, sessionHash, {
+            mediaGeneration
+          })
+        )
       }
       if (!account) {
         // selectAccount 正常应直接 throw；此处兜底并带可区分语义
@@ -444,7 +451,9 @@ return null
         `[GrokRelay] forward account=${account.id} url=${targetUrl} stream=${isStream} model=${body?.model || requestedModel || '-'} endpoint=${effectiveEndpointKind} reverseChat=${reverseBridgeToChat}`,
       )
 
-      let response = await axios(applyProxy(buildRequestOptions(body)))
+      let response = await timedUpstreamRequest(req, () =>
+        axios(applyProxy(buildRequestOptions(body)))
+      )
       proxyResolver.report?.(proxyResolution?.proxyId, proxyResolution?.contextKey, null)
 
       // encrypted_content 400：剥离后同号重试一次
@@ -456,7 +465,9 @@ return null
         if (stripped.changed) {
           logger.warn(`[GrokRelay] invalid encrypted_content retry account=${account.id}`)
           ;({ body } = stripped)
-          response = await axios(applyProxy(buildRequestOptions(body)))
+          response = await timedUpstreamRequest(req, () =>
+            axios(applyProxy(buildRequestOptions(body)))
+          )
         }
       }
 
@@ -525,9 +536,11 @@ return null
 
         // 换号重试（排除当前号）
         try {
-          const next = await grokScheduler.selectAccount(apiKeyData, requestedModel, sessionHash, {
-            mediaGeneration,
-          })
+          const next = await trackRequestTiming(req, 'scheduling', () =>
+            grokScheduler.selectAccount(apiKeyData, requestedModel, sessionHash, {
+              mediaGeneration
+            })
+          )
           if (next && next.id !== account.id) {
             logger.warn(`[GrokRelay] failover ${response.status} ${account.id} -> ${next.id}`)
             account = (await grokAccountService.ensureFreshToken(next.id)) || next
@@ -546,7 +559,9 @@ return null
               req,
             )
             proxyResolution = proxyResolver.resolveAgent(account, 'grok')
-            response = await axios(applyProxy(buildRequestOptions(body)))
+            response = await timedUpstreamRequest(req, () =>
+              axios(applyProxy(buildRequestOptions(body)))
+            )
           }
         } catch (failoverError) {
           console.error(failoverError)
@@ -1369,6 +1384,14 @@ return null
       if (!clientGone && !res.destroyed && !res.writableEnded) {
         res.end()
       }
+      logger.info('Grok stream finished', {
+        requestId: req.requestId,
+        accountId: account.id,
+        terminalType: upstreamState.terminalType,
+        hasUsage: Boolean(upstreamState.usage),
+        statusCode: result.statusCode,
+        timings: getRequestTimings(req)
+      })
     }
   }
 

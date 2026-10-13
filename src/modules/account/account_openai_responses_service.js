@@ -457,60 +457,23 @@ class OpenAIResponsesAccountService {
 
   // 更新使用额度
   async updateUsageQuota(accountId, amount) {
-    const account = await this.getAccount(accountId)
-    if (!account) {
-      return
-    }
-
-    // 检查是否需要重置额度
-    const today = redis.getDateStringInTimezone()
-    if (account.lastResetDate !== today) {
-      // 重置额度
-      await this.updateAccount(accountId, {
-        dailyUsage: amount.toString(),
-        lastResetDate: today,
-        quotaStoppedAt: '',
+    // [人工决策-2026-06-02 23:30:05] 方案甲：预算独立轴，disableAutoProtection 不覆盖预算，配额始终标记
+    const result = await redis.recordOpenaiResponsesAccountQuota(accountId, amount)
+    if (result[2] === '1') {
+      logger.warn(`Account ${result[3]} exceeded daily quota`, {
+        accountId,
+        dailyUsage: result[0],
+        dailyQuota: result[1]
       })
-    } else {
-      // 累加使用额度
-      const currentUsage = parseFloat(account.dailyUsage) || 0
-      const newUsage = currentUsage + amount
-      const dailyQuota = parseFloat(account.dailyQuota) || 0
-
-      const updates = {
-        dailyUsage: newUsage.toString(),
-      }
-
-      // [人工决策-2026-06-02 23:30:05] 方案甲：预算独立轴，disableAutoProtection 不覆盖预算，配额始终标记
-      if (dailyQuota > 0 && newUsage >= dailyQuota) {
-        updates.status = 'quotaExceeded'
-        updates.quotaStoppedAt = new Date().toISOString()
-        updates.errorMessage = `Daily quota exceeded: $${newUsage.toFixed(2)} / $${dailyQuota.toFixed(2)}`
-        logger.warn(`Account ${account.name} exceeded daily quota`)
-      }
-
-      await this.updateAccount(accountId, updates)
     }
   }
 
   // 更新账户使用统计（记录 token 使用量）
   async updateAccountUsage(accountId, tokens = 0) {
-    const account = await this.getAccount(accountId)
-    if (!account) {
-      return
+    const updated = await redis.recordOpenaiResponsesAccountUsage(accountId, tokens)
+    if (updated) {
+      logger.debug('Updated OpenAI-Responses usage', { accountId, tokens })
     }
-
-    const updates = {
-      lastUsedAt: new Date().toISOString(),
-    }
-
-    // 如果有 tokens 参数且大于0，同时更新使用统计
-    if (tokens > 0) {
-      const currentTokens = parseInt(account.totalUsedTokens) || 0
-      updates.totalUsedTokens = (currentTokens + tokens).toString()
-    }
-
-    await this.updateAccount(accountId, updates)
   }
 
   // 记录使用量（兼容性别名）

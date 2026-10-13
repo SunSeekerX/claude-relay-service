@@ -1,3 +1,4 @@
+import { trackRequestTiming } from '../../common/request_timing.js'
 import express from 'express'
 import { logger } from '../../common/logger.js'
 import { authenticateApiKey } from '../../infra/middleware_auth.js'
@@ -231,14 +232,16 @@ export const handleChatCompletion = async (req, res, apiKeyData) => {
     // 选择可用的Claude账户
     let accountSelection
     try {
-      accountSelection = await unifiedClaudeScheduler.selectAccountForApiKey(
-        {
-          ...apiKeyData,
-          // OpenAI 兼容入口不是 Claude Code 客户端
-          _isClaudeCode: false,
-        },
-        sessionHash,
-        claudeRequest.model,
+      accountSelection = await trackRequestTiming(req, 'scheduling', () =>
+        unifiedClaudeScheduler.selectAccountForApiKey(
+          {
+            ...apiKeyData,
+            // OpenAI 兼容入口不是 Claude Code 客户端
+            _isClaudeCode: false
+          },
+          sessionHash,
+          claudeRequest.model
+        )
       )
     } catch (error) {
       if (error.code === 'CLAUDE_DEDICATED_RATE_LIMITED') {

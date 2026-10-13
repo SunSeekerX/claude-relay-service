@@ -158,6 +158,24 @@
                   </span>
                 </dd>
               </div>
+              <div
+                v-for="field in timingFields"
+                :key="field.key"
+                class="grid grid-cols-[5.5rem_1fr] gap-x-2 py-1.5 sm:grid-cols-[6rem_1fr]"
+              >
+                <dt class="text-gray-500 dark:text-gray-400" :title="field.description">
+                  {{ field.label }}
+                </dt>
+                <dd class="text-gray-900 dark:text-gray-100">
+                  {{ formatTiming(detail.timings?.[field.key]) }}
+                </dd>
+              </div>
+              <div class="grid grid-cols-[5.5rem_1fr] gap-x-2 py-1.5 sm:grid-cols-[6rem_1fr]">
+                <dt class="text-gray-500 dark:text-gray-400">上游尝试</dt>
+                <dd class="text-gray-900 dark:text-gray-100">
+                  {{ detail.timings?.upstreamAttempts ?? '-' }}
+                </dd>
+              </div>
               <div class="grid grid-cols-[5.5rem_1fr] gap-x-2 py-1.5 sm:grid-cols-[6rem_1fr]">
                 <dt class="text-gray-500 dark:text-gray-400">推理</dt>
                 <dd class="text-gray-900 dark:text-gray-100">
@@ -426,6 +444,14 @@ const emit = defineEmits(['close'])
 const router = useRouter()
 
 const loading = ref(false)
+const timingFields = [
+  { key: 'authenticationMs', label: '鉴权与限流', description: 'API Key 鉴权、额度及并发检查' },
+  { key: 'schedulingMs', label: '账户调度', description: '本请求所有已观测账户选择的累计耗时' },
+  { key: 'localPreparationMs', label: '本地准备', description: '最后一次调度结束至上游发送，含排队和请求准备' },
+  { key: 'upstreamHeadersMs', label: '上游响应头', description: '最近一次上游发送至收到响应头' },
+  { key: 'firstContentWaitMs', label: '头后首正文', description: '收到上游响应头至首次正文写出，含解析和背压等待' },
+  { key: 'upstreamResponseMs', label: '上游响应', description: '非流式最近一次发送至完整响应接收；不能当成响应头等待' }
+]
 const detail = ref(null)
 const bodyPreviewEnabled = ref(false)
 const isMobileViewport = ref(false)
@@ -682,6 +708,8 @@ const copyResponseSnapshot = async () => {
 
 const formatDate = (value) => formatLocalDateTime(value) || '-'
 const formatDuration = (value) => `${Number(value || 0)}ms`
+const formatTiming = (value) =>
+  value === null || value === undefined ? '-' : formatDuration(value)
 const formatPercent = (value) => `${Number(value || 0).toFixed(2)}%`
 const formatCacheCreate = (value, notApplicable = false) =>
   notApplicable ? '-' : formatNumber(value)

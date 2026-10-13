@@ -1,3 +1,4 @@
+import { trackRequestTiming } from '../../common/request_timing.js'
 import express from 'express'
 import { claudeRelayService } from './relay_claude_relay_service.js'
 import { extractSafeMessage, buildAnthropicClientErrorBody } from '../../common/client_error_builder.js'
@@ -377,14 +378,17 @@ export const handleMessagesRequest = async (req, res) => {
       let accountId
       let accountType
       try {
-        const selection = await unifiedClaudeScheduler.selectAccountForApiKey(
-          {
-            ...req.apiKey,
-            _isClaudeCode: claudeRelayService.isRealClaudeCodeRequest(req.body) === true,
-          },
-          sessionHash,
-          requestedModel,
-          forcedAccount,
+        const selection = await trackRequestTiming(req, 'scheduling', () =>
+          unifiedClaudeScheduler.selectAccountForApiKey(
+            {
+              ...req.apiKey,
+              _isClaudeCode:
+                claudeRelayService.isRealClaudeCodeRequest(req.body) === true
+            },
+            sessionHash,
+            requestedModel,
+            forcedAccount
+          )
         )
         ;({ accountId, accountType } = selection)
         // 失败明细归属：选号成功即写入，finish 钩子可带上账户
@@ -1043,14 +1047,17 @@ export const handleMessagesRequest = async (req, res) => {
       let accountId
       let accountType
       try {
-        const selection = await unifiedClaudeScheduler.selectAccountForApiKey(
-          {
-            ...req.apiKey,
-            _isClaudeCode: claudeRelayService.isRealClaudeCodeRequest(req.body) === true,
-          },
-          sessionHash,
-          requestedModel,
-          forcedAccountNonStream,
+        const selection = await trackRequestTiming(req, 'scheduling', () =>
+          unifiedClaudeScheduler.selectAccountForApiKey(
+            {
+              ...req.apiKey,
+              _isClaudeCode:
+                claudeRelayService.isRealClaudeCodeRequest(req.body) === true
+            },
+            sessionHash,
+            requestedModel,
+            forcedAccountNonStream
+          )
         )
         ;({ accountId, accountType } = selection)
         // 失败明细归属：选号成功即写入，finish 钩子可带上账户
@@ -1497,9 +1504,11 @@ apiRoutes.get('/v1/models', authenticateApiKey, async (req, res) => {
 
       let accountSelection
       try {
-        accountSelection = await unifiedGeminiScheduler.selectAccountForApiKey(req.apiKey, null, null, {
-          oauthProvider: 'antigravity',
-        })
+        accountSelection = await trackRequestTiming(req, 'scheduling', () =>
+          unifiedGeminiScheduler.selectAccountForApiKey(req.apiKey, null, null, {
+            oauthProvider: 'antigravity'
+          })
+        )
       } catch (error) {
         logger.error('Failed to select Gemini OAuth account (antigravity models):', error)
         return res.status(503).json({ error: 'No available Gemini OAuth accounts' })
@@ -1728,13 +1737,16 @@ export const handleCountTokensRequest = async (req, res) => {
   let attempt = 0
 
   const processRequest = async () => {
-    const { accountId, accountType } = await unifiedClaudeScheduler.selectAccountForApiKey(
-      {
-        ...req.apiKey,
-        _isClaudeCode: claudeRelayService.isRealClaudeCodeRequest(req.body) === true,
-      },
-      sessionHash,
-      requestedModel,
+    const { accountId, accountType } = await trackRequestTiming(req, 'scheduling', () =>
+      unifiedClaudeScheduler.selectAccountForApiKey(
+        {
+          ...req.apiKey,
+          _isClaudeCode:
+            claudeRelayService.isRealClaudeCodeRequest(req.body) === true
+        },
+        sessionHash,
+        requestedModel
+      )
     )
 
     if (accountType === 'ccr') {

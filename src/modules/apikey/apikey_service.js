@@ -1563,6 +1563,7 @@ class ApiKeyService {
       // 状态集合随 hash 在同一 MULTI 维护：移出 ACTIVE、移入 DELETED，避免"软删后仍出现在主列表"（残留漂移由重建愈合）
       multi.srem(apiKeyIndexService.INDEX_KEYS.ACTIVE_SET, keyId)
       multi.sadd(apiKeyIndexService.INDEX_KEYS.DELETED_SET, keyId)
+      multi.incr(RedisKeys.costRank.sourceRevision)
       // 标签索引也随软删移除：标签语义是"未删除 key 的标签"（见 redis.js _extractTagsFromKeyIds 过滤 isDeleted），
       // 否则只挂在已删 key 上的死标签会长期留在 tags:all 下拉里；恢复时再加回。
       const deletedTags = parseTagsSafe(keyData.tags)
@@ -1649,6 +1650,7 @@ class ApiKeyService {
       // 状态集合随 hash 在同一 MULTI 维护：移入 ACTIVE、移出 DELETED，避免"恢复后仍从主列表消失"的假阴性（残留漂移由重建愈合）
       multi.sadd(apiKeyIndexService.INDEX_KEYS.ACTIVE_SET, keyId)
       multi.srem(apiKeyIndexService.INDEX_KEYS.DELETED_SET, keyId)
+      multi.incr(RedisKeys.costRank.sourceRevision)
       // 标签索引随恢复加回（软删时已移除），恢复后该 key 重新计入主列表标签下拉
       const restoredTags = parseTagsSafe(keyData.tags)
       for (const tag of restoredTags) {
@@ -1774,6 +1776,7 @@ class ApiKeyService {
       // 主列表依赖的核心索引随删除原子移除，杜绝"彻底删除后主列表留空槽 / 总数虚高"
       const nameMember = `${(keyData.name || '').toLowerCase()}\x00${keyId}`
       multi.srem(apiKeyIndexService.INDEX_KEYS.ALL_SET, keyId)
+      multi.incr(RedisKeys.costRank.sourceRevision)
       multi.srem(apiKeyIndexService.INDEX_KEYS.ACTIVE_SET, keyId)
       multi.srem(apiKeyIndexService.INDEX_KEYS.DELETED_SET, keyId)
       multi.zrem(apiKeyIndexService.INDEX_KEYS.CREATED_AT, keyId)
@@ -2479,6 +2482,7 @@ class ApiKeyService {
       stream: requestMeta?.stream === true || usageRecord.stream === true,
       durationMs: requestMeta?.durationMs ?? usageRecord.durationMs ?? null,
       firstTokenMs: requestMeta?.firstTokenMs ?? usageRecord.firstTokenMs ?? null,
+      timings: requestMeta?.timings ?? null,
       requestBody: requestMeta?.requestBody,
       apiKeyId: keyId,
       accountId: usageRecord.accountId || null,

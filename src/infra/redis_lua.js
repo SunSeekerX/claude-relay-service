@@ -8,6 +8,51 @@
 // ===
 
 export const RedisLua = {
+  openaiResponsesAccount: {
+    recordUsage: `
+if redis.call('HEXISTS', KEYS[1], 'id') == 0 then return 0 end
+if redis.call('EXISTS', KEYS[2]) == 1 then return 1 end
+local tokens = tonumber(ARGV[2])
+local current = redis.call('HGET', KEYS[1], 'totalUsedTokens') or '0'
+if tokens > 0 and (tokens ~= math.floor(tokens) or not (current == '0' or string.match(current, '^[1-9]%d*$'))) then
+  return redis.error_reply('Invalid account token counter or increment')
+end
+if tonumber(ARGV[2]) > 0 then
+  redis.call('HINCRBY', KEYS[1], 'totalUsedTokens', ARGV[2])
+end
+redis.call('HSET', KEYS[1], 'lastUsedAt', ARGV[1])
+redis.call('SET', KEYS[2], '1', 'EX', ARGV[3])
+return 1
+`,
+    recordQuota: `
+if redis.call('HEXISTS', KEYS[1], 'id') == 0 then return {} end
+local cached = redis.call('GET', KEYS[2])
+if cached then return cjson.decode(cached) end
+local reset = redis.call('HGET', KEYS[1], 'lastResetDate') ~= ARGV[1]
+local quota = tonumber(redis.call('HGET', KEYS[1], 'dailyQuota') or '0')
+local previous = reset and 0 or tonumber(redis.call('HGET', KEYS[1], 'dailyUsage') or '0')
+local amount = tonumber(ARGV[2])
+if not quota or not previous or not amount or math.abs(quota) == math.huge or
+  math.abs(previous) == math.huge or math.abs(amount) == math.huge or
+  math.abs(previous + amount) == math.huge then
+  return redis.error_reply('Invalid account quota counter or increment')
+end
+if reset then
+  redis.call('HSET', KEYS[1], 'dailyUsage', '0', 'lastResetDate', ARGV[1], 'quotaStoppedAt', '')
+end
+local usage = redis.call('HINCRBYFLOAT', KEYS[1], 'dailyUsage', ARGV[2])
+local exceeded = quota > 0 and tonumber(usage) >= quota
+local crossed = exceeded and (reset or previous < quota)
+if exceeded then
+  redis.call('HSET', KEYS[1], 'status', 'quotaExceeded',
+    'errorMessage', string.format('Daily quota exceeded: $%.2f / $%.2f', tonumber(usage), quota))
+  if crossed then redis.call('HSET', KEYS[1], 'quotaStoppedAt', ARGV[3]) end
+end
+local result = {usage, tostring(quota), crossed and '1' or '0', redis.call('HGET', KEYS[1], 'name') or ''}
+redis.call('SET', KEYS[2], cjson.encode(result), 'EX', ARGV[4])
+return result
+`
+  },
   grokVideo: {
     claimSettlement: `
 if not redis.call('HGET', KEYS[1], 'requestId') then return 0 end
@@ -179,7 +224,8 @@ return 0
 
   // === 计费关键写 ===
   cost: {
-    // KEYS: dedupKey, costTotal, costRealTotal; ARGV: ratedAmount, realAmount, dedupTtl, owner
+    // KEYS: dedupKey, costTotal, costRealTotal, rankRevision
+    // ARGV: ratedAmount, realAmount, dedupTtl, owner
     incrementTotal: `
 if redis.call('EXISTS', KEYS[1]) == 1 then
   if ARGV[4] and redis.call('GET', KEYS[1]) == ARGV[4] then return 2 end
@@ -198,6 +244,21 @@ end
 redis.call('SET', KEYS[1], ARGV[4] or '1', 'EX', tonumber(ARGV[3]))
 redis.call('INCRBYFLOAT', KEYS[2], ARGV[1])
 redis.call('INCRBYFLOAT', KEYS[3], ARGV[2])
+if rated ~= 0 then redis.pcall('INCR', KEYS[4]) end
+return 1
+`,
+    incrementStatistics: `
+if redis.call('EXISTS', KEYS[6]) == 1 then return 0 end
+if tonumber(ARGV[1]) ~= 0 then redis.pcall('INCR', KEYS[5]) end
+redis.call('INCRBYFLOAT', KEYS[1], ARGV[1])
+redis.call('EXPIRE', KEYS[1], ARGV[3])
+redis.call('INCRBYFLOAT', KEYS[2], ARGV[1])
+redis.call('EXPIRE', KEYS[2], ARGV[4])
+redis.call('INCRBYFLOAT', KEYS[3], ARGV[1])
+redis.call('EXPIRE', KEYS[3], ARGV[5])
+redis.call('INCRBYFLOAT', KEYS[4], ARGV[2])
+redis.call('EXPIRE', KEYS[4], ARGV[3])
+redis.call('SET', KEYS[6], '1', 'EX', ARGV[6])
 return 1
 `,
     reserve: `

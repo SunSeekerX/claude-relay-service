@@ -1013,7 +1013,14 @@ const exportCsv = async () => {
       '缓存命中率',
       '费用',
       '耗时(ms)',
-      '首字(ms)'
+      '首字(ms)',
+      '鉴权与限流(ms)',
+      '账户调度(ms)',
+      '本地准备(ms)',
+      '上游响应头(ms)',
+      '头后首正文(ms)',
+      '上游完整响应(ms)',
+      '上游尝试次数'
     ]
 
     const rows = [headers.join(',')]
@@ -1050,7 +1057,10 @@ const exportCsv = async () => {
         formatPercent(record.cacheHitRate),
         formatCost(record.cost),
         record.durationMs || 0,
-        record.firstTokenMs != null ? record.firstTokenMs : ''
+        record.firstTokenMs != null ? record.firstTokenMs : '',
+        ...['authenticationMs', 'schedulingMs', 'localPreparationMs', 'upstreamHeadersMs',
+          'firstContentWaitMs', 'upstreamResponseMs', 'upstreamAttempts']
+          .map((field) => record.timings?.[field] ?? '')
       ]
       rows.push(row.map((cell) => escapeCsvCell(cell)).join(','))
     })

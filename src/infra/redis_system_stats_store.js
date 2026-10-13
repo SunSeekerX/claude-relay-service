@@ -49,7 +49,7 @@ export const attach = (redisClient) => {
   // 获取今日系统统计
   redisClient.getTodayStats = async function () {
     try {
-      const today = getDateStringInTimezone()
+      const today = getDateStringInTimezone(new Date(), configLocal.system.timezoneOffset)
       const apiKeyIds = await this.scanApiKeyIds()
       // 优先使用当日索引，缺失时从主数据 ID 构造日用量键。
       let dailyKeys = []
@@ -114,7 +114,9 @@ export const attach = (redisClient) => {
         const results = await pipeline.exec()
 
         for (const [error, createdAt] of results) {
-          if (!error && createdAt && createdAt.startsWith(today)) {
+          const createdDate = createdAt ? new Date(createdAt) : null
+          if (!error && createdDate && Number.isFinite(createdDate.getTime()) &&
+              getDateStringInTimezone(createdDate, configLocal.system.timezoneOffset) === today) {
             apiKeysCreatedToday++
           }
         }

@@ -1,3 +1,4 @@
+import { trackRequestTiming, timedUpstreamRequest } from '../../common/request_timing.js'
 import express from 'express'
 import axios from 'axios'
 import { logger } from '../../common/logger.js'
@@ -219,13 +220,24 @@ const applyRateLimitTracking = async (
 }
 
 // 使用统一调度器选择 OpenAI 账户
-const getOpenAIAuthToken = async (apiKeyData, sessionId = null, requestedModel = null) => {
+const getOpenAIAuthToken = async (
+  apiKeyData,
+  sessionId = null,
+  requestedModel = null,
+  clientRequest = null
+) => {
   try {
     // 生成会话哈希（如果有会话ID）
     const sessionHash = sessionId ? crypto.createHash('sha256').update(sessionId).digest('hex') : null
 
     // 使用统一调度器选择账户
-    const result = await unifiedOpenAIScheduler.selectAccountForApiKey(apiKeyData, sessionHash, requestedModel)
+    const result = await trackRequestTiming(clientRequest, 'scheduling', () =>
+      unifiedOpenAIScheduler.selectAccountForApiKey(
+        apiKeyData,
+        sessionHash,
+        requestedModel
+      )
+    )
 
     if (!result || !result.accountId) {
       const error = new Error('No available OpenAI account found')
@@ -340,7 +352,7 @@ export const handleOpenAIChatRequest = async (req, res) => {
       originalBody.prompt_cache_key ??
       null
     const modelHint = getCodexCompatibleModel(originalBody.model) ?? originalBody.model
-    const target = await getOpenAIAuthToken(req.apiKey, sessionId, modelHint)
+    const target = await getOpenAIAuthToken(req.apiKey, sessionId, modelHint, req)
     if (target.accountType === 'openai-responses' && target.account.providerEndpoint === 'auto') {
       req._crsProtocolBridge = 'openai-chat->openai-chat'
       return await openaiResponsesRelayService.handleRequest(req, res, target.account, req.apiKey)
@@ -517,7 +529,7 @@ export const handleResponses = async (req, res) => {
       selectedTarget = null
     }
     ;({ accessToken, accountId, accountType, account } =
-      selectedTarget ?? (await getOpenAIAuthToken(apiKeyData, sessionId, schedulerModel)))
+      selectedTarget ?? (await getOpenAIAuthToken(apiKeyData, sessionId, schedulerModel, req)))
 
     // 失败明细采集：OAuth/Responses 选号后挂账户上下文
     req._crsAccountId = accountId || account?.id || null
@@ -691,17 +703,21 @@ export const handleResponses = async (req, res) => {
     }
 
     if (isStream) {
-      upstream = await axios.post(codexEndpoint, outboundBody, {
-        ...axiosConfig,
-        responseType: 'stream',
-      })
+      upstream = await timedUpstreamRequest(req, () =>
+        axios.post(codexEndpoint, outboundBody, {
+          ...axiosConfig,
+          responseType: 'stream'
+        })
+      )
     } else {
-      upstream = await axios.post(codexEndpoint, outboundBody, {
-        ...axiosConfig,
-        responseType: realtimeRoute ? 'arraybuffer' : 'json',
-        // realtime 需要原始状态码/头（含 Location）
-        maxRedirects: 0,
-      })
+      upstream = await timedUpstreamRequest(req, () =>
+        axios.post(codexEndpoint, outboundBody, {
+          ...axiosConfig,
+          responseType: realtimeRoute ? 'arraybuffer' : 'json',
+          // realtime 需要原始状态码/头（含 Location）
+          maxRedirects: 0
+        })
+      )
     }
 
     // 被动健康检查：拿到 HTTP 响应即代理传输成功（含 429/4xx/5xx，不归咎代理）
@@ -1426,7 +1442,7 @@ const handleImages = async (req, res) => {
       null
     sessionHash = sessionId ? crypto.createHash('sha256').update(sessionId).digest('hex') : null
 
-    const authResult = await getOpenAIAuthToken(apiKeyData, sessionId, 'gpt-5.4-mini')
+    const authResult = await getOpenAIAuthToken(apiKeyData, sessionId, 'gpt-5.4-mini', req)
     const { accessToken, accountType, account } = authResult
     ;({ accountId } = authResult)
     if (accountType === 'openai-responses' || !accessToken) {
@@ -1498,7 +1514,13 @@ const handleImages = async (req, res) => {
       axiosConfig.proxy = false
     }
 
-    const upstream = await axios.post('https://chatgpt.com/backend-api/codex/responses', payload, axiosConfig)
+    const upstream = await timedUpstreamRequest(req, () =>
+      axios.post(
+        'https://chatgpt.com/backend-api/codex/responses',
+        payload,
+        axiosConfig
+      )
+    )
     if (upstream.status < 200 || upstream.status >= 300) {
       // 先收集完整的错误响应体（上游以流返回）
       const chunks = []
@@ -1886,8 +1908,7 @@ const handleEmbeddings = async (req, res) => {
     const { accountType, account, accessToken } = await getOpenAIAuthToken(
       apiKeyData,
       sessionId,
-      req.body?.model || 'text-embedding-3-small',
-    )
+      req.body?.model || 'text-embedding-3-small', req)
 
     if (accountType !== 'openai-responses' && accountType !== 'openai') {
       return res.status(501).json({
@@ -1947,8 +1968,7 @@ const handleOpenAIAudioPassthrough = async (req, res) => {
     const { accountType, account, accessToken } = await getOpenAIAuthToken(
       apiKeyData,
       sessionId,
-      req.body?.model || 'whisper-1',
-    )
+      req.body?.model || 'whisper-1', req)
     if (accountType !== 'openai-responses') {
       return res.status(501).json({
         error: {
@@ -2002,8 +2022,7 @@ openaiRoutes.post(['/moderations', '/v1/moderations'], authenticateApiKey, async
     const { accountType, account, accessToken } = await getOpenAIAuthToken(
       apiKeyData,
       null,
-      req.body?.model || 'omni-moderation-latest',
-    )
+      req.body?.model || 'omni-moderation-latest', req)
     if (accountType !== 'openai-responses') {
       return res.status(501).json({
         error: { message: 'Moderations require openai-responses API account', type: 'not_implemented' },

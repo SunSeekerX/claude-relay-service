@@ -113,10 +113,11 @@ export const attach = function attach(redisClient) {
       try {
         const applied = await this.client.eval(
           RedisLua.cost.incrementTotal,
-          3,
+          4,
           RedisKeys.usage.costDedup(dedupId),
           totalKey,
           realTotalKey,
+          RedisKeys.costRank.sourceRevision,
           String(amount),
           String(actualRealAmount),
           String(dedupTtl),
@@ -141,19 +142,22 @@ export const attach = function attach(redisClient) {
 
     // ② 统计写（日/月/时 + 真实日）：计费真相已落，失败只记日志不抛——否则上层会把已计费误报为未计费
     try {
-      await Promise.all([
-        this.client.incrbyfloat(dailyKey, amount),
-        this.client.incrbyfloat(monthlyKey, amount),
-        this.client.incrbyfloat(hourlyKey, amount),
-        this.client.incrbyfloat(realDailyKey, actualRealAmount), // 真实每日费用
-        // 设置过期时间（注意：totalKey 和 realTotalKey 不设置过期时间，保持永久累计）
-        // 费用 TTL 必须 ≥ 原始用量 TTL（用量日 32 天 / 月 365 天，见 incrementTokenUsage），
-        // 否则用量还在、费用先过期，启动对账会误判"缺费用"而反复全量重算
-        this.client.expire(dailyKey, TTL.costDaily), // 33天（> 用量日 32 天）
-        this.client.expire(monthlyKey, TTL.costMonthly), // 366天（≥ 用量月 365 天）
-        this.client.expire(hourlyKey, TTL.costHourly), // 7天（与用量小时一致）
-        this.client.expire(realDailyKey, TTL.costDaily), // 33天（> 用量日 32 天）
-      ])
+      await this.client.eval(
+        RedisLua.cost.incrementStatistics,
+        6,
+        dailyKey,
+        monthlyKey,
+        hourlyKey,
+        realDailyKey,
+        RedisKeys.costRank.sourceRevision,
+        RedisKeys.usage.costStatsDedup(dedupId),
+        String(amount),
+        String(actualRealAmount),
+        String(TTL.costDaily),
+        String(TTL.costMonthly),
+        String(TTL.costHourly),
+        String(dedupTtl)
+      )
     } catch (error) {
       logger.error(`Cost stats write failed for ${keyId} (billing already recorded):`, error)
     }

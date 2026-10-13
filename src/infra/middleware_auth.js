@@ -1,3 +1,8 @@
+import {
+  startRequestTiming,
+  finishRequestTiming,
+  getRequestTimings
+} from '../common/request_timing.js'
 import { config } from '../../config/config.js'
 import { apiKeyService } from '../modules/apikey/apikey_service.js'
 import { userService } from '../modules/user/user_service.js'
@@ -451,6 +456,7 @@ const waitForConcurrencySlot = async (req, res, apiKeyId, queueOptions) => {
 // API Key验证中间件（优化版）
 export const authenticateApiKey = async (req, res, next) => {
   const startTime = Date.now()
+  startRequestTiming(req, 'authentication')
   let authErrored = false
   let concurrencyCleanup = null
   let hasConcurrencySlot = false
@@ -1349,6 +1355,7 @@ export const authenticateApiKey = async (req, res, next) => {
     )
     logger.api(`User-Agent: "${userAgent}"`)
 
+    finishRequestTiming(req, 'authentication')
     return next()
   } catch (error) {
     authErrored = true
@@ -1366,6 +1373,7 @@ export const authenticateApiKey = async (req, res, next) => {
       message: 'Internal server error during authentication',
     })
   } finally {
+    finishRequestTiming(req, 'authentication')
     if (authErrored && typeof concurrencyCleanup === 'function') {
       try {
         await concurrencyCleanup()
@@ -1852,6 +1860,7 @@ export const requestLogger = (req, res, next) => {
       return
     }
     const duration = Date.now() - start
+    finishRequestTiming(req, 'authentication')
     const contentLength = res.get('Content-Length') || '0'
     const status = res.statusCode
 
@@ -1880,6 +1889,7 @@ export const requestLogger = (req, res, next) => {
     // logger 约定：第二参 meta 同时进 console/file；用摘要后的 console 友好结构，避免不可读 dump
     const meta = {
       ...payload.consoleMeta,
+      timings: getRequestTimings(req),
       // 文件诊断字段（logger console 会跳过过长/低价值的，见 CONSOLE_SKIP）
       _file: payload.fileMeta,
       // 控制台主行彩色（文件仍用 payload.message 纯文本）
