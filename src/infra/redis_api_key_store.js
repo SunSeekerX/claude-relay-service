@@ -84,7 +84,7 @@ export const attach = (redisClient) => {
   }
 
   redisClient.getAllApiKeys = async function () {
-    const keys = await this.scanKeys(RedisKeys.apiKey.allPattern)
+    const keys = (await this.scanApiKeyIds()).map((keyId) => RedisKeys.apiKey.byId(keyId))
     const apiKeys = []
     const dataList = await this.batchHgetallChunked(keys)
 

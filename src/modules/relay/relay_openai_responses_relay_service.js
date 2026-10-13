@@ -20,6 +20,7 @@ import { applyOpenAIPublicModelAlias } from './relay_openai_model_alias.js'
 import { extractMultipartFormField, rewriteMultipartFormField } from './relay_multipart_form_field.js'
 import { normalizeCodexBootstrapBody } from './relay_codex_bootstrap_normalize.js'
 import { onClientDisconnect } from '../../common/client_disconnect.js'
+import { createStreamBackpressure } from '../../common/stream_helper.js'
 import { getMappedModelName } from '../../common/common_helper.js'
 import { CostCalculator } from '../pricing/pricing_cost_calculator.js'
 import { pricingService } from '../pricing/pricing_service.js'
@@ -718,6 +719,7 @@ class OpenAIResponsesRelayService {
       }
     }
     const capacityShedSseRewriter = createCapacityShedSseRewriteStream()
+    const backpressure = createStreamBackpressure(response.data, res)
     try {
       try {
         for await (const chunk of response.data) {
@@ -726,7 +728,9 @@ class OpenAIResponsesRelayService {
           if (!clientGone && !res.destroyed) {
             const rewritten = capacityShedSseRewriter.push(chunk)
             if (rewritten) {
-              res.write(rewritten)
+              if (!res.write(rewritten)) {
+                clientGone ||= !(await backpressure.waitForDrain())
+              }
               if (rewritten.includes('"error"') || rewritten.includes('server_error')) {
                 res._responseBody = res._responseBody || rewritten.slice(0, 2000)
               }
@@ -755,18 +759,23 @@ class OpenAIResponsesRelayService {
       if (!transportError) {
         const rest = capacityShedSseRewriter.flush()
         if (rest && !clientGone && !res.destroyed) {
-          res.write(rest)
+          if (!res.write(rest)) {
+            clientGone ||= !(await backpressure.waitForDrain())
+          }
           if (rest.includes('"error"')) {
             res._responseBody = res._responseBody || rest.slice(0, 2000)
           }
         }
       }
       if (!hadTerminal && result.clientError && !clientGone && !res.destroyed) {
-        res.write(`data: ${JSON.stringify(result.clientError)}\n\n`)
+        if (!res.write(`data: ${JSON.stringify(result.clientError)}\n\n`)) {
+          clientGone ||= !(await backpressure.waitForDrain())
+        }
       }
       if (req._crsBridgeFailure) {
         Object.assign(result, req._crsBridgeFailure, { statusCode: 502 })
       }
+      req._crsRecordRelayResult?.({ ...result, hasUsage: Boolean(usageData), final: true })
       req._crsUsageDetailHandled = true
 
       // 记录使用统计
@@ -889,6 +898,7 @@ class OpenAIResponsesRelayService {
         logger.warn(`Processing rate limit for OpenAI-Responses account ${account.id} from stream`)
       }
     } finally {
+      backpressure.dispose()
       // 计费、诊断或限流记录失败也必须释放监听器、租约和预占额度。
       req._crsDrainForUsage = false
       if (req._crsGroupHoldReleaseDeferred === true) {
@@ -905,6 +915,7 @@ class OpenAIResponsesRelayService {
       }
 
       logger.info('OpenAI-Responses stream finished', {
+        requestId: req.requestId,
         accountId: account.id,
         hasUsage: Boolean(upstreamState.usage),
         terminalType: upstreamState.terminalType,
@@ -925,6 +936,12 @@ class OpenAIResponsesRelayService {
     // 提取 usage 数据和实际 model
     // 支持两种格式：直接的 usage 或嵌套在 response 中的 usage
     const usageData = responseData?.usage || responseData?.response?.usage
+    req._crsRecordRelayResult?.({
+      statusCode: response.status,
+      errorCode: responseData?.error?.code ?? responseData?.response?.error?.code,
+      hasUsage: Boolean(usageData),
+      final: true
+    })
     const actualModel = responseData?.model || responseData?.response?.model || requestedModel || 'gpt-4'
 
     // 记录使用统计

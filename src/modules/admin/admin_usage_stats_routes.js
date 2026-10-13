@@ -15,6 +15,7 @@ import { RedisKeys, TTL } from '../../infra/redis_key.js'
 import { authenticateAdmin } from '../../infra/middleware_auth.js'
 import { logger } from '../../common/logger.js'
 import { CostCalculator } from '../pricing/pricing_cost_calculator.js'
+import { createUsageRecordCostResolver } from '../pricing/pricing_usage_record_cost.js'
 import { pricingService } from '../pricing/pricing_service.js'
 import { parseDateTimeQuery } from '../../common/date_time.js'
 import { asyncRoute } from '../../common/route_handler.js'
@@ -218,16 +219,6 @@ const resolveAccountByPlatform = async (accountId, platform) => {
   }
 
   return null
-}
-
-const getApiKeyName = async (keyId) => {
-  try {
-    const keyData = await redis.getApiKey(keyId)
-    return keyData?.name || keyData?.label || keyId
-  } catch (error) {
-    logger.debug(`Failed to get API key name for ${keyId}: ${error.message}`)
-    return keyId
-  }
 }
 
 // 账户使用统计
@@ -2642,6 +2633,7 @@ router.get(
     }
 
     const rawRecords = await redis.getUsageRecords(keyId, 5000)
+    const resolveCosts = createUsageRecordCostResolver()
 
     const accountServices = [
       { type: 'claude', getter: (id) => claudeAccountService.getAccount(id) },
@@ -2788,8 +2780,7 @@ router.get(
       const usage = toUsageObject(record)
       const serviceTier =
         typeof record.serviceTier === 'string' && record.serviceTier.trim() ? record.serviceTier.trim() : null
-      const costData = CostCalculator.calculateCost(usage, record.model || 'unknown', serviceTier)
-      const computedCost = typeof record.cost === 'number' ? record.cost : costData?.costs?.total || 0
+      const { cost: computedCost } = resolveCosts(record, usage, serviceTier)
       const totalTokens =
         record.totalTokens ||
         usage.input_tokens + usage.output_tokens + usage.cache_creation_input_tokens + usage.cache_read_input_tokens
@@ -2842,9 +2833,8 @@ router.get(
       const usage = toUsageObject(record)
       const serviceTier =
         typeof record.serviceTier === 'string' && record.serviceTier.trim() ? record.serviceTier.trim() : null
-      const costData = CostCalculator.calculateCost(usage, record.model || 'unknown', serviceTier)
-      const computedCost = typeof record.cost === 'number' ? record.cost : costData?.costs?.total || 0
-      const realCost = typeof record.realCost === 'number' ? record.realCost : costData?.costs?.total || 0
+      const costs = resolveCosts(record, usage, serviceTier, true)
+      const { cost: computedCost, realCost } = costs
       const totalTokens =
         record.totalTokens ||
         usage.input_tokens + usage.output_tokens + usage.cache_creation_input_tokens + usage.cache_read_input_tokens
@@ -2871,16 +2861,15 @@ router.get(
         isLongContextRequest: record.isLongContext || record.isLongContextRequest || false,
         cost: Number(computedCost.toFixed(6)),
         costFormatted: CostCalculator.formatCost(computedCost),
-        realCost: Number(realCost.toFixed(6)),
+        realCost,
         realCostFormatted: CostCalculator.formatCost(realCost),
-        costBreakdown: record.realCostBreakdown ||
-          record.costBreakdown || {
-            input: costData?.costs?.input || 0,
-            output: costData?.costs?.output || 0,
-            cacheCreate: costData?.costs?.cacheWrite || 0,
-            cacheRead: costData?.costs?.cacheRead || 0,
-            total: costData?.costs?.total || computedCost,
-          },
+        costBreakdown: costs.costBreakdown,
+        realCostBreakdown: costs.realCostBreakdown,
+        baseCost: record.baseCost ?? null,
+        upstreamCostTicks: record.upstreamCostTicks ?? null,
+        realCostSource: record.realCostSource ?? null,
+        toolUsage: record.toolUsage ?? null,
+        toolCost: record.toolCost ?? 0,
         responseTime: record.responseTime || null,
       })
     }
@@ -2983,13 +2972,8 @@ router.get(
       throw notFound('Account not found')
     }
 
-    const allApiKeys = await apiKeyService.getAllApiKeysFast(true)
-    const apiKeyNameCache = new Map(allApiKeys.map((key) => [key.id, key.name || key.label || key.id]))
-
-    let keysToUse = apiKeyId ? allApiKeys.filter((key) => key.id === apiKeyId) : allApiKeys
-    if (apiKeyId && keysToUse.length === 0) {
-      keysToUse = [{ id: apiKeyId }]
-    }
+    const keyIds = apiKeyId ? [apiKeyId] : await redis.scanApiKeyIds()
+    const resolveCosts = createUsageRecordCostResolver()
 
     const toUsageObject = (record) => {
       const usage = {
@@ -3036,23 +3020,8 @@ router.get(
     let earliestTimestamp = null
     let latestTimestamp = null
 
-    const batchSize = 10
-    for (let i = 0; i < keysToUse.length; i += batchSize) {
-      const batch = keysToUse.slice(i, i + batchSize)
-      const batchResults = await Promise.all(
-        batch.map(async (key) => {
-          try {
-            const records = await redis.getUsageRecords(key.id, 5000)
-            return { keyId: key.id, records: records || [] }
-          } catch (error) {
-            logger.debug(`Failed to get usage records for key ${key.id}: ${error.message}`)
-            return { keyId: key.id, records: [] }
-          }
-        }),
-      )
-
-      for (const { keyId, records } of batchResults) {
-        const apiKeyName = apiKeyNameCache.get(keyId) || (await getApiKeyName(keyId))
+    for await (const batch of redis.iterateUsageRecordBatches(keyIds)) {
+      for (const { keyId, name: apiKeyName, records } of batch) {
         for (const record of records) {
           if (record.accountId !== accountId) {
             continue
@@ -3117,8 +3086,7 @@ router.get(
       const serviceTier =
         typeof record.serviceTier === 'string' && record.serviceTier.trim() ? record.serviceTier.trim() : null
       // 回放缺 cost 时按当时档位重算，避免 Fast 请求被基础价少计
-      const costData = CostCalculator.calculateCost(usage, record.model || 'unknown', serviceTier)
-      const computedCost = typeof record.cost === 'number' ? record.cost : costData?.costs?.total || 0
+      const { cost: computedCost } = resolveCosts(record, usage, serviceTier)
       const totalTokens =
         record.totalTokens ||
         usage.input_tokens + usage.output_tokens + usage.cache_creation_input_tokens + usage.cache_read_input_tokens
@@ -3143,9 +3111,8 @@ router.get(
       const usage = toUsageObject(record)
       const serviceTier =
         typeof record.serviceTier === 'string' && record.serviceTier.trim() ? record.serviceTier.trim() : null
-      const costData = CostCalculator.calculateCost(usage, record.model || 'unknown', serviceTier)
-      const computedCost = typeof record.cost === 'number' ? record.cost : costData?.costs?.total || 0
-      const realCost = typeof record.realCost === 'number' ? record.realCost : costData?.costs?.total || 0
+      const costs = resolveCosts(record, usage, serviceTier, true)
+      const { cost: computedCost, realCost } = costs
       const totalTokens =
         record.totalTokens ||
         usage.input_tokens + usage.output_tokens + usage.cache_creation_input_tokens + usage.cache_read_input_tokens
@@ -3171,16 +3138,15 @@ router.get(
         isLongContextRequest: record.isLongContext || record.isLongContextRequest || false,
         cost: Number(computedCost.toFixed(6)),
         costFormatted: CostCalculator.formatCost(computedCost),
-        realCost: Number(realCost.toFixed(6)),
+        realCost,
         realCostFormatted: CostCalculator.formatCost(realCost),
-        costBreakdown: record.realCostBreakdown ||
-          record.costBreakdown || {
-            input: costData?.costs?.input || 0,
-            output: costData?.costs?.output || 0,
-            cacheCreate: costData?.costs?.cacheWrite || 0,
-            cacheRead: costData?.costs?.cacheRead || 0,
-            total: costData?.costs?.total || computedCost,
-          },
+        costBreakdown: costs.costBreakdown,
+        realCostBreakdown: costs.realCostBreakdown,
+        baseCost: record.baseCost ?? null,
+        upstreamCostTicks: record.upstreamCostTicks ?? null,
+        realCostSource: record.realCostSource ?? null,
+        toolUsage: record.toolUsage ?? null,
+        toolCost: record.toolCost ?? 0,
         responseTime: record.responseTime || null,
       })
     }

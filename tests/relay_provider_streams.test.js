@@ -1,6 +1,6 @@
 import { jest } from '@jest/globals'
 import { EventEmitter } from 'node:events'
-import { Readable } from 'node:stream'
+import { PassThrough, Readable } from 'node:stream'
 import { IncrementalSSEParser } from '../src/modules/relay/relay_sse_parser.js'
 
 const axios = jest.fn()
@@ -83,7 +83,14 @@ const modules = {
   '../src/modules/payment/payment_service_rates_service.js': {
     serviceRatesService: { getService: () => 'grok' }
   },
-  '../src/modules/account/account_claude_console_service.js': { claudeConsoleAccountService: {} },
+  '../src/modules/account/account_claude_console_service.js': {
+    claudeConsoleAccountService: {
+      isAccountRateLimited: jest.fn().mockResolvedValue(false),
+      removeAccountRateLimit: jest.fn(),
+      isAccountOverloaded: jest.fn().mockResolvedValue(false),
+      removeAccountOverload: jest.fn()
+    }
+  },
   '../src/modules/user/user_message_queue_service.js': { userMessageQueueService: {} },
   '../src/modules/relay/relay_rate_limit_helper.js': { updateRateLimitCounters: jest.fn() },
   '../src/modules/relay/relay_upstream_protocol_guard.js': {
@@ -168,6 +175,7 @@ const upstream = (events) => ({
 })
 const account = { id: 'fixture-account', dailyQuota: '0', disableAutoProtection: true }
 const usage = { input_tokens: 1000, output_tokens: 40, input_tokens_details: { cached_tokens: 900 } }
+const nextTick = () => new Promise((resolve) => setImmediate(resolve))
 
 beforeEach(() => {
   jest.clearAllMocks()
@@ -299,6 +307,71 @@ describe('Grok forwarding contracts', () => {
 })
 
 describe('OpenAI Responses stream completion', () => {
+  it('waits for downstream drain before forwarding another chunk', async () => {
+    const res = makeResponse()
+    const req = makeRequest(res)
+    const { write } = res
+    res.write = jest.fn((chunk) => {
+      write(chunk)
+      return res.chunks.length > 1
+    })
+    const completion = openaiResponsesRelayService._handleStreamResponse(
+      upstream([
+        { type: 'response.created', response: { id: 'fixture' } },
+        { type: 'response.output_text.delta', delta: 'hello' },
+        { type: 'response.completed', response: { usage } }
+      ]), res, account, req.apiKey, 'gpt-test', jest.fn(), req
+    )
+    await nextTick()
+    expect(res.chunks).toHaveLength(1)
+    expect(apiKeyService.recordUsage).not.toHaveBeenCalled()
+    res.emit('drain')
+    await completion
+    expect(res.chunks).toHaveLength(3)
+    expect(apiKeyService.recordUsage).toHaveBeenCalledTimes(1)
+  })
+
+  it('drains usage after a client closes while a write is blocked', async () => {
+    const res = makeResponse()
+    const req = makeRequest(res)
+    res.write.mockImplementation((chunk) => {
+      res.chunks.push(String(chunk))
+      return false
+    })
+    const releaseConcurrency = jest.fn()
+    const completion = openaiResponsesRelayService._handleStreamResponse(
+      upstream([
+        { type: 'response.created', response: { id: 'fixture' } },
+        { type: 'response.completed', response: { usage } }
+      ]), res, account, req.apiKey, 'gpt-test', jest.fn(), req, { releaseConcurrency }
+    )
+    await nextTick()
+    res.destroyed = true
+    res.emit('close')
+    await completion
+    expect(res.chunks).toHaveLength(1)
+    expect(apiKeyService.recordUsage).toHaveBeenCalledTimes(1)
+    expect(releaseConcurrency).toHaveBeenCalledTimes(1)
+    expect(res.listenerCount('drain')).toBe(0)
+  })
+
+  it('does not hang when upstream fails while waiting for the client to drain', async () => {
+    const source = new PassThrough()
+    const res = makeResponse()
+    const req = makeRequest(res)
+    res.write.mockReturnValueOnce(false)
+    const completion = openaiResponsesRelayService._handleStreamResponse(
+      { status: 200, headers: {}, data: source }, res, account, req.apiKey,
+      'gpt-test', jest.fn(), req
+    )
+    source.write('data: {"type":"response.created","response":{"id":"fixture"}}\n\n')
+    await nextTick()
+    source.destroy(new Error('fixture upstream error'))
+    await completion
+    expect(requestDetailService.captureUnmeteredRequest).toHaveBeenCalled()
+    expect(res.listenerCount('drain')).toBe(0)
+  })
+
   it('finishes on a terminal event even if the upstream keeps its socket open', async () => {
     const res = makeResponse()
     const req = makeRequest(res)
@@ -504,6 +577,64 @@ describe('Gemini UTF-8 success stream', () => {
 })
 
 describe('Claude Console UTF-8 error stream', () => {
+  const consoleResponse = () => {
+    const res = makeResponse()
+    res.req = makeRequest(res)
+    res.writeHead = jest.fn(() => { res.headersSent = true })
+    res.end = jest.fn((callback) => {
+      res.writableEnded = true
+      res.emit('finish')
+      callback?.()
+      res.finishResponse()
+    })
+    return res
+  }
+  const consoleEvents = () => Readable.from([
+    'data: {"type":"message_start","message":{"model":"claude-test","usage":{"input_tokens":10}}}\n\n',
+    'data: {"type":"message_delta","usage":{"output_tokens":4}}\n\n',
+    'data: {"type":"message_stop"}\n\n'
+  ], { highWaterMark: 1 })
+  const runConsole = (res, usageCallback) => claudeConsoleRelayService._makeClaudeConsoleStreamRequest(
+    { model: 'claude-test', messages: [], stream: true },
+    { ...account, apiUrl: 'https://example.invalid', apiKey: 'fixture' },
+    null, {}, res, account.id, usageCallback
+  )
+
+  it('pauses a Console stream for downstream drain and reports final usage once', async () => {
+    const res = consoleResponse()
+    const source = consoleEvents()
+    axios.mockResolvedValue({ status: 200, headers: {}, data: source })
+    const { write } = res
+    res.write = jest.fn((chunk) => { write(chunk); return res.chunks.length > 1 })
+    const usageCallback = jest.fn()
+    const completion = runConsole(res, usageCallback)
+    await nextTick()
+    expect(res.chunks).toHaveLength(1)
+    expect(source.isPaused()).toBe(true)
+    res.emit('drain')
+    await completion
+    expect(usageCallback).toHaveBeenCalledTimes(1)
+    expect(usageCallback.mock.calls[0][0]).toMatchObject({ input_tokens: 10, output_tokens: 4 })
+    expect(res.listenerCount('drain')).toBe(0)
+    expect(res.listenerCount('close')).toBe(0)
+  })
+
+  it('continues Console usage collection after the blocked client disconnects', async () => {
+    const res = consoleResponse()
+    axios.mockResolvedValue({ status: 200, headers: {}, data: consoleEvents() })
+    res.write.mockReturnValue(false)
+    const usageCallback = jest.fn()
+    const completion = runConsole(res, usageCallback)
+    const rejected = expect(completion).rejects.toThrow('Client disconnected')
+    await nextTick()
+    res.destroyed = true
+    res.emit('close')
+    await rejected
+    expect(usageCallback).toHaveBeenCalledTimes(1)
+    expect(usageCallback.mock.calls[0][0].output_tokens).toBe(4)
+    expect(res.listenerCount('drain')).toBe(0)
+  })
+
   it('retains the complete Chinese error and context when every byte is a separate chunk', async () => {
     const message = '中文参数错误'
     const wire = Buffer.from(JSON.stringify({ error: { type: 'invalid_request_error', message } }))

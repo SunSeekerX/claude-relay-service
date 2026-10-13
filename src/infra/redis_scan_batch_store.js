@@ -330,14 +330,17 @@ export const attach = (redisClient) => {
    */
   redisClient.getAllIdsByIndex = async function (indexKey, scanPattern, extractRegex) {
     const client = this.getClientSafe()
+    const emptyKey = RedisKeys.emptyMarker(indexKey)
+    const reservedIds = new Set([indexKey, emptyKey]
+      .map((key) => key.match(extractRegex)?.[1]).filter(Boolean))
     // 检查是否已标记为空（避免重复 SCAN）
-    const emptyMarker = await client.get(RedisKeys.emptyMarker(indexKey))
+    const emptyMarker = await client.get(emptyKey)
     if (emptyMarker === '1') {
       return []
     }
     let ids = await client.smembers(indexKey)
     if (ids && ids.length > 0) {
-      return ids
+      return ids.filter((id) => !reservedIds.has(id))
     }
     // 回退到 SCAN（仅首次）
     const keys = await this.scanKeys(scanPattern)
@@ -351,7 +354,7 @@ export const attach = (redisClient) => {
         const match = k.match(extractRegex)
         return match ? match[1] : null
       })
-      .filter(Boolean)
+      .filter((id) => id && !reservedIds.has(id))
     // 建立索引
     if (ids.length > 0) {
       await client.sadd(indexKey, ...ids)

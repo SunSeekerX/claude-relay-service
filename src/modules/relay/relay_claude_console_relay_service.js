@@ -8,7 +8,7 @@ import * as upstreamErrorHelper from './relay_upstream_error_helper.js'
 import { proxyResolver } from '../proxy/proxy_resolver.js'
 import { userMessageQueueService } from '../user/user_message_queue_service.js'
 import { onClientDisconnect } from '../../common/client_disconnect.js'
-import { isStreamWritable } from '../../common/stream_helper.js'
+import { createStreamBackpressure, isStreamWritable } from '../../common/stream_helper.js'
 import { filterForClaude } from './relay_header_filter.js'
 import { RedisKeys } from '../../infra/redis_key.js'
 import { isAccountDisabledError } from '../../common/error_sanitizer.js'
@@ -35,6 +35,9 @@ class ClaudeConsoleRelayService {
     responseStream,
     { statusCode = 500, rawBody = null, streamTransformer = null, fallbackMessage = 'Stream error' } = {},
   ) {
+    if (responseStream.req?._crsUpstreamHeaders) {
+      responseStream.req._crsRecordRelayResult?.({ statusCode, final: true })
+    }
     if (!isStreamWritable(responseStream)) {
       return
     }
@@ -781,6 +784,19 @@ class ClaudeConsoleRelayService {
   ) {
     return new Promise((resolve, reject) => {
       let aborted = false
+      let waitingForClientFinish = false
+      let finalUsageReported = false
+      let backpressure = null
+      const onClientClose = () => {
+        aborted = true
+        if (waitingForClientFinish) {
+          settleStreamErr(new Error('Client disconnected'))
+        }
+      }
+      const cleanup = () => {
+        backpressure?.dispose()
+        responseStream.removeListener('close', onClientClose)
+      }
       // settle 提到 Promise 顶层：data/end/error/axios catch/客户端断开共用
       // DEC_20260905_165725
       let streamSettled = false
@@ -789,6 +805,7 @@ class ClaudeConsoleRelayService {
           return
         }
         streamSettled = true
+        cleanup()
         resolve()
       }
       const settleStreamErr = (err) => {
@@ -796,6 +813,7 @@ class ClaudeConsoleRelayService {
           return
         }
         streamSettled = true
+        cleanup()
         reject(err)
       }
 
@@ -878,6 +896,9 @@ class ClaudeConsoleRelayService {
 
           // 错误响应处理
           if (response.status !== 200) {
+            clientReq?._crsRecordRelayResult?.({
+              statusCode: response.status, hasUsage: false, final: true
+            })
             logger.error(
               `Claude Console API returned error status: ${response.status} | Account: ${account?.name || accountId}`,
             )
@@ -1072,7 +1093,6 @@ class ClaudeConsoleRelayService {
 
           let buffer = ''
           const streamDecoder = new StringDecoder('utf8')
-          let finalUsageReported = false
           // 流处理致命错误后停止转发
           // DEC_20260905_163148
           let streamFatal = false
@@ -1081,6 +1101,7 @@ class ClaudeConsoleRelayService {
           }
 
           // 处理流数据
+          backpressure = createStreamBackpressure(response.data, responseStream)
           response.data.on('data', (chunk) => {
             try {
               // fatal 才停 drain；客户端断开仍继续解析 usage 再计费
@@ -1114,7 +1135,11 @@ class ClaudeConsoleRelayService {
                   }
 
                   if (dataToWrite) {
-                    responseStream.write(dataToWrite)
+                    if (!responseStream.write(dataToWrite)) {
+                      backpressure.waitForDrain().then((writable) => {
+                        aborted ||= !writable
+                      })
+                    }
                   }
                 } else if (aborted || !isStreamWritable(responseStream)) {
                   // 客户端已断：跳过写回，继续解析 usage
@@ -1243,7 +1268,7 @@ class ClaudeConsoleRelayService {
             }
           })
 
-          response.data.on('end', () => {
+          response.data.on('end', async () => {
             try {
               // fatal 已 reject：只收尾，不再 settle
               // DEC_20260905_165339
@@ -1263,10 +1288,14 @@ class ClaudeConsoleRelayService {
                   if (streamTransformer) {
                     const transformed = streamTransformer(buffer)
                     if (transformed) {
-                      responseStream.write(transformed)
+                      if (!responseStream.write(transformed)) {
+                        aborted ||= !(await backpressure.waitForDrain())
+                      }
                     }
                   } else {
-                    responseStream.write(buffer)
+                    if (!responseStream.write(buffer)) {
+                      aborted ||= !(await backpressure.waitForDrain())
+                    }
                   }
                 }
                 for (const line of remainingLines) {
@@ -1367,6 +1396,9 @@ class ClaudeConsoleRelayService {
               }
 
               // 客户端断开：usage 已按 drain 结果处理，再 settle 释放并发
+              clientReq?._crsRecordRelayResult?.({
+                statusCode: 200, hasUsage: finalUsageReported, final: true
+              })
               // DEC_20260905_165725 / DEC_20260905_195558
               if (aborted) {
                 if (isStreamWritable(responseStream)) {
@@ -1391,6 +1423,7 @@ class ClaudeConsoleRelayService {
                 }
 
                 // 等待数据完全 flush 到客户端后再 resolve
+                waitingForClientFinish = true
                 responseStream.end(() => {
                   logger.info(
                     ` [STREAM] Response ended and flushed | socketBytesWritten: ${responseStream.socket?.bytesWritten || 'unknown'}`,
@@ -1511,10 +1544,7 @@ class ClaudeConsoleRelayService {
         })
 
       // 处理客户端断开连接
-      responseStream.on('close', () => {
-        logger.debug('Client disconnected, cleaning up Claude Console stream')
-        aborted = true
-      })
+      responseStream.once('close', onClientClose)
     })
   }
 

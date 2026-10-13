@@ -774,66 +774,67 @@ export const getAllTempUnavailable = async () => {
     const redis = getRedis()
     const client = redis.getClientSafe()
     const pattern = RedisKeys.upstream.tempUnavailablePattern
-    const keys = await client.keys(pattern)
+    const keys = await redis.scanKeys(pattern)
     if (!keys.length) {
       return {}
     }
 
-    const pipeline = client.pipeline()
-    for (const key of keys) {
-      pipeline.get(key)
-      pipeline.ttl(key)
-    }
-    const results = await pipeline.exec()
-    const cleanupPipeline = client.pipeline()
-
     const statuses = {}
-    for (let i = 0; i < keys.length; i++) {
-      const key = keys[i]
-      // key format: temp_unavailable:{accountType}:{accountId}
-      const parts = key.split(':')
-      const accountType = parts[1]
-      const accountId = parts.slice(2).join(':')
-      const [getErr, value] = results[i * 2]
-      const [ttlErr, ttl] = results[i * 2 + 1]
-      if (getErr || ttlErr || !value) {
-        continue
+    for (let offset = 0; offset < keys.length; offset += 200) {
+      const batch = keys.slice(offset, offset + 200)
+      const pipeline = client.pipeline()
+      for (const key of batch) {
+        pipeline.get(key)
+        pipeline.ttl(key)
       }
-
-      if (ttl === -1) {
-        // 自愈：清理无 TTL 的异常键，避免账户被永久阻塞
-        cleanupPipeline.del(key)
-        continue
-      }
-
-      try {
-        const data = JSON.parse(value)
-        const compositeKey = `${accountType}:${accountId}`
-        const cooldownSecondsRaw = Number(data.cooldownSeconds)
-        const ttlSecondsRaw = Number(data.ttlSeconds)
-        const configuredCooldownSeconds = Number.isFinite(cooldownSecondsRaw)
-          ? Math.max(0, Math.floor(cooldownSecondsRaw))
-          : Number.isFinite(ttlSecondsRaw)
-            ? Math.max(0, Math.floor(ttlSecondsRaw))
-            : null
-
-        statuses[compositeKey] = {
-          accountId,
-          accountType,
-          statusCode: data.statusCode,
-          errorType: data.errorType,
-          markedAt: data.markedAt,
-          ttl: ttl > 0 ? ttl : 0,
-          remainingSeconds: ttl > 0 ? ttl : 0,
-          cooldownSeconds: configuredCooldownSeconds,
-          expiresAt: data.expiresAt || null,
+      const results = await pipeline.exec()
+      const cleanupPipeline = client.pipeline()
+      for (let i = 0; i < batch.length; i++) {
+        const key = batch[i]
+        // key format: temp_unavailable:{accountType}:{accountId}
+        const parts = key.split(':')
+        const accountType = parts[1]
+        const accountId = parts.slice(2).join(':')
+        const [getErr, value] = results[i * 2]
+        const [ttlErr, ttl] = results[i * 2 + 1]
+        if (getErr || ttlErr || !value) {
+          continue
         }
-      } catch {
-        // ignore parse errors
-      }
-    }
 
-    await cleanupPipeline.exec().catch(() => {})
+        if (ttl === -1) {
+          // 自愈：清理无 TTL 的异常键，避免账户被永久阻塞
+          cleanupPipeline.del(key)
+          continue
+        }
+
+        try {
+          const data = JSON.parse(value)
+          const compositeKey = `${accountType}:${accountId}`
+          const cooldownSecondsRaw = Number(data.cooldownSeconds)
+          const ttlSecondsRaw = Number(data.ttlSeconds)
+          const configuredCooldownSeconds = Number.isFinite(cooldownSecondsRaw)
+            ? Math.max(0, Math.floor(cooldownSecondsRaw))
+            : Number.isFinite(ttlSecondsRaw)
+              ? Math.max(0, Math.floor(ttlSecondsRaw))
+              : null
+
+          statuses[compositeKey] = {
+            accountId,
+            accountType,
+            statusCode: data.statusCode,
+            errorType: data.errorType,
+            markedAt: data.markedAt,
+            ttl: ttl > 0 ? ttl : 0,
+            remainingSeconds: ttl > 0 ? ttl : 0,
+            cooldownSeconds: configuredCooldownSeconds,
+            expiresAt: data.expiresAt || null,
+          }
+        } catch {
+          // ignore parse errors
+        }
+      }
+      await cleanupPipeline.exec().catch(() => {})
+    }
     return statuses
   } catch (error) {
     logger.error('[UpstreamError] Failed to get all temp unavailable statuses:', error)

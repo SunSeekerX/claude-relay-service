@@ -8,6 +8,7 @@ const ENCRYPTED_CONTENT_KEY = 'encrypted_content'
 const TOOLS_KEY = 'tools'
 const PREVIEW_TRUNCATION_SUFFIX_PATTERN = /\.\.\.\[(?:truncated )?(\d+) chars\]$/
 const OPENAI_RELATED_ACCOUNT_TYPES = new Set(['openai', 'openai-responses', 'azure-openai'])
+const requestMetaRequests = new WeakMap()
 export const CACHE_HIT_FORMULA = 'cacheReadTokens / (inputTokens + cacheReadTokens + cacheCreateTokens)'
 
 const toFiniteNumber = (value) => {
@@ -607,6 +608,9 @@ export const createRequestDetailMeta = (req, overrides = {}) => {
   if (upstreamRequestId) {
     meta.upstreamRequestId = upstreamRequestId
   }
+  if (req) {
+    requestMetaRequests.set(meta, req)
+  }
   return meta
 }
 
@@ -656,6 +660,11 @@ export const finalizeRequestDetailMeta = (requestMeta = null) => {
     requestStartedAtMs !== null ? Math.max(0, Date.now() - requestStartedAtMs) : toFiniteNumber(requestMeta.durationMs)
   // finalize 时再读一遍 req 上可能刚打上的首包点（通过 overrides 传入）
   const firstTokenMs = toFiniteNumber(requestMeta.firstTokenMs)
+  requestMetaRequests.get(requestMeta)?._crsRecordRelayResult?.({
+    statusCode: requestMeta.statusCode,
+    errorCode: requestMeta.errorCode,
+    hasUsage: true
+  })
 
   return {
     ...requestMeta,

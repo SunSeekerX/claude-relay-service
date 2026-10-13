@@ -3,6 +3,7 @@ import { apiKeyService } from '../modules/apikey/apikey_service.js'
 import { userService } from '../modules/user/user_service.js'
 import { logger } from '../common/logger.js'
 import * as httpAccessLog from '../common/http_access_log.js'
+import { httpRequestStats } from '../common/http_request_stats.js'
 import { redis } from './redis.js'
 import { ClientValidator } from '../common/validator_client_validator.js'
 import { ClaudeCodeValidator } from '../common/validator_client_claude_code_validator.js'
@@ -1452,7 +1453,7 @@ export const authenticateAdmin = async (req, res, next) => {
 
     const authDuration = Date.now() - startTime
     req._authInfo = `${adminSession.username} ${authDuration}ms`
-    logger.security(`Admin authenticated: ${adminSession.username} in ${authDuration}ms`)
+    logger.debug(`Admin authenticated: ${adminSession.username} in ${authDuration}ms`)
 
     return next()
   } catch (error) {
@@ -1573,7 +1574,7 @@ export const authenticateUserOrAdmin = async (req, res, next) => {
 
             const authDuration = Date.now() - startTime
             req._authInfo = `${adminSession.username} ${authDuration}ms`
-            logger.security(`Admin authenticated: ${adminSession.username} in ${authDuration}ms`)
+            logger.debug(`Admin authenticated: ${adminSession.username} in ${authDuration}ms`)
             return next()
           }
         }
@@ -1724,6 +1725,7 @@ export const corsMiddleware = (req, res, next) => {
 export const requestLogger = (req, res, next) => {
   const start = Date.now()
   const requestId = Math.random().toString(36).substring(2, 15)
+  httpRequestStats.observe(req, res)
 
   req.requestId = requestId
   req.requestStartedAt = start
@@ -1891,8 +1893,12 @@ export const requestLogger = (req, res, next) => {
       logger[payload.level](payload.message, meta)
     }
 
-    if (duration > 5000) {
-      logger.warn(`Slow request: ${duration}ms ${req.method} ${pathOnly}`)
+    const streaming = req.body?.stream === true ||
+      String(res.get('Content-Type') ?? '').includes('text/event-stream')
+    const waitMs = streaming ? req.firstTokenMs : duration
+    if (waitMs > 5000) {
+      const kind = streaming ? 'Slow first token' : 'Slow request'
+      logger.warn(`${kind}: ${waitMs}ms ${req.method} ${pathOnly}`, { requestId, durationMs: duration })
     }
 
     // 失败转发请求写入请求明细（成功路径仍由 recordUsage 采集，这里只补 4xx/5xx）

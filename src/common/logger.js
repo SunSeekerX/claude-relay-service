@@ -7,6 +7,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import crypto from 'node:crypto'
 import * as httpAccessLog from './http_access_log.js'
+import { httpRequestStats } from './http_request_stats.js'
 import chalk from 'chalk'
 import { env } from '../../config/env.js'
 
@@ -638,7 +639,6 @@ logger.stats = {
 // 重写原始方法以统计
 const originalError = logger.error
 const originalWarn = logger.warn
-const originalInfo = logger.info
 
 logger.error = function (message, ...args) {
   logger.stats.errors++
@@ -650,19 +650,12 @@ logger.warn = function (message, ...args) {
   return originalWarn.call(this, message, ...args)
 }
 
-logger.info = function (message, ...args) {
-  // 检查是否是请求类型的日志
-  if (args.length > 0 && typeof args[0] === 'object' && args[0].type === 'request') {
-    logger.stats.requests++
-  }
-  return originalInfo.call(this, message, ...args)
-}
-
 // 获取日志统计
-logger.getStats = () => ({ ...logger.stats })
+logger.getStats = () => ({ ...logger.stats, ...httpRequestStats.getStats() })
 
 // 清理统计
 logger.resetStats = () => {
+  httpRequestStats.reset()
   logger.stats.requests = 0
   logger.stats.errors = 0
   logger.stats.warnings = 0

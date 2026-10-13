@@ -50,15 +50,15 @@ export const attach = (redisClient) => {
   redisClient.getTodayStats = async function () {
     try {
       const today = getDateStringInTimezone()
-      // 优先使用索引查询，回退到 SCAN
+      const apiKeyIds = await this.scanApiKeyIds()
+      // 优先使用当日索引，缺失时从主数据 ID 构造日用量键。
       let dailyKeys = []
       const indexKey = RedisKeys.usage.dailyIndex(today)
       const indexMembers = await this.client.smembers(indexKey)
       if (indexMembers && indexMembers.length > 0) {
         dailyKeys = indexMembers.map((keyId) => RedisKeys.usage.daily(keyId, today))
       } else {
-        // 回退到 SCAN（兼容历史数据）
-        dailyKeys = await this.scanKeys(RedisKeys.usage.dailyDateScan(today))
+        dailyKeys = apiKeyIds.map((keyId) => RedisKeys.usage.daily(keyId, today))
       }
 
       let totalRequestsToday = 0
@@ -105,12 +105,12 @@ export const attach = (redisClient) => {
       }
 
       // 获取今日创建的API Key数量（批量优化）
-      const allApiKeys = await this.scanKeys(RedisKeys.apiKey.allPattern)
       let apiKeysCreatedToday = 0
-
-      if (allApiKeys.length > 0) {
+      for (let offset = 0; offset < apiKeyIds.length; offset += 500) {
         const pipeline = this.client.pipeline()
-        allApiKeys.forEach((key) => pipeline.hget(key, 'createdAt'))
+        apiKeyIds.slice(offset, offset + 500).forEach((keyId) => {
+          pipeline.hget(RedisKeys.apiKey.byId(keyId), 'createdAt')
+        })
         const results = await pipeline.exec()
 
         for (const [error, createdAt] of results) {
@@ -146,38 +146,32 @@ export const attach = (redisClient) => {
   // 获取系统总的平均RPM和TPM
   redisClient.getSystemAverages = async function () {
     try {
-      const allApiKeys = await this.scanKeys(RedisKeys.apiKey.allPattern)
+      const apiKeyIds = await this.scanApiKeyIds()
       let totalRequests = 0
       let totalTokens = 0
       let totalInputTokens = 0
       let totalOutputTokens = 0
       let oldestCreatedAt = new Date()
 
-      // 批量获取所有usage数据和key数据，提高性能
-      const usageKeys = allApiKeys.map((key) => RedisKeys.usage.total(key.replace(RedisKeys.apiKey.idPrefix, '')))
-      const pipeline = this.client.pipeline()
-
-      // 添加所有usage查询
-      usageKeys.forEach((key) => pipeline.hgetall(key))
-      // 添加所有key数据查询
-      allApiKeys.forEach((key) => pipeline.hgetall(key))
-
-      const results = await pipeline.exec()
-      const usageResults = results.slice(0, usageKeys.length)
-      const keyResults = results.slice(usageKeys.length)
-
-      for (let i = 0; i < allApiKeys.length; i++) {
-        const totalData = usageResults[i][1] || {}
-        const keyData = keyResults[i][1] || {}
-
-        totalRequests += parseInt(totalData.totalRequests) || 0
-        totalTokens += parseInt(totalData.totalTokens) || 0
-        totalInputTokens += parseInt(totalData.totalInputTokens) || 0
-        totalOutputTokens += parseInt(totalData.totalOutputTokens) || 0
-
-        const createdAt = keyData.createdAt ? new Date(keyData.createdAt) : new Date()
-        if (createdAt < oldestCreatedAt) {
-          oldestCreatedAt = createdAt
+      for (let offset = 0; offset < apiKeyIds.length; offset += 500) {
+        const batch = apiKeyIds.slice(offset, offset + 500)
+        const pipeline = this.client.pipeline()
+        for (const keyId of batch) {
+          pipeline.hgetall(RedisKeys.usage.total(keyId))
+          pipeline.hget(RedisKeys.apiKey.byId(keyId), 'createdAt')
+        }
+        const results = await pipeline.exec()
+        for (let index = 0; index < batch.length; index++) {
+          const totalData = results[index * 2][1] ?? {}
+          const rawCreatedAt = results[index * 2 + 1][1]
+          totalRequests += parseInt(totalData.totalRequests) || 0
+          totalTokens += parseInt(totalData.totalTokens) || 0
+          totalInputTokens += parseInt(totalData.totalInputTokens) || 0
+          totalOutputTokens += parseInt(totalData.totalOutputTokens) || 0
+          const createdAt = rawCreatedAt ? new Date(rawCreatedAt) : new Date()
+          if (createdAt < oldestCreatedAt) {
+            oldestCreatedAt = createdAt
+          }
         }
       }
 

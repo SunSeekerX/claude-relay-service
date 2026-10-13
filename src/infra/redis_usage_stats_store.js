@@ -833,6 +833,38 @@ export const attach = (redisClient) => {
     }
   }
 
+  redisClient.iterateUsageRecordBatches = async function* (keyIds, limit = 5000) {
+    const client = this.getClientSafe()
+    for (let offset = 0; offset < keyIds.length; offset += 50) {
+      const batch = keyIds.slice(offset, offset + 50)
+      const pipeline = client.pipeline()
+      for (const keyId of batch) {
+        pipeline.hmget(RedisKeys.apiKey.byId(keyId), 'name', 'label')
+        pipeline.lrange(RedisKeys.usage.records(keyId), 0, limit - 1)
+      }
+      const results = await pipeline.exec()
+      yield batch.map((keyId, index) => {
+        const [nameError, names] = results[index * 2]
+        const [recordsError, rawRecords] = results[index * 2 + 1]
+        if (nameError || recordsError) {
+          logger.error(`Failed to load usage records for key ${keyId}:`, nameError ?? recordsError)
+        }
+        const records = []
+        for (const raw of rawRecords ?? []) {
+          try {
+            const record = JSON.parse(raw)
+            if (record) {
+              records.push(record)
+            }
+          } catch (error) {
+            logger.warn(`Failed to parse usage record for key ${keyId}:`, error)
+          }
+        }
+        return { keyId, name: names?.[0] || names?.[1] || keyId, records }
+      })
+    }
+  }
+
   // 获取账户使用统计
   redisClient.getAccountUsageStats = async function (accountId, accountType = null) {
     const accountKey = RedisKeys.accountUsage.total(accountId)

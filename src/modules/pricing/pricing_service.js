@@ -1303,13 +1303,13 @@ class PricingService {
     // 根据 Anthropic 官方文档：当总输入超过 200K 时，整个请求所有 token 类型都使用高档价格
     if (isLongContextModeEnabled && totalInputTokens > 200000) {
       if (ignores200kLongContextPricing) {
-        logger.info(
+        logger.debug(
           `Skipping 200K+ pricing for ${modelName}: Claude models use flat pricing regardless of context length`,
         )
       } else {
         isLongContextRequest = true
         useLongContextPricing = true
-        logger.info(`Using 200K+ pricing for ${modelName}: total input tokens = ${totalInputTokens.toLocaleString()}`)
+        logger.debug(`Using 200K+ pricing for ${modelName}: total input tokens = ${totalInputTokens.toLocaleString()}`)
       }
     }
 
@@ -1346,12 +1346,12 @@ class PricingService {
     const useOpenAITieredPricing = tierSuffixes.length > 0 || !!contextSuffix
     if (openaiContextThreshold > 0) {
       isLongContextRequest = true
-      logger.info(
+      logger.debug(
         `OpenAI long-context pricing for ${modelName}: total input ${totalInputTokens.toLocaleString()} > ${openaiContextThreshold.toLocaleString()}`,
       )
     }
     if (tierSuffixes.length > 0) {
-      logger.info(
+      logger.debug(
         `service_tier=${serviceTier} pricing tier ${tierSuffixes.join('>')} applied for ${normalizedModelName}`,
       )
     }
@@ -1361,7 +1361,7 @@ class PricingService {
       (typeof pricing?.litellm_provider === 'string' && pricing.litellm_provider.toLowerCase().includes('anthropic'))
 
     if (isFastModeRequest && fastMultiplier > 1) {
-      logger.info(
+      logger.debug(
         `Fast mode ${fastMultiplier}x multiplier applied for ${normalizedModelName} (from provider_specific_entry)`,
       )
     } else if (isFastModeRequest) {

@@ -147,8 +147,8 @@ const buildCostBreakdownFromResult = (costResult) => {
 
 const createCostRecomputePatch = (record = {}) => {
   const storedCost = normalizeNumber(record.cost, 6)
-  const storedRealCost = normalizeNumber(record.realCost, 6)
-  if (storedCost > 0 || storedRealCost > 0) {
+  const storedRealCost = normalizeNumber(record.realCost)
+  if (storedCost > 0 || storedRealCost > 0 || record.realCostSource === 'upstream') {
     return null
   }
 
@@ -690,7 +690,7 @@ class RequestDetailService {
       normalizeNumber(detail.totalTokens) || inputTokens + outputTokens + cacheReadTokens + cacheCreateTokens
     const statusCode = normalizeNumber(detail.statusCode)
     const cost = normalizeNumber(detail.cost, 6)
-    const realCost = normalizeNumber(detail.realCost, 6)
+    const realCost = normalizeNumber(detail.realCost)
     const reasoningInfo = requestDetailHelper.extractRequestReasoningInfo(requestBodySource)
     const serviceTier =
       typeof detail.serviceTier === 'string' && detail.serviceTier.trim()
@@ -773,6 +773,7 @@ class RequestDetailService {
   }
 
   async captureUnmeteredRequest(req, { apiKeyId, accountId, accountType, result } = {}) {
+    req?._crsRecordRelayResult?.({ ...result, hasUsage: false, final: true })
     const meta = requestDetailHelper.createRequestDetailMeta(req, {
       ...result,
       errorCode: result?.errorCode ?? 'usage_missing',
