@@ -1,4 +1,6 @@
-import { beforeEach, describe, expect, jest, test } from '@jest/globals'
+import { afterAll, beforeEach, describe, expect, jest, test } from '@jest/globals'
+jest.useFakeTimers()
+afterAll(() => { jest.clearAllTimers(); jest.useRealTimers() })
 
 const routes = new Map()
 const accounts = new Map()

@@ -20,6 +20,7 @@ import { getSafeMessage } from './common/error_sanitizer.js'
 import * as migrations from './infra/migration_runner.js'
 import { apiRoutes } from './modules/relay/relay_api_routes.js'
 import { namedRoutes } from './modules/relay/relay_routing_dispatch.js'
+import { getResponsesBridgeProvider } from './modules/relay/relay_responses_contract.js'
 import { unifiedRoutes } from './modules/relay/relay_unified_routes.js'
 import { router as adminRoutes } from './modules/admin/admin_routes.js'
 import { router as webRoutes } from './modules/admin/admin_web_routes.js'
@@ -50,6 +51,7 @@ import { claudeAccountService } from './modules/account/account_claude_service.j
 import { claudeConsoleAccountService } from './modules/account/account_claude_console_service.js'
 import { bedrockAccountService } from './modules/account/account_bedrock_service.js'
 import { costRankService } from './modules/pricing/pricing_cost_rank_service.js'
+import { geminiInteractionsService } from './modules/relay/relay_gemini_interactions_service.js'
 import { apiKeyIndexService } from './modules/apikey/apikey_index_service.js'
 import { accountGroupService } from './modules/account/account_group_service.js'
 import { proxyPoolService } from './modules/proxy/proxy_pool_service.js'
@@ -783,9 +785,9 @@ export class Application {
           return
         }
         const apiKeyData = auth.keyData
-        if (isResponsesWs && apiKeyData._relayRoute) {
+        if (isResponsesWs && (apiKeyData._relayRoute || getResponsesBridgeProvider(pathname))) {
           const { handleNamedResponsesWebSocket } = await import('./modules/relay/relay_routing_websocket.js')
-          await handleNamedResponsesWebSocket(req, socket, head, { releaseAuth })
+          await handleNamedResponsesWebSocket(req, socket, head, { releaseAuth, keyData: apiKeyData })
           return
         }
 
@@ -1324,6 +1326,7 @@ export class Application {
 
       // 定期清理任务
       this.startCleanupTasks()
+      geminiInteractionsService.start()
 
       // 优雅关闭
       this.setupGracefulShutdown()
@@ -1515,6 +1518,7 @@ export class Application {
   setupGracefulShutdown() {
     const shutdown = async (signal) => {
       logger.info(`Received ${signal}, starting graceful shutdown...`)
+      geminiInteractionsService.stop()
 
       if (this.server) {
         this.server.close(async () => {

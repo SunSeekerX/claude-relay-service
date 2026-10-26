@@ -1,3 +1,4 @@
+import { normalizeAccountApiKeyUpdate } from './account_api_key_update.js'
 import crypto from 'node:crypto'
 import { redis } from '../../infra/redis.js'
 import { logger } from '../../common/logger.js'
@@ -165,9 +166,14 @@ class OpenAIResponsesAccountService {
 
   // 更新账户
   async updateAccount(accountId, updates) {
+    normalizeAccountApiKeyUpdate(updates)
     const account = await this.getAccount(accountId)
     if (!account) {
       throw new Error('Account not found')
+    }
+
+    if (Object.keys(updates).length === 0) {
+      return { success: true }
     }
 
     // 处理敏感字段加密

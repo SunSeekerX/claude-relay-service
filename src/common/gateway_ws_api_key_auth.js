@@ -8,6 +8,7 @@ import crypto from 'node:crypto'
 import { env } from '../../config/env.js'
 import { getDefaultRouteFormat, ROUTE_PROVIDERS } from '../modules/relay/relay_routing_contract.js'
 import { resolveRequestRoute, applyRouteBinding } from '../modules/relay/relay_routing_service.js'
+import { getResponsesBridgeProvider } from '../modules/relay/relay_responses_contract.js'
 // WebSocket / HTTP Upgrade 鉴权：对齐 authenticateApiKey 的硬门（无 Express 排队）
 // - validateApiKey.valid
 // - 客户端限制
@@ -157,6 +158,7 @@ export const validateWsApiKey = async (req, url, requiredPermission = 'openai') 
 
   let { keyData } = validation
   const path = url?.pathname ?? req.url?.split('?')[0] ?? ''
+  requiredPermission = getResponsesBridgeProvider(path) ?? requiredPermission
   if (/\/responses$/.test(path)) {
     const explicitCode = path.match(/^\/r\/([^/]+)\//)?.[1] ?? null
     try {

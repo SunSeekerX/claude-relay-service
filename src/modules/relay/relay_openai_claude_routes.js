@@ -1,5 +1,6 @@
 import { trackRequestTiming } from '../../common/request_timing.js'
 import express from 'express'
+import { relayResponsesViaProvider } from './relay_responses_gateway.js'
 import { getLegacyProviderModels } from './relay_routing_service.js'
 import { modelAccessErrorBody } from './relay_model_access.js'
 import { logger } from '../../common/logger.js'
@@ -24,6 +25,12 @@ import { onClientDisconnect } from '../../common/client_disconnect.js'
  */
 
 export const openaiClaudeRoutes = express.Router()
+for (const path of ['/responses', '/v1/responses', '/responses/compact', '/v1/responses/compact']) {
+  openaiClaudeRoutes.post(path, authenticateApiKey, async (req, res) => {
+    const { handleMessagesRequest } = await import('./relay_api_routes.js')
+    return relayResponsesViaProvider(req, res, { provider: 'claude', handle: handleMessagesRequest })
+  })
+}
 
 // 辅助函数：检查 API Key 权限
 const checkPermissions = (apiKeyData, requiredPermission = 'claude') =>

@@ -203,6 +203,9 @@
                     class="whitespace-nowrap px-4 py-3 text-sm text-purple-600 dark:text-purple-400"
                   >
                     {{ formatNumber(record.cacheCreateTokens) }}
+                    <div v-if="record.cacheWrite12hTokens != null" class="text-sm text-gray-500 dark:text-gray-400">
+                      30m {{ formatNumber(record.cacheWrite30mTokens) }} / 12h {{ formatNumber(record.cacheWrite12hTokens) }}
+                    </div>
                   </td>
                   <td
                     class="whitespace-nowrap px-4 py-3 text-sm text-orange-600 dark:text-orange-400"
@@ -248,7 +251,12 @@
               <div class="mt-3 grid grid-cols-2 gap-2 text-sm text-gray-700 dark:text-gray-300">
                 <div>输入：{{ formatNumber(record.inputTokens) }}</div>
                 <div>输出：{{ formatNumber(record.outputTokens) }}</div>
-                <div>缓存写入：{{ formatNumber(record.cacheCreateTokens) }}</div>
+                <div>
+                  缓存写入：{{ formatNumber(record.cacheCreateTokens) }}
+                  <p v-if="record.cacheWrite12hTokens != null" class="text-gray-500 dark:text-gray-400">
+                    30m {{ formatNumber(record.cacheWrite30mTokens) }} / 12h {{ formatNumber(record.cacheWrite12hTokens) }}
+                  </p>
+                </div>
                 <div>缓存读取：{{ formatNumber(record.cacheReadTokens) }}</div>
                 <div>总 Token：{{ formatNumber(record.totalTokens) }}</div>
                 <div class="text-yellow-600 dark:text-yellow-400">

@@ -173,12 +173,9 @@ export const routeToBackend = async (req, res, requestedModel) => {
             }
             chunk = undefined
           }
-          // 刷新 converter 内部 buffer 中的残留数据
-          if (geminiStreamState.buffer.trim()) {
-            const remaining = geminiConverter.convertStreamChunk('\n\n', requestedModel, geminiStreamState)
-            if (remaining) {
-              geminiOriginalWrite(remaining)
-            }
+          const remaining = geminiConverter.finishStream(requestedModel, geminiStreamState)
+          if (remaining) {
+            geminiOriginalWrite(remaining)
           }
           geminiOriginalWrite('data: [DONE]\n\n')
         }

@@ -1,5 +1,6 @@
 import { pricingService } from './pricing_service.js'
 import { logger } from '../../common/logger.js'
+import { getOpenAICacheWriteDetails } from '../../common/openai_cache_write.js'
 const warnedDetailedPricingFallbackModels = new Set()
 
 // Claude模型价格配置 (USD per 1M tokens) - 备用定价
@@ -103,6 +104,7 @@ export class CostCalculator {
       Number(usage.output_video_seconds) > 0
 
     return (
+      getOpenAICacheWriteDetails(usage) !== null ||
       (usage.cache_creation && typeof usage.cache_creation === 'object') ||
       (typeof model === 'string' && model.includes('[1m]')) ||
       (typeof serviceTier === 'string' && serviceTier.trim() !== '') ||
@@ -191,6 +193,7 @@ export class CostCalculator {
         output: result.pricing.output * 1000000,
         cacheWrite: result.pricing.cacheCreate * 1000000,
         cacheRead: result.pricing.cacheRead * 1000000,
+        cacheWrite12h: (result.pricing.cacheWrite12h ?? 0) * 1000000,
       },
       usingDynamicPricing: true,
       isLongContextRequest: result.isLongContextRequest || false,
@@ -213,6 +216,8 @@ export class CostCalculator {
         cacheRead: result.cacheReadCost,
         ephemeral5m: result.ephemeral5mCost || 0,
         ephemeral1h: result.ephemeral1hCost || 0,
+        cacheWrite30m: result.cacheWrite30mCost ?? 0,
+        cacheWrite12h: result.cacheWrite12hCost ?? 0,
         imageOutput: result.imageOutputCost || 0,
         imageInput: result.imageInputCost || 0,
         unit: result.unitCost || 0,
@@ -226,6 +231,8 @@ export class CostCalculator {
         cacheRead: this.formatCost(result.cacheReadCost),
         ephemeral5m: this.formatCost(result.ephemeral5mCost || 0),
         ephemeral1h: this.formatCost(result.ephemeral1hCost || 0),
+        cacheWrite30m: this.formatCost(result.cacheWrite30mCost ?? 0),
+        cacheWrite12h: this.formatCost(result.cacheWrite12hCost ?? 0),
         total: this.formatCost(result.totalCost),
       },
       debug: {
@@ -302,7 +309,16 @@ export class CostCalculator {
 
     const inputCost = (inputTokens / 1000000) * pricing.input
     const outputCost = (outputTokens / 1000000) * pricing.output
-    const cacheWriteCost = (cacheCreateTokens / 1000000) * pricing.cacheWrite
+    const lifetimes = getOpenAICacheWriteDetails(usage, cacheCreateTokens)
+    const cacheWrite12hPrice =
+      pricingData?.cache_creation_input_token_cost_above_12hr !== undefined &&
+      pricingData?.cache_creation_input_token_cost_above_12hr !== null
+        ? pricingData.cache_creation_input_token_cost_above_12hr * 1000000
+        : pricing.input * 2.5
+    const cacheWrite12hCost = ((lifetimes?.ttl_12h_tokens ?? 0) / 1000000) * cacheWrite12hPrice
+    const cacheWrite30mCost = ((lifetimes?.ttl_30m_tokens ?? 0) / 1000000) * pricing.cacheWrite
+    const cacheWriteCost =
+      ((cacheCreateTokens - (lifetimes?.ttl_12h_tokens ?? 0)) / 1000000) * pricing.cacheWrite + cacheWrite12hCost
     const cacheReadCost = (cacheReadTokens / 1000000) * pricing.cacheRead
 
     // 非 token 单价（与 pricingService._buildCostResult 对齐）
@@ -362,6 +378,8 @@ export class CostCalculator {
         output: outputCost,
         cacheCreate: cacheWriteCost,
         cacheWrite: cacheWriteCost,
+        cacheWrite30m: cacheWrite30mCost,
+        cacheWrite12h: cacheWrite12hCost,
         cacheRead: cacheReadCost,
         ephemeral5m: 0,
         ephemeral1h: 0,
@@ -439,6 +457,19 @@ export class CostCalculator {
     // 如果有 ephemeral 拆分数据，构建 cache_creation 子对象
     const eph5m = aggregatedUsage.ephemeral5mTokens || aggregatedUsage.totalEphemeral5mTokens || 0
     const eph1h = aggregatedUsage.ephemeral1hTokens || aggregatedUsage.totalEphemeral1hTokens || 0
+    if (
+      [
+        aggregatedUsage.cacheWrite30mTokens,
+        aggregatedUsage.cacheWrite12hTokens,
+        aggregatedUsage.totalCacheWrite30mTokens,
+        aggregatedUsage.totalCacheWrite12hTokens,
+      ].some((value) => value !== undefined && value !== null)
+    ) {
+      usage.cache_write_tokens_details = {
+        ttl_30m_tokens: aggregatedUsage.cacheWrite30mTokens ?? aggregatedUsage.totalCacheWrite30mTokens ?? 0,
+        ttl_12h_tokens: aggregatedUsage.cacheWrite12hTokens ?? aggregatedUsage.totalCacheWrite12hTokens ?? 0,
+      }
+    }
     if (eph5m > 0 || eph1h > 0) {
       usage.cache_creation = {
         ephemeral_5m_input_tokens: eph5m,
@@ -532,7 +563,7 @@ export class CostCalculator {
       costedEphemeral5mTokens +
       costedEphemeral1hTokens
 
-    const buildUsage = (input, output, cacheCreate, cacheRead, eph5m, eph1h) => {
+    const buildUsage = (input, output, cacheCreate, cacheRead, eph5m, eph1h, uncosted = false) => {
       const usage = {
         input_tokens: Math.max(0, input),
         output_tokens: Math.max(0, output),
@@ -543,6 +574,20 @@ export class CostCalculator {
         usage.cache_creation = {
           ephemeral_5m_input_tokens: Math.max(0, eph5m),
           ephemeral_1h_input_tokens: Math.max(0, eph1h),
+        }
+      }
+      if (
+        [stats.cacheWrite30mTokens, stats.cacheWrite12hTokens].some((value) => value !== undefined && value !== null)
+      ) {
+        usage.cache_write_tokens_details = {
+          ttl_30m_tokens: Math.max(
+            0,
+            toInt(stats.cacheWrite30mTokens) - (uncosted ? toInt(stats.costedCacheWrite30mTokens) : 0),
+          ),
+          ttl_12h_tokens: Math.max(
+            0,
+            toInt(stats.cacheWrite12hTokens) - (uncosted ? toInt(stats.costedCacheWrite12hTokens) : 0),
+          ),
         }
       }
       return usage
@@ -614,7 +659,7 @@ export class CostCalculator {
       let uncostedTotal = 0
       if (uncostedTokenSum > 0 || uncosted5m > 0 || uncosted1h > 0) {
         uncostedTotal = this.calculateCost(
-          buildUsage(uncostedIn, uncostedOut, uncostedCc, uncostedCr, uncosted5m, uncosted1h),
+          buildUsage(uncostedIn, uncostedOut, uncostedCc, uncostedCr, uncosted5m, uncosted1h, true),
           model,
         ).costs.total
       }

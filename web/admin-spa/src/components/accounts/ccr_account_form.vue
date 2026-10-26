@@ -68,20 +68,12 @@
               />
               <p v-if="errors.apiUrl" class="mt-1 text-sm text-red-500">{{ errors.apiUrl }}</p>
             </div>
-            <div>
-              <label class="mb-3 block text-sm font-semibold text-gray-700 dark:text-gray-300"
-                >API Key {{ isEdit ? '(留空不更新)' : '*' }}</label
-              >
-              <input
-                v-model="form.apiKey"
-                class="form-input w-full border-transparent dark:border-transparent dark:bg-gray-700 dark:text-gray-200"
-                :class="{ 'border-red-500': errors.apiKey }"
-                :placeholder="isEdit ? '留空表示不更新' : '必填'"
-                :required="!isEdit"
-                type="password"
-              />
-              <p v-if="errors.apiKey" class="mt-1 text-sm text-red-500">{{ errors.apiKey }}</p>
-            </div>
+            <AccountApiKeyField
+              v-model="form.apiKey"
+              v-model:replace-enabled="apiKeyReplacement"
+              :editing="isEdit"
+              :error="errors.apiKey"
+            />
           </div>
 
           <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -227,6 +219,7 @@ import { isOk, msgOf } from '@/libs/http_envelope'
 import { showToast } from '@/libs/tools'
 import ProxyBinding from '@/components/accounts/proxy_binding.vue'
 import AccountModelCatalog from './account_model_catalog.vue'
+import AccountApiKeyField from './account_api_key_field.vue'
 import { getAccountModelConfiguration } from '@/libs/account_model_config'
 
 const props = defineProps({
@@ -241,6 +234,7 @@ const emit = defineEmits(['close', 'success'])
 const show = ref(true)
 const isEdit = computed(() => !!props.account)
 const loading = ref(false)
+const apiKeyReplacement = ref(false)
 
 const form = ref({
   name: '',
@@ -321,7 +315,7 @@ const validate = () => {
   }
   if (!form.value.name || form.value.name.trim().length === 0) e.name = '名称不能为空'
   if (!form.value.apiUrl || form.value.apiUrl.trim().length === 0) e.apiUrl = 'API URL 不能为空'
-  if (!isEdit.value && (!form.value.apiKey || form.value.apiKey.trim().length === 0))
+  if ((!isEdit.value || apiKeyReplacement.value) && !form.value.apiKey.trim())
     e.apiKey = 'API Key 不能为空'
   errors.value = e
   return Object.keys(e).length === 0
@@ -348,11 +342,13 @@ const submit = async (closeAfter = false) => {
         supportedModels: buildSupportedModels(),
         allowedModels: modelRangeLimited.value ? [...allowedModels.value] : []
       }
-      if (form.value.apiKey && form.value.apiKey.trim().length > 0) {
+      if (apiKeyReplacement.value) {
         updates.apiKey = form.value.apiKey
       }
       const res = await updateCcrAccountApi(props.account.id, updates)
       if (isOk(res)) {
+        form.value.apiKey = ''
+        apiKeyReplacement.value = false
         // 不在这里显示 toast，由父组件统一处理
         emit('success', undefined, closeAfter)
       } else {
@@ -393,6 +389,8 @@ const submit = async (closeAfter = false) => {
 const populateFromAccount = () => {
   if (!props.account) return
   const a = props.account
+  form.value.apiKey = ''
+  apiKeyReplacement.value = false
   form.value.name = a.name || ''
   form.value.description = a.description || ''
   form.value.apiUrl = a.apiUrl || ''

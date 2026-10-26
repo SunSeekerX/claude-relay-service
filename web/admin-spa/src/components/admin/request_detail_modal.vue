@@ -298,6 +298,13 @@
                       {{
                         formatCacheCreate(detail.cacheCreateTokens, detail.cacheCreateNotApplicable)
                       }}
+                      <p
+                        v-if="detail.cacheWrite12hTokens != null"
+                        class="text-sm text-gray-500 dark:text-gray-400"
+                      >
+                        30m {{ formatNumber(detail.cacheWrite30mTokens) }} / 12h
+                        {{ formatNumber(detail.cacheWrite12hTokens) }}
+                      </p>
                     </td>
                     <td class="px-2.5 py-1.5 text-right text-gray-900 dark:text-gray-100">
                       {{
@@ -347,6 +354,20 @@
                 {{ formatCost(detail.cost) }} ·
                 {{ detail.realCostSource === 'upstream' ? '官方实付' : '估算真实成本' }}
                 {{ formatCost(detail.realCost) }}
+              </p>
+            </div>
+
+            <div class="mt-2 rounded-lg border border-gray-200 p-3 dark:border-gray-700">
+              <p class="text-sm font-medium text-gray-700 dark:text-gray-200">本次计费依据</p>
+              <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                保存上游用量与本次单价，不包含请求或响应正文。
+              </p>
+              <pre
+                v-if="detail.billingAudit"
+                class="mt-2 max-h-[35vh] overflow-auto whitespace-pre-wrap break-words rounded-lg bg-slate-900 p-2.5 text-sm text-slate-200"
+                >{{ JSON.stringify(detail.billingAudit, null, 2) }}</pre>
+              <p v-else class="mt-2 text-sm text-gray-500 dark:text-gray-400">
+                此记录未保存计费依据。
               </p>
             </div>
 
@@ -447,10 +468,22 @@ const loading = ref(false)
 const timingFields = [
   { key: 'authenticationMs', label: '鉴权与限流', description: 'API Key 鉴权、额度及并发检查' },
   { key: 'schedulingMs', label: '账户调度', description: '本请求所有已观测账户选择的累计耗时' },
-  { key: 'localPreparationMs', label: '本地准备', description: '最后一次调度结束至上游发送，含排队和请求准备' },
+  {
+    key: 'localPreparationMs',
+    label: '本地准备',
+    description: '最后一次调度结束至上游发送，含排队和请求准备'
+  },
   { key: 'upstreamHeadersMs', label: '上游响应头', description: '最近一次上游发送至收到响应头' },
-  { key: 'firstContentWaitMs', label: '头后首正文', description: '收到上游响应头至首次正文写出，含解析和背压等待' },
-  { key: 'upstreamResponseMs', label: '上游响应', description: '非流式最近一次发送至完整响应接收；不能当成响应头等待' }
+  {
+    key: 'firstContentWaitMs',
+    label: '头后首正文',
+    description: '收到上游响应头至首次正文写出，含解析和背压等待'
+  },
+  {
+    key: 'upstreamResponseMs',
+    label: '上游响应',
+    description: '非流式最近一次发送至完整响应接收；不能当成响应头等待'
+  }
 ]
 const detail = ref(null)
 const bodyPreviewEnabled = ref(false)

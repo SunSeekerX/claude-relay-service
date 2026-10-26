@@ -271,7 +271,7 @@ const isTokenCountRequest = (req) => {
   if (TOKEN_COUNT_PATHS.has(original)) {
     return true
   }
-  return false
+  return /\/responses\/input_tokens$/.test(combined) || /\/responses\/input_tokens$/.test(original)
 }
 
 /**
@@ -510,19 +510,31 @@ export const authenticateApiKey = async (req, res, next) => {
     let relayRoute
     let discoveryRoutes = []
     try {
-      relayRoute = await resolveRequestRoute(validation.keyData, req.params?.routeCode ? routeFormat : getDefaultRouteFormat(req, routeFormat), req.params?.routeCode ?? null)
-      if (!relayRoute) {discoveryRoutes = await resolveDefaultModelRoutes(validation.keyData, req)}
+      relayRoute = await resolveRequestRoute(
+        validation.keyData,
+        req.params?.routeCode ? routeFormat : getDefaultRouteFormat(req, routeFormat),
+        req.params?.routeCode ?? null,
+      )
+      if (!relayRoute) {
+        discoveryRoutes = await resolveDefaultModelRoutes(validation.keyData, req)
+      }
       if (relayRoute && req.method === 'POST') {
-        const pathModel = req.path.match(/\/models\/([^/]+):(?:generateContent|streamGenerateContent|countTokens)$/)?.[1]
+        const pathModel = req.path.match(
+          /\/models\/([^/]+):(?:generateContent|streamGenerateContent|countTokens)$/,
+        )?.[1]
         applyRouteModel(req, res, relayRoute, pathModel ? decodeURIComponent(pathModel) : null, validation.keyData)
       }
     } catch (error) {
       logger.warn('Relay route admission rejected', { error, keyId: validation.keyData.id })
       const status = error.statusCode ?? 500
-      return res.status(status).json(routeErrorBody(req, status, error.statusCode ? error.message : '调用入口配置不可用'))
+      return res
+        .status(status)
+        .json(routeErrorBody(req, status, error.statusCode ? error.message : '调用入口配置不可用'))
     }
 
-    const skipKeyRestrictions = isTokenCountRequest(req)
+    const tokenCountRequest = isTokenCountRequest(req)
+    const responsesTokenCount = /\/responses\/input_tokens\/?(?:\?.*)?$/.test(req.originalUrl ?? req.path ?? '')
+    const skipKeyRestrictions = tokenCountRequest && !responsesTokenCount
     if (!skipKeyRestrictions) {
       try {
         for (const model of getRequestModels(req)) {
@@ -568,7 +580,7 @@ export const authenticateApiKey = async (req, res, next) => {
       const isClaudeMessagesEndpoint =
         (relayRoute && routeFormat === 'claude-messages') ||
         (normalizedPath.includes('/v1/messages') &&
-        (normalizedPath.startsWith('/api') || normalizedPath.startsWith('/claude')))
+          (normalizedPath.startsWith('/api') || normalizedPath.startsWith('/claude')))
 
       if (isClaudeMessagesEndpoint) {
         try {
@@ -609,7 +621,7 @@ export const authenticateApiKey = async (req, res, next) => {
 
     // 检查并发限制
     const concurrencyLimit = validation.keyData.concurrencyLimit || 0
-    if (!skipKeyRestrictions && concurrencyLimit > 0) {
+    if (!tokenCountRequest && concurrencyLimit > 0) {
       const { leaseSeconds: configLeaseSeconds, renewIntervalSeconds: configRenewIntervalSeconds } =
         resolveConcurrencyConfig()
       const leaseSeconds = Math.max(Number(configLeaseSeconds) || 300, 30)

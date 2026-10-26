@@ -3,13 +3,36 @@ import {
   getDefaultRouteFormat,
   getRequestRouteFormat,
   normalizeKeyRouting,
-  normalizeRouteModelConfig,
+  normalizeRouteModelConfig
 } from '../src/modules/relay/relay_routing_contract.js'
 import { runWithRelayRoute, scopeRouteSession } from '../src/modules/relay/relay_route_context.js'
 import { applyRouteModel, rewriteRouteModelFrame } from '../src/modules/relay/relay_route_model.js'
 import { isModelAllowed } from '../src/modules/relay/relay_model_access.js'
 
 describe('named relay route contracts', () => {
+  test('Responses tool mode is explicit and scoped to enabled OpenAI Responses routes', () => {
+    for (const toolMode of ['native', 'functions']) {
+      expect(
+        normalizeRouteModelConfig({
+          provider: 'openai',
+          formats: ['openai-responses'],
+          converterOptions: { 'openai-responses': { toolMode } }
+        }).converterOptions['openai-responses'].toolMode
+      ).toBe(toolMode)
+    }
+    expect(() =>
+      normalizeRouteModelConfig({
+        provider: 'claude',
+        formats: ['openai-responses'],
+        converterOptions: { 'openai-responses': { toolMode: 'functions' } }
+      })
+    ).toThrow()
+    expect(normalizeRouteModelConfig({ provider: 'openai', formats: ['openai-responses'] }).converterOptions).toEqual(
+      {}
+    )
+    expect(getDefaultRouteFormat({ originalUrl: '/openai/claude/v1/responses' }, 'openai-responses')).toBeNull()
+    expect(getDefaultRouteFormat({ originalUrl: '/gemini/v1/responses' }, 'openai-responses')).toBeNull()
+  })
   test('legacy keys have no new authorization or default', () => {
     expect(normalizeKeyRouting(undefined)).toEqual({ allowedRoutes: [], defaults: {} })
     expect(normalizeKeyRouting('{"allowedRoutes":[],"defaults":{}}')).toEqual({ allowedRoutes: [], defaults: {} })
@@ -27,15 +50,15 @@ describe('named relay route contracts', () => {
       provider: 'openai',
       formats: ['claude-messages'],
       modelMapping: { fast: 'gpt-test' },
-      converterOptions: { 'claude-messages': { parallelToolCalls: false } },
+      converterOptions: { 'claude-messages': { parallelToolCalls: false } }
     })
     expect(config.converterOptions['claude-messages'].parallelToolCalls).toBe(false)
     expect(() =>
       normalizeRouteModelConfig({
         provider: 'claude',
         formats: ['claude-messages'],
-        converterOptions: { 'claude-messages': { parallelToolCalls: false } },
-      }),
+        converterOptions: { 'claude-messages': { parallelToolCalls: false } }
+      })
     ).toThrow()
   })
 
@@ -43,6 +66,8 @@ describe('named relay route contracts', () => {
     expect(getRequestRouteFormat({ path: '/v1/messages/count_tokens' })).toBe('claude-messages')
     expect(getRequestRouteFormat({ path: '/v1beta/models/alias:streamGenerateContent' })).toBe('gemini-generate')
     expect(getRequestRouteFormat({ path: '/v1/responses/compact' })).toBe('openai-responses')
+    expect(getRequestRouteFormat({ method: 'POST', path: '/v1beta/interactions' })).toBe('gemini-generate')
+    expect(getRequestRouteFormat({ method: 'GET', path: '/v1/interactions/resource-id' })).toBe('gemini-generate')
     expect(getDefaultRouteFormat({ originalUrl: '/antigravity/api/v1/messages' }, 'claude-messages')).toBeNull()
     expect(getDefaultRouteFormat({ originalUrl: '/v1/messages' }, 'claude-messages')).toBe('claude-messages')
   })
@@ -59,7 +84,7 @@ describe('named relay route contracts', () => {
         return scopeRouteSession('same-session')
       }),
       runWithRelayRoute(make('key2', 'a', 'group:1'), async () => scopeRouteSession('same-session')),
-      runWithRelayRoute(make('key1', 'a', 'group:3'), async () => scopeRouteSession('same-session')),
+      runWithRelayRoute(make('key1', 'a', 'group:3'), async () => scopeRouteSession('same-session'))
     ])
     expect(new Set(values).size).toBe(4)
     expect(values.every((value) => /^[a-f0-9]{32}$/.test(value))).toBe(true)
@@ -85,7 +110,7 @@ const createResponse = (contentType = 'application/json') => {
       if (value !== undefined) {
         output.push(value)
       }
-    },
+    }
   }
 }
 
@@ -94,7 +119,7 @@ describe('entry model mapping and echo', () => {
     const request = {
       path: '/v1internal:generateContent',
       apiKey: {},
-      body: { request: { model: 'alias', contents: [] } },
+      body: { request: { model: 'alias', contents: [] } }
     }
     const response = createResponse()
     expect(applyRouteModel(request, response, { modelMapping: { alias: 'gemini-target' } })).toBe('gemini-target')
@@ -122,8 +147,8 @@ describe('entry model mapping and echo', () => {
     expect(() =>
       applyRouteModel({ apiKey: {}, body: { model: 'target' } }, createResponse(), {
         modelMode: 'mapped-only',
-        modelMapping: { alias: 'target' },
-      }),
+        modelMapping: { alias: 'target' }
+      })
     ).toThrow()
   })
 
@@ -138,7 +163,7 @@ describe('entry model mapping and echo', () => {
     const response = createResponse('text/event-stream')
     applyRouteModel({ apiKey: {}, body: { model: '别名' } }, response, { modelMapping: { 别名: 'target' } })
     const input = Buffer.from(
-      'event: message_start\ndata: {"type":"message_start",\ndata: "message":{"model":"target","content":[{"text":"中文 target"}]}}\n\ndata: [DONE]\n\n',
+      'event: message_start\ndata: {"type":"message_start",\ndata: "message":{"model":"target","content":[{"text":"中文 target"}]}}\n\ndata: [DONE]\n\n'
     )
     for (let index = 0; index < input.length; index++) {
       response.write(input.subarray(index, index + 1))

@@ -1,6 +1,37 @@
-import { sanitizeRequestBodySnapshot, extractRequestReasoningInfo, resolveRequestDetailReasoning, createRequestDetailMeta, finalizeRequestDetailMeta, extractOpenAICacheReadTokens, isOpenAIRelatedEndpoint, getRequestDetailCacheMetrics, calculateCacheHitRate, shouldCaptureFailedRequestDetail, extractClientErrorSummary, buildFailedRequestDetailPayload, extractUpstreamRequestId } from '../src/modules/relay/relay_request_detail_helper.js'
+import { jest } from '@jest/globals'
+import {
+  sanitizeRequestBodySnapshot,
+  extractRequestReasoningInfo,
+  resolveRequestDetailReasoning,
+  createRequestDetailMeta,
+  finalizeRequestDetailMeta,
+  extractOpenAICacheReadTokens,
+  isOpenAIRelatedEndpoint,
+  getRequestDetailCacheMetrics,
+  calculateCacheHitRate,
+  shouldCaptureFailedRequestDetail,
+  extractClientErrorSummary,
+  buildFailedRequestDetailPayload,
+  extractUpstreamRequestId,
+} from '../src/modules/relay/relay_request_detail_helper.js'
 
 describe('requestDetailHelper', () => {
+  test('shows OpenAI cache writes when reported and retains legacy not-applicable semantics', () => {
+    expect(getRequestDetailCacheMetrics({ accountType: 'openai-responses', cacheCreateTokens: 7000 })).toMatchObject({
+      cacheCreateNotApplicable: false,
+    })
+    expect(
+      getRequestDetailCacheMetrics({
+        accountType: 'openai-responses',
+        cacheCreateTokens: 0,
+        cacheWrite30mTokens: 0,
+        cacheWrite12hTokens: 0,
+      }),
+    ).toMatchObject({ cacheCreateNotApplicable: false })
+    expect(getRequestDetailCacheMetrics({ accountType: 'openai-responses', cacheCreateTokens: 0 })).toMatchObject({
+      cacheCreateNotApplicable: true,
+    })
+  })
   afterEach(() => {
     jest.useRealTimers()
   })
@@ -11,9 +42,9 @@ describe('requestDetailHelper', () => {
       messages: [
         {
           role: 'user',
-          content: 'x'.repeat(400)
-        }
-      ]
+          content: 'x'.repeat(400),
+        },
+      ],
     })
 
     expect(snapshot.apiKey).toContain('***')
@@ -22,10 +53,7 @@ describe('requestDetailHelper', () => {
 
   test('sanitizeRequestBodySnapshot keeps all object keys while truncating long values', () => {
     const payload = Object.fromEntries(
-      Array.from({ length: 50 }, (_, index) => [
-        `key_${index}`,
-        `value-${index}-${'x'.repeat(100)}`
-      ])
+      Array.from({ length: 50 }, (_, index) => [`key_${index}`, `value-${index}-${'x'.repeat(100)}`]),
     )
 
     const snapshot = sanitizeRequestBodySnapshot(payload)
@@ -37,9 +65,7 @@ describe('requestDetailHelper', () => {
 
   test('sanitizeRequestBodySnapshot still wraps oversized payloads in preview metadata', () => {
     const snapshot = sanitizeRequestBodySnapshot(
-      Object.fromEntries(
-        Array.from({ length: 220 }, (_, index) => [`key_${index}`, `${index}-${'x'.repeat(120)}`])
-      )
+      Object.fromEntries(Array.from({ length: 220 }, (_, index) => [`key_${index}`, `${index}-${'x'.repeat(120)}`])),
     )
 
     expect(snapshot.summary).toBe('request body snapshot truncated')
@@ -51,8 +77,8 @@ describe('requestDetailHelper', () => {
   test('sanitizeRequestBodySnapshot omits encrypted_content values', () => {
     const snapshot = sanitizeRequestBodySnapshot({
       reasoning: {
-        encrypted_content: 'x'.repeat(512)
-      }
+        encrypted_content: 'x'.repeat(512),
+      },
     })
 
     expect(snapshot.reasoning.encrypted_content).toBe('...[512 chars]')
@@ -70,62 +96,59 @@ describe('requestDetailHelper', () => {
               type: 'object',
               properties: {
                 city: {
-                  type: 'string'
-                }
-              }
-            }
-          }
+                  type: 'string',
+                },
+              },
+            },
+          },
         },
         {
           name: 'claude_tool',
           description: 'Anthropic style tool',
           input_schema: {
-            type: 'object'
-          }
-        }
-      ]
+            type: 'object',
+          },
+        },
+      ],
     })
 
-    expect(snapshot.tools).toEqual([
-      { type: 'function', name: 'lookup_weather' },
-      { name: 'claude_tool' }
-    ])
+    expect(snapshot.tools).toEqual([{ type: 'function', name: 'lookup_weather' }, { name: 'claude_tool' }])
   })
 
   test('extractRequestReasoningInfo supports openai, anthropic, and gemini payloads', () => {
     expect(
       extractRequestReasoningInfo({
         reasoning: {
-          effort: 'xhigh'
-        }
-      })
+          effort: 'xhigh',
+        },
+      }),
     ).toEqual({
       reasoningDisplay: 'xhigh',
-      reasoningSource: 'reasoning.effort'
+      reasoningSource: 'reasoning.effort',
     })
 
     expect(
       extractRequestReasoningInfo({
         output_config: {
-          effort: 'medium'
-        }
-      })
+          effort: 'medium',
+        },
+      }),
     ).toEqual({
       reasoningDisplay: 'medium',
-      reasoningSource: 'output_config.effort'
+      reasoningSource: 'output_config.effort',
     })
 
     expect(
       extractRequestReasoningInfo({
         generationConfig: {
           thinkingConfig: {
-            thinkingBudget: -1
-          }
-        }
-      })
+            thinkingBudget: -1,
+          },
+        },
+      }),
     ).toEqual({
       reasoningDisplay: 'dynamic',
-      reasoningSource: 'generationConfig.thinkingConfig.thinkingBudget'
+      reasoningSource: 'generationConfig.thinkingConfig.thinkingBudget',
     })
   })
 
@@ -133,25 +156,23 @@ describe('requestDetailHelper', () => {
     expect(
       resolveRequestDetailReasoning({
         requestBodySnapshot: {
-          preview:
-            '{"model":"gpt-5.4-mini","reasoning":{"effort":"high","summary":"auto"}}...[25 chars]'
-        }
-      })
+          preview: '{"model":"gpt-5.4-mini","reasoning":{"effort":"high","summary":"auto"}}...[25 chars]',
+        },
+      }),
     ).toEqual({
       reasoningDisplay: 'high',
-      reasoningSource: 'reasoning.effort'
+      reasoningSource: 'reasoning.effort',
     })
 
     expect(
       resolveRequestDetailReasoning({
         requestBodySnapshot: {
-          preview:
-            '{"model":"claude-opus-4-6","thinking":{"type":"enabled","budget_tokens":4096}...[60 chars]'
-        }
-      })
+          preview: '{"model":"claude-opus-4-6","thinking":{"type":"enabled","budget_tokens":4096}...[60 chars]',
+        },
+      }),
     ).toEqual({
       reasoningDisplay: 'enabled / budget:4096',
-      reasoningSource: 'thinking.type,thinking.budget_tokens'
+      reasoningSource: 'thinking.type,thinking.budget_tokens',
     })
   })
 
@@ -163,7 +184,7 @@ describe('requestDetailHelper', () => {
       method: 'POST',
       requestStartedAt: now - 250,
       body: { model: 'claude-sonnet-4-6', stream: true },
-      res: { statusCode: 201 }
+      res: { statusCode: 201 },
     }
 
     const meta = createRequestDetailMeta(req)
@@ -183,7 +204,7 @@ describe('requestDetailHelper', () => {
     const meta = finalizeRequestDetailMeta({
       requestId: 'req_123',
       requestStartedAt: '2026-04-09T05:00:00.000Z',
-      durationMs: 25
+      durationMs: 25,
     })
 
     expect(meta.durationMs).toBe(500)
@@ -202,30 +223,30 @@ describe('requestDetailHelper', () => {
     expect(
       extractOpenAICacheReadTokens({
         input_tokens_details: { cached_tokens: 42 },
-        prompt_tokens_details: { cached_tokens: 99 }
-      })
+        prompt_tokens_details: { cached_tokens: 99 },
+      }),
     ).toBe(42)
   })
 
   test('extractOpenAICacheReadTokens supports singular cached_token fallback fields', () => {
     expect(
       extractOpenAICacheReadTokens({
-        input_tokens_details: { cached_token: '17' }
-      })
+        input_tokens_details: { cached_token: '17' },
+      }),
     ).toBe(17)
 
     expect(
       extractOpenAICacheReadTokens({
-        prompt_tokens_details: { cached_token: 23 }
-      })
+        prompt_tokens_details: { cached_token: 23 },
+      }),
     ).toBe(23)
   })
 
   test('extractOpenAICacheReadTokens falls back to prompt_tokens_details.cached_tokens', () => {
     expect(
       extractOpenAICacheReadTokens({
-        prompt_tokens_details: { cached_tokens: '31' }
-      })
+        prompt_tokens_details: { cached_tokens: '31' },
+      }),
     ).toBe(31)
   })
 
@@ -233,14 +254,14 @@ describe('requestDetailHelper', () => {
     expect(extractOpenAICacheReadTokens()).toBe(0)
     expect(
       extractOpenAICacheReadTokens({
-        input_tokens_details: { cached_tokens: -5 }
-      })
+        input_tokens_details: { cached_tokens: -5 },
+      }),
     ).toBe(0)
     expect(
       extractOpenAICacheReadTokens({
         input_tokens_details: { cached_tokens: 'abc' },
-        prompt_tokens_details: { cached_tokens: null }
-      })
+        prompt_tokens_details: { cached_tokens: null },
+      }),
     ).toBe(0)
   })
 
@@ -257,15 +278,13 @@ describe('requestDetailHelper', () => {
       inputTokens: 17206,
       outputTokens: 51,
       cacheReadTokens: 2048,
-      cacheCreateTokens: 0
+      cacheCreateTokens: 0,
     })
 
     expect(metrics.numerator).toBe(2048)
     expect(metrics.denominator).toBe(19254)
     expect(metrics.rate).toBe(10.64)
-    expect(metrics.cacheHitFormula).toBe(
-      'cacheReadTokens / (inputTokens + cacheReadTokens + cacheCreateTokens)'
-    )
+    expect(metrics.cacheHitFormula).toBe('cacheReadTokens / (inputTokens + cacheReadTokens + cacheCreateTokens)')
   })
 
   test('calculateCacheHitRate uses the same input-side denominator for /openai/ requests', () => {
@@ -274,15 +293,15 @@ describe('requestDetailHelper', () => {
         endpoint: '/openai/v1/responses',
         inputTokens: 100,
         cacheReadTokens: 60,
-        cacheCreateTokens: 0
-      })
+        cacheCreateTokens: 0,
+      }),
     ).toBe(37.5)
     expect(
       calculateCacheHitRate({
         endpoint: '/openai/v1/responses',
         inputTokens: 0,
-        cacheReadTokens: 0
-      })
+        cacheReadTokens: 0,
+      }),
     ).toBe(0)
   })
 
@@ -293,8 +312,8 @@ describe('requestDetailHelper', () => {
         accountType: 'azure-openai',
         inputTokens: 100,
         cacheReadTokens: 60,
-        cacheCreateTokens: 0
-      })
+        cacheCreateTokens: 0,
+      }),
     ).toBe(37.5)
 
     expect(
@@ -303,8 +322,8 @@ describe('requestDetailHelper', () => {
         accountType: 'claude',
         inputTokens: 100,
         cacheReadTokens: 30,
-        cacheCreateTokens: 20
-      })
+        cacheCreateTokens: 20,
+      }),
     ).toBe(20)
   })
 })
@@ -386,16 +405,10 @@ describe('failed request detail helpers', () => {
     expect(payload.cost).toBe(0)
   })
 
-
   test('extractUpstreamRequestId reads common and configured headers', () => {
+    expect(extractUpstreamRequestId({ 'x-request-id': 'abc-123', 'content-type': 'application/json' })).toBe('abc-123')
     expect(
-      extractUpstreamRequestId({ 'x-request-id': 'abc-123', 'content-type': 'application/json' }),
-    ).toBe('abc-123')
-    expect(
-      extractUpstreamRequestId(
-        { 'x-custom-id': 'custom-1', 'x-request-id': 'abc' },
-        { headerName: 'x-custom-id' },
-      ),
+      extractUpstreamRequestId({ 'x-custom-id': 'custom-1', 'x-request-id': 'abc' }, { headerName: 'x-custom-id' }),
     ).toBe('custom-1')
   })
 

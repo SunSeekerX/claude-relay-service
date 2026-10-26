@@ -5,41 +5,49 @@ const groups = { legacy: 10, a: 2, b: 3, free: 0 }
 const recordGroupUsageCost = jest.fn()
 const getGroup = jest.fn(async (id) => ({ id, rateMultiplier: groups[id] }))
 await jest.unstable_mockModule('../src/modules/relay/relay_request_detail_service.js', () => ({
-  requestDetailService: {},
+  requestDetailService: {}
 }))
 await jest.unstable_mockModule('../src/modules/pricing/pricing_model_service.js', () => ({
-  modelService: { getAllModels: () => [] },
+  modelService: { getAllModels: () => [] }
 }))
 await jest.unstable_mockModule('../src/modules/pricing/pricing_cost_calculator.js', () => ({
-  CostCalculator: class {},
+  CostCalculator: class {
+    static calculateCost() {
+      return {
+        costs: { input: 2, output: 1, total: 3 },
+        pricing: { input: 2, output: 8 },
+        debug: { pricingSource: 'fixture' }
+      }
+    }
+  }
 }))
 await jest.unstable_mockModule('../src/modules/pricing/pricing_cost_rank_service.js', () => ({ costRankService: {} }))
 await jest.unstable_mockModule('../src/modules/payment/payment_billing_event_publisher.js', () => ({
-  billingEventPublisher: {},
+  billingEventPublisher: {}
 }))
 await jest.unstable_mockModule('../src/modules/pricing/pricing_grok_media_overlay_service.js', () => ({
-  grokMediaPricingOverlayService: {},
+  grokMediaPricingOverlayService: {}
 }))
 await jest.unstable_mockModule('../src/infra/redis.js', () => ({
-  redis: { getApiKey: async () => ({ claudeAccountId: 'group:legacy', serviceRates: '{"claude":4}' }) },
+  redis: { getApiKey: async () => ({ claudeAccountId: 'group:legacy', serviceRates: '{"claude":4}' }) }
 }))
 await jest.unstable_mockModule('../src/modules/payment/payment_service_rates_service.js', () => ({
-  serviceRatesService: { getServiceRate: async () => 5 },
+  serviceRatesService: { getServiceRate: async () => 5, getService: () => 'claude' }
 }))
 await jest.unstable_mockModule('../src/modules/account/account_group_service.js', () => ({
-  accountGroupService: { getGroup },
+  accountGroupService: { getGroup }
 }))
 await jest.unstable_mockModule('../src/modules/account/account_group_policy.js', () => ({
   collectExclusiveMemberIds: async () => new Set(),
   getGroupSchedulingSnapshot: async () => null,
   extractBoundGroupIdForAccountType: () => 'legacy',
   extractBoundGroupIdForService: () => 'legacy',
-  recordGroupUsageCost,
+  recordGroupUsageCost
 }))
 await jest.unstable_mockModule('../src/common/logger.js', () => ({
   logger: Object.fromEntries(
-    ['warn', 'error', 'debug', 'info', 'api', 'success', 'security', 'database'].map((name) => [name, jest.fn()]),
-  ),
+    ['warn', 'error', 'debug', 'info', 'api', 'success', 'security', 'database'].map((name) => [name, jest.fn()])
+  )
 }))
 jest.useFakeTimers()
 const { apiKeyService } = await import('../src/modules/apikey/apikey_service.js')
@@ -57,7 +65,7 @@ describe('actual selected entry owns group multiplier and usage', () => {
   test('different named groups use their own multiplier, same original Key rate', async () => {
     const [a, b] = await Promise.all([
       runWithRelayRoute(key('group:a'), () => apiKeyService.calculateRatedCost('key1', 'claude', 1, 'claude-official')),
-      runWithRelayRoute(key('group:b'), () => apiKeyService.calculateRatedCost('key1', 'claude', 1, 'claude-official')),
+      runWithRelayRoute(key('group:b'), () => apiKeyService.calculateRatedCost('key1', 'claude', 1, 'claude-official'))
     ])
     expect(a).toBe(40)
     expect(b).toBe(60)
@@ -66,15 +74,45 @@ describe('actual selected entry owns group multiplier and usage', () => {
   test('single-account entries do not inherit an old bound group and zero group rates survive', async () => {
     expect(
       await runWithRelayRoute(key('account1'), () =>
-        apiKeyService.calculateRatedCost('key1', 'claude', 1, 'claude-official'),
-      ),
+        apiKeyService.calculateRatedCost('key1', 'claude', 1, 'claude-official')
+      )
     ).toBe(20)
     expect(
       await runWithRelayRoute(key('group:free'), () =>
-        apiKeyService.calculateRatedCost('key1', 'claude', 1, 'claude-official'),
-      ),
+        apiKeyService.calculateRatedCost('key1', 'claude', 1, 'claude-official')
+      )
     ).toBe(0)
     expect(await apiKeyService.calculateRatedCost('key1', 'claude', 1, 'claude-official')).toBe(200)
+  })
+
+  test('usage records retain bounded financial evidence independently of request-detail capture', async () => {
+    const { redis } = await import('../src/infra/redis.js')
+    for (const name of ['incrementDailyCost', 'incrementTokenUsage', 'setApiKeyWithLastUsedIndex', 'addUsageRecord']) {
+      redis[name] = jest.fn().mockResolvedValue(true)
+    }
+    const capture = jest.spyOn(apiKeyService, '_captureRequestDetail').mockResolvedValue({ captured: false })
+    await apiKeyService.recordUsage(
+      'key1',
+      {
+        input_tokens: 20,
+        output_tokens: 5,
+        cache_read_input_tokens: 80,
+        _upstreamUsage: { input_tokens: 100, output_tokens: 5, input_tokens_details: { cached_tokens: 80 } }
+      },
+      'gpt-fixture',
+      null,
+      'openai',
+      'flex',
+      { requestId: 'audited-request', protocolTerminal: 'response.completed' }
+    )
+    expect(redis.addUsageRecord).toHaveBeenCalledTimes(1)
+    expect(redis.addUsageRecord.mock.calls[0][1].billingAudit).toMatchObject({
+      upstreamUsage: { input_tokens: 100, output_tokens: 5 },
+      pricingSnapshot: { input: 2, output: 8 },
+      protocolTerminal: 'response.completed'
+    })
+    expect(JSON.stringify(redis.addUsageRecord.mock.calls[0][1].billingAudit)).not.toContain('requestBody')
+    capture.mockRestore()
   })
 
   test('explicit request metadata preserves the group across deferred billing', async () => {

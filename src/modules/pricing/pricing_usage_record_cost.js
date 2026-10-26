@@ -1,4 +1,5 @@
 import { CostCalculator } from './pricing_cost_calculator.js'
+import { getOpenAICacheWriteDetails } from '../../common/openai_cache_write.js'
 
 // 单次查询内复用缺失费用的重算；已落账的金额和明细始终优先。
 export const createUsageRecordCostResolver = () => {
@@ -6,7 +7,24 @@ export const createUsageRecordCostResolver = () => {
   return (record, usage, serviceTier, withDetails = false) => {
     const compute = () => {
       if (!calculated.has(record)) {
-        calculated.set(record, CostCalculator.calculateCost(usage, record.model || 'unknown', serviceTier))
+        const lifetimes = getOpenAICacheWriteDetails({
+          cache_write_tokens_details: [record.cacheWrite12hTokens, record.cacheWrite30mTokens].some(
+            (value) => value !== undefined && value !== null,
+          )
+            ? {
+                ttl_30m_tokens: record.cacheWrite30mTokens ?? 0,
+                ttl_12h_tokens: record.cacheWrite12hTokens ?? 0,
+              }
+            : null,
+        })
+        calculated.set(
+          record,
+          CostCalculator.calculateCost(
+            { ...usage, ...(lifetimes ? { cache_write_tokens_details: lifetimes } : {}) },
+            record.model || 'unknown',
+            serviceTier,
+          ),
+        )
       }
       return calculated.get(record)
     }

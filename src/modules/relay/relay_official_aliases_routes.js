@@ -1,4 +1,5 @@
 import express from 'express'
+import { handleResponsesInputTokens } from './relay_openai_input_tokens.js'
 import { authenticateApiKey } from '../../infra/middleware_auth.js'
 import { logger } from '../../common/logger.js'
 import { handleMessagesRequest, handleCountTokensRequest } from './relay_api_routes.js'
@@ -67,6 +68,8 @@ export const createOfficialAliasRouter = () => {
 
   // ---------- OpenAI / Codex Responses ----------
   if (typeof handleResponses === 'function') {
+    router.post('/v1/responses/input_tokens', authenticateApiKey, handleResponsesInputTokens)
+    router.post('/responses/input_tokens', authenticateApiKey, handleResponsesInputTokens)
     router.post('/v1/responses', authenticateApiKey, handleResponses)
     router.post('/v1/responses/compact', authenticateApiKey, handleResponses)
     // 无 v1 前缀别名（sub2api / CLIProxyAPI）
@@ -87,6 +90,7 @@ export const createOfficialAliasRouter = () => {
 
   // ---------- Codex ChatGPT base_url 形状 ----------
   const codexDirect = express.Router()
+  codexDirect.post('/responses/input_tokens', authenticateApiKey, handleResponsesInputTokens)
   if (typeof handleResponses === 'function') {
     codexDirect.post('/responses', authenticateApiKey, handleResponses)
     codexDirect.post('/responses/compact', authenticateApiKey, handleResponses)

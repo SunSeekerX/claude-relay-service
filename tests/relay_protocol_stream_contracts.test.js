@@ -4,14 +4,14 @@ import { createCapacityShedSseRewriteStream } from '../src/modules/relay/relay_o
 import { normalizeOpenAITokenUsage } from '../src/modules/relay/relay_request_detail_helper.js'
 import { ResponsesStreamState } from '../src/modules/relay/relay_responses_stream_state.js'
 jest.unstable_mockModule('../src/common/logger.js', () => ({
-  logger: new Proxy({}, { get: () => jest.fn() }),
+  logger: new Proxy({}, { get: () => jest.fn() })
 }))
 const {
   convertClaudeRequestToResponses,
   convertResponsesResultToClaudeMessage,
   createClaudeFromResponsesStreamState,
   convertResponsesStreamEventToClaude,
-  finishClaudeFromResponsesStream,
+  finishClaudeFromResponsesStream
 } = await import('../src/modules/relay/translator/relay_translator_claude_responses.js')
 
 const convertStream = (events) => {
@@ -34,7 +34,7 @@ describe('SSE wire boundaries', () => {
       const parsed = chunks.flatMap((chunk) => parser.feed(chunk)).concat(parser.finish())
       expect(parsed.filter((event) => event.type === 'data').map((event) => event.data)).toEqual([
         payload,
-        { type: 'response.completed', response: { usage: { input_tokens: 1, output_tokens: 2 } } },
+        { type: 'response.completed', response: { usage: { input_tokens: 1, output_tokens: 2 } } }
       ])
       expect(chunks.map((chunk) => rewriter.push(chunk)).join('') + rewriter.flush()).toBe(text)
     }
@@ -54,21 +54,21 @@ describe('Responses accounting and terminal state', () => {
       normalizeOpenAITokenUsage({
         input_tokens: 1000,
         output_tokens: 40,
-        input_tokens_details: { cached_tokens: 800, cache_write_tokens: 50 },
-      }),
+        input_tokens_details: { cached_tokens: 800, cache_write_tokens: 50 }
+      })
     ).toEqual({
       totalInputTokens: 1000,
       inputTokens: 150,
       outputTokens: 40,
       cacheReadTokens: 800,
-      cacheCreateTokens: 50,
+      cacheCreateTokens: 50
     })
     expect(
       normalizeOpenAITokenUsage({
         prompt_tokens: 1000,
         completion_tokens: 40,
-        prompt_tokens_details: { cached_tokens: 900 },
-      }),
+        prompt_tokens_details: { cached_tokens: 900 }
+      })
     ).toMatchObject({ inputTokens: 100, cacheReadTokens: 900, outputTokens: 40 })
   })
 
@@ -82,8 +82,8 @@ describe('Responses accounting and terminal state', () => {
           model: 'gpt-test',
           usage,
           service_tier: 'default',
-          incomplete_details: { reason: 'max_output_tokens' },
-        },
+          incomplete_details: { reason: 'max_output_tokens' }
+        }
       })
       state.finish()
       expect(state.usage).toEqual(usage)
@@ -97,8 +97,8 @@ describe('Responses accounting and terminal state', () => {
     limited.observe({
       type: 'response.failed',
       response: {
-        error: { code: 'rate_limit_exceeded', message: 'retry later', resets_in_seconds: 45 },
-      },
+        error: { code: 'rate_limit_exceeded', message: 'retry later', resets_in_seconds: 45 }
+      }
     })
     expect(limited.finish()).toMatchObject({ statusCode: 429, errorCode: 'rate_limit_exceeded' })
     const truncated = new ResponsesStreamState()
@@ -131,7 +131,7 @@ describe('Claude Messages and Responses round trips', () => {
       { type: 'response.function_call_arguments.done', item_id: 'fc_A', arguments: toolA.arguments },
       { type: 'response.output_item.done', output_index: 0, item: toolA },
       { type: 'response.output_item.done', output_index: 1, item: toolB },
-      { type: 'response.completed', response: { output: [toolA, toolB] } },
+      { type: 'response.completed', response: { output: [toolA, toolB] } }
     ])
     const blocks = []
     const stopped = []
@@ -146,22 +146,22 @@ describe('Claude Messages and Responses round trips', () => {
     }
     expect(blocks).toEqual([
       { id: 'call_A', arguments: '{"a":1}' },
-      { id: 'call_B', arguments: '{"b":2}' },
+      { id: 'call_B', arguments: '{"b":2}' }
     ])
     expect(stopped).toEqual([0, 1])
     expect(output.filter((item) => item.event === 'error')).toEqual([])
   })
 
-  it('preserves signatures, including reasoning with no visible summary', () => {
+  it('retains visible reasoning without replaying another provider encrypted signature', () => {
     const reasoning = { type: 'reasoning', id: 'rs1', summary: [], encrypted_content: 'opaque-one' }
     const { output } = convertStream([
       { type: 'response.output_item.added', output_index: 0, item: { ...reasoning, encrypted_content: undefined } },
       { type: 'response.output_item.done', output_index: 0, item: reasoning },
-      { type: 'response.completed', response: { output: [reasoning] } },
+      { type: 'response.completed', response: { output: [reasoning] } }
     ])
     expect(
-      output.filter((item) => item.data.delta?.type === 'signature_delta').map((item) => item.data.delta.signature),
-    ).toEqual(['opaque-one'])
+      output.filter((item) => item.data.delta?.type === 'signature_delta').map((item) => item.data.delta.signature)
+    ).toEqual([])
     const replay = convertClaudeRequestToResponses({
       messages: [
         {
@@ -169,16 +169,13 @@ describe('Claude Messages and Responses round trips', () => {
           content: [
             { type: 'thinking', thinking: 'first', signature: 'opaque-one' },
             { type: 'text', text: 'between' },
-            { type: 'thinking', thinking: 'second', signature: 'opaque-two' },
-          ],
-        },
-      ],
+            { type: 'thinking', thinking: 'second', signature: 'opaque-two' }
+          ]
+        }
+      ]
     })
-    expect(replay.input.map((item) => item.type)).toEqual(['reasoning', 'message', 'reasoning'])
-    expect(replay.input.filter((item) => item.type === 'reasoning').map((item) => item.encrypted_content)).toEqual([
-      'opaque-one',
-      'opaque-two',
-    ])
+    expect(replay.input.map((item) => item.type)).toEqual(['message', 'message'])
+    expect(replay.input.filter((item) => item.type === 'reasoning').map((item) => item.encrypted_content)).toEqual([])
   })
 
   it('keeps the canonical summary when Grok emits both reasoning channels', () => {
@@ -187,35 +184,35 @@ describe('Claude Messages and Responses round trips', () => {
       id: 'rs1',
       encrypted_content: 'opaque',
       summary: [{ type: 'summary_text', text: '简要过程' }],
-      content: [{ type: 'reasoning_text', text: '详细过程' }],
+      content: [{ type: 'reasoning_text', text: '详细过程' }]
     }
     const { output } = convertStream([
       { type: 'response.output_item.added', output_index: 0, item: { type: 'reasoning', id: 'rs1' } },
       { type: 'response.reasoning_text.delta', item_id: 'rs1', delta: '详细过程' },
       { type: 'response.reasoning_summary_text.delta', item_id: 'rs1', summary_index: 0, delta: '简要过程' },
       { type: 'response.output_item.done', output_index: 0, item },
-      { type: 'response.completed', response: { output: [item] } },
+      { type: 'response.completed', response: { output: [item] } }
     ])
     expect(
       output
-        .filter((entry) => entry.data.delta?.type === 'thinking_delta')
-        .map((entry) => entry.data.delta.thinking)
-        .join(''),
+        .filter((entry) => entry.data.delta?.type === 'text_delta')
+        .map((entry) => entry.data.delta.text)
+        .join('')
     ).toBe('简要过程')
     expect(output.filter((entry) => entry.event === 'error')).toEqual([])
-    expect(output.filter((entry) => entry.data.delta?.type === 'signature_delta')).toHaveLength(1)
+    expect(output.filter((entry) => entry.data.delta?.type === 'signature_delta')).toHaveLength(0)
   })
 
-  it('emits a signature supplied only by the terminal response before closing thinking', () => {
+  it('closes visible reasoning before the answer without exposing terminal ciphertext', () => {
     const reasoning = {
       type: 'reasoning',
       id: 'rs1',
-      summary: [{ type: 'summary_text', text: '过程' }],
+      summary: [{ type: 'summary_text', text: '过程' }]
     }
     const message = {
       type: 'message',
       id: 'm1',
-      content: [{ type: 'output_text', text: '结论' }],
+      content: [{ type: 'output_text', text: '结论' }]
     }
     const { output } = convertStream([
       { type: 'response.output_item.added', output_index: 0, item: { type: 'reasoning', id: 'rs1' } },
@@ -227,16 +224,15 @@ describe('Claude Messages and Responses round trips', () => {
       {
         type: 'response.completed',
         response: {
-          output: [{ ...reasoning, encrypted_content: 'terminal-ciphertext' }, message],
-        },
-      },
+          output: [{ ...reasoning, encrypted_content: 'terminal-ciphertext' }, message]
+        }
+      }
     ])
     const signature = output.findIndex((item) => item.data.delta?.type === 'signature_delta')
     const thinkingStop = output.findIndex((item) => item.event === 'content_block_stop' && item.data.index === 0)
-    const textStart = output.findIndex((item) => item.data.content_block?.type === 'text')
-    expect(signature).toBeGreaterThan(-1)
-    expect(output[signature].data.delta.signature).toBe('terminal-ciphertext')
-    expect(signature).toBeLessThan(thinkingStop)
+    const textStart = output.findIndex((item) => item.data.content_block?.type === 'text' && item.data.index === 1)
+    expect(signature).toBe(-1)
+    expect(thinkingStop).toBeGreaterThan(-1)
     expect(thinkingStop).toBeLessThan(textStart)
     expect(output.filter((item) => item.event === 'error')).toEqual([])
   })
@@ -249,7 +245,7 @@ describe('Claude Messages and Responses round trips', () => {
       status: 'incomplete',
       incomplete_details: { reason: 'max_output_tokens' },
       output: [{ type: 'message', id: 'm1', content: [{ type: 'output_text', text: 'partial' }] }],
-      usage: { input_tokens: 100, output_tokens: 10 },
+      usage: { input_tokens: 100, output_tokens: 10 }
     }
     const { output } = convertStream([{ type: 'response.incomplete', response }])
     expect(output.find((item) => item.event === 'message_delta').data.delta.stop_reason).toBe('max_tokens')
@@ -268,22 +264,22 @@ describe('Claude Messages and Responses round trips', () => {
               tool_use_id: 'call_A',
               content: [
                 { type: 'text', text: 'image follows' },
-                { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'YWJj' } },
-              ],
+                { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'YWJj' } }
+              ]
             },
-            { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: 'cGRm' } },
-          ],
-        },
-      ],
+            { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: 'cGRm' } }
+          ]
+        }
+      ]
     })
     expect(request.parallel_tool_calls).toBe(false)
     expect(request.input[0].output).toEqual([
       { type: 'input_text', text: 'image follows' },
-      { type: 'input_image', image_url: 'data:image/png;base64,YWJj' },
+      { type: 'input_image', image_url: 'data:image/png;base64,YWJj' }
     ])
     expect(request.input[1].content[0]).toMatchObject({
       type: 'input_file',
-      file_data: 'data:application/pdf;base64,cGRm',
+      file_data: 'data:application/pdf;base64,cGRm'
     })
   })
 })

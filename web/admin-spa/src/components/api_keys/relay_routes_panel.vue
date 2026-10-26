@@ -223,6 +223,19 @@
         </div>
         <div class="rounded-xl bg-gray-50 p-3 dark:bg-gray-800">
           <h4 class="mb-2 font-medium">转换器配置</h4>
+          <template v-if="form.provider === 'openai' && form.formats.includes('openai-responses')">
+            <label class="mb-1 block">Responses 工具格式</label>
+            <CustomDropdown
+              v-model="responsesToolMode"
+              :options="[
+                { value: 'native', label: '原生透传（默认）' },
+                { value: 'functions', label: '函数兼容（第三方网关）' }
+              ]"
+            />
+            <p class="mt-2 text-sm text-gray-500">
+              函数兼容会转换命名空间及客户端工具搜索，并还原返回的工具身份。
+            </p>
+          </template>
           <template v-if="form.provider === 'openai' && form.formats.includes('claude-messages')"
             ><label class="mb-1 block">Claude Messages → Responses：并行工具调用</label
             ><CustomDropdown
@@ -233,7 +246,10 @@
                 { value: 'deny', label: '关闭' }
               ]"
           /></template>
-          <p v-else class="text-gray-500">
+          <p
+            v-else-if="form.provider !== 'openai' || !form.formats.includes('openai-responses')"
+            class="text-gray-500"
+          >
             所选接口使用现有原生处理器或转换器默认配置，当前没有额外可覆盖参数。
           </p>
           <label class="mb-1 mt-3 block">本地估算使用的词表</label
@@ -309,6 +325,7 @@ const targets = ref([])
 const deleting = ref(null)
 const mappings = ref([])
 const parallelToolCalls = ref('inherit')
+const responsesToolMode = ref('native')
 const tokenizerOptions = ref([{ value: '', label: '沿用全局模型规则' }])
 const form = reactive({
   code: '',
@@ -394,6 +411,7 @@ const openEditor = (route = null) => {
   }))
   const parallel = route?.converterOptions?.['claude-messages']?.parallelToolCalls
   parallelToolCalls.value = parallel === undefined ? 'inherit' : parallel ? 'allow' : 'deny'
+  responsesToolMode.value = route?.converterOptions?.['openai-responses']?.toolMode ?? 'native'
   editorOpen.value = true
   loadTargets()
   getTokenizerCatalogApi()
@@ -434,6 +452,9 @@ const save = async (closeAfter = false) => {
         ? { 'claude-messages': { parallelToolCalls: parallelToolCalls.value === 'allow' } }
         : {}
     const payload = { ...form, modelMapping, converterOptions }
+    if (form.provider === 'openai' && form.formats.includes('openai-responses')) {
+      converterOptions['openai-responses'] = { toolMode: responsesToolMode.value }
+    }
     const response = editing.value
       ? await updateRelayRouteApi(form.code, payload)
       : await createRelayRouteApi(payload)

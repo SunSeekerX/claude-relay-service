@@ -11,12 +11,13 @@ import * as azureOpenaiAccountService from '../account/account_azure_openai_serv
 import { droidAccountService } from '../account/account_droid_service.js'
 import { bedrockAccountService } from '../account/account_bedrock_service.js'
 import { redis } from '../../infra/redis.js'
-import { RedisKeys, TTL } from '../../infra/redis_key.js'
+import { RedisKeys } from '../../infra/redis_key.js'
 import { authenticateAdmin } from '../../infra/middleware_auth.js'
 import { logger } from '../../common/logger.js'
 import { CostCalculator } from '../pricing/pricing_cost_calculator.js'
 import { createUsageRecordCostResolver } from '../pricing/pricing_usage_record_cost.js'
 import { pricingService } from '../pricing/pricing_service.js'
+import { getUsageDataByIndex } from './admin_usage_index_service.js'
 import { parseDateTimeQuery } from '../../common/date_time.js'
 import { asyncRoute } from '../../common/route_handler.js'
 import { badRequest, notFound } from '../../common/http_result.js'
@@ -71,91 +72,7 @@ const slimTrendToTopApiKeys = async (trendData, apiKeyTotals, limit = 10) => {
   return { topApiKeys, totalApiKeys: liveIds.length }
 }
 
-// 辅助函数：通过索引获取数据，回退到 SCAN
-// keyPattern 支持占位符：{id}、{keyId}+{model}、{accountId}+{model}
-const getUsageDataByIndex = async (indexKey, keyPattern, scanPattern) => {
-  const members = await redis.client.smembers(indexKey)
-  if (members && members.length > 0) {
-    const keys = members.map((id) => {
-      // 检查是否是 keymodel 格式 (keyId:model)
-      if (keyPattern.includes('{keyId}') && keyPattern.includes('{model}')) {
-        const [keyId, ...modelParts] = id.split(':')
-        const model = modelParts.join(':')
-        return keyPattern.replace('{keyId}', keyId).replace('{model}', model)
-      }
-      // 检查是否是 accountId:model 格式
-      if (keyPattern.includes('{accountId}') && keyPattern.includes('{model}')) {
-        const [accountId, ...modelParts] = id.split(':')
-        const model = modelParts.join(':')
-        return keyPattern.replace('{accountId}', accountId).replace('{model}', model)
-      }
-      return keyPattern.replace('{id}', id)
-    })
-    const dataList = await redis.batchHgetallChunked(keys)
-    const result = []
-    keys.forEach((key, i) => {
-      if (dataList[i] && Object.keys(dataList[i]).length > 0) {
-        result.push({ key, data: dataList[i] })
-      }
-    })
-    return result
-  }
-  // 索引为空，检查空标记
-  const emptyMarker = await redis.client.get(RedisKeys.emptyMarker(indexKey))
-  if (emptyMarker === '1') {
-    return []
-  }
-  // 回退到 SCAN（兼容历史数据）
-  const keys = await redis.scanKeys(scanPattern)
-  if (keys.length === 0) {
-    // 设置空标记，1小时过期
-    await redis.client.setex(RedisKeys.emptyMarker(indexKey), TTL.emptyMarker, '1')
-    return []
-  }
-  // 建立索引
-  const ids = keys.map((k) => {
-    if (keyPattern.includes('{keyId}') && keyPattern.includes('{model}')) {
-      // keymodel 格式：usage:{keyId}:model:daily:{model}:{date} 或 hourly
-      const match =
-        k.match(/usage:([^:]+):model:daily:(.+):\d{4}-\d{2}-\d{2}$/) ||
-        k.match(/usage:([^:]+):model:hourly:(.+):\d{4}-\d{2}-\d{2}:\d{2}$/)
-      if (match) {
-        return `${match[1]}:${match[2]}`
-      }
-    }
-    if (keyPattern.includes('{accountId}') && keyPattern.includes('{model}')) {
-      // account_usage:model:daily 或 hourly
-      const match =
-        k.match(/account_usage:model:daily:([^:]+):(.+):\d{4}-\d{2}-\d{2}$/) ||
-        k.match(/account_usage:model:hourly:([^:]+):(.+):\d{4}-\d{2}-\d{2}:\d{2}$/)
-      if (match) {
-        return `${match[1]}:${match[2]}`
-      }
-    }
-    // 通用格式：根据 keyPattern 中 {id} 的位置提取 id
-    const patternParts = keyPattern.split(':')
-    const idIndex = patternParts.findIndex((p) => p === '{id}')
-    if (idIndex !== -1) {
-      const parts = k.split(':')
-      return parts[idIndex]
-    }
-    // 回退：提取最后一个 : 前的 id
-    const parts = k.split(':')
-    return parts[parts.length - 2]
-  })
-  const validIds = ids.filter(Boolean)
-  if (validIds.length > 0) {
-    await redis.client.sadd(indexKey, ...validIds)
-  }
-  const dataList = await redis.batchHgetallChunked(keys)
-  const result = []
-  keys.forEach((key, i) => {
-    if (dataList[i] && Object.keys(dataList[i]).length > 0) {
-      result.push({ key, data: dataList[i] })
-    }
-  })
-  return result
-}
+
 
 const accountTypeNames = {
   claude: 'Claude官方',

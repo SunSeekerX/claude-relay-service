@@ -17,25 +17,14 @@
       </p>
     </div>
 
-    <div>
-      <label class="mb-3 block text-sm font-semibold text-gray-700 dark:text-gray-300"
-        >API 密钥{{ isCreate ? ' *' : '' }}</label
-      >
-      <div class="relative">
-        <input
-          class="form-input form-input--with-icon w-full border-transparent dark:border-transparent dark:bg-gray-700 dark:text-gray-200"
-          :placeholder="isCreate ? 'sk-xxxxxxxxxxxx' : '留空表示不更新'"
-          :required="isCreate"
-          :type="showApiKey ? 'text' : 'password'"
-          :value="apiKey"
-          @input="emit('update:apiKey', $event.target.value)"
-        />
-        <button class="password-toggle" type="button" @click="showApiKey = !showApiKey">
-          <i :class="showApiKey ? 'i-lucide-eye-off' : 'i-lucide-eye'" />
-        </button>
-      </div>
-      <p v-if="!isCreate" class="mt-1 text-sm text-gray-500">留空表示不更新 API Key</p>
-    </div>
+    <AccountApiKeyField
+      :editing="!isCreate"
+      :error="apiKeyError"
+      :model-value="apiKey"
+      :replace-enabled="replaceEnabled"
+      @update:model-value="emit('update:apiKey', $event)"
+      @update:replace-enabled="emit('update:replaceEnabled', $event)"
+    />
 
     <div>
       <label class="mb-3 block text-sm font-semibold text-gray-700 dark:text-gray-300"
@@ -128,12 +117,13 @@
   </div>
 </template>
 <script setup>
-import { ref } from 'vue'
-const showApiKey = ref(false)
+import AccountApiKeyField from './account_api_key_field.vue'
 defineProps({
   isCreate: { type: Boolean, default: false },
   baseApi: { type: String, default: '' },
   apiKey: { type: String, default: '' },
+  replaceEnabled: { type: Boolean, default: false },
+  apiKeyError: { type: String, default: '' },
   userAgent: { type: String, default: '' },
   upstreamRequestIdHeader: { type: String, default: '' },
   providerEndpoint: { type: String, default: 'responses' },
@@ -152,6 +142,7 @@ defineProps({
 const emit = defineEmits([
   'update:baseApi',
   'update:apiKey',
+  'update:replaceEnabled',
   'update:userAgent',
   'update:upstreamRequestIdHeader',
   'update:providerEndpoint',

@@ -763,6 +763,7 @@ class OpenAIResponsesRelayService {
       const hadTerminal = Boolean(upstreamState.terminalType)
       const result = upstreamState.finish(transportError)
       const usageData = upstreamState.usage
+      req._crsProtocolTerminal = upstreamState.terminalType
       const actualModel = upstreamState.model
       const rateLimitErrorData = upstreamState.error
       const rateLimitDetected = isResponsesRateLimitError(rateLimitErrorData)
@@ -842,6 +843,9 @@ class OpenAIResponsesRelayService {
                 output_tokens: outputTokens,
                 cache_creation_input_tokens: cacheCreateTokens,
                 cache_read_input_tokens: cacheReadTokens,
+                cache_write_tokens_details:
+                  usageData.input_tokens_details?.cache_write_tokens_details ??
+                  usageData.prompt_tokens_details?.cache_write_tokens_details,
               },
               modelToRecord,
               serviceTier,
@@ -949,6 +953,7 @@ class OpenAIResponsesRelayService {
     // 提取 usage 数据和实际 model
     // 支持两种格式：直接的 usage 或嵌套在 response 中的 usage
     const usageData = responseData?.usage || responseData?.response?.usage
+    req._crsProtocolTerminal = responseData?.status ?? responseData?.response?.status ?? null
     req._crsRecordRelayResult?.({
       statusCode: response.status,
       errorCode: responseData?.error?.code ?? responseData?.response?.error?.code,
@@ -1010,6 +1015,9 @@ class OpenAIResponsesRelayService {
               output_tokens: outputTokens,
               cache_creation_input_tokens: cacheCreateTokens,
               cache_read_input_tokens: cacheReadTokens,
+              cache_write_tokens_details:
+                usageData.input_tokens_details?.cache_write_tokens_details ??
+                usageData.prompt_tokens_details?.cache_write_tokens_details,
             },
             actualModel,
             serviceTier,

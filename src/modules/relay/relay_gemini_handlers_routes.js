@@ -26,7 +26,7 @@ import {
   normalizeGeminiTokenUsage,
   createRequestDetailMeta,
 } from './relay_request_detail_helper.js'
-import * as interactionsX from './translator/relay_translator_interactions.js'
+import { geminiInteractionsService } from './relay_gemini_interactions_service.js'
 /**
  * Gemini API 处理函数模块
  *
@@ -2157,7 +2157,7 @@ export const handleStandardGenerateContent = async (req, res) => {
     const actualRequestData = buildGeminiGenerateBody(req.body)
 
     // 使用统一调度选择账号
-    const schedulerResult = await trackRequestTiming(req, 'scheduling', () =>
+    const schedulerResult = req._crsGeminiSelection ?? await trackRequestTiming(req, 'scheduling', () =>
       unifiedGeminiScheduler.selectAccountForApiKey(req.apiKey, sessionHash, model, {
         allowApiAccounts: true,
       }),
@@ -2397,7 +2397,7 @@ export const handleStandardStreamGenerateContent = async (req, res) => {
     const actualRequestData = buildGeminiGenerateBody(req.body)
 
     // 使用统一调度选择账号
-    const schedulerResult = await trackRequestTiming(req, 'scheduling', () =>
+    const schedulerResult = req._crsGeminiSelection ?? await trackRequestTiming(req, 'scheduling', () =>
       unifiedGeminiScheduler.selectAccountForApiKey(req.apiKey, sessionHash, model, {
         allowApiAccounts: true,
       }),
@@ -2825,128 +2825,9 @@ export const handleStandardStreamGenerateContent = async (req, res) => {
  * 入站 Interactions → generateContent 上游 → 再转回 Interactions
  */
 export const handleInteractions = async (req, res) => {
-  try {
-    if (!ensureGeminiPermission(req, res)) {
-      return undefined
-    }
-
-    const body = req.body || {}
-    const model = body.model || 'gemini-2.5-flash'
-    const converted = interactionsX.convertInteractionsToGemini(body)
-    const geminiRequest = converted.request
-    const isStream = body.stream === true || converted.stream === true
-
-    // 只走 standard generate（已支持 gemini-api + OAuth），避免入口先选号再进会拒 API 的路径
-    // standard 内部 allowApiAccounts:true，自行选号/粘性会话
-    req.body = geminiRequest
-    req.params = { ...(req.params || {}), modelName: model }
-    logger.info(`Interactions request - model=${model} stream=${isStream}`)
-
-    // 非流：调 standard generate 后转换
-    if (!isStream) {
-      const originalJson = res.json.bind(res)
-      res.json = (data) => {
-        try {
-          if (data?.error) {
-            return originalJson(data)
-          }
-          const interaction = interactionsX.convertGeminiToInteractions(data, { model })
-          return originalJson(interaction)
-        } catch (error) {
-          console.error(error)
-          return originalJson(data)
-        }
-      }
-      try {
-        return await handleStandardGenerateContent(req, res)
-      } finally {
-        res.json = originalJson
-      }
-    }
-
-    // 流式：拦截 generateContent SSE → Interactions 事件
-    req.body = { ...geminiRequest }
-    const streamState = interactionsX.createGeminiToInteractionsStreamState({ model })
-    const originalWrite = res.write.bind(res)
-    const originalEnd = res.end.bind(res)
-    const originalSetHeader = res.setHeader.bind(res)
-    let buffer = ''
-
-    res.setHeader = (name, value) => {
-      if (String(name).toLowerCase() === 'content-type') {
-        return originalSetHeader(name, 'text/event-stream')
-      }
-      return originalSetHeader(name, value)
-    }
-
-    res.write = (chunk, encoding, callback) => {
-      const str = typeof chunk === 'string' ? chunk : chunk.toString()
-      buffer += str.replace(/\r\n/g, '\n')
-      let out = ''
-      let idx
-      while ((idx = buffer.indexOf('\n\n')) !== -1) {
-        const block = buffer.slice(0, idx)
-        buffer = buffer.slice(idx + 2)
-        for (const line of block.split('\n')) {
-          if (!line.startsWith('data: ')) {
-            continue
-          }
-          const payload = line.slice(6).trim()
-          if (!payload || payload === '[DONE]') {
-            continue
-          }
-          try {
-            const geminiChunk = JSON.parse(payload)
-            const inner = geminiChunk.response || geminiChunk
-            const events = interactionsX.convertGeminiStreamChunkToInteractionsEvents(inner, streamState)
-            out += interactionsX.formatInteractionsSse(events)
-          } catch (error) {
-            // ignore partial
-          }
-        }
-      }
-      if (out) {
-        return originalWrite(out, encoding, callback)
-      }
-      if (typeof callback === 'function') {
-        callback()
-      }
-      return true
-    }
-
-    res.end = (chunk, encoding, callback) => {
-      if (chunk) {
-        res.write(chunk, encoding)
-      }
-      if (!streamState.finished) {
-        const events = interactionsX.convertGeminiStreamChunkToInteractionsEvents(
-          {
-            candidates: [{ finishReason: 'STOP', content: { parts: [] } }],
-            usageMetadata: streamState.usage || {},
-          },
-          streamState,
-        )
-        originalWrite(interactionsX.formatInteractionsSse(events))
-      }
-      return originalEnd(null, encoding, callback)
-    }
-
-    try {
-      return await handleStandardStreamGenerateContent(req, res)
-    } catch (error) {
-      res.write = originalWrite
-      res.end = originalEnd
-      res.setHeader = originalSetHeader
-      throw error
-    }
-  } catch (error) {
-    console.error(error)
-    logger.error('Interactions handler failed:', error)
-    if (!res.headersSent) {
-      res.status(500).json({
-        error: { message: getSafeMessage(error) || 'interactions failed', type: 'api_error' },
-      })
-    }
-  }
-  return undefined
+  if (!ensureGeminiPermission(req, res)) return undefined
+  return geminiInteractionsService.create(req, res, {
+    generate: handleStandardGenerateContent,
+    stream: handleStandardStreamGenerateContent
+  })
 }

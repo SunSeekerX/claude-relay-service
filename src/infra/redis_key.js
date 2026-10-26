@@ -41,13 +41,22 @@ const getConfig = () => {
 export const TestPromptLimits = { templates: 100, promptCharacters: 32000, configBytes: 512 * 1024 }
 
 export const RedisKeys = {
+  responsesContext: {
+    item: (scope, id) => `responses:context:${scope}:${id}`,
+    index: (scope) => `responses:context_index:${scope}`,
+  },
   relayRoutes: 'relay:routes',
+  geminiInteraction: {
+    record: (ownerId, interactionId) => `gemini:interaction:${ownerId}:${encodeURIComponent(interactionId)}`,
+    lock: (recordKey) => `${recordKey}:billing_lock`,
+    pending: 'gemini:interactions:pending',
+  },
   tokenizer: {
     settings: 'tokenizer:settings',
     task: (id) => `tokenizer:task:${id}`,
     cancel: (id) => `tokenizer:task_cancel:${id}`,
     tasks: 'tokenizer:tasks',
-    taskLock: 'tokenizer:task_lock'
+    taskLock: 'tokenizer:task_lock',
   },
   // === API Key ===
   apiKey: {
@@ -382,6 +391,8 @@ export const RedisKeys = {
 
   // === 上游错误自动保护 ===
   upstream: {
+    authFailureWindow: (accountType, accountId) => `upstream_auth_failure:${accountType}:${accountId}`,
+    authFailureCooldown: (accountType, accountId) => `upstream_auth_alert:${accountType}:${accountId}`,
     tempUnavailable: (accountType, accountId) => `temp_unavailable:${accountType}:${accountId}`,
     tempUnavailablePrefix: 'temp_unavailable', // 前缀(导出/拼接/扫描派生用)
     tempUnavailablePattern: 'temp_unavailable:*',
@@ -496,6 +507,12 @@ export const RedisKeys = {
 const DAY = 86400
 
 export const TTL = {
+  upstreamAuthWindow: 5 * 60,
+  upstreamAuthAlertCooldown: 15 * 60,
+  responsesContext: (retentionHours) => retentionHours * 3600,
+  geminiInteraction: DAY * 55,
+  geminiInteractionLease: 60,
+  geminiInteractionPoll: 15,
   tokenizerTask: 7 * 24 * 3600,
   tokenizerTaskLock: 90,
   // —— 用量(API Key + 账户共用同套日/时/月) ——
@@ -559,6 +576,7 @@ export const TTL = {
   codexRealtimeCall: 2 * 60 * 60,
   // 系统分钟指标: config.system.metricsWindow * 2,默认窗口 5 分钟
   systemMetrics: () => (getConfig().system?.metricsWindow || 5) * 60 * 2,
+  systemStatsSnapshot: 15,
   // 上游错误各类型(config > [503 额外 env] > 默认)
   upstream503: () => {
     const config = getConfig()
@@ -600,6 +618,12 @@ export const TTL = {
 // LIMITS — 集合容量上限(仅"真有裁剪动作"的)
 // ===
 export const LIMITS = {
+  responsesCountResponseBytes: 1024 * 1024,
+  responsesCountItems: 20000,
+  responsesCountDepth: 32,
+  systemStatsScanBatch: 500,
+  responsesContexts: 32,
+  responsesContextBytes: 16 * 1024 * 1024,
   accountCatalogModels: 2000,
   accountCatalogPages: 50,
   accountCatalogBytes: 2 * 1024 * 1024,

@@ -3,6 +3,8 @@
  * 将 Gemini API 的原生响应转为标准 OpenAI chat.completion / chat.completion.chunk 格式
  */
 
+import { IncrementalSSEParser } from './relay_sse_parser.js'
+
 export const mapGeminiUsageToOpenAI = (meta) => {
   if (!meta) {
     return undefined
@@ -24,7 +26,7 @@ export const mapGeminiUsageToOpenAI = (meta) => {
 export class GeminiToOpenAIConverter {
   createStreamState() {
     return {
-      buffer: '',
+      parser: new IncrementalSSEParser(),
       id: `chatcmpl-${Date.now()}`,
       created: Math.floor(Date.now() / 1000),
       functionIndex: 0,
@@ -41,66 +43,33 @@ export class GeminiToOpenAIConverter {
    * @returns {string|null} 转换后的 SSE 字符串，null 表示跳过
    */
   convertStreamChunk(rawChunk, model, state) {
-    const str = (typeof rawChunk === 'string' ? rawChunk : rawChunk.toString()).replace(/\r\n/g, '\n')
+    return this._convertEvents(state.parser.feed(rawChunk), model, state)
+  }
 
-    // 心跳透传：仅当 buffer 为空时才透传空白
-    // buffer 有数据时需要继续处理（空白可能是 SSE 事件的 \n\n 分隔符）
-    if (!str.trim() && !state.buffer) {
-      return str
-    }
+  finishStream(model, state) {
+    return this._convertEvents(state.parser.finish(), model, state)
+  }
 
-    state.buffer += str
+  _convertEvents(events, model, state) {
     let output = ''
-
-    // 按 \n\n 分割完整 SSE 事件
-    let idx
-    while ((idx = state.buffer.indexOf('\n\n')) !== -1) {
-      const event = state.buffer.slice(0, idx)
-      state.buffer = state.buffer.slice(idx + 2)
-
-      if (!event.trim()) {
-        continue
+    for (const event of events) {
+      if (event.type === 'invalid') {
+        throw Object.assign(new Error('Invalid Gemini SSE payload'), { code: 'upstream_parse_error' })
       }
-
-      const lines = event.split('\n')
-      for (const line of lines) {
-        if (!line.startsWith('data: ')) {
-          continue
-        }
-
-        const jsonStr = line.slice(6).trim()
-        if (!jsonStr) {
-          continue
-        }
-
-        // [DONE] 消费（由 res.end patch 统一发送）
-        if (jsonStr === '[DONE]') {
-          continue
-        }
-
-        let geminiData
-        try {
-          geminiData = JSON.parse(jsonStr)
-        } catch (e) {
-          // 解析失败透传
-          output += `data: ${jsonStr}\n\n`
-          continue
-        }
-
-        // 错误事件透传
-        if (geminiData.error) {
-          output += `data: ${jsonStr}\n\n`
-          continue
-        }
-
-        const chunks = this._convertGeminiChunkToOpenAI(geminiData, model, state)
-        for (const c of chunks) {
-          output += `data: ${JSON.stringify(c)}\n\n`
-        }
+      if (event.type === 'data') {
+        output += this.convertStreamEvent(event.data, model, state)
       }
     }
-
     return output || null
+  }
+
+  convertStreamEvent(data, model, state) {
+    if (data.error) {
+      return `data: ${JSON.stringify(data)}\n\n`
+    }
+    return this._convertGeminiChunkToOpenAI(data, model, state)
+      .map((chunk) => `data: ${JSON.stringify(chunk)}\n\n`)
+      .join('')
   }
 
   /**
@@ -128,7 +97,7 @@ export class GeminiToOpenAIConverter {
 
         if (part.functionCall) {
           toolCalls.push({
-            id: `${part.functionCall.name}-${Date.now()}-${fnIndex}`,
+            id: part.functionCall.id || `${part.functionCall.name}-${Date.now()}-${fnIndex}`,
             type: 'function',
             function: {
               name: part.functionCall.name,
@@ -229,7 +198,7 @@ export class GeminiToOpenAIConverter {
     if (candidates.length === 0 && data.usageMetadata) {
       // 仅 usage 的最终 chunk
       const chunk = this._makeChunk(state, model)
-      chunk.choices[0].finish_reason = 'stop'
+      chunk.choices = []
       chunk.usage = this._mapUsage(data.usageMetadata)
       return [chunk]
     }
@@ -254,7 +223,7 @@ export class GeminiToOpenAIConverter {
             tool_calls: [
               {
                 index: state.functionIndex,
-                id: `${part.functionCall.name}-${Date.now()}-${state.functionIndex}`,
+                id: part.functionCall.id || `${part.functionCall.name}-${Date.now()}-${state.functionIndex}`,
                 type: 'function',
                 function: {
                   name: part.functionCall.name,

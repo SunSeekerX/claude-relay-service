@@ -8,6 +8,41 @@
 // ===
 
 export const RedisLua = {
+  geminiInteraction: {
+    unlock: `
+if redis.call('GET', KEYS[1]) == ARGV[1] then return redis.call('DEL', KEYS[1]) end
+return 0
+`
+  },
+  upstreamAuthAlert: `
+redis.call('ZREMRANGEBYSCORE', KEYS[1], '-inf', tonumber(ARGV[1]) - tonumber(ARGV[2]))
+redis.call('ZADD', KEYS[1], ARGV[1], ARGV[3])
+redis.call('ZREMRANGEBYRANK', KEYS[1], 0, -(tonumber(ARGV[4]) + 1))
+redis.call('EXPIRE', KEYS[1], ARGV[5])
+if redis.call('ZCARD', KEYS[1]) >= tonumber(ARGV[4]) then
+  if redis.call('SET', KEYS[2], '1', 'EX', ARGV[6], 'NX') then return 1 end
+end
+return 0
+`,
+  responsesContext: {
+    save: `
+redis.call('SET', KEYS[1], ARGV[1], 'EX', ARGV[2])
+redis.call('ZADD', KEYS[2], ARGV[3], KEYS[1])
+redis.call('EXPIRE', KEYS[2], ARGV[2])
+local all = redis.call('ZRANGE', KEYS[2], 0, -1)
+local bytes = 0
+for _, key in ipairs(all) do bytes = bytes + redis.call('STRLEN', key) end
+local count = #all
+for _, key in ipairs(all) do
+  if count <= tonumber(ARGV[4]) and bytes <= tonumber(ARGV[5]) then break end
+  bytes = bytes - redis.call('STRLEN', key)
+  redis.call('DEL', key)
+  redis.call('ZREM', KEYS[2], key)
+  count = count - 1
+end
+return 1
+`
+  },
   accountModels: {
     record: `
 if redis.call('EXISTS', KEYS[1]) == 0 then return false end

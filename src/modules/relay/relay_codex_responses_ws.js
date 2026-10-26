@@ -36,7 +36,7 @@ export const isResponsesWebSocketPath = (pathname) => {
   }
   if (path === '/responses' || path.endsWith('/responses')) {
     // backend-api/codex/responses 或裸 /responses
-    if (path.includes('/backend-api/codex') || path === '/responses' || path === '/openai/responses') {
+    if (path.includes('/backend-api/codex') || path === '/responses' || path === '/openai/responses' || /^\/(?:openai\/claude|gemini|r\/[^/]+)\/responses$/.test(path)) {
       return true
     }
   }

@@ -1,4 +1,6 @@
 import { LIMITS } from '../../infra/redis_key.js'
+import { getCodeAssistOperation } from './relay_gemini_code_assist_contract.js'
+import { getResponsesBridgeProvider } from './relay_responses_contract.js'
 
 export const ROUTE_FORMATS = [
   { value: 'claude-messages', label: 'Claude Messages', path: '/v1/messages' },
@@ -8,7 +10,7 @@ export const ROUTE_FORMATS = [
 ]
 
 export const ROUTE_PROVIDERS = {
-  claude: { label: 'Claude', permission: 'claude', formats: ['claude-messages', 'openai-chat'] },
+  claude: { label: 'Claude', permission: 'claude', formats: ['claude-messages', 'openai-chat', 'openai-responses'] },
   openai: {
     label: 'OpenAI / Codex',
     permission: 'openai',
@@ -17,7 +19,7 @@ export const ROUTE_PROVIDERS = {
   gemini: {
     label: 'Gemini',
     permission: 'gemini',
-    formats: ['claude-messages', 'openai-chat', 'gemini-generate'],
+    formats: ['claude-messages', 'openai-chat', 'openai-responses', 'gemini-generate'],
   },
   antigravity: {
     label: 'Antigravity',
@@ -37,9 +39,9 @@ export const ROUTE_PROVIDERS = {
 }
 
 export const LEGACY_MODEL_BASES = {
-  claude: { 'claude-messages': '/api', 'openai-chat': '/openai/claude' },
+  claude: { 'claude-messages': '/api', 'openai-chat': '/openai/claude', 'openai-responses': '/openai/claude' },
   openai: { 'openai-chat': '/openai/native', 'openai-responses': '/openai' },
-  gemini: { 'openai-chat': '/openai/gemini', 'gemini-generate': '/gemini' },
+  gemini: { 'openai-chat': '/openai/gemini', 'openai-responses': '/gemini', 'gemini-generate': '/gemini' },
   droid: { 'claude-messages': '/droid/claude', 'openai-chat': '/droid/comm', 'openai-responses': '/droid/openai' },
   grok: { 'claude-messages': '/grok', 'openai-chat': '/grok', 'openai-responses': '/grok' },
 }
@@ -98,6 +100,12 @@ export const normalizeRouteModelConfig = (input) => {
     throw new Error('转换配置必须按接口格式设置')
   }
   for (const [format, options] of Object.entries(converterOptions)) {
+    if (format === 'openai-responses') {
+      if (input.provider !== 'openai' || !input.formats.includes(format) || !options || typeof options !== 'object' || Array.isArray(options) || Object.keys(options).some((key) => key !== 'toolMode') || !['native', 'functions'].includes(options.toolMode)) {
+        throw new Error('请选择 Responses 工具原生透传或函数兼容模式')
+      }
+      continue
+    }
     if (format !== 'claude-messages' || input.provider !== 'openai' || !input.formats.includes(format)) {
       throw new Error('此入口没有可配置的该方向转换器')
     }
@@ -143,13 +151,19 @@ export const normalizeKeyRouting = (value) => {
 
 export const getRequestRouteFormat = (req) => {
   const path = (req.path ?? req.url ?? '').split('?')[0].replace(/\/+$/, '')
+  if (getCodeAssistOperation(req.method, path)) {
+    return 'gemini-generate'
+  }
+  if (/^\/(v1|v1beta)\/interactions(?:\/[^/]+(?:\/cancel)?)?$/.test(path)) {
+    return 'gemini-generate'
+  }
   if (/\/messages(?:\/count_tokens)?$/.test(path)) {
     return 'claude-messages'
   }
   if (/\/chat\/completions$/.test(path)) {
     return 'openai-chat'
   }
-  if (/\/responses(?:\/compact)?$/.test(path)) {
+  if (/\/responses(?:\/(?:compact|input_tokens))?$/.test(path)) {
     return 'openai-responses'
   }
   if (
@@ -164,5 +178,6 @@ export const getRequestRouteFormat = (req) => {
 
 export const getDefaultRouteFormat = (req, format) => {
   const path = (req.originalUrl ?? req.url ?? '').split('?')[0]
+  if (getResponsesBridgeProvider(path)) {return null}
   return /^\/(?:grok|droid|antigravity|gemini-cli)(?:\/|$)/.test(path) ? null : format
 }

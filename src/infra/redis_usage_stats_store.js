@@ -45,6 +45,7 @@ export const attach = (redisClient) => {
     ratedCost = 0, // 计费费用（应用倍率后）
     thinkingTokens = 0, // 思考/reasoning tokens（单独展示）
     includeThinkingInAll = true, // false：思考已是 output 子集（OpenAI），allTokens 不再加
+    cacheWriteDetails = null,
   ) {
     const key = RedisKeys.usage.total(keyId)
     const now = new Date()
@@ -431,6 +432,44 @@ export const attach = (redisClient) => {
     pipeline.expire(globalDaily, TTL.usageDaily)
     pipeline.expire(globalMonthly, TTL.usageMonthly)
 
+    if (cacheWriteDetails) {
+      const buckets = [
+        daily,
+        monthly,
+        hourly,
+        modelDaily,
+        modelMonthly,
+        modelHourly,
+        keyModelDaily,
+        keyModelMonthly,
+        keyModelHourly,
+        keyModelAlltime,
+        RedisKeys.usage.globalTotal,
+        globalDaily,
+        globalMonthly,
+      ]
+      for (const [field, amount] of [
+        ['cacheWrite30mTokens', cacheWriteDetails.ttl_30m_tokens],
+        ['cacheWrite12hTokens', cacheWriteDetails.ttl_12h_tokens],
+      ]) {
+        pipeline.hincrby(key, `total${field[0].toUpperCase()}${field.slice(1)}`, amount)
+        for (const bucket of buckets) {
+          pipeline.hincrby(bucket, field, amount)
+        }
+        for (const bucket of [
+          modelDaily,
+          modelMonthly,
+          modelHourly,
+          keyModelDaily,
+          keyModelMonthly,
+          keyModelHourly,
+          keyModelAlltime,
+        ]) {
+          pipeline.hincrby(bucket, `costed${field[0].toUpperCase()}${field.slice(1)}`, amount)
+        }
+      }
+    }
+
     // 执行Pipeline
     await pipeline.exec()
   }
@@ -454,6 +493,7 @@ export const attach = (redisClient) => {
     // 只有 true 才把本次 token 记为「已精确计费」，false 表示手上没有可信金额、
     // 交给读取侧按 token 反推（如 droid 的无 API Key 兜底路径）
     costRecorded = false,
+    cacheWriteDetails = null,
   ) {
     const now = new Date()
     const today = getDateStringInTimezone(now)
@@ -657,6 +697,28 @@ export const attach = (redisClient) => {
       )
     }
 
+    if (cacheWriteDetails) {
+      for (const [field, amount] of [
+        ['cacheWrite30mTokens', cacheWriteDetails.ttl_30m_tokens],
+        ['cacheWrite12hTokens', cacheWriteDetails.ttl_12h_tokens],
+      ]) {
+        operations.push(this.client.hincrby(accountKey, `total${field[0].toUpperCase()}${field.slice(1)}`, amount))
+        for (const bucket of [
+          accountDaily,
+          accountMonthly,
+          accountHourly,
+          accountModelDaily,
+          accountModelMonthly,
+          accountModelHourly,
+        ]) {
+          operations.push(this.client.hincrby(bucket, field, amount))
+          if (costIsAuthoritative) {
+            operations.push(this.client.hincrby(bucket, `costed${field[0].toUpperCase()}${field.slice(1)}`, amount))
+          }
+        }
+        operations.push(this.client.hincrby(accountHourly, `model:${normalizedModel}:${field}`, amount))
+      }
+    }
     await Promise.all(operations)
   }
 

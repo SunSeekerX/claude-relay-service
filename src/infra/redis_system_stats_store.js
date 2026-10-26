@@ -1,5 +1,5 @@
 import { logger } from '../common/logger.js'
-import { RedisKeys } from './redis_key.js'
+import { RedisKeys, TTL, LIMITS } from './redis_key.js'
 import { getDateStringInTimezone } from '../common/timezone.js'
 import { config as configLocal } from '../../config/config.js'
 // ===
@@ -10,22 +10,55 @@ import { config as configLocal } from '../../config/config.js'
 // ===
 
 export const attach = (redisClient) => {
-  // 系统统计（使用 scanKeys 替代 keys）
+  let statsSnapshot = null
+  let pendingStats = null
+  // 一次 SCAN 同时统计各命名空间；并发读取共享短时快照。
   redisClient.getSystemStats = async function () {
-    const keys = await Promise.all([
-      this.scanKeys(RedisKeys.apiKey.allPattern),
-      this.scanKeys(RedisKeys.accounts.claudePattern),
-      this.scanKeys(RedisKeys.usage.allPattern),
-    ])
-
-    // 过滤 apikey 索引键，只统计实际的 apikey
-    const apiKeyCount = keys[0].filter((k) => k !== RedisKeys.apiKey.hashMap && k.split(':').length === 2).length
-
-    return {
-      totalApiKeys: apiKeyCount,
-      totalClaudeAccounts: keys[1].length,
-      totalUsageRecords: keys[2].length,
+    if (!statsSnapshot || Date.now() - statsSnapshot.completedAt >= TTL.systemStatsSnapshot * 1000) {
+      if (!pendingStats) {
+        pendingStats = (async () => {
+          const counts = { totalApiKeys: 0, totalClaudeAccounts: 0, totalUsageRecords: 0 }
+          const seen = new Set()
+          const client = this.getClientSafe()
+          let cursor = '0'
+          do {
+            const [next, keys] = await client.scan(cursor, 'COUNT', LIMITS.systemStatsScanBatch)
+            cursor = next
+            for (const key of keys) {
+              if (seen.has(key)) {
+                continue
+              }
+              let field
+              if (
+                key.startsWith(RedisKeys.apiKey.allPattern.slice(0, -1)) &&
+                key !== RedisKeys.apiKey.hashMap &&
+                key.split(':').length === 2
+              ) {
+                field = 'totalApiKeys'
+              } else if (key.startsWith(RedisKeys.accounts.claudePattern.slice(0, -1))) {
+                field = 'totalClaudeAccounts'
+              } else if (key.startsWith(RedisKeys.usage.allPattern.slice(0, -1))) {
+                field = 'totalUsageRecords'
+              }
+              if (field) {
+                seen.add(key)
+                counts[field]++
+              }
+            }
+          } while (cursor !== '0')
+          return { ...counts, completedAt: Date.now() }
+        })()
+          .then((snapshot) => {
+            statsSnapshot = snapshot
+          })
+          .finally(() => {
+            pendingStats = null
+          })
+      }
+      await pendingStats
     }
+    const { completedAt, ...counts } = statsSnapshot
+    return { ...counts, collectedAt: new Date(completedAt).toISOString(), cacheAgeMs: Date.now() - completedAt }
   }
 
   // 通过索引获取 key 列表（替代 SCAN）

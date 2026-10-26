@@ -1,3 +1,4 @@
+import { normalizeAccountApiKeyUpdate } from './account_api_key_update.js'
 import { redis as redisClient } from '../../infra/redis.js'
 import crypto from 'node:crypto'
 import { config } from '../../../config/config.js'
@@ -194,6 +195,7 @@ export const getAccount = async (accountId) => {
 
 // 更新账户
 export const updateAccount = async (accountId, updates) => {
+  normalizeAccountApiKeyUpdate(updates)
   const existingAccount = await getAccount(accountId)
   if (!existingAccount) {
     throw new Error('Account not found')

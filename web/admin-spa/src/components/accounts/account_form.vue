@@ -1104,25 +1104,12 @@
                 </p>
               </div>
 
-              <div>
-                <label class="mb-1 block text-sm font-semibold text-gray-700 dark:text-gray-300"
-                  >API Key *</label
-                >
-                <input
-                  v-model="form.apiKey"
-                  class="form-input w-full border-transparent dark:border-transparent dark:bg-gray-700 dark:text-gray-200 dark:placeholder-gray-400"
-                  :class="{ 'border-red-500': errors.apiKey }"
-                  placeholder="请输入 Azure OpenAI API Key"
-                  required
-                  type="password"
-                />
-                <p v-if="errors.apiKey" class="mt-1 text-sm text-red-500">
-                  {{ errors.apiKey }}
-                </p>
-                <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
-                  从 Azure 门户获取的 API 密钥
-                </p>
-              </div>
+              <AccountApiKeyField
+                v-model="form.apiKey"
+                v-model:replace-enabled="apiKeyReplacement"
+                :editing="isEdit"
+                :error="errors.apiKey"
+              />
 
               <div>
                 <label class="mb-1 block text-sm font-semibold text-gray-700 dark:text-gray-300"
@@ -1218,22 +1205,12 @@
                 </p>
               </div>
 
-              <div>
-                <label class="mb-1 block text-sm font-semibold text-gray-700 dark:text-gray-300"
-                  >API Key *</label
-                >
-                <input
-                  v-model="form.apiKey"
-                  class="form-input w-full border-transparent dark:border-transparent dark:bg-gray-700 dark:text-gray-200 dark:placeholder-gray-400"
-                  :class="{ 'border-red-500': errors.apiKey }"
-                  placeholder="请输入API Key"
-                  required
-                  type="password"
-                />
-                <p v-if="errors.apiKey" class="mt-1 text-sm text-red-500">
-                  {{ errors.apiKey }}
-                </p>
-              </div>
+              <AccountApiKeyField
+                v-model="form.apiKey"
+                v-model:replace-enabled="apiKeyReplacement"
+                :editing="isEdit"
+                :error="errors.apiKey"
+              />
 
               <!-- 额度管理字段 -->
               <div class="grid grid-cols-2 gap-4">
@@ -1389,8 +1366,10 @@
                 v-model:max-concurrent-tasks="form.maxConcurrentTasks"
                 v-model:provider-endpoint="form.providerEndpoint"
                 v-model:quota-reset-time="form.quotaResetTime"
+                v-model:replace-enabled="apiKeyReplacement"
                 v-model:upstream-request-id-header="form.upstreamRequestIdHeader"
                 v-model:user-agent="form.userAgent"
+                :api-key-error="errors.apiKey"
                 :is-create="true"
                 :provider-endpoint-options="providerEndpointCreateOptions"
               />
@@ -1470,30 +1449,12 @@
                 </p>
               </div>
 
-              <div>
-                <label class="mb-1 block text-sm font-semibold text-gray-700 dark:text-gray-300"
-                  >API 密钥 *</label
-                >
-                <div class="relative">
-                  <input
-                    v-model="form.apiKey"
-                    class="form-input form-input--with-icon w-full border-transparent dark:border-transparent dark:bg-gray-700 dark:text-gray-200 dark:placeholder-gray-400"
-                    placeholder="AIzaSy..."
-                    required
-                    :type="showApiKey ? 'text' : 'password'"
-                  />
-                  <button
-                    class="password-toggle"
-                    type="button"
-                    @click="showApiKey = !showApiKey"
-                  >
-                    <i :class="showApiKey ? 'i-lucide-eye-off' : 'i-lucide-eye'" />
-                  </button>
-                </div>
-                <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
-                  从 Google AI Studio 获取的 API 密钥
-                </p>
-              </div>
+              <AccountApiKeyField
+                v-model="form.apiKey"
+                v-model:replace-enabled="apiKeyReplacement"
+                :editing="isEdit"
+                :error="errors.apiKey"
+              />
             </div>
 
             <!-- Claude 订阅类型：OAuth 自动识别；Setup Token / 手动才手选 -->
@@ -2728,16 +2689,12 @@
               />
             </div>
 
-            <div>
-              <label class="mb-3 block text-sm font-semibold text-gray-700">API Key</label>
-              <input
-                v-model="form.apiKey"
-                class="form-input w-full"
-                placeholder="留空表示不更新"
-                type="password"
-              />
-              <p class="mt-1 text-sm text-gray-500">留空表示不更新 API Key</p>
-            </div>
+            <AccountApiKeyField
+              v-model="form.apiKey"
+              v-model:replace-enabled="apiKeyReplacement"
+              :editing="isEdit"
+              :error="errors.apiKey"
+            />
 
             <!-- 额度管理字段 -->
             <div class="grid grid-cols-2 gap-4">
@@ -2914,13 +2871,15 @@
             <OpenAIResponsesFields
               v-if="form.platform === 'openai-responses'"
               v-model:api-key="form.apiKey"
-              v-model:base-api="form.baseApi"
+                v-model:base-api="form.baseApi"
               v-model:daily-quota="form.dailyQuota"
               v-model:max-concurrent-tasks="form.maxConcurrentTasks"
               v-model:provider-endpoint="form.providerEndpoint"
               v-model:quota-reset-time="form.quotaResetTime"
+              v-model:replace-enabled="apiKeyReplacement"
               v-model:upstream-request-id-header="form.upstreamRequestIdHeader"
               v-model:user-agent="form.userAgent"
+              :api-key-error="errors.apiKey"
               :is-create="false"
               :provider-endpoint-options="providerEndpointEditOptions"
             />
@@ -2988,28 +2947,12 @@
               </p>
             </div>
 
-            <div>
-              <label class="mb-1 block text-sm font-semibold text-gray-700 dark:text-gray-300"
-                >API 密钥</label
-              >
-              <div class="relative">
-                <input
-                  v-model="form.apiKey"
-                  class="form-input form-input--with-icon w-full border-transparent dark:border-transparent dark:bg-gray-700 dark:text-gray-200"
-                  placeholder="留空表示不更新"
-                  :type="showApiKey ? 'text' : 'password'"
-                />
-                <button
-                  class="password-toggle"
-                  tabindex="-1"
-                  type="button"
-                  @click="showApiKey = !showApiKey"
-                >
-                  <i :class="showApiKey ? 'i-lucide-eye-off' : 'i-lucide-eye'" />
-                </button>
-              </div>
-              <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">留空表示不更新 API Key</p>
-            </div>
+            <AccountApiKeyField
+              v-model="form.apiKey"
+              v-model:replace-enabled="apiKeyReplacement"
+              :editing="isEdit"
+              :error="errors.apiKey"
+            />
           </div>
           </div>
           <!-- /gemini-api（并入 basic） -->
@@ -3194,22 +3137,12 @@
               </p>
             </div>
 
-            <div>
-              <label class="mb-1 block text-sm font-semibold text-gray-700 dark:text-gray-300"
-                >API Key</label
-              >
-              <input
-                v-model="form.apiKey"
-                class="form-input w-full border-transparent dark:border-transparent dark:bg-gray-700 dark:text-gray-200 dark:placeholder-gray-400"
-                :class="{ 'border-red-500': errors.apiKey }"
-                placeholder="留空表示不更新"
-                type="password"
-              />
-              <p v-if="errors.apiKey" class="mt-1 text-sm text-red-500">
-                {{ errors.apiKey }}
-              </p>
-              <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">留空表示不更新 API Key</p>
-            </div>
+            <AccountApiKeyField
+              v-model="form.apiKey"
+              v-model:replace-enabled="apiKeyReplacement"
+              :editing="isEdit"
+              :error="errors.apiKey"
+            />
 
             <div>
               <label class="mb-1 block text-sm font-semibold text-gray-700 dark:text-gray-300"
@@ -3495,6 +3428,7 @@ import { useAccountsStore } from '@/stores/accounts'
 import ProxyBinding from './proxy_binding.vue'
 import OpenAIResponsesFields from './openai_responses_fields.vue'
 import AccountModelCatalog from './account_model_catalog.vue'
+import AccountApiKeyField from './account_api_key_field.vue'
 import { getAccountModelConfiguration } from '@/libs/account_model_config'
 import OAuthFlow from './oauth_flow.vue'
 import TempUnavailablePolicyFields from './temp_unavailable_policy_fields.vue'
@@ -3674,7 +3608,7 @@ const oauthFlowRef = ref(null)
 // OAuth步骤
 const oauthStep = ref(1)
 const loading = ref(false)
-const showApiKey = ref(false)
+const apiKeyReplacement = ref(false)
 
 // Setup Token 相关状态
 const setupTokenLoading = ref(false)
@@ -3944,7 +3878,7 @@ const form = ref({
   proxyId: props.account?.proxyId || '',
   // Claude Console 特定字段
   apiUrl: props.account?.apiUrl || '',
-  apiKey: props.account?.apiKey || '',
+  apiKey: '',
   priority: props.account?.priority || 50,
   endpointType: props.account?.endpointType || 'anthropic',
   // OpenAI-Responses 特定字段
@@ -5446,6 +5380,13 @@ const createAccount = async (closeAfter = false) => {
 // 更新账户
 const updateAccount = async (closeAfter = false) => {
   if (!validateAccountModels()) return
+  errors.value.apiKey = ''
+  if (apiKeyReplacement.value && !form.value.apiKey.trim()) {
+    errors.value.apiKey = '请输入新的上游 API Key，或取消更换'
+    editActiveTab.value = 'basic'
+    showToast(errors.value.apiKey, 'error')
+    return
+  }
   // 清除之前的错误
   errors.value.name = ''
   errors.value.apiKeys = ''
@@ -5664,7 +5605,7 @@ const updateAccount = async (closeAfter = false) => {
     // Claude Console 特定更新
     if (props.account.platform === 'claude-console') {
       data.apiUrl = form.value.apiUrl
-      if (form.value.apiKey) {
+      if (apiKeyReplacement.value) {
         data.apiKey = form.value.apiKey
       }
       data.priority = form.value.priority || 50
@@ -5685,7 +5626,7 @@ const updateAccount = async (closeAfter = false) => {
     // OpenAI-Responses 特定更新
     if (props.account.platform === 'openai-responses') {
       data.baseApi = form.value.baseApi
-      if (form.value.apiKey) {
+      if (apiKeyReplacement.value) {
         data.apiKey = form.value.apiKey
       }
       data.userAgent = form.value.userAgent || ''
@@ -5749,7 +5690,7 @@ const updateAccount = async (closeAfter = false) => {
         : []
       data.priority = form.value.priority || 50
       // 只有当有新的 API Key 时才更新
-      if (form.value.apiKey && form.value.apiKey.trim()) {
+      if (apiKeyReplacement.value) {
         data.apiKey = form.value.apiKey
       }
     }
@@ -5758,7 +5699,7 @@ const updateAccount = async (closeAfter = false) => {
     if (props.account.platform === 'gemini-api') {
       data.baseUrl = form.value.baseUrl || 'https://generativelanguage.googleapis.com'
       // 只有当有新的 API Key 时才更新
-      if (form.value.apiKey && form.value.apiKey.trim()) {
+      if (apiKeyReplacement.value) {
         data.apiKey = form.value.apiKey
       }
       data.priority = form.value.priority || 50
@@ -5805,6 +5746,8 @@ const updateAccount = async (closeAfter = false) => {
       showToast(msgOf(result, '账户保存失败'), 'error')
       return
     }
+    form.value.apiKey = ''
+    apiKeyReplacement.value = false
     emit('success', undefined, closeAfter)
   } catch (error) {
     // 显示详细的错误信息
@@ -6202,6 +6145,8 @@ watch(
   () => props.account,
   (newAccount) => {
     modelRangeEdited.value = false
+    apiKeyReplacement.value = false
+    form.value.apiKey = ''
     if (newAccount) {
       initModelMappings()
       // 重新初始化代理配置

@@ -29,6 +29,8 @@ import {
   createRequestDetailMeta,
   buildFailedRequestDetailPayload,
   resolveOpenAIServiceTier,
+  buildTokenUsagePayload,
+  normalizeOpenAITokenUsage,
 } from './relay_request_detail_helper.js'
 import { requestDetailService } from './relay_request_detail_service.js'
 import * as responsesWs from './relay_codex_responses_ws.js'
@@ -259,21 +261,10 @@ const extractUsageFromCompleted = (eventData) => {
   if (!usage || typeof usage !== 'object') {
     return null
   }
-  const totalInput = usage.input_tokens || usage.prompt_tokens || 0
-  const cacheRead =
-    usage.cache_read_input_tokens ||
-    usage.input_tokens_details?.cached_tokens ||
-    usage.prompt_tokens_details?.cached_tokens ||
-    0
-  const cacheCreate = usage.cache_creation_input_tokens || 0
-  const actualInput = Math.max(0, Number(totalInput) - Number(cacheRead) || 0)
   const responseTier =
     (typeof eventData?.response?.service_tier === 'string' && eventData.response.service_tier) || null
   return {
-    input_tokens: actualInput,
-    output_tokens: usage.output_tokens || usage.completion_tokens || 0,
-    cache_read_input_tokens: Number(cacheRead) || 0,
-    cache_creation_input_tokens: Number(cacheCreate) || 0,
+    ...buildTokenUsagePayload({ ...normalizeOpenAITokenUsage(usage), rawUsage: usage }),
     service_tier: responseTier,
     raw: usage,
   }
@@ -795,7 +786,14 @@ const runOneTurn = async (args) => {
 }
 
 // HTTP 上游按 lane 串行；跨 lane 并行，最近回包上下文只保留每条 lane 的最新版本。
-export const createHttpBridgeLanes = ({ run, sendText, signal, initialModel = null, buildBody = buildHttpResponsesBodyFromWsMessage }) => {
+export const createHttpBridgeLanes = ({
+  run,
+  sendText,
+  signal,
+  initialModel = null,
+  allowExternalPreviousResponse = false,
+  buildBody = buildHttpResponsesBodyFromWsMessage,
+}) => {
   const lanes = new Map()
   const recentResponses = new Map()
   let pendingBytes = 0
@@ -817,7 +815,7 @@ export const createHttpBridgeLanes = ({ run, sendText, signal, initialModel = nu
         })
       }
       lanes.set(streamId, {
-        state: { ...createBridgeSessionState(), model: initialModel },
+        state: { ...createBridgeSessionState(), model: initialModel, allowExternalPreviousResponse },
         queue: Promise.resolve(),
       })
     }
@@ -873,13 +871,13 @@ export const createHttpBridgeLanes = ({ run, sendText, signal, initialModel = nu
         const previousId = message.previous_response_id ?? message.response?.previous_response_id
         if (previousId && previousId !== lane.state.lastResponseId) {
           const parent = recentResponses.get(previousId)
-          if (!parent) {
+          if (!parent && !allowExternalPreviousResponse) {
             throw Object.assign(new Error('Previous response is unavailable; resend the full input context'), {
               code: 'previous_response_not_found',
               statusCode: 400,
             })
           }
-          lane.state = { ...parent.state, inputItems: [...parent.state.inputItems] }
+          if (parent) lane.state = { ...parent.state, inputItems: [...parent.state.inputItems] }
         }
         const oldId = lane.state.lastResponseId
         const body = buildBody(message, lane.state)

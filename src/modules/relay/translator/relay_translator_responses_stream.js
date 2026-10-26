@@ -10,7 +10,7 @@ export const createClaudeFromResponsesStreamState = () => ({
   nextBlock: 0,
   contentIndex: 0,
   started: false,
-  stopped: false,
+  stopped: false
 })
 
 const event = (type, fields = {}) => ({ event: type, data: { type, ...fields } })
@@ -30,9 +30,9 @@ const startMessage = (state) => {
         content: [],
         stop_reason: null,
         stop_sequence: null,
-        usage: { input_tokens: 0, output_tokens: 0 },
-      },
-    }),
+        usage: { input_tokens: 0, output_tokens: 0 }
+      }
+    })
   ]
 }
 
@@ -67,7 +67,7 @@ const getBlock = (state, data, item = null, kind = null) => {
       index: null,
       started: false,
       done: false,
-      closed: false,
+      closed: false
     }
     state.blocks.push(block)
   }
@@ -103,7 +103,7 @@ const drainBlocks = (state) => {
   while (state.nextBlock < state.blocks.length) {
     const block = state.blocks[state.nextBlock]
     if (!block.started) {
-      if (block.kind !== 'tool_use' && !block.text && !block.signature) {
+      if (block.kind !== 'tool_use' && !block.text) {
         if (block.done) {
           state.nextBlock += 1
           continue
@@ -116,9 +116,7 @@ const drainBlocks = (state) => {
       const content =
         block.kind === 'tool_use'
           ? { type: 'tool_use', id: block.callId, name: block.name, input: {} }
-          : block.kind === 'thinking'
-            ? { type: 'thinking', thinking: '', signature: '' }
-            : { type: 'text', text: '' }
+          : { type: 'text', text: '' }
       events.push(event('content_block_start', { index: block.index, content_block: content }))
     }
     if (block.emitted < block.text.length) {
@@ -129,10 +127,8 @@ const drainBlocks = (state) => {
           delta:
             block.kind === 'tool_use'
               ? { type: 'input_json_delta', partial_json: delta }
-              : block.kind === 'thinking'
-                ? { type: 'thinking_delta', thinking: delta }
-                : { type: 'text_delta', text: delta },
-        }),
+              : { type: 'text_delta', text: delta }
+        })
       )
       block.emitted = block.text.length
     }
@@ -141,14 +137,6 @@ const drainBlocks = (state) => {
     }
     if (block.kind === 'tool_use' && block.text) {
       JSON.parse(block.text)
-    }
-    if (block.kind === 'thinking' && block.signature) {
-      events.push(
-        event('content_block_delta', {
-          index: block.index,
-          delta: { type: 'signature_delta', signature: block.signature },
-        }),
-      )
     }
     events.push(event('content_block_stop', { index: block.index }))
     block.closed = true
@@ -202,7 +190,7 @@ export const finishClaudeFromResponsesStream = (state, upstreamError = null) => 
   state.stopped = true
   const errorBody = buildAnthropicClientErrorBody({
     statusCode: isResponsesRateLimitError(upstreamError) ? 429 : 502,
-    upstreamBody: upstreamError ? { error: upstreamError } : null,
+    upstreamBody: upstreamError ? { error: upstreamError } : null
   })
   return [event('error', { error: errorBody.error })]
 }
@@ -300,7 +288,7 @@ export const convertResponsesStreamEventToClaude = (data, state) => {
       const response = data.response ?? {}
       if (Array.isArray(response.output)) {
         response.output.forEach((item, outputIndex) =>
-          finishItem(state, { output_index: outputIndex }, item, { terminal: true }),
+          finishItem(state, { output_index: outputIndex }, item, { terminal: true })
         )
       }
       const reason = response.incomplete_details?.reason
@@ -330,10 +318,10 @@ export const convertResponsesStreamEventToClaude = (data, state) => {
             input_tokens: usage.inputTokens,
             output_tokens: usage.outputTokens,
             cache_read_input_tokens: usage.cacheReadTokens,
-            cache_creation_input_tokens: usage.cacheCreateTokens,
-          },
+            cache_creation_input_tokens: usage.cacheCreateTokens
+          }
         }),
-        event('message_stop'),
+        event('message_stop')
       )
       state.stopped = true
       return events

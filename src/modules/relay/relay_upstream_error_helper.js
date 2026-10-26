@@ -1,5 +1,6 @@
 import { logger } from '../../common/logger.js'
 import { HttpError } from '../../common/http_result.js'
+import { recordAuthFailureAlert } from './relay_auth_failure_alert.js'
 import { normalizeTempUnavailablePolicyFromAccountData } from './relay_temp_unavailable_policy.js'
 import { RedisKeys, TTL } from '../../infra/redis_key.js'
 import { RATE_LIMITED_MODEL_FAMILIES } from './relay_model_helper.js'
@@ -649,6 +650,9 @@ export const markTempUnavailable = async (
     }
 
     const policy = await getAccountTempUnavailablePolicy(accountId, accountType)
+    if (Number(statusCode) === 401 && policy.disableAutoProtection) {
+      recordAuthFailureAlert(accountId, accountType).catch((error) => logger.warn('Authentication failure alert failed', { accountId, accountType, error }))
+    }
     const policyDecision = resolveAccountTtlOverride({
       policy,
       statusCode,

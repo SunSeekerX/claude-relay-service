@@ -38,6 +38,7 @@ const isGrokFamilyModel = (model) => detectBackendFromModel(model) === 'grok'
  * @returns {Promise<boolean>} true 表示已接管并结束响应
  */
 export const tryDedicatedBindingCrossProtocol = async (req, res) => {
+  if (req._crsResponsesProvider === 'claude') {return false}
   const { apiKey } = req
   const model = req.body?.model || ''
   if (!apiKey || !model) {

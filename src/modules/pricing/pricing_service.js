@@ -1,4 +1,5 @@
 import fs from 'node:fs'
+import { getOpenAICacheWriteDetails } from '../../common/openai_cache_write.js'
 import path from 'node:path'
 import { GPT56_SERIES_FALLBACK_PRICING } from './pricing_gpt56_series_pricing.js'
 import { resolveModelFallbackPricing } from './pricing_model_fallback_pricing.js'
@@ -1196,11 +1197,9 @@ class PricingService {
     // 识别 Claude 特性标识
     const betaFeatures = this.extractBetaFeatures(usage)
     const hasContext1mBeta = betaFeatures.has(this.claudeFeatureFlags.context1mBeta)
-    const hasFastModeBeta = betaFeatures.has(this.claudeFeatureFlags.fastModeBeta)
     const { responseSpeed, requestSpeed } = this.extractSpeedSignal(usage)
-    const hasFastSpeedSignal =
-      responseSpeed === this.claudeFeatureFlags.fastModeSpeed || requestSpeed === this.claudeFeatureFlags.fastModeSpeed
-    const isFastModeRequest = hasFastModeBeta && hasFastSpeedSignal
+    // 上游明确返回 standard 时，不能再按客户端请求的 fast 收费。
+    const isFastModeRequest = (responseSpeed || requestSpeed) === this.claudeFeatureFlags.fastModeSpeed
     const standardPricing = this.getModelPricing(modelName)
     const pricing = standardPricing
     const isLongContextModeEnabled = isLongContextModel || hasContext1mBeta
@@ -1211,8 +1210,8 @@ class PricingService {
       (typeof standardPricing?.litellm_provider === 'string' &&
         standardPricing.litellm_provider.toLowerCase().includes('anthropic'))
 
-    // Fast Mode 倍率：优先从 provider_specific_entry.fast 读取，默认 6 倍
-    const fastMultiplier = isFastModeRequest ? pricing?.provider_specific_entry?.fast || 6 : 1
+    // 当前官方 Fast 为标准价 2 倍；价表中的明确倍率（含 0）优先。
+    const fastMultiplier = isFastModeRequest ? (pricing?.provider_specific_entry?.fast ?? 2) : 1
 
     // 当 [1m] 模型总输入超过 200K 时，进入 200K+ 计费逻辑
     // 根据 Anthropic 官方文档：当总输入超过 200K 时，整个请求所有 token 类型都使用高档价格
@@ -1275,14 +1274,8 @@ class PricingService {
       (modelName && modelName.toLowerCase().includes('claude')) ||
       (typeof pricing?.litellm_provider === 'string' && pricing.litellm_provider.toLowerCase().includes('anthropic'))
 
-    if (isFastModeRequest && fastMultiplier > 1) {
-      logger.debug(
-        `Fast mode ${fastMultiplier}x multiplier applied for ${normalizedModelName} (from provider_specific_entry)`,
-      )
-    } else if (isFastModeRequest) {
-      logger.warn(
-        `Fast mode request detected but no fast pricing found for ${normalizedModelName}; fallback to standard profile`,
-      )
+    if (isFastModeRequest) {
+      logger.debug(`Fast mode ${fastMultiplier}x multiplier applied for ${normalizedModelName}`)
     }
 
     // OpenAI 档位命中时整单改走档位价，跳过下方 Claude 200k 分支（两套阈值语义不同，互不叠加）
@@ -1290,12 +1283,21 @@ class PricingService {
       const tieredPrice = (baseField) => this._resolveTieredPrice(pricing, baseField, contextSuffix, tierSuffixes) || 0
       const tieredInputPrice = tieredPrice('input_cost_per_token')
       // OpenAI 多数模型不单列 cache-write 价，出现 cache creation token 时按输入价兜底（与 costCalculator 同口径）
-      const tieredCacheCreatePrice = tieredPrice('cache_creation_input_token_cost') || tieredInputPrice
+      const tieredCacheCreatePrice =
+        this._resolveTieredPrice(pricing, 'cache_creation_input_token_cost', contextSuffix, tierSuffixes) ??
+        tieredInputPrice
       const tieredOutputPrice = tieredPrice('output_cost_per_token') || tieredPrice('output_cost_per_image_token') || 0
       return this._buildCostResult(usage, {
         inputPrice: tieredInputPrice || tieredPrice('input_cost_per_image_token') || 0,
         outputPrice: tieredOutputPrice,
         cacheCreatePrice: tieredCacheCreatePrice,
+        cacheWrite12hPrice:
+          this._resolveTieredPrice(
+            pricing,
+            'cache_creation_input_token_cost_above_12hr',
+            contextSuffix,
+            tierSuffixes,
+          ) ?? tieredInputPrice * 2.5,
         cacheReadPrice:
           tieredPrice('cache_read_input_token_cost') || tieredPrice('cache_read_input_image_token_cost') || 0,
         ephemeral1hPrice: tieredPrice('cache_creation_input_token_cost_above_1hr') || tieredCacheCreatePrice,
@@ -1372,7 +1374,7 @@ class PricingService {
     }
 
     // Fast Mode 倍率：统一一次性应用于所有价格
-    if (fastMultiplier > 1) {
+    if (fastMultiplier !== 1) {
       actualInputPrice *= fastMultiplier
       actualOutputPrice *= fastMultiplier
       actualCacheCreatePrice *= fastMultiplier
@@ -1386,6 +1388,7 @@ class PricingService {
       cacheCreatePrice: actualCacheCreatePrice,
       cacheReadPrice: actualCacheReadPrice,
       ephemeral1hPrice: actualEphemeral1hPrice,
+      cacheWrite12hPrice: pricing.cache_creation_input_token_cost_above_12hr ?? actualInputPrice * 2.5,
       isLongContextRequest,
       ...this._unitPricesFromPricing(pricing, usage),
     })
@@ -1415,8 +1418,19 @@ class PricingService {
     let ephemeral5mCost = 0
     let ephemeral1hCost = 0
     let cacheCreateCost = 0
+    let cacheWrite30mCost = 0
+    let cacheWrite12hCost = 0
+    const lifetimes = getOpenAICacheWriteDetails(usage, usage.cache_creation_input_tokens ?? 0)
 
-    if (usage.cache_creation && typeof usage.cache_creation === 'object') {
+    if (lifetimes) {
+      cacheWrite30mCost = lifetimes.ttl_30m_tokens * cacheCreatePrice
+      cacheWrite12hCost = lifetimes.ttl_12h_tokens * prices.cacheWrite12hPrice
+      const unspecified = Math.max(
+        0,
+        (usage.cache_creation_input_tokens ?? 0) - lifetimes.ttl_30m_tokens - lifetimes.ttl_12h_tokens,
+      )
+      cacheCreateCost = cacheWrite30mCost + cacheWrite12hCost + unspecified * cacheCreatePrice
+    } else if (usage.cache_creation && typeof usage.cache_creation === 'object') {
       // 有详细的缓存创建数据：5m 走 cache_creation 价，1h 走 ephemeral_1h 价
       ephemeral5mCost = (usage.cache_creation.ephemeral_5m_input_tokens || 0) * cacheCreatePrice
       ephemeral1hCost = (usage.cache_creation.ephemeral_1h_input_tokens || 0) * ephemeral1hPrice
@@ -1464,6 +1478,8 @@ class PricingService {
       cacheReadCost,
       ephemeral5mCost,
       ephemeral1hCost,
+      cacheWrite30mCost,
+      cacheWrite12hCost,
       imageOutputCost,
       imageInputCost,
       requestCost,
@@ -1482,6 +1498,7 @@ class PricingService {
         cacheCreate: cacheCreatePrice,
         cacheRead: cacheReadPrice,
         ephemeral1h: ephemeral1hPrice,
+        cacheWrite12h: prices.cacheWrite12hPrice ?? 0,
         imageOutput: prices.imageOutputPrice || 0,
         imageInput: prices.imageInputPrice || 0,
         request: prices.requestPrice || 0,

@@ -1,4 +1,5 @@
 import express from 'express'
+import { handleResponsesInputTokens } from './relay_openai_input_tokens.js'
 import { authenticateApiKey } from '../../infra/middleware_auth.js'
 import { logger } from '../../common/logger.js'
 import { getRouteModels } from './relay_routing_service.js'
@@ -11,7 +12,14 @@ import {
   handleStandardGenerateContent,
   handleStandardStreamGenerateContent,
   handleCountTokens,
+  handleInteractions,
 } from './relay_gemini_handlers_routes.js'
+import { geminiInteractionsService } from './relay_gemini_interactions_service.js'
+import { getCodeAssistOperation } from './relay_gemini_code_assist_contract.js'
+import { createCodeAssistHandler } from './relay_gemini_code_assist_handlers.js'
+import { relayResponsesViaProvider } from './relay_responses_gateway.js'
+import { adaptResponsesTools, requiresResponsesToolAdapter } from './relay_responses_tools.js'
+import { installResponsesToolTransport } from './relay_responses_tool_transport.js'
 import { grokRelayService } from './relay_grok_relay_service.js'
 import { droidRelayService } from './relay_droid_relay_service.js'
 import { sessionHelper } from './relay_session_helper.js'
@@ -28,9 +36,49 @@ export const dispatchRoutedRequest = async (req, res, format) => {
   const route = req.apiKey._relayRoute
   try {
     const path = req.path.split('?')[0].replace(/\/+$/, '')
+    const interactionPath = path.match(/^\/(v1|v1beta)\/interactions(?:\/([^/]+)(\/cancel)?)?$/)
+    if (interactionPath) {
+      if (!['gemini', 'antigravity'].includes(route.provider) || format !== 'gemini-generate') {
+        return res.status(501).json(routeErrorBody(req, 501, '此入口不支持 Gemini Interactions'))
+      }
+      if (interactionPath[2]) {
+        req.params = { ...req.params, id: decodeURIComponent(interactionPath[2]) }
+        const action =
+          req.method === 'GET' && !interactionPath[3]
+            ? 'get'
+            : req.method === 'DELETE' && !interactionPath[3]
+              ? 'delete'
+              : req.method === 'POST' && interactionPath[3]
+                ? 'cancel'
+                : null
+        if (action) {
+          return await geminiInteractionsService.resource(req, res, action)
+        }
+      } else if (req.method === 'POST') {
+        if (req._relayRouteModel?.mappedModel) {
+          req.body.model = req._relayRouteModel.mappedModel
+        }
+        return await handleInteractions(req, res)
+      }
+      return res.status(404).json(routeErrorBody(req, 404, '入口没有此接口'))
+    }
+    const auxiliary = getCodeAssistOperation(req.method, path)
+    if (auxiliary) {
+      if (route.provider !== 'gemini' || format !== 'gemini-generate') {
+        return res.status(501).json(routeErrorBody(req, 501, '此入口不支持 Gemini CLI 辅助接口'))
+      }
+      if (auxiliary.operationId) {
+        req.params = { ...req.params, operationId: auxiliary.operationId }
+      }
+      const handler = createCodeAssistHandler(auxiliary.name, {
+        method: auxiliary.method,
+        dedicatedOnly: auxiliary.name === 'setCodeAssistGlobalUserSetting',
+      })
+      return await handler(req, res)
+    }
     if (
       req.params?.routeCode &&
-      !/^\/(?:v1\/(?:messages(?:\/count_tokens)?|chat\/completions|responses(?:\/compact)?|models)|responses(?:\/compact)?|models|v1beta\/models|v1internal:(?:generateContent|streamGenerateContent|countTokens)|(?:v1|v1beta)\/models\/[^/]+:(?:generateContent|streamGenerateContent|countTokens))$/.test(
+      !/^\/(?:v1\/(?:messages(?:\/count_tokens)?|chat\/completions|responses(?:\/(?:compact|input_tokens))?|models)|responses(?:\/(?:compact|input_tokens))?|models|v1beta\/models|v1internal:(?:generateContent|streamGenerateContent|countTokens)|(?:v1|v1beta)\/models\/[^/]+:(?:generateContent|streamGenerateContent|countTokens))$/.test(
         path,
       )
     ) {
@@ -78,6 +126,9 @@ export const dispatchRoutedRequest = async (req, res, format) => {
         return await handleStandardStreamGenerateContent(req, res)
       }
       return await handleStandardGenerateContent(req, res)
+    }
+    if (path.endsWith('/responses/input_tokens')) {
+      return await handleResponsesInputTokens(req, res)
     }
     const countTokens = path.endsWith('/messages/count_tokens')
     if (countTokens) {
@@ -127,6 +178,25 @@ export const dispatchRoutedRequest = async (req, res, format) => {
     }
     if (format === 'openai-chat') {
       return await handleUnifiedChatRequest(req, res)
+    }
+    if (route.provider === 'claude' || route.provider === 'gemini') {
+      return await relayResponsesViaProvider(req, res, {
+        provider: route.provider,
+        handle:
+          route.provider === 'claude'
+            ? handleMessagesRequest
+            : req.body.stream === true && !path.endsWith('/compact')
+              ? handleStandardStreamGenerateContent
+              : handleStandardGenerateContent,
+      })
+    }
+    if (route.converterOptions?.['openai-responses']?.toolMode === 'functions' && requiresResponsesToolAdapter(req.body)) {
+      const adapter = adaptResponsesTools(req.body)
+      const originalBody = req.body
+      const restore = installResponsesToolTransport(res, adapter)
+      req.body = adapter.body
+      try { return await handleResponses(req, res) }
+      finally { req.body = originalBody; restore() }
     }
     return await handleResponses(req, res)
   } catch (error) {

@@ -4,14 +4,15 @@ import { TranslatorFormat, TranslatorQuality } from './relay_translator_formats.
 import { registerTranslator } from './relay_translator_registry.js'
 import { normalizeOpenAITokenUsage } from '../relay_request_detail_helper.js'
 import { buildAnthropicClientErrorBody } from '../../../common/client_error_builder.js'
+import { buildResponsesToolMap, visibleReplayText, unsupportedReplay } from './relay_translator_response_tools.js'
 import {
   createClaudeFromResponsesStreamState,
-  convertResponsesStreamEventToClaude,
+  convertResponsesStreamEventToClaude
 } from './relay_translator_responses_stream.js'
 export {
   createClaudeFromResponsesStreamState,
   convertResponsesStreamEventToClaude,
-  finishClaudeFromResponsesStream,
+  finishClaudeFromResponsesStream
 } from './relay_translator_responses_stream.js'
 
 const generateId = (prefix) => `${prefix}_${Math.random().toString(36).slice(2, 12)}`
@@ -62,7 +63,7 @@ const claudeContentToResponsesInputParts = (content) => {
         const mediaType = block.source.media_type || 'image/png'
         parts.push({
           type: 'input_image',
-          image_url: `data:${mediaType};base64,${block.source.data || ''}`,
+          image_url: `data:${mediaType};base64,${block.source.data || ''}`
         })
       } else if (block.source.type === 'url' && block.source.url) {
         parts.push({ type: 'input_image', image_url: block.source.url })
@@ -77,14 +78,14 @@ const claudeContentToResponsesInputParts = (content) => {
         parts.push({
           type: 'input_file',
           filename: block.title ?? 'document.pdf',
-          file_data: `data:${source.media_type ?? 'application/pdf'};base64,${source.data ?? ''}`,
+          file_data: `data:${source.media_type ?? 'application/pdf'};base64,${source.data ?? ''}`
         })
       } else if (source.type === 'url') {
         parts.push({ type: 'input_file', file_url: source.url })
       } else {
         throw Object.assign(new Error('This document source cannot be shared across providers'), {
           statusCode: 400,
-          code: 'unsupported_document_source',
+          code: 'unsupported_document_source'
         })
       }
     }
@@ -92,6 +93,47 @@ const claudeContentToResponsesInputParts = (content) => {
   }
   return parts.length > 0 ? parts : [{ type: 'input_text', text: '' }]
 }
+
+const responsesContentToClaude = (content) =>
+  content.map((part) => {
+    if (['input_text', 'output_text', 'text'].includes(part?.type)) {
+      return { type: 'text', text: part.text ?? '' }
+    }
+    if (part?.type === 'refusal') {
+      return { type: 'text', text: part.refusal ?? '' }
+    }
+    if (part?.type === 'input_image') {
+      const url = part.image_url?.url ?? part.image_url
+      if (typeof url !== 'string') {
+        throw unsupportedReplay('Provider-scoped image IDs cannot be shared across providers')
+      }
+      const data = url.match(/^data:([^;]+);base64,([\s\S]+)$/)
+      return {
+        type: 'image',
+        source: data ? { type: 'base64', media_type: data[1], data: data[2] } : { type: 'url', url }
+      }
+    }
+    if (part?.type === 'input_file') {
+      if (part.file_url) {
+        return { type: 'document', source: { type: 'url', url: part.file_url } }
+      }
+      if (part.file_data) {
+        const data = part.file_data.match(/^data:([^;]+);base64,([\s\S]+)$/)
+        const mime = data?.[1] ?? 'application/pdf'
+        if (mime === 'application/pdf') {
+          return { type: 'document', source: { type: 'base64', media_type: mime, data: data?.[2] ?? part.file_data } }
+        }
+        if (mime.startsWith('text/')) {
+          return {
+            type: 'document',
+            source: { type: 'text', media_type: 'text/plain', data: Buffer.from(data[2], 'base64').toString('utf8') }
+          }
+        }
+      }
+      throw unsupportedReplay('This provider-scoped or unsupported file cannot be shared across providers')
+    }
+    throw unsupportedReplay(`Content ${part?.type ?? 'unknown'} cannot be shared across providers`)
+  })
 
 export const convertClaudeRequestToResponses = (claudeRequest, options = {}) => {
   const body = claudeRequest && typeof claudeRequest === 'object' ? claudeRequest : {}
@@ -115,7 +157,7 @@ export const convertClaudeRequestToResponses = (claudeRequest, options = {}) => 
           input.push({
             type: 'function_call_output',
             call_id: result.tool_use_id,
-            output: parts ? (outputParts.length ? outputParts : '') : String(result.content ?? ''),
+            output: parts ? (outputParts.length ? outputParts : '') : String(result.content ?? '')
           })
           toolResultFiles.push(...files)
         }
@@ -123,14 +165,14 @@ export const convertClaudeRequestToResponses = (claudeRequest, options = {}) => 
           input.push({
             type: 'message',
             role: 'user',
-            content: [...(other.length ? claudeContentToResponsesInputParts(other) : []), ...toolResultFiles],
+            content: [...(other.length ? claudeContentToResponsesInputParts(other) : []), ...toolResultFiles]
           })
         }
       } else {
         input.push({
           type: 'message',
           role: 'user',
-          content: claudeContentToResponsesInputParts(content),
+          content: claudeContentToResponsesInputParts(content)
         })
       }
       continue
@@ -141,14 +183,13 @@ export const convertClaudeRequestToResponses = (claudeRequest, options = {}) => 
       if (Array.isArray(content)) {
         for (const block of content) {
           if (block?.type === 'thinking') {
-            const reasoningItem = {
-              type: 'reasoning',
-              summary: block.thinking ? [{ type: 'summary_text', text: block.thinking }] : [],
+            if (block.thinking) {
+              input.push({
+                type: 'message',
+                role: 'assistant',
+                content: [{ type: 'output_text', text: block.thinking }]
+              })
             }
-            if (block.signature) {
-              reasoningItem.encrypted_content = block.signature
-            }
-            input.push(reasoningItem)
           } else if (block?.type === 'text') {
             const previous = input.at(-1)
             const part = { type: 'output_text', text: block.text ?? '' }
@@ -162,7 +203,7 @@ export const convertClaudeRequestToResponses = (claudeRequest, options = {}) => 
               type: 'function_call',
               call_id: block.id || generateId('call'),
               name: block.name,
-              arguments: JSON.stringify(block.input ?? {}),
+              arguments: JSON.stringify(block.input ?? {})
             })
           }
         }
@@ -170,7 +211,7 @@ export const convertClaudeRequestToResponses = (claudeRequest, options = {}) => 
         input.push({
           type: 'message',
           role: 'assistant',
-          content: [{ type: 'output_text', text: content }],
+          content: [{ type: 'output_text', text: content }]
         })
       }
     }
@@ -181,7 +222,7 @@ export const convertClaudeRequestToResponses = (claudeRequest, options = {}) => 
     input,
     stream: body.stream === true,
     store: false,
-    parallel_tool_calls: options.parallelToolCalls !== false && body.tool_choice?.disable_parallel_tool_use !== true,
+    parallel_tool_calls: options.parallelToolCalls !== false && body.tool_choice?.disable_parallel_tool_use !== true
   }
 
   if (instructions) {
@@ -191,13 +232,18 @@ export const convertClaudeRequestToResponses = (claudeRequest, options = {}) => 
   if (Array.isArray(body.tools) && body.tools.length > 0) {
     result.tools = body.tools
       .filter((tool) => tool && tool.name)
-      .map((tool) => ({
-        type: 'function',
-        name: tool.name,
-        description: tool.description || '',
-        parameters: tool.input_schema || tool.parameters || { type: 'object', properties: {} },
-        strict: tool.strict === true,
-      }))
+      .map((tool) => {
+        if (tool.type && !['custom', 'function'].includes(tool.type)) {
+          throw unsupportedReplay(`Claude server tool ${tool.type} cannot execute on a Responses backend`)
+        }
+        return {
+          type: 'function',
+          name: tool.name,
+          description: tool.description || '',
+          parameters: tool.input_schema || tool.parameters || { type: 'object', properties: {} },
+          strict: tool.strict === true
+        }
+      })
   }
 
   if (body.tool_choice) {
@@ -216,7 +262,7 @@ export const convertClaudeRequestToResponses = (claudeRequest, options = {}) => 
   if (effort && effort !== 'none') {
     result.reasoning = {
       effort: effort === 'auto' ? 'medium' : effort,
-      summary: 'auto',
+      summary: 'auto'
     }
     result.include = ['reasoning.encrypted_content']
   }
@@ -230,6 +276,7 @@ export const convertClaudeRequestToResponses = (claudeRequest, options = {}) => 
 
 export const convertResponsesRequestToClaude = (responsesRequest, options = {}) => {
   const body = responsesRequest && typeof responsesRequest === 'object' ? responsesRequest : {}
+  const toolMap = buildResponsesToolMap(body)
   const messages = []
   let system = body.instructions || ''
 
@@ -257,6 +304,12 @@ export const convertResponsesRequestToClaude = (responsesRequest, options = {}) 
 
   for (const item of inputItems) {
     if (!item || typeof item !== 'object') {
+      continue
+    }
+    if (['compaction', 'agent_message'].includes(item.type)) {
+      const text = visibleReplayText(item)
+      flushAssistant()
+      messages.push({ role: 'user', content: [{ type: 'text', text }] })
       continue
     }
     if (item.type === 'message' || item.role) {
@@ -306,18 +359,11 @@ export const convertResponsesRequestToClaude = (responsesRequest, options = {}) 
           if (part.type === 'input_text' || part.type === 'text') {
             parts.push({ type: 'text', text: part.text || '' })
           } else if (part.type === 'input_image') {
-            const url = part.image_url?.url || part.image_url
-            if (typeof url === 'string' && url.startsWith('data:')) {
-              const match = url.match(/^data:([^;]+);base64,(.+)$/)
-              if (match) {
-                parts.push({
-                  type: 'image',
-                  source: { type: 'base64', media_type: match[1], data: match[2] },
-                })
-              }
-            } else if (typeof url === 'string') {
-              parts.push({ type: 'image', source: { type: 'url', url } })
-            }
+            parts.push(...responsesContentToClaude([part]))
+          } else if (part.type === 'input_file') {
+            parts.push(...responsesContentToClaude([part]))
+          } else {
+            throw unsupportedReplay(`Content ${part.type} cannot be shared across providers`)
           }
         }
       }
@@ -325,31 +371,32 @@ export const convertResponsesRequestToClaude = (responsesRequest, options = {}) 
       continue
     }
 
-    if (item.type === 'reasoning') {
-      const summaryText = Array.isArray(item.summary) ? item.summary.map((entry) => entry?.text || '').join('\n') : ''
-      const thinkingBlock = {
-        type: 'thinking',
-        thinking: summaryText || '',
+    if (['reasoning', 'compaction', 'agent_message'].includes(item.type)) {
+      const text = visibleReplayText(item)
+      if (text) {
+        pendingAssistant.push({ type: 'text', text })
       }
-      // 仅 encrypted_content 可作 Claude signature；禁止 item.id / 占位串
-      if (item.encrypted_content) {
-        thinkingBlock.signature = item.encrypted_content
-      }
-      pendingAssistant.push(thinkingBlock)
       continue
     }
 
-    if (item.type === 'function_call') {
+    if (item.type === 'function_call' || item.type === 'custom_tool_call' || item.type === 'tool_search_call') {
+      if (item.encrypted_function_args?.length) {
+        throw unsupportedReplay('Encrypted tool arguments require their original provider')
+      }
+      const name = item.type === 'tool_search_call' ? 'tool_search' : item.name
       pendingAssistant.push({
         type: 'tool_use',
         id: item.call_id || item.id || generateId('toolu'),
-        name: item.name,
-        input: safeJsonParse(item.arguments, {}),
+        name: toolMap.name(name, item.namespace),
+        input: item.type === 'custom_tool_call' ? { input: item.input ?? '' } : safeJsonParse(item.arguments, {})
       })
       continue
     }
 
-    if (item.type === 'function_call_output') {
+    if (['function_call_output', 'custom_tool_call_output', 'tool_search_output'].includes(item.type)) {
+      if (item.type === 'tool_search_output' && !item.call_id) {
+        continue
+      }
       flushAssistant()
       messages.push({
         role: 'user',
@@ -357,9 +404,15 @@ export const convertResponsesRequestToClaude = (responsesRequest, options = {}) 
           {
             type: 'tool_result',
             tool_use_id: item.call_id,
-            content: typeof item.output === 'string' ? item.output : JSON.stringify(item.output ?? ''),
-          },
-        ],
+            content: Array.isArray(item.output)
+              ? responsesContentToClaude(item.output)
+              : item.type === 'tool_search_output'
+                ? JSON.stringify(item.tools ?? [])
+                : typeof item.output === 'string'
+                  ? item.output
+                  : JSON.stringify(item.output ?? '')
+          }
+        ]
       })
     }
   }
@@ -369,7 +422,7 @@ export const convertResponsesRequestToClaude = (responsesRequest, options = {}) 
     model: body.model,
     messages,
     max_tokens: body.max_output_tokens || options.defaultMaxTokens || 4096,
-    stream: body.stream === true,
+    stream: body.stream === true
   }
 
   if (system) {
@@ -377,13 +430,7 @@ export const convertResponsesRequestToClaude = (responsesRequest, options = {}) 
   }
 
   if (Array.isArray(body.tools)) {
-    claude.tools = body.tools
-      .filter((tool) => tool && (tool.type === 'function' || tool.name))
-      .map((tool) => ({
-        name: tool.name,
-        description: tool.description || '',
-        input_schema: tool.parameters || tool.input_schema || { type: 'object', properties: {} },
-      }))
+    claude.tools = toolMap.tools
   }
 
   if (body.tool_choice === 'auto') {
@@ -392,8 +439,8 @@ export const convertResponsesRequestToClaude = (responsesRequest, options = {}) 
     claude.tool_choice = { type: 'any' }
   } else if (body.tool_choice === 'none') {
     claude.tool_choice = { type: 'none' }
-  } else if (body.tool_choice?.type === 'function' && body.tool_choice.name) {
-    claude.tool_choice = { type: 'tool', name: body.tool_choice.name }
+  } else if (['function', 'custom'].includes(body.tool_choice?.type) && body.tool_choice.name) {
+    claude.tool_choice = { type: 'tool', name: toolMap.name(body.tool_choice.name, body.tool_choice.namespace) }
   }
 
   const effort = body.reasoning?.effort
@@ -427,12 +474,9 @@ export const convertResponsesResultToClaudeMessage = (responseData) => {
     }
     if (item.type === 'reasoning') {
       const text = Array.isArray(item.summary) ? item.summary.map((entry) => entry?.text || '').join('\n') : ''
-      content.push({
-        type: 'thinking',
-        thinking: text,
-        // 仅 encrypted_content 才是可回传的签名；item.id 不是 signature，伪会造成续聊失败
-        ...(item.encrypted_content ? { signature: item.encrypted_content } : {}),
-      })
+      if (text) {
+        content.push({ type: 'text', text })
+      }
     } else if (item.type === 'message') {
       const parts = Array.isArray(item.content) ? item.content : []
       for (const part of parts) {
@@ -446,7 +490,7 @@ export const convertResponsesResultToClaudeMessage = (responseData) => {
         type: 'tool_use',
         id: item.call_id || item.id || generateId('toolu'),
         name: item.name,
-        input: safeJsonParse(item.arguments, {}),
+        input: safeJsonParse(item.arguments, {})
       })
     }
   }
@@ -475,8 +519,8 @@ export const convertResponsesResultToClaudeMessage = (responseData) => {
       input_tokens: usage.inputTokens,
       output_tokens: usage.outputTokens,
       cache_read_input_tokens: usage.cacheReadTokens,
-      cache_creation_input_tokens: usage.cacheCreateTokens,
-    },
+      cache_creation_input_tokens: usage.cacheCreateTokens
+    }
   }
 }
 
@@ -488,7 +532,7 @@ export const registerClaudeResponsesTranslators = () => {
     convertRequest: (request, options) => convertClaudeRequestToResponses(request, options),
     convertResponse: (response) => convertResponsesResultToClaudeMessage(response),
     createStreamState: () => createClaudeFromResponsesStreamState(),
-    convertStreamChunk: (chunk, state) => convertResponsesStreamEventToClaude(chunk, state),
+    convertStreamChunk: (chunk, state) => convertResponsesStreamEventToClaude(chunk, state)
   })
 
   registerTranslator({
@@ -496,6 +540,6 @@ export const registerClaudeResponsesTranslators = () => {
     to: TranslatorFormat.claudeMessages,
     quality: TranslatorQuality.good,
     convertRequest: (request, options) => convertResponsesRequestToClaude(request, options),
-    convertResponse: (response) => convertResponsesResultToClaudeMessage(response),
+    convertResponse: (response) => convertResponsesResultToClaudeMessage(response)
   })
 }

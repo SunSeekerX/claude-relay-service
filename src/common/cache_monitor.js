@@ -99,13 +99,6 @@ class CacheMonitor {
         // 执行常规清理
         cache.cleanup()
 
-        // 检查缓存年龄，如果太老则完全清空
-        const cacheAge = Date.now() - monitor.registeredAt
-        if (cacheAge > this.securityConfig.maxCacheAge * 2) {
-          logger.warn(`Cache ${name} is too old (${Math.floor(cacheAge / 60000)}min), performing full clear`)
-          cache.clear()
-        }
-
         monitor.lastCleanup = Date.now()
         monitor.totalCleanups++
 
@@ -161,7 +154,7 @@ class CacheMonitor {
 
     // 每 30 分钟强制完整清理
     setInterval(() => {
-      logger.warn('Performing forced complete cleanup for security')
+      logger.debug('Performing scheduled complete cleanup for security')
       for (const [name, monitor] of this.monitors) {
         monitor.cache.clear()
         logger.info(`Force cleared cache: ${name}`)

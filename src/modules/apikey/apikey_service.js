@@ -1,4 +1,5 @@
 import crypto from 'node:crypto'
+import { getOpenAICacheWriteDetails } from '../../common/openai_cache_write.js'
 import { config } from '../../../config/config.js'
 import { redis } from '../../infra/redis.js'
 import { logger } from '../../common/logger.js'
@@ -20,6 +21,7 @@ import { RedisKeys, TTL, LIMITS } from '../../infra/redis_key.js'
 import { apiKeyIndexService } from './apikey_index_service.js'
 import { costRankService } from '../pricing/pricing_cost_rank_service.js'
 import { CostCalculator } from '../pricing/pricing_cost_calculator.js'
+import { buildBillingAudit } from '../pricing/pricing_billing_audit.js'
 import { billingEventPublisher } from '../payment/payment_billing_event_publisher.js'
 import { grokMediaPricingOverlayService } from '../pricing/pricing_grok_media_overlay_service.js'
 import {
@@ -1919,6 +1921,7 @@ class ApiKeyService {
       const thinkingAlreadyInOutput = thinkingTokens > 0 && isThinkingAlreadyInOutput(usageExtras || {})
       const billableOutputTokens = thinkingAlreadyInOutput ? outputTokens : outputTokens + thinkingTokens
       const totalTokens = inputTokens + billableOutputTokens + cacheCreateTokens + cacheReadTokens
+      const cacheWriteDetails = getOpenAICacheWriteDetails(usageExtras, cacheCreateTokens)
 
       // 计算费用
       // billingUsage：按图张数/音频秒等非 token 计费量（由路由经 requestMeta 传入）
@@ -1962,6 +1965,15 @@ class ApiKeyService {
           output_tokens: billableOutputTokens,
           cache_creation_input_tokens: cacheCreateTokens,
           cache_read_input_tokens: cacheReadTokens,
+          ...(cacheWriteDetails ? { cache_write_tokens_details: cacheWriteDetails } : {}),
+          ...(usageExtras
+            ? {
+                speed: usageExtras.speed,
+                request_speed: usageExtras.request_speed,
+                request_anthropic_beta: usageExtras.request_anthropic_beta,
+                cache_creation: usageExtras.cache_creation,
+              }
+            : {}),
           ...usageUnitFields,
           ...(billingUsage || {}),
         },
@@ -1980,8 +1992,10 @@ class ApiKeyService {
       // 计算费用（应用服务倍率）
       let upstreamCost = null
       let toolCost = null
+      let auditToolPricing = null
       if (accountType === 'grok') {
         const toolPricing = await grokMediaPricingOverlayService.getEffectiveModelPricing(GROK_TOOL_PRICING_MODEL)
+        auditToolPricing = toolPricing.xai_tool_costs_per_unit
         toolCost = calculateGrokToolCost(usageExtras, toolPricing.xai_tool_costs_per_unit)
         upstreamCost = getGrokUpstreamCost(usageExtras)
         costInfo.costs = {
@@ -1997,7 +2011,13 @@ class ApiKeyService {
       ratedCost = baseCost
       if (baseCost > 0) {
         const service = serviceRatesService.getService(accountType, model)
-        ratedCost = await this.calculateRatedCost(keyId, service, baseCost, accountType, finalizedRequestMeta?.routeBilling)
+        ratedCost = await this.calculateRatedCost(
+          keyId,
+          service,
+          baseCost,
+          accountType,
+          finalizedRequestMeta?.routeBilling,
+        )
       }
 
       // 预付费余额为派生（净充值 − usage:cost:total 基线后增量），消费由计费落账反映，不再实时扣减。
@@ -2035,6 +2055,7 @@ class ApiKeyService {
         ratedCost,
         thinkingTokens,
         !thinkingAlreadyInOutput, // thinking 是否计入 allTokens（OpenAI 子集则 false）
+        cacheWriteDetails,
       )
 
       // 记录 Opus 周费用（如果适用）
@@ -2072,6 +2093,7 @@ class ApiKeyService {
             // 本路径 calculateCost 无 try 包裹；执行到此即算成功（零价模型算出 0 也是权威结果）。
             // 仍显式要求金额有限：定价数据异常产出 NaN 时不得标记为权威
             Number.isFinite(realCost),
+            cacheWriteDetails,
           )
           logger.database(`Recorded account usage: ${accountId} - ${totalTokens} tokens (API Key: ${keyId})`)
         } else {
@@ -2098,6 +2120,9 @@ class ApiKeyService {
         cacheCreateTokens,
         cacheReadTokens,
         thinkingTokens,
+        speed: usageExtras?.speed ?? null,
+        requestSpeed: usageExtras?.request_speed ?? null,
+        requestAnthropicBeta: usageExtras?.request_anthropic_beta ?? null,
         totalTokens,
         cost: Number(ratedCost.toFixed(6)),
         realCost: upstreamCost ? realCost : Number(realCost.toFixed(6)),
@@ -2106,15 +2131,37 @@ class ApiKeyService {
         toolCost: toolCost?.total ?? 0,
         upstreamCostTicks: upstreamCost?.ticks ?? null,
         realCostSource: upstreamCost ? 'upstream' : 'price_table',
+        ...(cacheWriteDetails
+          ? {
+              cacheWrite30mTokens: cacheWriteDetails.ttl_30m_tokens,
+              cacheWrite12hTokens: cacheWriteDetails.ttl_12h_tokens,
+            }
+          : {}),
         costBreakdown: costInfo?.costs || undefined,
         realCostBreakdown: upstreamCost ? { total: realCost } : costInfo?.costs,
         isLongContext: isLongContextRequest,
       }
 
-      await redis.addUsageRecord(keyId, usageRecord)
-      this._captureRequestDetail(keyId, usageRecord, finalizedRequestMeta).catch((captureError) => {
-        logger.warn(`Failed to schedule request detail capture: ${captureError.message}`)
+      const billingAudit = buildBillingAudit({
+        model,
+        serviceTier,
+        usage: usageExtras,
+        pricing: costInfo.pricing,
+        toolPricing: auditToolPricing,
+        pricingSource: costInfo.debug?.pricingSource,
+        baseCost,
+        ratedCost,
+        realCost,
+        protocolTerminal: finalizedRequestMeta?.protocolTerminal,
       })
+      // DEC_20261026_201526 小体积账务证据随用量记录保留，不受请求明细采集开关影响。
+      usageRecord.billingAudit = billingAudit
+      await redis.addUsageRecord(keyId, usageRecord)
+      this._captureRequestDetail(keyId, { ...usageRecord, billingAudit }, finalizedRequestMeta).catch(
+        (captureError) => {
+          logger.warn(`Failed to schedule request detail capture: ${captureError.message}`)
+        },
+      )
       await this._recordBoundGroupCost(
         keyId,
         ratedCost,
@@ -2218,6 +2265,7 @@ class ApiKeyService {
       const outputTokens = usageObject.output_tokens || 0
       const cacheCreateTokens = usageObject.cache_creation_input_tokens || 0
       const cacheReadTokens = usageObject.cache_read_input_tokens || 0
+      const cacheWriteDetails = getOpenAICacheWriteDetails(usageObject, cacheCreateTokens)
       const thinkingTokens = extractThinkingTokens(usageObject)
       const thinkingAlreadyInOutput = thinkingTokens > 0 && isThinkingAlreadyInOutput(usageObject || {})
       const billableOutputTokens = thinkingAlreadyInOutput ? outputTokens : outputTokens + thinkingTokens
@@ -2229,6 +2277,7 @@ class ApiKeyService {
       // 会写满 costed* 标记 → 读取侧判定无残量 → 账户日成本永久显示 $0，
       // 连原本的 token 反推兜底也被剥夺。定价失败必须让位给反推，不能被静默固化。
       let costCalculated = false
+      let pricingSnapshot = null
       let costInfo = {
         totalCost: 0,
         inputCost: 0,
@@ -2259,6 +2308,7 @@ class ApiKeyService {
           serviceTier,
         )
         const costs = calculatedCost?.costs || {}
+        pricingSnapshot = calculatedCost?.pricing ?? null
         const totalCost = Number(costs.total ?? calculatedCost?.totalCost ?? 0)
 
         if (!Number.isFinite(totalCost)) {
@@ -2270,6 +2320,8 @@ class ApiKeyService {
           inputCost: Number(costs.input ?? calculatedCost?.inputCost ?? 0) || 0,
           outputCost: Number(costs.output ?? calculatedCost?.outputCost ?? 0) || 0,
           cacheCreateCost: Number(costs.cacheCreate ?? costs.cacheWrite ?? calculatedCost?.cacheCreateCost ?? 0) || 0,
+          cacheWrite30mCost: costs.cacheWrite30m ?? 0,
+          cacheWrite12hCost: costs.cacheWrite12h ?? 0,
           cacheReadCost: Number(costs.cacheRead ?? calculatedCost?.cacheReadCost ?? 0) || 0,
           ephemeral5mCost: Number(costs.ephemeral5m ?? calculatedCost?.ephemeral5mCost ?? 0) || 0,
           ephemeral1hCost: Number(costs.ephemeral1h ?? calculatedCost?.ephemeral1hCost ?? 0) || 0,
@@ -2301,7 +2353,13 @@ class ApiKeyService {
       ratedCostWithDetails = realCostWithDetails
       if (realCostWithDetails > 0) {
         const service = serviceRatesService.getService(accountType, model)
-        ratedCostWithDetails = await this.calculateRatedCost(keyId, service, realCostWithDetails, accountType, finalizedRequestMeta?.routeBilling)
+        ratedCostWithDetails = await this.calculateRatedCost(
+          keyId,
+          service,
+          realCostWithDetails,
+          accountType,
+          finalizedRequestMeta?.routeBilling,
+        )
       }
 
       // 计费关键写先于一切统计写（幂等+重试，见 redis.incrementDailyCost）；落账失败由 catch 记含金额 ERROR
@@ -2338,6 +2396,7 @@ class ApiKeyService {
         ratedCostWithDetails,
         thinkingTokens,
         !thinkingAlreadyInOutput,
+        cacheWriteDetails,
       )
 
       if (realCostWithDetails > 0) {
@@ -2382,6 +2441,7 @@ class ApiKeyService {
             // 仅在定价确实算成功时才标记为权威（零价模型算出 0 也算成功）；
             // 算失败时传 false，让读取侧按 token 反推，而不是把失败固化成 $0
             costCalculated,
+            cacheWriteDetails,
           )
           logger.database(`Recorded account usage: ${accountId} - ${totalTokens} tokens (API Key: ${keyId})`)
         } else {
@@ -2409,6 +2469,15 @@ class ApiKeyService {
         ephemeral5mTokens,
         ephemeral1hTokens,
         thinkingTokens,
+        speed: usageObject.speed ?? null,
+        requestSpeed: usageObject.request_speed ?? null,
+        requestAnthropicBeta: usageObject.request_anthropic_beta ?? null,
+        ...(cacheWriteDetails
+          ? {
+              cacheWrite30mTokens: cacheWriteDetails.ttl_30m_tokens,
+              cacheWrite12hTokens: cacheWriteDetails.ttl_12h_tokens,
+            }
+          : {}),
         totalTokens,
         cost: Number(ratedCostWithDetails.toFixed(6)),
         realCost: Number(realCostWithDetails.toFixed(6)),
@@ -2416,6 +2485,9 @@ class ApiKeyService {
           input: costInfo.inputCost || 0,
           output: costInfo.outputCost || 0,
           cacheCreate: costInfo.cacheCreateCost || 0,
+          ...(cacheWriteDetails
+            ? { cacheWrite30m: costInfo.cacheWrite30mCost, cacheWrite12h: costInfo.cacheWrite12hCost }
+            : {}),
           cacheRead: costInfo.cacheReadCost || 0,
           ephemeral5m: costInfo.ephemeral5mCost || 0,
           ephemeral1h: costInfo.ephemeral1hCost || 0,
@@ -2425,6 +2497,12 @@ class ApiKeyService {
           input: costInfo.inputCost || 0,
           output: costInfo.outputCost || 0,
           cacheCreate: costInfo.cacheCreateCost || 0,
+          ...(cacheWriteDetails
+            ? {
+                cacheWrite30m: costInfo.cacheWrite30mCost,
+                cacheWrite12h: costInfo.cacheWrite12hCost,
+              }
+            : {}),
           cacheRead: costInfo.cacheReadCost || 0,
           ephemeral5m: costInfo.ephemeral5mCost || 0,
           ephemeral1h: costInfo.ephemeral1hCost || 0,
@@ -2435,10 +2513,24 @@ class ApiKeyService {
         isLongContext: costInfo.isLongContextRequest || false,
       }
 
-      await redis.addUsageRecord(keyId, usageRecord)
-      this._captureRequestDetail(keyId, usageRecord, finalizedRequestMeta).catch((captureError) => {
-        logger.warn(`Failed to schedule request detail capture: ${captureError.message}`)
+      const billingAudit = buildBillingAudit({
+        model,
+        serviceTier,
+        usage: usageObject,
+        pricing: pricingSnapshot,
+        pricingSource: costInfo.pricingSource,
+        baseCost: realCostWithDetails,
+        ratedCost: ratedCostWithDetails,
+        realCost: realCostWithDetails,
+        protocolTerminal: finalizedRequestMeta?.protocolTerminal,
       })
+      usageRecord.billingAudit = billingAudit
+      await redis.addUsageRecord(keyId, usageRecord)
+      this._captureRequestDetail(keyId, { ...usageRecord, billingAudit }, finalizedRequestMeta).catch(
+        (captureError) => {
+          logger.warn(`Failed to schedule request detail capture: ${captureError.message}`)
+        },
+      )
       await this._recordBoundGroupCost(
         keyId,
         ratedCostWithDetails,
@@ -2522,10 +2614,16 @@ class ApiKeyService {
       outputTokens: usageRecord.outputTokens || 0,
       cacheReadTokens: usageRecord.cacheReadTokens || 0,
       cacheCreateTokens: usageRecord.cacheCreateTokens || 0,
+      cacheWrite30mTokens: usageRecord.cacheWrite30mTokens ?? null,
+      cacheWrite12hTokens: usageRecord.cacheWrite12hTokens ?? null,
+      speed: usageRecord.speed ?? null,
+      requestSpeed: usageRecord.requestSpeed ?? null,
+      requestAnthropicBeta: usageRecord.requestAnthropicBeta ?? null,
       totalTokens: usageRecord.totalTokens || 0,
       cost: usageRecord.cost || 0,
       realCost: usageRecord.realCost ?? usageRecord.cost ?? 0,
       baseCost: usageRecord.baseCost ?? null,
+      billingAudit: usageRecord.billingAudit ?? null,
       toolUsage: usageRecord.toolUsage ?? null,
       toolCost: usageRecord.toolCost ?? 0,
       upstreamCostTicks: usageRecord.upstreamCostTicks ?? null,

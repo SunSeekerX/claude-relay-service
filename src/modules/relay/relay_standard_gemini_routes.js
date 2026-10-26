@@ -3,6 +3,8 @@ import { authenticateApiKey } from '../../infra/middleware_auth.js'
 import { logger } from '../../common/logger.js'
 import * as geminiHandlers from './relay_gemini_handlers_routes.js'
 import { createCodeAssistHandler } from './relay_gemini_code_assist_handlers.js'
+import { relayResponsesViaProvider } from './relay_responses_gateway.js'
+import { geminiInteractionsService } from './relay_gemini_interactions_service.js'
 /**
  * 标准 Gemini API 路由模块
  *
@@ -21,8 +23,16 @@ import { createCodeAssistHandler } from './relay_gemini_code_assist_handlers.js'
  */
 
 export const router = express.Router()
+for (const path of ['/responses', '/v1/responses', '/responses/compact', '/v1/responses/compact']) {
+  router.post(path, authenticateApiKey, geminiHandlers.ensureGeminiPermissionMiddleware, (req, res) =>
+    relayResponsesViaProvider(req, res, {
+      provider: 'gemini',
+      handle: req.body.stream === true && !req.path.endsWith('/compact') ? geminiHandlers.handleStandardStreamGenerateContent : geminiHandlers.handleStandardGenerateContent
+    })
+  )
+}
 
-for (const apiMethod of ['fetchAdminControls', 'recordCodeAssistMetrics', 'setCodeAssistGlobalUserSetting']) {
+for (const apiMethod of ['fetchAdminControls', 'recordCodeAssistMetrics', 'recordConversationOffered', 'recordConversationInteraction', 'setCodeAssistGlobalUserSetting']) {
   router.post(
     `/v1internal\\:${apiMethod}`,
     authenticateApiKey,
@@ -279,6 +289,17 @@ router.post(
  * GET /v1beta/models
  * 获取模型列表（v1beta 版本）
  */
+for (const version of ['v1', 'v1beta']) {
+  for (const [method, suffix, action] of [['get', '', 'get'], ['delete', '', 'delete'], ['post', '/cancel', 'cancel']]) {
+    router[method](
+      `/${version}/interactions/:id${suffix}`,
+      authenticateApiKey,
+      geminiHandlers.ensureGeminiPermissionMiddleware,
+      (req, res) => geminiInteractionsService.resource(req, res, action)
+    )
+  }
+}
+
 router.get('/v1beta/models', authenticateApiKey, geminiHandlers.ensureGeminiPermissionMiddleware, (req, res) => {
   logger.info('Standard Gemini API models request (v1beta)')
   geminiHandlers.handleModels(req, res)

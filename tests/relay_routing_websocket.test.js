@@ -7,6 +7,9 @@ const keyData = {
 }
 const validate = jest.fn(async () => ({ ok: true, keyData }))
 const post = jest.fn()
+const getContext = jest.fn()
+await jest.unstable_mockModule('../src/infra/redis.js', () => ({ redis: { getResponsesContext: getContext } }))
+await jest.unstable_mockModule('../src/modules/relay/relay_responses_gateway.js', () => ({ responsesContextScope: () => 'fixture-scope' }))
 await jest.unstable_mockModule('../src/common/gateway_ws_api_key_auth.js', () => ({
   extractBearerOrQueryKey: () => 'private-fixture-key',
   validateWsApiKey: validate,
@@ -34,10 +37,34 @@ const url = new URL('http://localhost:3000/r/a/v1/responses')
 beforeEach(() => {
   post.mockReset()
   validate.mockClear()
+  getContext.mockReset()
   validate.mockResolvedValue({ ok: true, keyData })
 })
 
 describe('named Responses WebSocket bridge', () => {
+  test('a reconnected reverse-provider socket hydrates persisted history before the single HTTP turn', async () => {
+    const keyData = { id: 'key1', permissions: ['claude'], _relayRoute: { code: 'a', provider: 'claude', binding: 'account' } }
+    validate.mockResolvedValue({ ok: true, keyData })
+    getContext.mockResolvedValue({ input: [{ role: 'user', content: 'prior history' }] })
+    post.mockResolvedValue({ status: 200, data: Readable.from([`data: ${JSON.stringify({ type: 'response.completed', response: { id: 'resp_next', output: [] } })}\n\n`]) })
+    const body = buildNamedWsRequest({ type: 'response.create', model: 'claude-test', previous_response_id: 'resp_prior', input: [{ role: 'user', content: 'next' }] }, { inputItems: [], allowExternalPreviousResponse: true })
+    expect(body.store).toBe(true)
+    await relayNamedWsTurn({ req, url, body, state: {}, sendText: () => {}, signal: new AbortController().signal })
+    expect(getContext).toHaveBeenCalledWith('fixture-scope', 'resp_prior')
+    expect(post.mock.calls[0][1].input).toHaveLength(2)
+    expect(post.mock.calls[0][1].previous_response_id).toBeUndefined()
+    expect(post).toHaveBeenCalledTimes(1)
+  })
+  test('legacy Claude Responses sockets use the same HTTP bridge without requiring an OpenAI route', async () => {
+    validate.mockResolvedValue({ ok: true, keyData: { id: 'key1', permissions: ['claude'] } })
+    const response = { id: 'resp1', output: [], usage: { input_tokens: 0, output_tokens: 0 } }
+    post.mockResolvedValue({ status: 200, data: Readable.from([`data: ${JSON.stringify({ type: 'response.completed', response })}\n\n`]) })
+    const output = []
+    await relayNamedWsTurn({ req, url: new URL('http://localhost/openai/claude/v1/responses'), body: { model: 'claude-test', input: [], stream: true }, state: {}, sendText: (text) => output.push(text), signal: new AbortController().signal })
+    expect(post).toHaveBeenCalledTimes(1)
+    expect(post.mock.calls[0][0]).toBe('http://127.0.0.1:3000/openai/claude/v1/responses')
+    expect(output).toHaveLength(1)
+  })
   test('preserves a configured alias and native request fields before HTTP route mapping', () => {
     const body = buildNamedWsRequest(
       { type: 'response.create', model: 'alias', input: [], max_output_tokens: 123, temperature: 0 },

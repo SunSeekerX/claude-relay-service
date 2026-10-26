@@ -34,6 +34,7 @@ import * as xaiHelper from '../../common/xai_helper.js'
 import { applyFilteredResponseHeaders, pickGrokPassthroughHeaders } from './relay_header_filter.js'
 import { isNonProtocolUpstreamBody, handleNonProtocolUpstream } from './relay_upstream_protocol_guard.js'
 import * as grokProtocol from './relay_grok_protocol.js'
+import { adaptResponsesTools, requiresResponsesToolAdapter } from './relay_responses_tools.js'
 import * as claudeResponses from './translator/relay_translator_claude_responses.js'
 /**
  * Grok / xAI 转发服务
@@ -341,6 +342,8 @@ class GrokRelayService {
         req,
       )
       let body = this._prepareBody(req.body, endpointKind)
+      const toolAdapter = endpointKind === 'responses' && requiresResponsesToolAdapter(body) ? adaptResponsesTools(body) : null
+      if (toolAdapter) {({ body } = toolAdapter)}
       let effectiveEndpointKind = endpointKind
       let reverseBridgeToChat = false
       const originalChatModel = requestedModel
@@ -754,6 +757,7 @@ class GrokRelayService {
             endpointKind,
             effectiveEndpointKind,
             sessionHash,
+            toolAdapter,
           },
         )
       }
@@ -772,6 +776,7 @@ class GrokRelayService {
           originalClaudeModel: req._grokMessagesOriginalModel,
           isCompact: endpointKind === 'responses_compact',
           endpointKind,
+          toolAdapter,
         },
       )
     } catch (error) {
@@ -1039,6 +1044,7 @@ class GrokRelayService {
 
   async _handleNormalResponse(response, res, account, apiKeyData, requestedModel, req, options = {}) {
     let { data } = response
+    if (options.toolAdapter) {data = options.toolAdapter.restoreResponse(data)}
     let conversionFailed = false
     // compact 响应改写
     if (options.isCompact) {
@@ -1223,7 +1229,11 @@ class GrokRelayService {
         return
       }
       if (!reverseBridge && !reverseClaude) {
-        res.write(frame)
+        if (options.toolAdapter && parsedEvent.type === 'data') {
+          for (const event of options.toolAdapter.restoreEvent(parsedEvent.data)) {
+            res.write(`event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`)
+          }
+        } else {res.write(frame)}
       } else if (parsedEvent.type === 'data') {
         if (reverseBridge) {
           try {

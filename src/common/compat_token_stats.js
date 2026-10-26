@@ -12,6 +12,16 @@
 // 可移除 30/70 拆分分支与 tokens/totalTokens 兜底。
 
 // API Key 维度:旧单字段按 30/70 拆 input/output
+const cacheWriteFields = (data) =>
+  Object.fromEntries(
+    [
+      ['cacheWrite30mTokens', data.totalCacheWrite30mTokens ?? data.cacheWrite30mTokens],
+      ['cacheWrite12hTokens', data.totalCacheWrite12hTokens ?? data.cacheWrite12hTokens],
+    ]
+      .filter(([, value]) => value !== undefined && value !== null)
+      .map(([field, value]) => [field, parseInt(value, 10) || 0]),
+  )
+
 export const normalizeKeyTokenStats = (data) => {
   // 优先使用total*字段（存储时使用的字段）
   const tokens = parseInt(data.totalTokens) || parseInt(data.tokens) || 0
@@ -47,6 +57,7 @@ export const normalizeKeyTokenStats = (data) => {
       outputTokens,
       cacheCreateTokens,
       cacheReadTokens,
+      ...cacheWriteFields(data),
       allTokens: actualAllTokens,
       requests,
     }
@@ -71,6 +82,7 @@ export const normalizeAccountTokenStats = (data = {}) => {
     outputTokens,
     cacheCreateTokens,
     cacheReadTokens,
+    ...cacheWriteFields(data),
     allTokens: actualAllTokens,
     requests,
   }

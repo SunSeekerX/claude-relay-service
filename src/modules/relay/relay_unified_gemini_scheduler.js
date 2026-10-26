@@ -81,7 +81,10 @@ class UnifiedGeminiScheduler {
   // 统一调度Gemini账号
   async selectAccountForApiKey(apiKeyData, sessionHash = null, requestedModel = null, options = {}) {
     assertModelAccess(apiKeyData, requestedModel)
-    const { allowApiAccounts = false, oauthProvider = null } = options
+    const { allowApiAccounts = false, oauthProvider = null, preferApiAccounts = false, pinnedAccountId = null } = options
+    const assertPinned = (id) => {
+      if (pinnedAccountId && id !== pinnedAccountId) throw Object.assign(new Error('The original interaction account is outside the current binding'), { statusCode: 503, code: 'interaction_account_unavailable' })
+    }
     const normalizedOauthProvider = oauthProvider ? normalizeOauthProvider(oauthProvider) : null
 
     try {
@@ -93,10 +96,13 @@ class UnifiedGeminiScheduler {
         if (route.binding.startsWith('group:')) {
           return await this.selectAccountFromGroup(route.binding.slice(6), sessionHash, requestedModel, apiKeyData, {
             allowApiAccounts,
+            preferApiAccounts,
+            pinnedAccountId,
             oauthProvider: normalizedOauthProvider ?? normalizeOauthProvider(route.provider)
           })
         }
         const target = await getRouteAccount(route.provider, route.binding)
+        if (target) assertPinned(target.accountId)
         if (
           !target ||
           (target.accountType === 'gemini-api' && !allowApiAccounts) ||
@@ -127,6 +133,7 @@ class UnifiedGeminiScheduler {
             (await this._isAccountAvailable(accountId, 'gemini-api')) &&
             this._isGeminiModelSupported(boundAccount, requestedModel)
           if (usable) {
+            assertPinned(accountId)
             logger.info(
               `Using bound Gemini-API account: ${boundAccount.name} (${accountId}) for API key ${apiKeyData.name}`,
             )
@@ -146,7 +153,7 @@ class UnifiedGeminiScheduler {
         else if (apiKeyData.geminiAccountId.startsWith('group:')) {
           const groupId = apiKeyData.geminiAccountId.replace('group:', '')
           logger.info(`API key ${apiKeyData.name} is bound to group ${groupId}, selecting from group`)
-          return await this.selectAccountFromGroup(groupId, sessionHash, requestedModel, apiKeyData)
+          return await this.selectAccountFromGroup(groupId, sessionHash, requestedModel, apiKeyData, { allowApiAccounts, preferApiAccounts, pinnedAccountId, oauthProvider: normalizedOauthProvider })
         }
         // 普通 Gemini OAuth 专属账户
         else {
@@ -162,6 +169,7 @@ class UnifiedGeminiScheduler {
             (await this._isAccountAvailable(apiKeyData.geminiAccountId, 'gemini')) &&
             this._isGeminiModelSupported(boundAccount, requestedModel)
           if (usable) {
+            assertPinned(apiKeyData.geminiAccountId)
             logger.info(
               `Using bound dedicated Gemini account: ${boundAccount.name} (${apiKeyData.geminiAccountId}) for API key ${apiKeyData.name}`,
             )
@@ -213,7 +221,8 @@ class UnifiedGeminiScheduler {
         oauthProvider: normalizedOauthProvider,
       })
 
-      if (availableAccounts.length === 0) {
+      const eligible = pinnedAccountId ? availableAccounts.filter((account) => account.accountId === pinnedAccountId) : availableAccounts
+      if (eligible.length === 0) {
         // 提供更详细的错误信息
         if (requestedModel) {
           throw new Error(`No available Gemini accounts support the requested model: ${requestedModel}`)
@@ -223,7 +232,8 @@ class UnifiedGeminiScheduler {
       }
 
       // 按优先级和最后使用时间排序
-      const sortedAccounts = commonHelper.sortAccountsByPriority(availableAccounts)
+      const sortedAccounts = commonHelper.sortAccountsByPriority(eligible)
+      if (preferApiAccounts) sortedAccounts.sort((a, b) => Number(b.accountType === 'gemini-api') - Number(a.accountType === 'gemini-api'))
 
       // 选择第一个账户
       const selectedAccount = sortedAccounts[0]
@@ -783,6 +793,7 @@ class UnifiedGeminiScheduler {
           logger.warn(`Gemini account ${memberId} not found in group ${group.name}`)
           continue
         }
+        if (routeOptions.pinnedAccountId && account.id !== routeOptions.pinnedAccountId) continue
         if (!routeMemberAllowed(account, accountType)) {continue}
 
         // [人工决策-2026-06-03 14:51:27] 分组成员统一委托 _isAccountAvailable(硬门+开关绕过上游错误,含 token 失效硬门) + 模型,
@@ -807,6 +818,7 @@ class UnifiedGeminiScheduler {
 
       // 使用现有的优先级排序逻辑
       const sortedAccounts = commonHelper.sortAccountsByPriority(availableAccounts)
+      if (routeOptions.preferApiAccounts) sortedAccounts.sort((a, b) => Number(b.accountType === 'gemini-api') - Number(a.accountType === 'gemini-api'))
 
       // 选择第一个账户
       const selectedAccount = sortedAccounts[0]

@@ -11,11 +11,17 @@ import {
   createHttpBridgeLanes,
 } from './relay_codex_responses_ws_bridge.js'
 import { assertModelAccess } from './relay_model_access.js'
+import { getResponsesBridgeProvider } from './relay_responses_contract.js'
 
 export const buildNamedWsRequest = (message, state) => {
-  const body = buildHttpResponsesBodyFromWsMessage(message, state)
   const source =
     message.response && typeof message.response === 'object' ? { ...message, ...message.response } : message
+  const external = state.allowExternalPreviousResponse && source.previous_response_id && source.previous_response_id !== state.lastResponseId
+  const body = external
+    ? buildHttpResponsesBodyFromWsMessage({ ...source, previous_response_id: undefined }, { ...state, inputItems: [] })
+    : buildHttpResponsesBodyFromWsMessage(message, state)
+  if (external) {body.previous_response_id = source.previous_response_id}
+  if (state.allowExternalPreviousResponse) {body.store = source.store ?? true}
   body.model = source.model ?? state.model
   for (const field of ['temperature', 'top_p', 'max_output_tokens', 'metadata', 'truncation', 'user']) {
     if (Object.hasOwn(source, field)) {
@@ -31,14 +37,23 @@ export const relayNamedWsTurn = async ({ req, url, body, state, sendText, signal
     throw Object.assign(new Error(auth.message), { statusCode: auth.status, code: auth.code })
   }
   const route = auth.keyData._relayRoute
-  if (!route) {
+  const bridgeProvider = ['claude', 'gemini'].includes(route?.provider) ? route.provider : getResponsesBridgeProvider(url.pathname)
+  if (!route && !getResponsesBridgeProvider(url.pathname)) {
     throw Object.assign(new Error('该连接的调用入口已变更，请重新连接'), { statusCode: 409 })
   }
   assertModelAccess(auth.keyData, body.model)
-  if (route.modelMode === 'mapped-only' && !Object.hasOwn(route.modelMapping, body.model)) {
+  if (route?.modelMode === 'mapped-only' && !Object.hasOwn(route.modelMapping, body.model)) {
     throw Object.assign(new Error('该入口仅开放模型映射表中的模型'), { statusCode: 400 })
   }
-  assertModelAccess(auth.keyData, route.modelMapping?.[body.model] ?? body.model)
+  assertModelAccess(auth.keyData, route?.modelMapping?.[body.model] ?? body.model)
+  if (bridgeProvider && body.previous_response_id) {
+    const [{ redis }, { responsesContextScope }] = await Promise.all([import('../../infra/redis.js'), import('./relay_responses_gateway.js')])
+    const context = await redis.getResponsesContext(responsesContextScope({ apiKey: auth.keyData }, bridgeProvider), body.previous_response_id)
+    if (!context) {throw Object.assign(new Error('Previous response is unavailable; resend the full input context'), { statusCode: 400, code: 'previous_response_not_found' })}
+    body.input = [...context.input, ...body.input]
+    if (body.tools === undefined && context.tools) {body.tools = context.tools}
+    delete body.previous_response_id
+  }
   if (body.generate === false) {
     for (const event of completeHttpBridgeWarmup(body, state)) {
       sendText(JSON.stringify(event))
@@ -116,12 +131,13 @@ export const relayNamedWsTurn = async ({ req, url, body, state, sendText, signal
   }
 }
 
-export const handleNamedResponsesWebSocket = async (req, socket, head, { releaseAuth }) => {
+export const handleNamedResponsesWebSocket = async (req, socket, head, { releaseAuth, keyData }) => {
   const url = new URL(req.url, `http://${req.headers.host ?? 'localhost'}`)
   const connectionAbort = new AbortController()
   const lanes = createHttpBridgeLanes({
     signal: connectionAbort.signal,
     initialModel: url.searchParams.get('model') ?? req.headers['x-model'] ?? null,
+    allowExternalPreviousResponse: ['claude', 'gemini'].includes(keyData?._relayRoute?.provider) || Boolean(getResponsesBridgeProvider(url.pathname)),
     buildBody: buildNamedWsRequest,
     sendText: (text) => endpoint.sendText(text),
     run: (body, state, sendText) =>

@@ -496,6 +496,15 @@
                           )
                         }}</span>
                       </span>
+                      <span
+                        v-if="
+                          record.cacheWrite30mTokens != null || record.cacheWrite12hTokens != null
+                        "
+                        class="text-purple-600 dark:text-purple-400"
+                      >
+                        写入 30m {{ formatNumber(record.cacheWrite30mTokens ?? 0) }} / 12h
+                        {{ formatNumber(record.cacheWrite12hTokens ?? 0) }}
+                      </span>
                       <span class="text-gray-500 dark:text-gray-400">
                         命中 {{ formatPercent(record.cacheHitRate) }}
                       </span>
@@ -615,6 +624,13 @@
                 · 建
                 {{ formatCacheCreate(record.cacheCreateTokens, record.cacheCreateNotApplicable) }}
                 · 命中 {{ formatPercent(record.cacheHitRate) }}
+              </p>
+              <p
+                v-if="record.cacheWrite30mTokens != null || record.cacheWrite12hTokens != null"
+                class="mt-1 text-sm text-purple-600 dark:text-purple-400"
+              >
+                缓存写入 30m {{ formatNumber(record.cacheWrite30mTokens ?? 0) }} / 12h
+                {{ formatNumber(record.cacheWrite12hTokens ?? 0) }}
               </p>
             </div>
           </div>
@@ -1026,6 +1042,8 @@ const exportCsv = async () => {
       '输出',
       '缓存读取',
       '缓存创建',
+      'OpenAI缓存写入30m',
+      'OpenAI缓存写入12h',
       '缓存命中率',
       '费用',
       '耗时(ms)',
@@ -1070,6 +1088,8 @@ const exportCsv = async () => {
         record.outputTokens || 0,
         record.cacheReadTokens || 0,
         formatCacheCreate(record.cacheCreateTokens, record.cacheCreateNotApplicable),
+        record.cacheWrite30mTokens ?? '',
+        record.cacheWrite12hTokens ?? '',
         formatPercent(record.cacheHitRate),
         formatCost(record.cost),
         record.durationMs || 0,

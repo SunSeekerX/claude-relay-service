@@ -1,4 +1,6 @@
 import { getRequestTimings, normalizeRequestTimings } from '../../common/request_timing.js'
+import { getOpenAICacheWriteDetails } from '../../common/openai_cache_write.js'
+import { projectUpstreamUsage } from '../pricing/pricing_billing_audit.js'
 
 const SENSITIVE_KEY_PATTERN =
   /(authorization|proxy-authorization|api[_-]?key|access[_-]?token|refresh[_-]?token|token|secret|password|cookie|set-cookie|client_secret|private[_-]?key|proxy)/i
@@ -547,15 +549,19 @@ export const createRequestDetailMeta = (req, overrides = {}) => {
 
   const firstTokenMsOverride = toFiniteNumber(overrides.firstTokenMs)
   const meta = {
-    routeBilling: req?.apiKey?._relayRoute ? {
-      groupId: req.apiKey._relayRoute.binding.startsWith('group:') ? req.apiKey._relayRoute.binding.slice(6) : null
-    } : null,
-    relayRoute: req?.apiKey?._relayRoute ? {
-      code: req.apiKey._relayRoute.code,
-      name: req.apiKey._relayRoute.name,
-      requestedModel: req._relayRouteModel?.requestedModel ?? null,
-      mappedModel: req._relayRouteModel?.mappedModel ?? null
-    } : null,
+    routeBilling: req?.apiKey?._relayRoute
+      ? {
+          groupId: req.apiKey._relayRoute.binding.startsWith('group:') ? req.apiKey._relayRoute.binding.slice(6) : null,
+        }
+      : null,
+    relayRoute: req?.apiKey?._relayRoute
+      ? {
+          code: req.apiKey._relayRoute.code,
+          name: req.apiKey._relayRoute.name,
+          requestedModel: req._relayRouteModel?.requestedModel ?? null,
+          mappedModel: req._relayRouteModel?.mappedModel ?? null,
+        }
+      : null,
     requestId: overrides.requestId || req?.requestId || null,
     billingDedupId: overrides.billingDedupId ?? null,
     billingDedupTtl: overrides.billingDedupTtl ?? null,
@@ -572,6 +578,7 @@ export const createRequestDetailMeta = (req, overrides = {}) => {
     videoTaskId: req?._crsVideoTaskId || null,
     errorCode: overrides.errorCode ?? null,
     errorMessage: overrides.errorMessage ?? null,
+    protocolTerminal: overrides.protocolTerminal ?? req?._crsProtocolTerminal ?? null,
   }
   const groupCostHoldGroupId = overrides.groupCostHoldGroupId || req?.apiKey?.groupCostHoldGroupId
   if (groupCostHoldGroupId) {
@@ -998,6 +1005,7 @@ export const normalizeOpenAITokenUsage = (usage = {}) => {
   const totalInputTokens = tokenCount(usage.input_tokens ?? usage.prompt_tokens)
   const cacheReadTokens = Math.min(totalInputTokens, tokenCount(extractOpenAICacheReadTokens(usage)))
   const details = usage.input_tokens_details ?? usage.prompt_tokens_details ?? {}
+  const lifetimes = getOpenAICacheWriteDetails(usage)
   const cacheCreateTokens = Math.min(
     totalInputTokens - cacheReadTokens,
     tokenCount(
@@ -1005,7 +1013,8 @@ export const normalizeOpenAITokenUsage = (usage = {}) => {
         details.cache_creation_input_tokens ??
         details.cache_creation_tokens ??
         usage.cache_creation_input_tokens ??
-        usage.cache_creation_tokens,
+        usage.cache_creation_tokens ??
+        (lifetimes ? lifetimes.ttl_30m_tokens + lifetimes.ttl_12h_tokens : 0),
     ),
   )
   return {
@@ -1014,6 +1023,7 @@ export const normalizeOpenAITokenUsage = (usage = {}) => {
     cacheReadTokens,
     cacheCreateTokens,
     totalInputTokens,
+    ...(lifetimes ? { cacheWriteDetails: getOpenAICacheWriteDetails(usage, cacheCreateTokens) } : {}),
   }
 }
 
@@ -1114,10 +1124,12 @@ export const buildTokenUsagePayload = ({
   cacheCreateTokens = 0,
   cacheReadTokens = 0,
   rawUsage = null,
+  cacheWriteDetails = null,
   extras = null,
 } = {}) => {
   const raw = rawUsage && typeof rawUsage === 'object' ? rawUsage : {}
   const payload = {
+    _upstreamUsage: projectUpstreamUsage(raw),
     input_tokens: inputTokens || 0,
     output_tokens: outputTokens || 0,
     cache_creation_input_tokens: cacheCreateTokens || 0,
@@ -1125,6 +1137,14 @@ export const buildTokenUsagePayload = ({
     reasoning_tokens: extractThinkingTokens(raw),
     // 扁平化后仍能判定「思考是否已在 output 内」，避免 OpenAI/Grok 双计、Gemini 漏计
     reasoning_included_in_output: isThinkingAlreadyInOutput(raw),
+  }
+
+  const lifetimes = getOpenAICacheWriteDetails(
+    { cache_write_tokens_details: cacheWriteDetails ?? getOpenAICacheWriteDetails(raw) },
+    cacheCreateTokens,
+  )
+  if (lifetimes) {
+    payload.cache_write_tokens_details = lifetimes
   }
 
   // 保留官方 details，供下游/日志与兼容旧判定
@@ -1187,12 +1207,16 @@ export const getRequestDetailCacheMetrics = (detail = {}) => {
   const input = Math.max(0, Number(detail.inputTokens) || 0)
   const isOpenAIRelated =
     OPENAI_RELATED_ACCOUNT_TYPES.has(detail.accountType) || isOpenAIRelatedEndpoint(detail.endpoint)
+  const cacheCreateNotApplicable =
+    isOpenAIRelated &&
+    create === 0 &&
+    [detail.cacheWrite30mTokens, detail.cacheWrite12hTokens].every((value) => value === null || value === undefined)
   const denominator = input + read + create
 
   if (denominator <= 0) {
     return {
       isOpenAIRelated,
-      cacheCreateNotApplicable: isOpenAIRelated,
+      cacheCreateNotApplicable,
       numerator: read,
       denominator: 0,
       formula: CACHE_HIT_FORMULA,
@@ -1203,7 +1227,7 @@ export const getRequestDetailCacheMetrics = (detail = {}) => {
 
   return {
     isOpenAIRelated,
-    cacheCreateNotApplicable: isOpenAIRelated,
+    cacheCreateNotApplicable,
     numerator: read,
     denominator,
     formula: CACHE_HIT_FORMULA,

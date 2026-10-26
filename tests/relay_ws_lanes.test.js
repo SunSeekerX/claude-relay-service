@@ -21,6 +21,15 @@ const { createHttpBridgeLanes } =
   await import('../src/modules/relay/relay_codex_responses_ws_bridge.js')
 
 describe('HTTP bridge WebSocket lanes', () => {
+  it('lets reverse-provider lanes resolve a persisted parent outside the current connection', async () => {
+    const run = jest.fn(async () => {})
+    const sendText = jest.fn()
+    const lanes = createHttpBridgeLanes({ run, sendText, allowExternalPreviousResponse: true,
+      buildBody: (message, state) => ({ ...message, externalAllowed: state.allowExternalPreviousResponse }) })
+    await lanes.processText(JSON.stringify({ type: 'response.create', model: 'claude-test', previous_response_id: 'resp_stored', input: [] }))
+    expect(run).toHaveBeenCalledWith(expect.objectContaining({ previous_response_id: 'resp_stored', externalAllowed: true }), expect.any(Object), expect.any(Function))
+    expect(sendText).not.toHaveBeenCalled()
+  })
   it('runs separate lanes concurrently and queues each lane in order', async () => {
     const started = []
     const gates = new Map()

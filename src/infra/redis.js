@@ -20,6 +20,8 @@ import * as _migrationStore from './redis_migration_store.js'
 import * as _relayRoutesStore from './redis_relay_routes_store.js'
 import * as _accountModelStore from './redis_account_model_store.js'
 import * as _tokenizerStore from './redis_tokenizer_store.js'
+import * as _responsesStore from './redis_responses_store.js'
+import * as _geminiInteractionsStore from './redis_gemini_interactions_store.js'
 import * as timezone from '../common/timezone.js'
 class RedisClient {
   constructor() {
@@ -427,6 +429,8 @@ _apiKeyStore.attach(redis)
 _relayRoutesStore.attach(redis)
 _accountModelStore.attach(redis)
 _tokenizerStore.attach(redis)
+_responsesStore.attach(redis)
+_geminiInteractionsStore.attach(redis)
 
 // 启动期数据迁移 — 已抽出至 ./redis/migrationStore.js
 _migrationStore.attach(redis)

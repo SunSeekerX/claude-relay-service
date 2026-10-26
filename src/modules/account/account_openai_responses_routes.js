@@ -448,7 +448,12 @@ router.post(
         throw error
       }
       const latency = Date.now() - startTime
-      logger.error(`OpenAI-Responses account test failed: ${accountId}`, error.message)
+      logger.error('OpenAI-Responses account test failed', {
+        accountId,
+        requestId: req.requestId,
+        latency,
+        error,
+      })
       return fail(500, extractErrorMessage(error.response?.data, error.message), {
         data: { latency },
       })

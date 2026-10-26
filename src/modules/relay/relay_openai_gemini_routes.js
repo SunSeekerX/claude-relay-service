@@ -1,6 +1,10 @@
-import { mapGeminiUsageToOpenAI } from './relay_gemini_to_openai.js'
+import { GeminiToOpenAIConverter } from './relay_gemini_to_openai.js'
 import express from 'express'
-import { StringDecoder } from 'node:string_decoder'
+import { IncrementalSSEParser } from './relay_sse_parser.js'
+import { createStreamBackpressure } from '../../common/stream_helper.js'
+import { buildClientError } from '../../common/client_error_builder.js'
+import { requestDetailService } from './relay_request_detail_service.js'
+import { buildOpenAIChatGeminiRequest } from './relay_openai_gemini_request.js'
 import { logger } from '../../common/logger.js'
 import { onClientDisconnect } from '../../common/client_disconnect.js'
 import { authenticateApiKey } from '../../infra/middleware_auth.js'
@@ -10,7 +14,6 @@ import { getAvailableModels } from './relay_gemini_relay_service.js'
 import crypto from 'node:crypto'
 import { apiKeyService } from '../apikey/apikey_service.js'
 import { buildGeminiTokenUsagePayload, createRequestDetailMeta } from './relay_request_detail_helper.js'
-import { openAIContentToGeminiParts } from './translator/relay_translator_gemini_parts.js'
 import { ensureAntigravityProjectId } from './relay_antigravity_client.js'
 export const router = express.Router()
 
@@ -27,156 +30,7 @@ const generateSessionHash = (req) => {
 const checkPermissions = (apiKeyData, requiredPermission = 'gemini') =>
   apiKeyService.hasPermission(apiKeyData?.permissions, requiredPermission)
 
-// 转换 OpenAI 消息格式到 Gemini 格式
-const convertMessagesToGemini = (messages) => {
-  const contents = []
-  let systemInstruction = ''
-
-  // 辅助函数：提取文本内容
-  function extractTextContent(content) {
-    // 处理 null 或 undefined
-    if (content === null || content === undefined) {
-      return ''
-    }
-
-    // 处理字符串
-    if (typeof content === 'string') {
-      return content
-    }
-
-    // 处理数组格式的内容
-    if (Array.isArray(content)) {
-      return content
-        .map((item) => {
-          if (item === null || item === undefined) {
-            return ''
-          }
-          if (typeof item === 'string') {
-            return item
-          }
-          if (typeof item === 'object') {
-            // 处理 {type: 'text', text: '...'} 格式
-            if (item.type === 'text' && item.text) {
-              return item.text
-            }
-            // 处理 {text: '...'} 格式
-            if (item.text) {
-              return item.text
-            }
-            // 处理嵌套的对象或数组
-            if (item.content) {
-              return extractTextContent(item.content)
-            }
-          }
-          return ''
-        })
-        .join('')
-    }
-
-    // 处理对象格式的内容
-    if (typeof content === 'object') {
-      // 处理 {text: '...'} 格式
-      if (content.text) {
-        return content.text
-      }
-      // 处理 {content: '...'} 格式
-      if (content.content) {
-        return extractTextContent(content.content)
-      }
-      // 处理 {parts: [{text: '...'}]} 格式
-      if (content.parts && Array.isArray(content.parts)) {
-        return content.parts
-          .map((part) => {
-            if (part && part.text) {
-              return part.text
-            }
-            return ''
-          })
-          .join('')
-      }
-    }
-
-    // 最后的后备选项：只有在内容确实不为空且有意义时才转换为字符串
-    if (content !== undefined && content !== null && content !== '' && typeof content !== 'object') {
-      return String(content)
-    }
-
-    return ''
-  }
-
-  // DEC_20261001_114137 user/assistant 数组内容保留多模态 part；非数组沿用文本提取
-  const buildParts = (content) => {
-    if (Array.isArray(content)) {
-      const parts = openAIContentToGeminiParts(content)
-      return parts.length > 0 ? parts : [{ text: extractTextContent(content) }]
-    }
-    return [{ text: extractTextContent(content) }]
-  }
-
-  for (const message of messages) {
-    if (message.role === 'system') {
-      const textContent = extractTextContent(message.content)
-      systemInstruction += (systemInstruction ? '\n\n' : '') + textContent
-    } else if (message.role === 'user') {
-      contents.push({
-        role: 'user',
-        parts: buildParts(message.content),
-      })
-    } else if (message.role === 'assistant') {
-      contents.push({
-        role: 'model',
-        parts: buildParts(message.content),
-      })
-    }
-  }
-
-  return { contents, systemInstruction }
-}
-
-// 转换 Gemini 响应到 OpenAI 格式
-const convertGeminiResponseToOpenAI = (geminiResponse, model, stream = false) => {
-  if (stream) {
-    // 处理流式响应 - 原样返回 SSE 数据
-    return geminiResponse
-  } else {
-    // 非流式响应转换
-    // 处理嵌套的 response 结构
-    const actualResponse = geminiResponse.response || geminiResponse
-
-    if (actualResponse.candidates && actualResponse.candidates.length > 0) {
-      const candidate = actualResponse.candidates[0]
-      const content = candidate.content?.parts?.[0]?.text || ''
-      const finishReason = candidate.finishReason?.toLowerCase() || 'stop'
-
-      // 计算 token 使用量
-      const usage = actualResponse.usageMetadata || {
-        promptTokenCount: 0,
-        candidatesTokenCount: 0,
-        totalTokenCount: 0,
-      }
-
-      return {
-        id: `chatcmpl-${Date.now()}`,
-        object: 'chat.completion',
-        created: Math.floor(Date.now() / 1000),
-        model,
-        choices: [
-          {
-            index: 0,
-            message: {
-              role: 'assistant',
-              content,
-            },
-            finish_reason: finishReason,
-          },
-        ],
-        usage: mapGeminiUsageToOpenAI(usage),
-      }
-    } else {
-      throw new Error('No response from Gemini')
-    }
-  }
-}
+const geminiConverter = new GeminiToOpenAIConverter()
 
 // OpenAI 兼容的聊天完成端点
 router.post('/v1/chat/completions', authenticateApiKey, async (req, res) => {
@@ -221,8 +75,6 @@ router.post('/v1/chat/completions', authenticateApiKey, async (req, res) => {
       messages: requestMessages,
       contents: requestContents,
       model: bodyModel = 'gemini-2.5-flash',
-      temperature = 0.7,
-      max_tokens = 4096,
       stream = false,
     } = requestBody
 
@@ -263,23 +115,6 @@ router.post('/v1/chat/completions', authenticateApiKey, async (req, res) => {
       }
     }
 
-    // 转换消息格式
-    const { contents: geminiContents, systemInstruction } = convertMessagesToGemini(messages)
-
-    // 构建 Gemini 请求体
-    const geminiRequestBody = {
-      contents: geminiContents,
-      generationConfig: {
-        temperature,
-        maxOutputTokens: max_tokens,
-        candidateCount: 1,
-      },
-    }
-
-    if (systemInstruction) {
-      geminiRequestBody.systemInstruction = { parts: [{ text: systemInstruction }] }
-    }
-
     // 生成会话哈希用于粘性会话
     sessionHash = generateSessionHash(req)
 
@@ -302,6 +137,7 @@ router.post('/v1/chat/completions', authenticateApiKey, async (req, res) => {
       })
     }
 
+    const geminiRequestBody = buildOpenAIChatGeminiRequest(requestBody, { vendor: account.oauthProvider })
     logger.info(`Using Gemini account: ${account.id} for API key: ${apiKeyData.id}`)
 
     // 标记账户被使用
@@ -385,202 +221,94 @@ router.post('/v1/chat/completions', authenticateApiKey, async (req, res) => {
       res.setHeader('Connection', 'keep-alive')
       res.setHeader('X-Accel-Buffering', 'no')
 
-      // 处理流式响应，转换为 OpenAI 格式
-      let buffer = ''
-      const decoder = new StringDecoder('utf8')
-
-      // 发送初始的空消息，符合 OpenAI 流式格式
-      const initialChunk = {
-        id: `chatcmpl-${Date.now()}`,
-        object: 'chat.completion.chunk',
-        created: Math.floor(Date.now() / 1000),
-        model,
-        choices: [
-          {
-            index: 0,
-            delta: { role: 'assistant' },
-            finish_reason: null,
-          },
-        ],
-      }
-      res.write(`data: ${JSON.stringify(initialChunk)}\n\n`)
-
-      // 用于收集usage数据
-      let totalUsage = {
-        promptTokenCount: 0,
-        candidatesTokenCount: 0,
-        totalTokenCount: 0,
-      }
-      let usageReported = false // 修复：改为 let 以便后续修改
-
-      streamResponse.on('data', (chunk) => {
-        try {
-          const chunkStr = decoder.write(chunk)
-
-          if (!chunkStr.trim()) {
-            return
+      const parser = new IncrementalSSEParser()
+      const state = geminiConverter.createStreamState()
+      const backpressure = createStreamBackpressure(streamResponse, res)
+      let usage = null
+      let terminal = false
+      let result = { statusCode: 200, errorCode: null, errorMessage: null }
+      const consume = async (events) => {
+        for (const event of events) {
+          if (event.type === 'invalid') {
+            throw Object.assign(new Error('Invalid Gemini SSE payload'), { code: 'upstream_parse_error' })
           }
-
-          buffer += chunkStr
-          const lines = buffer.split('\n')
-          buffer = lines.pop() || '' // 保留最后一个不完整的行
-
-          for (const line of lines) {
-            if (!line.trim()) {
-              continue
-            }
-
-            // 处理 SSE 格式
-            let jsonData = line
-            if (line.startsWith('data: ')) {
-              jsonData = line.substring(6).trim()
-            }
-
-            if (!jsonData || jsonData === '[DONE]') {
-              continue
-            }
-
-            try {
-              const data = JSON.parse(jsonData)
-
-              // 捕获usage数据
-              if (data.response?.usageMetadata) {
-                totalUsage = data.response.usageMetadata
-                logger.debug('Captured Gemini usage data:', totalUsage)
-              }
-
-              // 转换为 OpenAI 流式格式
-              if (data.response?.candidates && data.response.candidates.length > 0) {
-                const candidate = data.response.candidates[0]
-                const content = candidate.content?.parts?.[0]?.text || ''
-                const { finishReason } = candidate
-
-                // 只有当有内容或者是结束标记时才发送数据
-                if (content || finishReason === 'STOP') {
-                  const openaiChunk = {
-                    id: `chatcmpl-${Date.now()}`,
-                    object: 'chat.completion.chunk',
-                    created: Math.floor(Date.now() / 1000),
-                    model,
-                    choices: [
-                      {
-                        index: 0,
-                        delta: content ? { content } : {},
-                        finish_reason: finishReason === 'STOP' ? 'stop' : null,
-                      },
-                    ],
-                  }
-
-                  res.write(`data: ${JSON.stringify(openaiChunk)}\n\n`)
-
-                  // 如果结束了，添加 usage 信息并发送最终的 [DONE]
-                  if (finishReason === 'STOP') {
-                    // 如果有 usage 数据，添加到最后一个 chunk
-                    if (data.response.usageMetadata) {
-                      const usageChunk = {
-                        id: `chatcmpl-${Date.now()}`,
-                        object: 'chat.completion.chunk',
-                        created: Math.floor(Date.now() / 1000),
-                        model,
-                        choices: [
-                          {
-                            index: 0,
-                            delta: {},
-                            finish_reason: 'stop',
-                          },
-                        ],
-                        usage: mapGeminiUsageToOpenAI(data.response.usageMetadata),
-                      }
-                      res.write(`data: ${JSON.stringify(usageChunk)}\n\n`)
-                    }
-                    res.write('data: [DONE]\n\n')
-                  }
-                }
-              }
-            } catch (e) {
-              logger.debug('Error parsing JSON line:', e.message)
-            }
+          if (event.type !== 'data') {
+            continue
           }
-        } catch (error) {
-          logger.error('Stream processing error:', error)
-          if (!res.headersSent) {
-            res.status(500).json({
-              error: {
-                message: error.message || 'Stream error',
-                type: 'api_error',
-              },
+          const data = event.data.response ?? event.data
+          if (data.error) {
+            const status = Number(data.error.code)
+            throw Object.assign(new Error('Gemini upstream reported an error'), {
+              status: status >= 400 && status <= 599 ? status : 502,
+              upstreamBody: { error: data.error },
+              code: 'upstream_stream_error',
             })
           }
+          if (data.usageMetadata) {
+            usage = data.usageMetadata
+          }
+          terminal ||= Boolean(data.candidates?.some((candidate) => candidate.finishReason))
+          const converted = geminiConverter.convertStreamEvent(data, model, state)
+          if (converted && !res.destroyed && !res.writableEnded && !res.write(converted)) {
+            await backpressure.waitForDrain()
+          }
         }
-      })
-
-      streamResponse.on('end', async () => {
-        logger.info('Stream completed successfully')
-
-        // 记录使用统计
-        if (!usageReported && totalUsage.totalTokenCount > 0) {
-          try {
+      }
+      try {
+        for await (const chunk of streamResponse) {
+          await consume(parser.feed(chunk))
+        }
+        await consume(parser.finish())
+        if (!terminal) {
+          throw Object.assign(new Error('Gemini stream ended before a finish reason'), {
+            code: 'upstream_stream_incomplete',
+          })
+        }
+      } catch (error) {
+        const statusCode = res.destroyed ? 499 : error.status || 502
+        result = { statusCode, errorCode: error.code || 'upstream_stream_error', errorMessage: error.message }
+        logger.error('OpenAI-Gemini stream failed', { requestId: req.requestId, ...result })
+        if (!res.destroyed && !res.writableEnded) {
+          if (!res.headersSent) {
+            res.status(statusCode)
+          }
+          const clientError = buildClientError({
+            statusCode,
+            upstreamBody: error.upstreamBody ?? { error: { message: error.message, code: error.code } },
+          })
+          res.write(`data: ${JSON.stringify(clientError.body)}\n\n`)
+        }
+      } finally {
+        backpressure.dispose()
+        req._crsUsageDetailHandled = true
+        req._crsRecordRelayResult?.({ ...result, hasUsage: Boolean(usage), final: true })
+        try {
+          if (usage) {
             await apiKeyService.recordUsage(
               apiKeyData.id,
-              buildGeminiTokenUsagePayload(totalUsage),
+              buildGeminiTokenUsagePayload(usage),
               model,
               account.id,
               'gemini',
               null,
-              createRequestDetailMeta(req, {
-                requestBody: req.body,
-                stream: true,
-                statusCode: res.statusCode,
-              }),
+              createRequestDetailMeta(req, { ...result, requestBody: req.body, stream: true }),
             )
-            logger.info(
-              `Recorded Gemini stream usage - Input: ${totalUsage.promptTokenCount}, Output: ${totalUsage.candidatesTokenCount}, Total: ${totalUsage.totalTokenCount}`,
-            )
-
-            // 修复：标记 usage 已上报，避免重复上报
-            usageReported = true
-          } catch (error) {
-            logger.error('Failed to record Gemini usage:', error)
+          } else {
+            await requestDetailService.captureUnmeteredRequest(req, {
+              apiKeyId: apiKeyData.id,
+              accountId: account.id,
+              accountType: 'gemini',
+              result: { ...result, model, stream: true },
+            })
           }
+        } catch (error) {
+          logger.error('Failed to record Gemini stream usage:', error)
         }
-
-        if (!res.headersSent) {
+        if (!res.destroyed && !res.writableEnded) {
           res.write('data: [DONE]\n\n')
-        }
-        res.end()
-      })
-
-      streamResponse.on('error', (error) => {
-        logger.error('Stream error:', error)
-        if (!res.headersSent) {
-          res.status(500).json({
-            error: {
-              message: error.message || 'Stream error',
-              type: 'api_error',
-            },
-          })
-        } else {
-          // 如果已经开始发送流数据，发送错误事件
-          // 修复：使用 JSON.stringify 避免字符串插值导致的格式错误
-          if (!res.destroyed) {
-            try {
-              res.write(
-                `data: ${JSON.stringify({
-                  error: {
-                    message: error.message || 'Stream error',
-                    type: 'stream_error',
-                    code: error.code,
-                  },
-                })}\n\n`,
-              )
-              res.write('data: [DONE]\n\n')
-            } catch (writeError) {
-              logger.error('Error sending error event:', writeError)
-            }
-          }
           res.end()
         }
-      })
+      }
     } else {
       // 非流式响应
       const oauthProvider = account.oauthProvider || 'gemini-cli'
@@ -620,7 +348,7 @@ router.post('/v1/chat/completions', authenticateApiKey, async (req, res) => {
             )
 
       // 转换为 OpenAI 格式并返回
-      const openaiResponse = convertGeminiResponseToOpenAI(response, model, false)
+      const openaiResponse = geminiConverter.convertResponse(response, model)
 
       // 记录使用统计
       if (openaiResponse.usage) {
@@ -676,15 +404,13 @@ router.post('/v1/chat/completions', authenticateApiKey, async (req, res) => {
         res.status(499).end()
       } else {
         // 返回 OpenAI 格式的错误响应
-        const status = error.status || 500
-        const errorResponse = {
-          error: error.error || {
-            message: error.message || 'Internal server error',
-            type: 'server_error',
-            code: 'internal_error',
+        const clientError = buildClientError({
+          statusCode: error.status || error.response?.status || 500,
+          upstreamBody: error.response?.data ?? {
+            error: error.error ?? { message: error.message, code: error.code },
           },
-        }
-        res.status(status).json(errorResponse)
+        })
+        res.status(clientError.statusCode).json(clientError.body)
       }
     }
   } finally {

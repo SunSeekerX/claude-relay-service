@@ -1,3 +1,4 @@
+import { normalizeAccountApiKeyUpdate } from './account_api_key_update.js'
 import { readMappedAccountModelRange } from '../../common/compat_account_models.js'
 import { normalizeAccountModelRange } from './account_model_policy.js'
 import { ProxyHelper } from '../proxy/proxy_helper.js'
@@ -243,10 +244,15 @@ class CcrAccountService {
 
   // 更新账户
   async updateAccount(accountId, updates) {
+    normalizeAccountApiKeyUpdate(updates)
     try {
       const existingAccount = await this.getAccount(accountId)
       if (!existingAccount) {
         throw new Error('CCR Account not found')
+      }
+
+      if (Object.keys(updates).length === 0) {
+        return existingAccount
       }
 
       const client = redis.getClientSafe()

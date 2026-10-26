@@ -2,6 +2,7 @@ import { jest } from '@jest/globals'
 import { EventEmitter } from 'node:events'
 import { PassThrough, Readable } from 'node:stream'
 import { IncrementalSSEParser } from '../src/modules/relay/relay_sse_parser.js'
+import { adaptResponsesTools } from '../src/modules/relay/relay_responses_tools.js'
 
 const axios = jest.fn()
 const videoDb = {
@@ -190,6 +191,22 @@ beforeEach(() => {
 })
 
 describe('Grok forwarding contracts', () => {
+  it('restores native Responses namespace calls while billing the raw terminal usage once', async () => {
+    const res = makeResponse()
+    const req = makeRequest(res, { model: 'grok-test', stream: true })
+    const toolAdapter = adaptResponsesTools({ tools: [{ type: 'namespace', name: 'fs', tools: [{ type: 'function', name: 'read', parameters: {} }] }] })
+    const item = { type: 'function_call', id: 'fc1', call_id: 'c1', name: 'fs__read', arguments: '{}' }
+    await grokRelayService._handleStreamResponse(upstream([
+      { type: 'response.output_item.added', output_index: 0, item: { ...item, arguments: '' } },
+      { type: 'response.output_item.done', output_index: 0, item },
+      { type: 'response.completed', response: { model: 'grok-test', status: 'completed', output: [item], usage } }
+    ]), res, account, req.apiKey, 'grok-test', req, { endpointKind: 'responses', toolAdapter })
+    const parser = new IncrementalSSEParser()
+    const events = parser.feed(res.chunks.join('')).filter((event) => event.type === 'data').map((event) => event.data)
+    expect(events.at(-1).response.output[0]).toMatchObject({ name: 'read', namespace: 'fs', call_id: 'c1' })
+    expect(apiKeyService.recordUsage).toHaveBeenCalledTimes(1)
+    expect(apiKeyService.recordUsage.mock.calls[0][1]).toMatchObject({ input_tokens: 100, cache_read_input_tokens: 900, output_tokens: 40 })
+  })
   it('keeps a failed non-stream response failed when it also reports usage', async () => {
     const res = makeResponse()
     const req = makeRequest(res, { model: 'grok-test', stream: false })

@@ -9,6 +9,24 @@ const count = jest.fn(async () => ({
   selection: { tokenizer: 'openai_o200k_base' },
   missing: ['protocol-framing'],
 }))
+const responsesCount = jest.fn((_req, res) =>
+  res.json({ object: 'response.input_tokens', input_tokens: 3, _crs_estimate: true }),
+)
+await jest.unstable_mockModule('../src/modules/relay/relay_openai_input_tokens.js', () => ({
+  handleResponsesInputTokens: responsesCount,
+}))
+await jest.unstable_mockModule('../src/modules/relay/relay_gemini_interactions_service.js', () => ({
+  geminiInteractionsService: {},
+}))
+await jest.unstable_mockModule('../src/modules/relay/relay_gemini_code_assist_handlers.js', () => ({
+  createCodeAssistHandler: () => jest.fn(),
+}))
+await jest.unstable_mockModule('../src/modules/relay/relay_responses_gateway.js', () => ({
+  relayResponsesViaProvider: jest.fn(),
+}))
+await jest.unstable_mockModule('../src/modules/relay/relay_model_discovery.js', () => ({
+  sendModelDiscovery: jest.fn(),
+}))
 await jest.unstable_mockModule('../src/infra/middleware_auth.js', () => ({
   authenticateApiKey: (_req, _res, next) => next(),
 }))
@@ -32,6 +50,10 @@ await jest.unstable_mockModule('../src/modules/relay/relay_gemini_handlers_route
       'handleStandardGenerateContent',
       'handleStandardStreamGenerateContent',
       'handleCountTokens',
+      'handleLoadCodeAssist',
+      'handleOnboardUser',
+      'handleRetrieveUserQuota',
+      'handleInteractions',
     ].map((name) => [name, jest.fn()]),
   ),
 )
@@ -59,6 +81,25 @@ app.post('/v1/messages/count_tokens', (req, res) => {
   return dispatchRoutedRequest(req, res, 'claude-messages')
 })
 beforeEach(() => count.mockClear())
+
+const responsesRouter = express.Router({ mergeParams: true })
+responsesRouter.post('/v1/responses/input_tokens', (req, res) => {
+  req.apiKey = {
+    id: 'key1',
+    _relayRoute: { code: 'test', provider: 'openai', binding: 'group:g', formats: ['openai-responses'] },
+  }
+  req._relayRouteModel = { mappedModel: req.body.model }
+  return dispatchRoutedRequest(req, res, 'openai-responses')
+})
+app.use('/r/:routeCode', responsesRouter)
+test('named Responses counting delegates to the dedicated count handler rather than generation', async () => {
+  const result = await request(app)
+    .post('/r/test/v1/responses/input_tokens')
+    .send({ model: 'gpt-4o', input: 'hello' })
+    .expect(200)
+  expect(result.body.object).toBe('response.input_tokens')
+  expect(responsesCount).toHaveBeenCalledTimes(1)
+})
 
 test('cross-protocol token counts return explicit estimate body and provenance headers', async () => {
   const response = await request(app)

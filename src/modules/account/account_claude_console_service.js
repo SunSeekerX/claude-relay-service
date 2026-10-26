@@ -1,3 +1,4 @@
+import { normalizeAccountApiKeyUpdate } from './account_api_key_update.js'
 import { readMappedAccountModelRange } from '../../common/compat_account_models.js'
 import { normalizeAccountModelRange } from './account_model_policy.js'
 import crypto from 'node:crypto'
@@ -300,6 +301,7 @@ class ClaudeConsoleAccountService {
 
   // 更新账户
   async updateAccount(accountId, updates) {
+    normalizeAccountApiKeyUpdate(updates)
     try {
       const existingAccount = await this.getAccount(accountId)
       if (!existingAccount) {

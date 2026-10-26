@@ -147,9 +147,9 @@ const buildCostBreakdownFromResult = (costResult) => {
 }
 
 const createCostRecomputePatch = (record = {}) => {
-  const storedCost = normalizeNumber(record.cost, 6)
-  const storedRealCost = normalizeNumber(record.realCost)
-  if (storedCost > 0 || storedRealCost > 0 || record.realCostSource === 'upstream') {
+  const hasStoredAmount = (value) =>
+    value !== undefined && value !== null && value !== '' && Number.isFinite(Number(value))
+  if (hasStoredAmount(record.cost) || hasStoredAmount(record.realCost) || record.realCostSource === 'upstream') {
     return null
   }
 
@@ -562,6 +562,7 @@ const createSummaryAccumulator = () => ({
   cacheHitNumerator: 0,
   cacheHitDenominator: 0,
   openAIRelatedRequests: 0,
+  cacheCreateApplicableRequests: 0,
 })
 
 const updateSummaryAccumulator = (accumulator, record) => {
@@ -572,6 +573,7 @@ const updateSummaryAccumulator = (accumulator, record) => {
   accumulator.outputTokens += normalizeNumber(record.outputTokens)
   accumulator.cacheReadTokens += normalizeNumber(record.cacheReadTokens)
   if (!cacheMetrics.cacheCreateNotApplicable) {
+    accumulator.cacheCreateApplicableRequests += 1
     accumulator.cacheCreateTokens += normalizeNumber(record.cacheCreateTokens)
   }
   accumulator.totalCost += normalizeNumber(record.cost)
@@ -609,8 +611,7 @@ const finalizeSummary = (accumulator) => ({
   cacheHitNumerator: accumulator.cacheHitNumerator,
   cacheHitDenominator: accumulator.cacheHitDenominator,
   cacheHitFormula: requestDetailHelper.CACHE_HIT_FORMULA,
-  cacheCreateNotApplicable:
-    accumulator.totalRequests > 0 && accumulator.openAIRelatedRequests === accumulator.totalRequests,
+  cacheCreateNotApplicable: accumulator.totalRequests > 0 && accumulator.cacheCreateApplicableRequests === 0,
 })
 
 class RequestDetailService {
@@ -724,10 +725,16 @@ class RequestDetailService {
       outputTokens,
       cacheReadTokens,
       cacheCreateTokens,
+      cacheWrite30mTokens: normalizeOptionalNumber(detail.cacheWrite30mTokens),
+      cacheWrite12hTokens: normalizeOptionalNumber(detail.cacheWrite12hTokens),
+      speed: typeof detail.speed === 'string' ? detail.speed : null,
+      requestSpeed: typeof detail.requestSpeed === 'string' ? detail.requestSpeed : null,
+      requestAnthropicBeta: typeof detail.requestAnthropicBeta === 'string' ? detail.requestAnthropicBeta : null,
       totalTokens,
       cost,
       realCost,
       baseCost: normalizeOptionalNumber(detail.baseCost),
+      billingAudit: detail.billingAudit ?? null,
       toolUsage: detail.toolUsage ?? null,
       toolCost: normalizeNumber(detail.toolCost, 6),
       upstreamCostTicks: detail.upstreamCostTicks ?? null,
