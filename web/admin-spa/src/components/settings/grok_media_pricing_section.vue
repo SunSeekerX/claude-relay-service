@@ -35,7 +35,7 @@
                 {{
                   draft[modelName]?.mode === 'server_tools'
                     ? '按上游报告用量计费'
-                    : draft[modelName]?.mode || '-'
+                    : modeLabel(draft[modelName]?.mode)
                 }}
                 <span v-if="hasOverride(modelName)" class="ml-2 text-amber-600 dark:text-amber-400"
                   >已覆盖</span
@@ -142,8 +142,8 @@
         <div class="flex flex-wrap gap-2">
           <button
             class="btn btn-primary h-8 px-3 text-sm"
-            type="button"
             :disabled="saving"
+            type="button"
             @click="saveConfig"
           >
             <div v-if="saving" class="loading-spinner mr-1.5"></div>
@@ -152,8 +152,8 @@
           </button>
           <button
             class="btn btn-ghost h-8 px-3 text-sm"
-            type="button"
             :disabled="saving"
+            type="button"
             @click="resetAll"
           >
             全部恢复内置
@@ -189,6 +189,16 @@ const overlay = ref({})
 const updatedAt = ref(null)
 const updatedBy = ref(null)
 
+const modeLabel = (mode) =>
+  ({
+    image_generation: '图片生成',
+    image: '图片',
+    video_generation: '视频生成',
+    video: '视频',
+    server_tools: '服务端工具'
+  })[mode] ??
+  mode ??
+  '-'
 const modelNames = computed(() => Object.keys(draft.value || {}))
 const toolUnitLabels = {
   web_search_calls: '网页搜索 / 次',

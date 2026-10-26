@@ -234,10 +234,10 @@ export const acceptWebSocketEndpoint = (
     }
     buffer = buffer.length ? Buffer.concat([buffer, chunk]) : Buffer.from(chunk)
     if (buffer.length > 8 * 1024 * 1024 + 14) {
-           logger.warn(`[WsEndpoint:${label}] buffer overflow, closing`)
-           close(1009, 'message too big')
-           return
-         }
+      logger.warn(`[WsEndpoint:${label}] buffer overflow, closing`)
+      close(1009, 'message too big')
+      return
+    }
 
     while (!closed) {
       if (buffer.length < 2) {

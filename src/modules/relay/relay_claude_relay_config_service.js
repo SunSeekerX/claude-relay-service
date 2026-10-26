@@ -1,4 +1,5 @@
 import { redis } from '../../infra/redis.js'
+import { scopeRouteSession } from './relay_route_context.js'
 import { logger } from '../../common/logger.js'
 import * as metadataUserIdHelper from './relay_metadata_user_id_helper.js'
 import { RedisKeys } from '../../infra/redis_key.js'
@@ -88,7 +89,7 @@ class ClaudeRelayConfigService {
     if (!requestBody?.metadata?.user_id) {
       return null
     }
-    return metadataUserIdHelper.extractSessionId(requestBody.metadata.user_id)
+    return scopeRouteSession(metadataUserIdHelper.extractSessionId(requestBody.metadata.user_id))
   }
 
   /**

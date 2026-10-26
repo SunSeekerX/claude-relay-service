@@ -1,0 +1,22 @@
+{
+  "factory.svg": {
+    "source": "https://factory.com/favicon.svg",
+    "changes": "Extract the monochrome brand path, trim padding, and use currentColor."
+  },
+  "feishu.svg": {
+    "source": "https://lf-package-cn.feishucdn.com/obj/feishu-static/lark/open/website/favicon-logo.svg",
+    "changes": "Remove fixed dimensions for font-relative sizing."
+  },
+  "dingtalk.svg": {
+    "source": "https://img.alicdn.com/imgextra/i3/O1CN01WMvMRG1ks3Ixc9x1v_!!6000000004738-55-tps-32-32.svg",
+    "changes": "Use a viewBox instead of fixed dimensions and SVG2 href for symbol references."
+  },
+  "wecom.svg": {
+    "source": "https://wwcdn.weixin.qq.com/node/wwnl/wwnl/style/images/independent/favicon/favicon_48h$c976bd14.png",
+    "changes": "Embed the original app icon in an SVG for the offline Iconify collection."
+  },
+  "bark.svg": {
+    "source": "https://bark.day.app/_media/Icon.png",
+    "changes": "Embed the original app icon in an SVG for the offline Iconify collection."
+  }
+}

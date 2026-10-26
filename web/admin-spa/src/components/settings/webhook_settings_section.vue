@@ -81,9 +81,9 @@
             class="wh-platform-row"
           >
             <div
-              class="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-md bg-gray-100 dark:bg-gray-700"
+              class="flex h-6 w-6 shrink-0 items-center justify-center text-[var(--text-primary)]"
             >
-              <i class="text-sm" :class="getPlatformIcon(platform.type)"></i>
+              <i aria-hidden="true" class="text-xl" :class="getPlatformIcon(platform.type)" />
             </div>
             <div class="min-w-0 flex-1">
               <div class="flex flex-wrap items-center gap-x-2 gap-y-0.5">
@@ -185,7 +185,7 @@
       <div
         v-if="showPlatformModal"
         class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
-        @click="closePlatformModal"
+        @click="!savingPlatform && closePlatformModal()"
       >
         <div
           class="modal-panel flex max-h-[min(90vh,720px)] w-full max-w-lg flex-col overflow-hidden rounded-xl bg-white shadow-xl dark:bg-gray-800"
@@ -202,6 +202,7 @@
             </div>
             <button
               class="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-700 dark:hover:text-gray-200"
+              :disabled="savingPlatform"
               type="button"
               @click="closePlatformModal"
             >
@@ -512,9 +513,6 @@
           <div
             class="flex flex-shrink-0 flex-wrap items-center justify-end gap-2 border-t border-gray-200 px-4 py-3 dark:border-gray-700"
           >
-            <button class="btn btn-secondary h-8 px-3 text-sm" type="button" @click="closePlatformModal">
-              取消
-            </button>
             <button
               class="btn btn-secondary h-8 px-3 text-sm"
               :disabled="testingConnection"
@@ -531,20 +529,12 @@
               ></i>
               {{ testingConnection ? '测试中...' : '测试' }}
             </button>
-            <button
-              class="btn btn-primary h-8 px-3 text-sm"
-              :disabled="!isPlatformFormValid || savingPlatform"
-              type="button"
-              @click="savePlatform"
-            >
-              <i
-                class="mr-1.5"
-                :class="
-                  savingPlatform ? 'i-lucide-loader-circle animate-spin' : 'i-lucide-save'
-                "
-              ></i>
-              {{ savingPlatform ? '保存中...' : editingPlatform ? '保存' : '添加' }}
-            </button>
+            <DialogSaveActions
+              :disabled="!isPlatformFormValid"
+              :loading="savingPlatform"
+              @cancel="closePlatformModal"
+              @save="savePlatform"
+            />
           </div>
         </div>
       </div>
@@ -567,6 +557,7 @@
 import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 
 import { showToast } from '@/libs/tools'
+import { NOTIFICATION_ICONS } from '@/libs/platform_icons'
 import { isOk, dataOf, msgOf } from '@/libs/http_envelope'
 import * as httpApis from '@/libs/http_apis'
 import AppSwitch from '@/components/common/app_switch.vue'
@@ -602,18 +593,6 @@ const PLATFORM_NAMES = {
   bark: 'Bark',
   smtp: '邮件通知',
   custom: '自定义'
-}
-
-const PLATFORM_ICONS = {
-  wechat_work: 'i-si-wechat text-green-600',
-  dingtalk: 'i-lucide-message-circle text-blue-500',
-  feishu: 'i-lucide-bird text-blue-600',
-  slack: 'i-logos-slack-icon text-purple-600',
-  discord: 'i-logos-discord-icon text-indigo-600',
-  telegram: 'i-logos-telegram text-sky-500',
-  bark: 'i-lucide-bell text-orange-500',
-  smtp: 'i-lucide-mail text-blue-600',
-  custom: 'i-lucide-webhook text-gray-600'
 }
 
 const WEBHOOK_HINTS = {
@@ -775,7 +754,7 @@ const handleCancelModal = () => {
 const getNotificationTypeName = (type) => NOTIFICATION_TYPE_META[type]?.name || type
 const getNotificationTypeDescription = (type) => NOTIFICATION_TYPE_META[type]?.description || ''
 const getPlatformName = (type) => PLATFORM_NAMES[type] || type
-const getPlatformIcon = (type) => PLATFORM_ICONS[type] || 'i-lucide-bell'
+const getPlatformIcon = (type) => NOTIFICATION_ICONS[type] || 'i-lucide-bell'
 const getWebhookHint = (type) => WEBHOOK_HINTS[type] || ''
 
 // Telegram botToken / Bark deviceKey 等同敏感凭据，列表只展示掩码
@@ -1120,7 +1099,7 @@ const validatePlatformForm = () => {
   return true
 }
 
-const savePlatform = async () => {
+const savePlatform = async (closeAfter = false) => {
   if (!isMounted.value) return
   if (!validatePlatformForm()) return
   savingPlatform.value = true
@@ -1141,7 +1120,8 @@ const savePlatform = async () => {
     if (isOk(response)) {
       showToast(editingPlatform.value ? '渠道已更新' : '渠道已添加', 'success')
       await loadWebhookConfig()
-      closePlatformModal()
+      editingPlatform.value = { ...platformForm.value, id: response.data.platform.id }
+      if (closeAfter) closePlatformModal()
     } else {
       showToast(msgOf(response, editingPlatform.value ? '更新渠道失败' : '添加渠道失败'), 'error')
     }

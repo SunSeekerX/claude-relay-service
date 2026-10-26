@@ -24,6 +24,7 @@
           </div>
           <button
             class="inline-flex h-7 w-7 items-center justify-center rounded-md text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-700 dark:hover:text-gray-200"
+            :disabled="loading"
             type="button"
             @click="$emit('close')"
           >
@@ -68,7 +69,7 @@
         </div>
 
         <!-- 步骤1: 基本信息和代理设置 -->
-        <div v-if="oauthStep === 1 && !isEdit" class="account-form-create">
+        <div v-if="oauthStep === 1 && !isEdit" class="account-form-create" :inert="loading">
           <div class="space-y-2">
             <div v-if="!isEdit">
               <label class="mb-1 block text-sm font-semibold text-gray-700 dark:text-gray-300"
@@ -82,68 +83,68 @@
                   data-testid="account-form-platform-group"
                 >
                   <button
-                    type="button"
-                    class="flex min-w-[3.75rem] flex-1 items-center justify-center gap-1 rounded-md px-2 py-1.5 text-sm font-medium transition-all"
+                    class="flex min-w-[7rem] flex-1 items-center justify-center gap-2 rounded-md px-2 py-1.5 text-sm font-medium transition-all"
                     :class="
                       platformGroup === 'claude'
                         ? 'bg-white text-orange-600 shadow-sm dark:bg-gray-700 dark:text-orange-400'
                         : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200'
                     "
+                    type="button"
                     @click="selectPlatformGroup('claude')"
                   >
-                    <i class="i-lucide-sparkles text-sm" />
+                    <i aria-hidden="true" class="shrink-0 text-xl" :class="PLATFORM_ICONS.claude" />
                     Claude
                   </button>
                   <button
-                    type="button"
-                    class="flex min-w-[3.75rem] flex-1 items-center justify-center gap-1 rounded-md px-2 py-1.5 text-sm font-medium transition-all"
+                    class="flex min-w-[7rem] flex-1 items-center justify-center gap-2 rounded-md px-2 py-1.5 text-sm font-medium transition-all"
                     :class="
                       platformGroup === 'openai'
                         ? 'bg-white text-green-600 shadow-sm dark:bg-gray-700 dark:text-green-400'
                         : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200'
                     "
+                    type="button"
                     @click="selectPlatformGroup('openai')"
                   >
-                    <i class="i-lucide-zap text-sm" />
+                    <i aria-hidden="true" class="shrink-0 text-xl" :class="PLATFORM_ICONS.openai" />
                     OpenAI
                   </button>
                   <button
-                    type="button"
-                    class="flex min-w-[3.75rem] flex-1 items-center justify-center gap-1 rounded-md px-2 py-1.5 text-sm font-medium transition-all"
+                    class="flex min-w-[7rem] flex-1 items-center justify-center gap-2 rounded-md px-2 py-1.5 text-sm font-medium transition-all"
                     :class="
                       platformGroup === 'gemini'
                         ? 'bg-white text-blue-600 shadow-sm dark:bg-gray-700 dark:text-blue-400'
                         : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200'
                     "
+                    type="button"
                     @click="selectPlatformGroup('gemini')"
                   >
-                    <i class="i-lucide-star text-sm" />
+                    <i aria-hidden="true" class="shrink-0 text-xl" :class="PLATFORM_ICONS.gemini" />
                     Gemini
                   </button>
                   <button
-                    type="button"
-                    class="flex min-w-[3.75rem] flex-1 items-center justify-center gap-1 rounded-md px-2 py-1.5 text-sm font-medium transition-all"
+                    class="flex min-w-[7rem] flex-1 items-center justify-center gap-2 rounded-md px-2 py-1.5 text-sm font-medium transition-all"
                     :class="
                       platformGroup === 'droid'
                         ? 'bg-white text-rose-600 shadow-sm dark:bg-gray-700 dark:text-rose-400'
                         : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200'
                     "
+                    type="button"
                     @click="selectPlatformGroup('droid')"
                   >
-                    <i class="i-lucide-bot text-sm" />
+                    <i aria-hidden="true" class="shrink-0 text-xl" :class="PLATFORM_ICONS.droid" />
                     Droid
                   </button>
                   <button
-                    type="button"
-                    class="flex min-w-[3.75rem] flex-1 items-center justify-center gap-1 rounded-md px-2 py-1.5 text-sm font-medium transition-all"
+                    class="flex min-w-[7rem] flex-1 items-center justify-center gap-2 rounded-md px-2 py-1.5 text-sm font-medium transition-all"
                     :class="
                       platformGroup === 'grok'
                         ? 'bg-white text-zinc-900 shadow-sm dark:bg-gray-700 dark:text-zinc-100'
                         : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200'
                     "
+                    type="button"
                     @click="selectPlatformGroup('grok')"
                   >
-                    <i class="i-lucide-bolt text-sm" />
+                    <i aria-hidden="true" class="shrink-0 text-xl" :class="PLATFORM_ICONS.grok" />
                     Grok
                   </button>
                 </div>
@@ -174,7 +175,11 @@
                           value="claude"
                         />
                         <div class="flex items-center gap-2">
-                          <i class="i-lucide-brain text-sm text-indigo-600 dark:text-indigo-400"></i>
+                          <i
+                            aria-hidden="true"
+                            class="shrink-0 text-xl"
+                            :class="CLIENT_ICONS.claude_code"
+                          />
                           <div>
                             <span class="block text-sm font-medium text-gray-900 dark:text-gray-100"
                               >Claude Code</span
@@ -206,7 +211,7 @@
                         />
                         <div class="flex items-center gap-2">
                           <i
-                            class="i-lucide-terminal text-sm text-purple-600 dark:text-purple-400"
+                            class="text-base" :class="PLATFORM_ICONS.claude"
                           ></i>
                           <div>
                             <span class="block text-sm font-medium text-gray-900 dark:text-gray-100"
@@ -238,7 +243,7 @@
                           value="bedrock"
                         />
                         <div class="flex items-center gap-2">
-                          <i class="i-logos-aws text-sm text-orange-600 dark:text-orange-400"></i>
+                          <i aria-hidden="true" class="text-base" :class="PLATFORM_ICONS.bedrock" />
                           <div>
                             <span class="block text-sm font-medium text-gray-900 dark:text-gray-100"
                               >Bedrock</span
@@ -303,7 +308,7 @@
                         />
                         <div class="flex items-center gap-2">
                           <i
-                            class="i-lucide-bot text-sm text-emerald-600 dark:text-emerald-400"
+                            class="shrink-0 text-xl text-gray-900 dark:text-gray-100" :class="CLIENT_ICONS.codex"
                           ></i>
                           <div>
                             <span class="block text-sm font-medium text-gray-900 dark:text-gray-100"
@@ -335,7 +340,11 @@
                           value="openai-responses"
                         />
                         <div class="flex items-center gap-2">
-                          <i class="i-lucide-server text-sm text-teal-600 dark:text-teal-400"></i>
+                          <i
+                            aria-hidden="true"
+                            class="text-base text-gray-900 dark:text-gray-100"
+                            :class="PLATFORM_ICONS.openai"
+                          />
                           <div>
                             <span class="block text-sm font-medium text-gray-900 dark:text-gray-100"
                               >Responses</span
@@ -368,7 +377,11 @@
                           value="azure_openai"
                         />
                         <div class="flex items-center gap-2">
-                          <i class="i-logos-microsoft-icon text-sm text-blue-600 dark:text-blue-400"></i>
+                          <i
+                            aria-hidden="true"
+                            class="text-base"
+                            :class="PLATFORM_ICONS.azure_openai"
+                          />
                           <div>
                             <span class="block text-sm font-medium text-gray-900 dark:text-gray-100"
                               >Azure</span
@@ -404,7 +417,11 @@
                           value="gemini"
                         />
                         <div class="flex items-center gap-2">
-                          <i class="i-logos-google-icon text-sm text-blue-600 dark:text-blue-400"></i>
+                          <i
+                            aria-hidden="true"
+                            class="text-base text-blue-500"
+                            :class="PLATFORM_ICONS.gemini"
+                          />
                           <div>
                             <span class="block text-sm font-medium text-gray-900 dark:text-gray-100"
                               >Gemini Cli</span
@@ -434,7 +451,11 @@
                           value="gemini-antigravity"
                         />
                         <div class="flex items-center gap-2">
-                          <i class="i-lucide-rocket text-sm text-purple-600 dark:text-purple-400"></i>
+                          <i
+                            aria-hidden="true"
+                            class="text-xl"
+                            :class="PLATFORM_ICONS.antigravity"
+                          />
                           <div>
                             <span class="block text-sm font-medium text-gray-900 dark:text-gray-100"
                               >Antigravity</span
@@ -465,7 +486,11 @@
                           value="gemini-api"
                         />
                         <div class="flex items-center gap-2">
-                          <i class="i-lucide-key text-sm text-amber-600 dark:text-amber-400"></i>
+                          <i
+                            aria-hidden="true"
+                            class="text-base text-blue-500"
+                            :class="PLATFORM_ICONS.gemini"
+                          />
                           <div>
                             <span class="block text-sm font-medium text-gray-900 dark:text-gray-100"
                               >Gemini API</span
@@ -494,7 +519,11 @@
                       >
                         <input v-model="form.platform" class="sr-only" type="radio" value="droid" />
                         <div class="flex items-center gap-2">
-                          <i class="i-lucide-bot text-sm text-rose-600 dark:text-rose-400"></i>
+                          <i
+                            aria-hidden="true"
+                            class="text-base text-gray-900 dark:text-gray-100"
+                            :class="PLATFORM_ICONS.droid"
+                          />
                           <div>
                             <span class="block text-sm font-medium text-gray-900 dark:text-gray-100"
                               >Droid 专属</span
@@ -523,7 +552,11 @@
                       >
                         <input v-model="form.platform" class="sr-only" type="radio" value="grok" />
                         <div class="flex items-center gap-2">
-                          <i class="i-lucide-zap text-sm text-violet-600 dark:text-violet-400"></i>
+                          <i
+                            aria-hidden="true"
+                            class="text-base text-gray-900 dark:text-gray-100"
+                            :class="PLATFORM_ICONS.grok"
+                          />
                           <div>
                             <span class="block text-sm font-medium text-gray-900 dark:text-gray-100"
                               >Grok / xAI</span
@@ -630,8 +663,8 @@
                   <AppDateRangePicker
                     v-model="form.customExpireDate"
                     class="w-full"
-                    mode="single"
                     :min="minDateTime"
+                    mode="single"
                     :presets="false"
                     @change="updateAccountCustomExpireAt"
                   />
@@ -951,8 +984,8 @@
                   icon="i-lucide-globe"
                   :options="bedrockRegionDropdownOptions"
                   placeholder="选择 AWS 区域"
-                  searchable
                   search-placeholder="搜索区域..."
+                  searchable
                 />
                 <input
                   v-model="form.region"
@@ -1254,211 +1287,20 @@
                 </p>
               </div>
 
-              <div>
-                <label class="mb-1 block text-sm font-semibold text-gray-700 dark:text-gray-300"
-                  >模型限制 (可选)</label
-                >
-
-                <!-- 模式切换 -->
-                <div class="mb-4 flex gap-2">
-                  <button
-                    class="flex-1 rounded-lg px-4 py-2 text-sm font-medium transition-all"
-                    :class="
-                      modelRestrictionMode === 'whitelist'
-                        ? 'bg-blue-500 text-white shadow-md'
-                        : 'border border-gray-300 text-gray-600 hover:border-blue-300 dark:border-gray-600 dark:text-gray-400 dark:hover:border-blue-500'
-                    "
-                    type="button"
-                    @click="modelRestrictionMode = 'whitelist'"
-                  >
-                    <i class="i-lucide-circle-check mr-2" />
-                    模型白名单
-                  </button>
-                  <button
-                    class="flex-1 rounded-lg px-4 py-2 text-sm font-medium transition-all"
-                    :class="
-                      modelRestrictionMode === 'mapping'
-                        ? 'bg-purple-500 text-white shadow-md'
-                        : 'border border-gray-300 text-gray-600 hover:border-purple-300 dark:border-gray-600 dark:text-gray-400 dark:hover:border-purple-500'
-                    "
-                    type="button"
-                    @click="modelRestrictionMode = 'mapping'"
-                  >
-                    <i class="i-lucide-shuffle mr-2" />
-                    模型映射
-                  </button>
-                </div>
-
-                <!-- 白名单模式 -->
-                <div v-if="modelRestrictionMode === 'whitelist'">
-                  <div class="mb-3 rounded-lg bg-blue-50 p-3 dark:bg-blue-900/30">
-                    <p class="text-sm text-blue-700 dark:text-blue-400">
-                      <i class="i-lucide-info mr-1" />
-                      选择允许使用此账户的模型。留空表示支持所有模型。
-                    </p>
-                  </div>
-
-                  <!-- 模型复选框列表 -->
-                  <div class="mb-3 grid grid-cols-2 gap-2">
-                    <label
-                      v-for="model in commonModels"
-                      :key="model.value"
-                      class="flex cursor-pointer items-center rounded-lg border p-3 transition-all hover:bg-gray-50 dark:border-gray-600 dark:hover:bg-gray-700"
-                      :class="
-                        allowedModels.includes(model.value)
-                          ? 'border-blue-500 bg-blue-50 dark:border-blue-400 dark:bg-blue-900/30'
-                          : 'border-gray-300'
-                      "
-                    >
-                      <input
-                        v-model="allowedModels"
-                        class="mr-2 text-blue-600 focus:ring-blue-500"
-                        type="checkbox"
-                        :value="model.value"
-                      />
-                      <span class="text-sm font-medium text-gray-700 dark:text-gray-300">{{
-                        model.label
-                      }}</span>
-                    </label>
-                  </div>
-
-                  <p class="text-sm text-gray-500 dark:text-gray-400">
-                    已选择 {{ allowedModels.length }} 个模型
-                    <span v-if="allowedModels.length === 0">（支持所有模型）</span>
-                  </p>
-                </div>
-
-                <!-- 映射模式 -->
-                <div v-else>
-                  <div class="mb-3 rounded-lg bg-purple-50 p-3 dark:bg-purple-900/30">
-                    <p class="text-sm text-purple-700 dark:text-purple-400">
-                      <i class="i-lucide-info mr-1" />
-                      配置模型映射。左侧客户端模型，右侧上游模型。支持前缀通配：
-                      <code class="mx-0.5">claude-*</code>
-                      →
-                      <code class="mx-0.5">claude-sonnet-4</code>
-                      ；目标含
-                      <code class="mx-0.5">*</code>
-                      时会替换为后缀。
-                    </p>
-                  </div>
-
-                  <!-- 模型映射表 -->
-                  <div class="mb-3 space-y-2">
-                    <div
-                      v-for="(mapping, index) in modelMappings"
-                      :key="index"
-                      class="flex items-center gap-2"
-                    >
-                      <input
-                        v-model="mapping.from"
-                        class="form-input flex-1 border-transparent dark:border-transparent dark:bg-gray-700 dark:text-gray-200 dark:placeholder-gray-400"
-                        placeholder="原始模型，如 claude-*"
-                        type="text"
-                      />
-                      <i class="i-lucide-arrow-right text-gray-400 dark:text-gray-500" />
-                      <input
-                        v-model="mapping.to"
-                        class="form-input flex-1 border-transparent dark:border-transparent dark:bg-gray-700 dark:text-gray-200 dark:placeholder-gray-400"
-                        placeholder="映射后的模型名称"
-                        type="text"
-                      />
-                      <button
-                        class="rounded-lg p-2 text-red-500 transition-colors hover:bg-red-50 dark:hover:bg-red-900/20"
-                        type="button"
-                        @click="removeModelMapping(index)"
-                      >
-                        <i class="i-lucide-trash-2" />
-                      </button>
-                    </div>
-                  </div>
-
-                  <!-- 添加映射按钮 -->
-                  <button
-                    class="w-full rounded-lg border-2 border-dashed border-gray-300 px-4 py-2 text-gray-600 transition-colors hover:border-gray-400 hover:text-gray-700 dark:border-gray-600 dark:text-gray-400 dark:hover:border-gray-500 dark:hover:text-gray-300"
-                    type="button"
-                    @click="addModelMapping"
-                  >
-                    <i class="i-lucide-plus mr-2" />
-                    添加模型映射
-                  </button>
-
-                  <!-- 快捷添加按钮 -->
-                  <div class="mt-3 flex flex-wrap gap-2">
-                    <button
-                      class="rounded-lg bg-violet-100 px-3 py-1 text-sm text-violet-700 transition-colors hover:bg-violet-200 dark:bg-violet-900/30 dark:text-violet-400 dark:hover:bg-violet-900/50"
-                      type="button"
-                      @click="addPresetMapping('claude-opus-4-6', 'claude-opus-4-6')"
-                    >
-                      + Opus 4.6
-                    </button>
-                    <button
-                      class="rounded-lg bg-blue-100 px-3 py-1 text-sm text-blue-700 transition-colors hover:bg-blue-200 dark:bg-blue-900/30 dark:text-blue-400 dark:hover:bg-blue-900/50"
-                      type="button"
-                      @click="
-                        addPresetMapping('claude-opus-4-5-20251101', 'claude-opus-4-5-20251101')
-                      "
-                    >
-                      + Opus 4.5
-                    </button>
-                    <button
-                      class="rounded-lg bg-indigo-100 px-3 py-1 text-sm text-indigo-700 transition-colors hover:bg-indigo-200 dark:bg-indigo-900/30 dark:text-indigo-400 dark:hover:bg-indigo-900/50"
-                      type="button"
-                      @click="
-                        addPresetMapping('claude-sonnet-4-5-20250929', 'claude-sonnet-4-5-20250929')
-                      "
-                    >
-                      + Sonnet 4.5
-                    </button>
-                    <button
-                      class="rounded-lg bg-emerald-100 px-3 py-1 text-sm text-emerald-700 transition-colors hover:bg-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-400 dark:hover:bg-emerald-900/50"
-                      type="button"
-                      @click="
-                        addPresetMapping('claude-haiku-4-5-20251001', 'claude-haiku-4-5-20251001')
-                      "
-                    >
-                      + Haiku 4.5
-                    </button>
-                    <button
-                      class="rounded-lg bg-cyan-100 px-3 py-1 text-sm text-cyan-700 transition-colors hover:bg-cyan-200 dark:bg-cyan-900/30 dark:text-cyan-400 dark:hover:bg-cyan-900/50"
-                      type="button"
-                      @click="addPresetMapping('deepseek-chat', 'deepseek-chat')"
-                    >
-                      + DeepSeek
-                    </button>
-                    <button
-                      class="rounded-lg bg-orange-100 px-3 py-1 text-sm text-orange-700 transition-colors hover:bg-orange-200 dark:bg-orange-900/30 dark:text-orange-400 dark:hover:bg-orange-900/50"
-                      type="button"
-                      @click="addPresetMapping('Qwen', 'Qwen')"
-                    >
-                      + Qwen
-                    </button>
-                    <button
-                      class="rounded-lg bg-pink-100 px-3 py-1 text-sm text-pink-700 transition-colors hover:bg-pink-200 dark:bg-pink-900/30 dark:text-pink-400 dark:hover:bg-pink-900/50"
-                      type="button"
-                      @click="addPresetMapping('Kimi', 'Kimi')"
-                    >
-                      + Kimi
-                    </button>
-                    <button
-                      class="rounded-lg bg-teal-100 px-3 py-1 text-sm text-teal-700 transition-colors hover:bg-teal-200 dark:bg-teal-900/30 dark:text-teal-400 dark:hover:bg-teal-900/50"
-                      type="button"
-                      @click="addPresetMapping('GLM', 'GLM')"
-                    >
-                      + GLM
-                    </button>
-                    <button
-                      class="rounded-lg bg-amber-100 px-3 py-1 text-sm text-amber-700 transition-colors hover:bg-amber-200 dark:bg-amber-900/30 dark:text-amber-400 dark:hover:bg-amber-900/50"
-                      type="button"
-                      @click="
-                        addPresetMapping('claude-opus-4-1-20250805', 'claude-sonnet-4-20250514')
-                      "
-                    >
-                      + Opus → Sonnet
-                    </button>
-                  </div>
-                </div>
-              </div>
+              <AccountModelCatalog
+                v-model:model-mappings="modelMappings"
+                :account-id="isEdit ? account.id : ''"
+                :api-key="form.apiKey"
+                :base-api="form.baseApi"
+                :fallback-models="isEdit ? [] : commonModels"
+                :model-value="allowedModels"
+                :platform="form.platform"
+                :ready="modelRangeReady"
+                :restricted="modelRangeLimited"
+                @loaded="initializeModelRange"
+                @update:model-value="updateModelRange"
+                @update:restricted="updateModelRangeMode"
+              />
 
               <div>
                 <label class="mb-1 block text-sm font-semibold text-gray-700 dark:text-gray-300"
@@ -1538,21 +1380,33 @@
               />
             </div>
 
-            <!-- OpenAI-Responses：竖 tab 分基本信息 / 白名单 / 映射 -->
+            <!-- OpenAI Responses 连接信息与模型配置 -->
             <div v-if="form.platform === 'openai-responses' && !isEdit" class="space-y-4">
               <OpenAIResponsesFields
-                v-model:allowed-models="allowedModels"
                 v-model:api-key="form.apiKey"
                 v-model:base-api="form.baseApi"
                 v-model:daily-quota="form.dailyQuota"
                 v-model:max-concurrent-tasks="form.maxConcurrentTasks"
-                v-model:model-mappings="modelMappings"
                 v-model:provider-endpoint="form.providerEndpoint"
                 v-model:quota-reset-time="form.quotaResetTime"
-                v-model:user-agent="form.userAgent"
                 v-model:upstream-request-id-header="form.upstreamRequestIdHeader"
+                v-model:user-agent="form.userAgent"
                 :is-create="true"
                 :provider-endpoint-options="providerEndpointCreateOptions"
+              />
+              <AccountModelCatalog
+                v-model:model-mappings="modelMappings"
+                :account-id="isEdit ? account.id : ''"
+                :api-key="form.apiKey"
+                :base-api="form.baseApi"
+                :fallback-models="isEdit ? [] : commonModels"
+                :model-value="allowedModels"
+                :platform="form.platform"
+                :ready="modelRangeReady"
+                :restricted="modelRangeLimited"
+                @loaded="initializeModelRange"
+                @update:model-value="updateModelRange"
+                @update:restricted="updateModelRangeMode"
               />
               <input v-model.number="form.rateLimitDuration" type="hidden" value="60" />
             </div>
@@ -2129,6 +1983,10 @@
 
             <div class="flex gap-2 pt-2">
               <button
+                v-if="
+                  (form.addType === 'oauth' || form.addType === 'setup-token') &&
+                  !['claude-console', 'ccr', 'bedrock', 'azure_openai', 'openai-responses', 'gemini-api'].includes(form.platform)
+                "
                 class="inline-flex h-9 flex-1 items-center justify-center rounded-lg bg-gray-100 px-3 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600"
                 type="button"
                 @click="$emit('close')"
@@ -2152,23 +2010,20 @@
               >
                 下一步
               </button>
-              <button
+              <DialogSaveActions
                 v-else
-                class="btn btn-primary inline-flex h-9 flex-1 items-center justify-center px-3 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-60"
-                :disabled="loading"
-                type="button"
-                @click="createAccount"
-              >
-                <div v-if="loading" class="loading-spinner mr-2" />
-                {{ loading ? '创建中...' : '创建' }}
-              </button>
+                class="w-full"
+                :loading="loading"
+                @cancel="emit('close')"
+                @save="createAccount"
+              />
             </div>
           </div>
         </div>
 
         <!-- 步骤2: OAuth授权 -->
         <OAuthFlow
-          v-if="oauthStep === 2 && form.addType === 'oauth'"
+          v-if="!isEdit && oauthStep === 2 && form.addType === 'oauth'"
           ref="oauthFlowRef"
           :platform="form.platform"
           :proxy="form.proxy"
@@ -2179,7 +2034,7 @@
         />
 
         <!-- 步骤2: Setup Token授权 -->
-        <div v-if="oauthStep === 2 && form.addType === 'setup-token'" class="space-y-3">
+        <div v-if="!isEdit && oauthStep === 2 && form.addType === 'setup-token'" class="space-y-3">
           <!-- Claude Setup Token流程 -->
           <div v-if="form.platform === 'claude'">
             <div
@@ -2481,6 +2336,22 @@
               class="custom-scrollbar min-h-0 min-w-0 flex-1 space-y-4 overflow-y-auto px-2 py-1 md:px-4 md:py-2"
             >
           <!-- 基本信息 -->
+          <AccountModelCatalog
+            v-if="form.platform !== 'azure_openai'"
+            v-show="editActiveTab === 'model-catalog'"
+            v-model:model-mappings="modelMappings"
+            :account-id="isEdit ? account.id : ''"
+            :api-key="form.apiKey"
+            :base-api="form.baseApi"
+            :fallback-models="isEdit ? [] : commonModels"
+            :model-value="allowedModels"
+            :platform="form.platform"
+            :ready="modelRangeReady"
+            :restricted="modelRangeLimited"
+            @loaded="initializeModelRange"
+            @update:model-value="updateModelRange"
+            @update:restricted="updateModelRangeMode"
+          />
           <div v-show="editActiveTab === 'basic'" class="space-y-4">
           <div>
             <label class="mb-1 block text-sm font-semibold text-gray-700 dark:text-gray-300"
@@ -2954,229 +2825,7 @@
               </p>
             </div>
 
-            <div>
-              <label class="mb-1 block text-sm font-semibold text-gray-700 dark:text-gray-300"
-                >模型限制 (可选)</label
-              >
 
-              <!-- 模式切换 -->
-              <div class="mb-4 flex gap-2">
-                <button
-                  class="flex-1 rounded-lg px-4 py-2 text-sm font-medium transition-all"
-                  :class="
-                    modelRestrictionMode === 'whitelist'
-                      ? 'bg-blue-500 text-white shadow-md'
-                      : 'border border-gray-300 text-gray-600 hover:border-blue-300 dark:border-gray-600 dark:text-gray-400 dark:hover:border-blue-500'
-                  "
-                  type="button"
-                  @click="modelRestrictionMode = 'whitelist'"
-                >
-                  <i class="i-lucide-circle-check mr-2" />
-                  模型白名单
-                </button>
-                <button
-                  class="flex-1 rounded-lg px-4 py-2 text-sm font-medium transition-all"
-                  :class="
-                    modelRestrictionMode === 'mapping'
-                      ? 'bg-purple-500 text-white shadow-md'
-                      : 'border border-gray-300 text-gray-600 hover:border-purple-300 dark:border-gray-600 dark:text-gray-400 dark:hover:border-purple-500'
-                  "
-                  type="button"
-                  @click="modelRestrictionMode = 'mapping'"
-                >
-                  <i class="i-lucide-shuffle mr-2" />
-                  模型映射
-                </button>
-              </div>
-
-              <!-- 白名单模式 -->
-              <div v-if="modelRestrictionMode === 'whitelist'">
-                <div class="mb-3 rounded-lg bg-blue-50 p-3 dark:bg-blue-900/30">
-                  <p class="text-sm text-blue-700 dark:text-blue-400">
-                    <i class="i-lucide-info mr-1" />
-                    选择允许使用此账户的模型。留空表示支持所有模型。
-                  </p>
-                </div>
-
-                <!-- 模型复选框列表 -->
-                <div class="mb-3 grid grid-cols-2 gap-2">
-                  <label
-                    v-for="model in commonModels"
-                    :key="model.value"
-                    class="flex cursor-pointer items-center rounded-lg border p-3 transition-all hover:bg-gray-50 dark:border-gray-600 dark:hover:bg-gray-700"
-                    :class="
-                      allowedModels.includes(model.value)
-                        ? 'border-blue-500 bg-blue-50 dark:border-blue-400 dark:bg-blue-900/30'
-                        : 'border-gray-300'
-                    "
-                  >
-                    <input
-                      v-model="allowedModels"
-                      class="mr-2 text-blue-600 focus:ring-blue-500"
-                      type="checkbox"
-                      :value="model.value"
-                    />
-                    <span class="text-sm font-medium text-gray-700 dark:text-gray-300">{{
-                      model.label
-                    }}</span>
-                  </label>
-                </div>
-
-                <p class="text-sm text-gray-500 dark:text-gray-400">
-                  已选择 {{ allowedModels.length }} 个模型
-                  <span v-if="allowedModels.length === 0">（支持所有模型）</span>
-                </p>
-              </div>
-
-              <!-- 映射模式 -->
-              <div v-else>
-                <div class="mb-3 rounded-lg bg-purple-50 p-3 dark:bg-purple-900/30">
-                  <p class="text-sm text-purple-700 dark:text-purple-400">
-                    <i class="i-lucide-info mr-1" />
-                    配置模型映射。左侧客户端模型，右侧上游模型。支持前缀通配：
-                      <code class="mx-0.5">claude-*</code>
-                      →
-                      <code class="mx-0.5">claude-sonnet-4</code>
-                      ；目标含
-                      <code class="mx-0.5">*</code>
-                      时会替换为后缀。
-                  </p>
-                </div>
-
-                <!-- 模型映射表 -->
-                <div class="mb-3 space-y-2">
-                  <div
-                    v-for="(mapping, index) in modelMappings"
-                    :key="index"
-                    class="flex items-center gap-2"
-                  >
-                    <input
-                      v-model="mapping.from"
-                      class="form-input flex-1 border-transparent dark:border-transparent dark:bg-gray-700 dark:text-gray-200"
-                      placeholder="原始模型，如 claude-*"
-                      type="text"
-                    />
-                    <i class="i-lucide-arrow-right text-gray-400 dark:text-gray-500" />
-                    <input
-                      v-model="mapping.to"
-                      class="form-input flex-1 border-transparent dark:border-transparent dark:bg-gray-700 dark:text-gray-200"
-                      placeholder="映射后的模型名称"
-                      type="text"
-                    />
-                    <button
-                      class="rounded-lg p-2 text-red-500 transition-colors hover:bg-red-50 dark:hover:bg-red-900/20"
-                      type="button"
-                      @click="removeModelMapping(index)"
-                    >
-                      <i class="i-lucide-trash-2" />
-                    </button>
-                  </div>
-                </div>
-
-                <!-- 添加映射按钮 -->
-                <button
-                  class="w-full rounded-lg border-2 border-dashed border-gray-300 px-4 py-2 text-gray-600 transition-colors hover:border-gray-400 hover:text-gray-700 dark:border-gray-600 dark:text-gray-400 dark:hover:border-gray-500"
-                  type="button"
-                  @click="addModelMapping"
-                >
-                  <i class="i-lucide-plus mr-2" />
-                  添加模型映射
-                </button>
-
-                <!-- 快捷添加按钮 -->
-                <div class="mt-3 flex flex-wrap gap-2">
-                  <button
-                    class="rounded-lg bg-blue-100 px-3 py-1 text-sm text-blue-700 transition-colors hover:bg-blue-200 dark:bg-blue-900/30 dark:text-blue-400 dark:hover:bg-blue-900/50"
-                    type="button"
-                    @click="
-                      addPresetMapping('claude-sonnet-4-20250514', 'claude-sonnet-4-20250514')
-                    "
-                  >
-                    + Sonnet 4
-                  </button>
-                  <button
-                    class="rounded-lg bg-indigo-100 px-3 py-1 text-sm text-indigo-700 transition-colors hover:bg-indigo-200 dark:bg-indigo-900/30 dark:text-indigo-400 dark:hover:bg-indigo-900/50"
-                    type="button"
-                    @click="
-                      addPresetMapping('claude-sonnet-4-5-20250929', 'claude-sonnet-4-5-20250929')
-                    "
-                  >
-                    + Sonnet 4.5
-                  </button>
-                  <button
-                    class="rounded-lg bg-violet-100 px-3 py-1 text-sm text-violet-700 transition-colors hover:bg-violet-200 dark:bg-violet-900/30 dark:text-violet-400 dark:hover:bg-violet-900/50"
-                    type="button"
-                    @click="addPresetMapping('claude-opus-4-6', 'claude-opus-4-6')"
-                  >
-                    + Opus 4.6
-                  </button>
-                  <button
-                    class="rounded-lg bg-purple-100 px-3 py-1 text-sm text-purple-700 transition-colors hover:bg-purple-200 dark:bg-purple-900/30 dark:text-purple-400 dark:hover:bg-purple-900/50"
-                    type="button"
-                    @click="
-                      addPresetMapping('claude-opus-4-1-20250805', 'claude-opus-4-1-20250805')
-                    "
-                  >
-                    + Opus 4.1
-                  </button>
-                  <button
-                    class="rounded-lg bg-green-100 px-3 py-1 text-sm text-green-700 transition-colors hover:bg-green-200 dark:bg-green-900/30 dark:text-green-400 dark:hover:bg-green-900/50"
-                    type="button"
-                    @click="
-                      addPresetMapping('claude-3-5-haiku-20241022', 'claude-3-5-haiku-20241022')
-                    "
-                  >
-                    + Haiku 3.5
-                  </button>
-                  <button
-                    class="rounded-lg bg-emerald-100 px-3 py-1 text-sm text-emerald-700 transition-colors hover:bg-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-400 dark:hover:bg-emerald-900/50"
-                    type="button"
-                    @click="
-                      addPresetMapping('claude-haiku-4-5-20251001', 'claude-haiku-4-5-20251001')
-                    "
-                  >
-                    + Haiku 4.5
-                  </button>
-                  <button
-                    class="rounded-lg bg-cyan-100 px-3 py-1 text-sm text-cyan-700 transition-colors hover:bg-cyan-200 dark:bg-cyan-900/30 dark:text-cyan-400 dark:hover:bg-cyan-900/50"
-                    type="button"
-                    @click="addPresetMapping('deepseek-chat', 'deepseek-chat')"
-                  >
-                    + DeepSeek
-                  </button>
-                  <button
-                    class="rounded-lg bg-orange-100 px-3 py-1 text-sm text-orange-700 transition-colors hover:bg-orange-200 dark:bg-orange-900/30 dark:text-orange-400 dark:hover:bg-orange-900/50"
-                    type="button"
-                    @click="addPresetMapping('Qwen', 'Qwen')"
-                  >
-                    + Qwen
-                  </button>
-                  <button
-                    class="rounded-lg bg-pink-100 px-3 py-1 text-sm text-pink-700 transition-colors hover:bg-pink-200 dark:bg-pink-900/30 dark:text-pink-400 dark:hover:bg-pink-900/50"
-                    type="button"
-                    @click="addPresetMapping('Kimi', 'Kimi')"
-                  >
-                    + Kimi
-                  </button>
-                  <button
-                    class="rounded-lg bg-teal-100 px-3 py-1 text-sm text-teal-700 transition-colors hover:bg-teal-200 dark:bg-teal-900/30 dark:text-teal-400 dark:hover:bg-teal-900/50"
-                    type="button"
-                    @click="addPresetMapping('GLM', 'GLM')"
-                  >
-                    + GLM
-                  </button>
-                  <button
-                    class="rounded-lg bg-amber-100 px-3 py-1 text-sm text-amber-700 transition-colors hover:bg-amber-200 dark:bg-amber-900/30 dark:text-amber-400 dark:hover:bg-amber-900/50"
-                    type="button"
-                    @click="
-                      addPresetMapping('claude-opus-4-1-20250805', 'claude-sonnet-4-20250514')
-                    "
-                  >
-                    + Opus → Sonnet
-                  </button>
-                </div>
-              </div>
-            </div>
 
             <div>
               <label class="mb-3 block text-sm font-semibold text-gray-700"
@@ -3255,29 +2904,23 @@
           </div>
           <!-- /protection 段（与代理同属 network tab） -->
 
-          <!-- OpenAI Responses：连接段跟基本信息；白名单/映射独立 tab -->
+          <!-- OpenAI Responses 连接信息 -->
           <div
             v-show="
-              editActiveTab === 'basic' ||
-              editActiveTab === 'oi-whitelist' ||
-              editActiveTab === 'oi-mapping'
+              editActiveTab === 'basic'
             "
             class="space-y-4"
           >
             <OpenAIResponsesFields
               v-if="form.platform === 'openai-responses'"
-              v-model:allowed-models="allowedModels"
               v-model:api-key="form.apiKey"
               v-model:base-api="form.baseApi"
               v-model:daily-quota="form.dailyQuota"
               v-model:max-concurrent-tasks="form.maxConcurrentTasks"
-              v-model:model-mappings="modelMappings"
               v-model:provider-endpoint="form.providerEndpoint"
               v-model:quota-reset-time="form.quotaResetTime"
-              v-model:user-agent="form.userAgent"
               v-model:upstream-request-id-header="form.upstreamRequestIdHeader"
-              :account-id="account?.id || ''"
-              :external-tab="openaiExternalTab"
+              v-model:user-agent="form.userAgent"
               :is-create="false"
               :provider-endpoint-options="providerEndpointEditOptions"
             />
@@ -3358,8 +3001,8 @@
                 />
                 <button
                   class="password-toggle"
-                  type="button"
                   tabindex="-1"
+                  type="button"
                   @click="showApiKey = !showApiKey"
                 >
                   <i :class="showApiKey ? 'i-lucide-eye-off' : 'i-lucide-eye'" />
@@ -3414,8 +3057,8 @@
                 icon="i-lucide-globe"
                 :options="bedrockRegionDropdownOptions"
                 placeholder="选择 AWS 区域"
-                searchable
                 search-placeholder="搜索区域..."
+                searchable
               />
               <input
                 v-model="form.region"
@@ -3797,22 +3440,12 @@
           <div
             class="flex shrink-0 items-center gap-2 border-t border-gray-200 pt-2 dark:border-gray-700"
           >
-            <button
-              class="inline-flex h-10 flex-1 items-center justify-center rounded-lg bg-gray-100 px-4 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600"
-              type="button"
-              @click="$emit('close')"
-            >
-              取消
-            </button>
-            <button
-              class="btn btn-primary h-10 inline-flex flex-1 items-center justify-center px-4 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-60"
-              :disabled="loading"
-              type="button"
-              @click="updateAccount"
-            >
-              <div v-if="loading" class="loading-spinner mr-2" />
-              {{ loading ? '更新中...' : '更新' }}
-            </button>
+            <DialogSaveActions
+              class="w-full"
+              :loading="loading"
+              @cancel="emit('close')"
+              @save="updateAccount"
+            />
           </div>
         </div>
         <!-- /edit mode -->
@@ -3852,6 +3485,7 @@
 import { ref, computed, watch, onMounted } from 'vue'
 import ModalTransition from '@/components/common/modal_transition.vue'
 import { showToast } from '@/libs/tools'
+import { PLATFORM_ICONS, CLIENT_ICONS } from '@/libs/platform_icons'
 import { toStoreDateTime, localDateTimeInputToISOString } from '@/libs/time'
 import { isOk, msgOf, dataOf } from '@/libs/http_envelope'
 import AppDateRangePicker from '@/components/common/app_date_range_picker.vue'
@@ -3860,6 +3494,8 @@ import * as httpApis from '@/libs/http_apis'
 import { useAccountsStore } from '@/stores/accounts'
 import ProxyBinding from './proxy_binding.vue'
 import OpenAIResponsesFields from './openai_responses_fields.vue'
+import AccountModelCatalog from './account_model_catalog.vue'
+import { getAccountModelConfiguration } from '@/libs/account_model_config'
 import OAuthFlow from './oauth_flow.vue'
 import TempUnavailablePolicyFields from './temp_unavailable_policy_fields.vue'
 import ConfirmModal from '@/components/common/confirm_modal.vue'
@@ -3878,6 +3514,14 @@ const props = defineProps({
 const emit = defineEmits(['close', 'success', 'platform-changed'])
 
 const accountsStore = useAccountsStore()
+
+const completeCreate = (result, closeAfter = false) => {
+  if (!isOk(result)) {
+    showToast(msgOf(result, '账户保存失败'), 'error')
+    return
+  }
+  emit('success', { ...result, data: { ...result.data, platform: form.value.platform } }, closeAfter)
+}
 
 // 表单下拉选项
 const expireDurationOptions = [
@@ -4446,23 +4090,13 @@ const editTabs = computed(() => {
   // 基本信息 = 名称/类型 + 平台连接配置（合并，避免来回切）
   const tabs = [{ key: 'basic', label: '基本信息', icon: 'i-lucide-id-card' }]
 
-  if (platform === 'openai-responses') {
-    tabs.push({ key: 'oi-whitelist', label: '模型白名单', icon: 'i-lucide-circle-check' })
-    tabs.push({ key: 'oi-mapping', label: '模型映射', icon: 'i-lucide-shuffle' })
-  }
+
+  if (platform !== 'azure_openai') tabs.push({ key: 'model-catalog', label: '支持的模型', icon: 'i-lucide-list-filter' })
 
   tabs.push({ key: 'schedule', label: '调度', icon: 'i-lucide-sliders-horizontal' })
   // 代理 + 防护合一个 tab，侧栏少拆
   tabs.push({ key: 'network', label: '代理与防护', icon: 'i-lucide-shield' })
   return tabs
-})
-
-// OpenAI Responses：基本信息 tab 展示连接段，白名单/映射仍独立
-const openaiExternalTab = computed(() => {
-  if (editActiveTab.value === 'basic') return 'basic'
-  if (editActiveTab.value === 'oi-whitelist') return 'whitelist'
-  if (editActiveTab.value === 'oi-mapping') return 'mapping'
-  return ''
 })
 
 // 切平台或打开编辑时，确保当前 tab 仍合法
@@ -4508,52 +4142,34 @@ const buildClaudeTempUnavailablePolicyPayload = () => ({
   )
 })
 
-// 模型限制配置
-const modelRestrictionMode = ref('whitelist') // 'whitelist' 或 'mapping'
-// 白名单：空数组=不限制。Claude 平台创建时再填默认 Sonnet/Haiku；
-// OpenAI-Responses 必须保持空，否则会把 GPT 账户错误限制成三个 Claude 模型。
-const DEFAULT_CLAUDE_ALLOWED_MODELS = [
-  'claude-sonnet-4-20250514',
-  'claude-sonnet-4-5-20250929',
-  'claude-3-5-haiku-20241022'
-]
+// 模型范围与映射使用独立草稿；默认不限制。
 const allowedModels = ref([])
-
+const modelMappings = ref([])
+const modelRangeLimited = ref(false)
+const modelRangeReady = ref(!isEdit.value)
+const modelRangeEdited = ref(false)
 // 常用模型列表（从 API 获取）
 const commonModels = ref([])
 
 // OpenAI-Responses：上游同步的模型选项 + 手输
 
-// 创建态：Claude 系默认填 Sonnet/Haiku 白名单；OpenAI 系保持空（=不限制）
-// immediate:true —— 默认 platform 就是 claude，首次打开「添加账户」也必须填充，不能只靠后续切换
 watch(
   () => form.value.platform,
   (platform) => {
     if (isEdit.value) return
-    if (platform === 'openai-responses' || platform === 'openai' || platform === 'azure_openai') {
-      allowedModels.value = []
-      if (platform === 'azure_openai' && !form.value.apiVersion) {
-        form.value.apiVersion = AZURE_DEFAULT_API_VERSION
-      }
-      return
-    }
+    allowedModels.value = []
+    modelMappings.value = []
+    modelRangeLimited.value = false
+    modelRangeReady.value = true
+    modelRangeEdited.value = false
+    if (platform === 'azure_openai' && !form.value.apiVersion) form.value.apiVersion = AZURE_DEFAULT_API_VERSION
     if (platform === 'bedrock') {
       if (!form.value.region) form.value.region = BEDROCK_DEFAULT_REGION
       if (!form.value.defaultModel) form.value.defaultModel = BEDROCK_DEFAULT_MODEL
     }
-    if (
-      (platform === 'claude' ||
-        platform === 'claude-console' ||
-        platform === 'claude-official' ||
-        platform === 'bedrock') &&
-      (!Array.isArray(allowedModels.value) || allowedModels.value.length === 0)
-    ) {
-      allowedModels.value = [...DEFAULT_CLAUDE_ALLOWED_MODELS]
-    }
   },
   { immediate: true }
 )
-
 
 // 加载模型列表
 const loadCommonModels = async () => {
@@ -4568,64 +4184,36 @@ const loadCommonModels = async () => {
 }
 
 
-// 模型映射表数据
-const modelMappings = ref([])
-
-// 初始化模型映射表
+const updateModelRange = (models) => {
+  allowedModels.value = models
+  modelRangeEdited.value = true
+}
+const updateModelRangeMode = (limited) => {
+  modelRangeLimited.value = limited
+  modelRangeEdited.value = true
+}
+const initializeModelRange = (models) => {
+  if (!modelRangeEdited.value) {
+    allowedModels.value = [...models]
+    modelRangeLimited.value = models.length > 0
+  }
+  modelRangeReady.value = true
+}
+const validateAccountModels = () => {
+  if (modelRangeLimited.value && !allowedModels.value.length) {
+    showToast('请至少选择一个模型，或切换为“不限制”', 'error')
+    if (isEdit.value) editActiveTab.value = 'model-catalog'
+    return false
+  }
+  return true
+}
 const initModelMappings = () => {
-  // OpenAI Responses：白名单与映射独立字段（兼容旧 supportedModels 自映射=白名单）
-  if (props.account?.platform === 'openai-responses') {
-    const allowed = Array.isArray(props.account.allowedModels) ? props.account.allowedModels : []
-    let mapping = props.account.supportedModels
-    if (typeof mapping === 'string') {
-      try {
-        mapping = JSON.parse(mapping)
-      } catch {
-        mapping = {}
-      }
-    }
-    if (!mapping || typeof mapping !== 'object' || Array.isArray(mapping)) {
-      mapping = {}
-    }
-    const entries = Object.entries(mapping)
-    if (allowed.length === 0 && entries.length > 0 && entries.every(([f, t]) => f === t)) {
-      allowedModels.value = entries.map(([f]) => f)
-      modelMappings.value = []
-    } else {
-      allowedModels.value = [...allowed]
-      modelMappings.value = entries.map(([from, to]) => ({ from, to }))
-    }
-    return
-  }
-
-  if (props.account?.supportedModels) {
-    // 如果是对象格式（新的映射表）
-    if (
-      typeof props.account.supportedModels === 'object' &&
-      !Array.isArray(props.account.supportedModels)
-    ) {
-      const entries = Object.entries(props.account.supportedModels)
-
-      // 判断是白名单模式还是映射模式
-      // 如果所有映射都是"映射到自己"，则视为白名单模式
-      const isWhitelist = entries.every(([from, to]) => from === to)
-      if (isWhitelist) {
-        modelRestrictionMode.value = 'whitelist'
-        allowedModels.value = entries.map(([from]) => from)
-        modelMappings.value = entries.map(([from, to]) => ({ from, to }))
-      } else {
-        modelRestrictionMode.value = 'mapping'
-        modelMappings.value = entries.map(([from, to]) => ({ from, to }))
-      }
-    } else if (Array.isArray(props.account.supportedModels)) {
-      modelRestrictionMode.value = 'whitelist'
-      allowedModels.value = props.account.supportedModels
-      modelMappings.value = props.account.supportedModels.map((model) => ({
-        from: model,
-        to: model
-      }))
-    }
-  }
+  const config = getAccountModelConfiguration(props.account)
+  allowedModels.value = config.models
+  modelMappings.value = config.mappings
+  modelRangeLimited.value = config.models.length > 0
+  modelRangeReady.value = config.ready
+  modelRangeEdited.value = false
 }
 
 // 解析多行 API Key 输入
@@ -5162,7 +4750,8 @@ const handleOAuthSuccess = async (tokenInfoOrList) => {
 
         try {
           const result = await accountsStore.createClaudeAccount(data)
-          results.push(result)
+          if (isOk(result)) results.push(result)
+          else errors.push({ name: accountName, error: msgOf(result) })
         } catch (error) {
           errors.push({ name: accountName, error: error.message })
         }
@@ -5174,7 +4763,7 @@ const handleOAuthSuccess = async (tokenInfoOrList) => {
           ? `成功创建 ${results.length}/${tokenInfoList.length} 个账户`
           : '账户创建成功'
         showToast(msg, 'success')
-        emit('success', results[0]) // 兼容单个创建的返回
+        completeCreate(results[0])
       }
       if (errors.length > 0) {
         showToast(`${errors.length} 个账户创建失败`, 'error')
@@ -5340,7 +4929,7 @@ const handleOAuthSuccess = async (tokenInfoOrList) => {
     } else if (currentPlatform === 'grok') {
       if (tokenInfo?.__grokSsoImported) {
         loading.value = false
-        emit('success', tokenInfo.result)
+        emit('success', { data: { ...tokenInfo.result.created[0].account, platform: 'grok' } }, false)
         return
       }
       const raw = tokenInfo.tokens || tokenInfo || {}
@@ -5381,7 +4970,7 @@ const handleOAuthSuccess = async (tokenInfoOrList) => {
       result = await accountsStore.createGeminiAccount(data)
     }
 
-    emit('success', result)
+    completeCreate(result)
   } catch (error) {
     // 显示详细的错误信息
     const errorMessage = error.response?.data?.error || error.message || '账户创建失败'
@@ -5413,7 +5002,8 @@ const handleOAuthSuccess = async (tokenInfoOrList) => {
 }
 
 // 创建账户（手动模式）
-const createAccount = async () => {
+const createAccount = async (closeAfter = false) => {
+  if (!validateAccountModels()) return
   // 清除之前的错误
   errors.value.name = ''
   errors.value.accessToken = ''
@@ -5718,7 +5308,8 @@ const createAccount = async () => {
       data.apiUrl = form.value.apiUrl
       data.apiKey = form.value.apiKey
       data.priority = form.value.priority || 50
-      data.supportedModels = convertMappingsToObject() || {}
+      data.supportedModels = convertModelMappingsOnly()
+      if (modelRangeReady.value) data.allowedModels = modelRangeLimited.value ? [...allowedModels.value] : []
       data.userAgent = form.value.userAgent || null
       // 如果不启用限流，传递 0 表示不限流
       data.rateLimitDuration = form.value.enableRateLimit ? form.value.rateLimitDuration || 60 : 0
@@ -5742,7 +5333,7 @@ const createAccount = async () => {
       data.dailyQuota = form.value.dailyQuota || 0
       data.quotaResetTime = form.value.quotaResetTime || '00:00'
       data.maxConcurrentTasks = form.value.maxConcurrentTasks || 0
-      data.allowedModels = Array.isArray(allowedModels.value) ? [...allowedModels.value] : []
+      if (modelRangeReady.value) data.allowedModels = modelRangeLimited.value ? [...allowedModels.value] : []
       data.supportedModels = convertModelMappingsOnly()
     } else if (form.value.platform === 'gemini-antigravity') {
       // Antigravity OAuth - set oauthProvider, submission happens below
@@ -5823,7 +5414,7 @@ const createAccount = async () => {
       throw new Error(`不支持的平台: ${form.value.platform}`)
     }
 
-    emit('success', result)
+    completeCreate(result, closeAfter)
   } catch (error) {
     // 显示详细的错误信息
     const errorMessage = error.response?.data?.error || error.message || '账户创建失败'
@@ -5853,7 +5444,8 @@ const createAccount = async () => {
 }
 
 // 更新账户
-const updateAccount = async () => {
+const updateAccount = async (closeAfter = false) => {
+  if (!validateAccountModels()) return
   // 清除之前的错误
   errors.value.name = ''
   errors.value.apiKeys = ''
@@ -6076,7 +5668,8 @@ const updateAccount = async () => {
         data.apiKey = form.value.apiKey
       }
       data.priority = form.value.priority || 50
-      data.supportedModels = convertMappingsToObject() || {}
+      data.supportedModels = convertModelMappingsOnly()
+      if (modelRangeReady.value) data.allowedModels = modelRangeLimited.value ? [...allowedModels.value] : []
       data.userAgent = form.value.userAgent || null
       // 如果不启用限流，传递 0 表示不限流
       data.rateLimitDuration = form.value.enableRateLimit ? form.value.rateLimitDuration || 60 : 0
@@ -6102,7 +5695,7 @@ const updateAccount = async () => {
       data.dailyQuota = form.value.dailyQuota || 0
       data.quotaResetTime = form.value.quotaResetTime || '00:00'
       data.maxConcurrentTasks = form.value.maxConcurrentTasks || 0
-      data.allowedModels = Array.isArray(allowedModels.value) ? [...allowedModels.value] : []
+      if (modelRangeReady.value) data.allowedModels = modelRangeLimited.value ? [...allowedModels.value] : []
       data.supportedModels = convertModelMappingsOnly()
     }
 
@@ -6174,36 +5767,45 @@ const updateAccount = async () => {
         : []
     }
 
+    if (!['claude-console', 'ccr', 'openai-responses', 'azure_openai'].includes(form.value.platform)) {
+      if (modelRangeReady.value) data.supportedModels = modelRangeLimited.value ? [...allowedModels.value] : []
+      else delete data.supportedModels
+    }
     // 支持 disableAutoProtection 的平台才写入
     if (autoProtectionPlatforms.includes(props.account.platform)) {
       data.disableAutoProtection = !!form.value.disableAutoProtection
     }
 
+    let result
     if (props.account.platform === 'claude') {
-      await accountsStore.updateClaudeAccount(props.account.id, data)
+      result = await accountsStore.updateClaudeAccount(props.account.id, data)
     } else if (props.account.platform === 'claude-console') {
-      await accountsStore.updateClaudeConsoleAccount(props.account.id, data)
+      result = await accountsStore.updateClaudeConsoleAccount(props.account.id, data)
     } else if (props.account.platform === 'openai-responses') {
-      await accountsStore.updateOpenAIResponsesAccount(props.account.id, data)
+      result = await accountsStore.updateOpenAIResponsesAccount(props.account.id, data)
     } else if (props.account.platform === 'bedrock') {
-      await accountsStore.updateBedrockAccount(props.account.id, data)
+      result = await accountsStore.updateBedrockAccount(props.account.id, data)
     } else if (props.account.platform === 'openai') {
-      await accountsStore.updateOpenAIAccount(props.account.id, data)
+      result = await accountsStore.updateOpenAIAccount(props.account.id, data)
     } else if (props.account.platform === 'azure_openai') {
-      await accountsStore.updateAzureOpenAIAccount(props.account.id, data)
+      result = await accountsStore.updateAzureOpenAIAccount(props.account.id, data)
     } else if (props.account.platform === 'gemini') {
-      await accountsStore.updateGeminiAccount(props.account.id, data)
+      result = await accountsStore.updateGeminiAccount(props.account.id, data)
     } else if (props.account.platform === 'gemini-api') {
-      await accountsStore.updateGeminiApiAccount(props.account.id, data)
+      result = await accountsStore.updateGeminiApiAccount(props.account.id, data)
     } else if (props.account.platform === 'droid') {
-      await accountsStore.updateDroidAccount(props.account.id, data)
+      result = await accountsStore.updateDroidAccount(props.account.id, data)
     } else if (props.account.platform === 'grok') {
-      await accountsStore.updateGrokAccount(props.account.id, data)
+      result = await accountsStore.updateGrokAccount(props.account.id, data)
     } else {
       throw new Error(`不支持的平台: ${props.account.platform}`)
     }
 
-    emit('success')
+    if (!isOk(result)) {
+      showToast(msgOf(result, '账户保存失败'), 'error')
+      return
+    }
+    emit('success', undefined, closeAfter)
   } catch (error) {
     // 显示详细的错误信息
     const errorMessage = error.response?.data?.error || error.message || '账户更新失败'
@@ -6586,31 +6188,7 @@ watch(
   }
 )
 
-// 添加模型映射
-const addModelMapping = () => {
-  modelMappings.value.push({ from: '', to: '' })
-}
-
-// 移除模型映射
-const removeModelMapping = (index) => {
-  modelMappings.value.splice(index, 1)
-}
-
-// 添加预设映射
-const addPresetMapping = (from, to) => {
-  // 检查是否已存在相同的映射
-  const exists = modelMappings.value.some((mapping) => mapping.from === from)
-  if (exists) {
-    showToast(`模型 ${from} 的映射已存在`, 'info')
-    return
-  }
-
-  modelMappings.value.push({ from, to })
-  showToast(`已添加映射: ${from} → ${to}`, 'success')
-}
-
-// OpenAI Responses：白名单/映射是两个独立字段，映射只读 modelMappings，不看 modelRestrictionMode
-// （OI 页没有 mode 切换，mode 默认 whitelist，若走 convertMappingsToObject 会把真实映射写成 {} 或自映射覆盖）
+// 模型映射只负责改名，与调用范围独立。
 const convertModelMappingsOnly = () => {
   const mapping = {}
   for (const item of modelMappings.value) {
@@ -6619,31 +6197,11 @@ const convertModelMappingsOnly = () => {
   return mapping
 }
 
-// 将模型映射表转换为对象格式（根据当前模式）—— Claude Console / CCR 等仍用 mode 二选一
-const convertMappingsToObject = () => {
-  const mapping = {}
-
-  if (modelRestrictionMode.value === 'whitelist') {
-    // 白名单模式：将选中的模型映射到自己
-    allowedModels.value.forEach((model) => {
-      mapping[model] = model
-    })
-  } else {
-    // 映射模式：使用手动配置的映射表
-    modelMappings.value.forEach((item) => {
-      if (item.from && item.to) {
-        mapping[item.from] = item.to
-      }
-    })
-  }
-
-  return Object.keys(mapping).length > 0 ? mapping : null
-}
-
 // 监听账户变化，更新表单
 watch(
   () => props.account,
   (newAccount) => {
+    modelRangeEdited.value = false
     if (newAccount) {
       initModelMappings()
       // 重新初始化代理配置
@@ -7016,7 +6574,7 @@ watch(
   padding: 0.4rem 0.5rem;
 }
 
-.account-form-create :deep(.size-sm .cute-option-card__icon) {
+.account-form-create :deep(.size-sm:not(.is-compact) .cute-option-card__icon) {
   height: 1.5rem;
   width: 1.5rem;
 }

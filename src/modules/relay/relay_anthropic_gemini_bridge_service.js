@@ -1,4 +1,5 @@
 import util from 'node:util'
+import { StringDecoder } from 'node:string_decoder'
 import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -6,7 +7,11 @@ import { logger } from '../../common/logger.js'
 import * as geminiSignature from './translator/relay_translator_gemini_signature.js'
 import { onClientDisconnect } from '../../common/client_disconnect.js'
 import { getProjectRoot } from '../../common/project_paths.js'
-import { buildTokenUsagePayload, createRequestDetailMeta } from './relay_request_detail_helper.js'
+import {
+  buildGeminiTokenUsagePayload,
+  normalizeGeminiTokenUsage,
+  createRequestDetailMeta,
+} from './relay_request_detail_helper.js'
 import * as geminiAccountService from '../account/account_gemini_service.js'
 import { unifiedGeminiScheduler } from './relay_unified_gemini_scheduler.js'
 import { sessionHelper } from './relay_session_helper.js'
@@ -29,8 +34,8 @@ const sanitizeUpstreamError = (error) =>
         error: {
           type: 'invalid_request_error',
           code: error.code,
-          message: extractSafeMessage(error.message)
-        }
+          message: extractSafeMessage(error.message),
+        },
       }
     : sanitizeProviderError(error)
 /**
@@ -1950,7 +1955,7 @@ export const handleAnthropicMessagesToGemini = async (req, res, { vendor, baseMo
       }
 
       const usageMetadata = payload?.usageMetadata || {}
-      const inputTokens = usageMetadata.promptTokenCount || 0
+      const { inputTokens, cacheReadTokens } = normalizeGeminiTokenUsage(usageMetadata)
       const outputTokens = resolveUsageOutputTokens(usageMetadata)
       const finishReason = payload?.candidates?.[0]?.finishReason
 
@@ -1959,12 +1964,7 @@ export const handleAnthropicMessagesToGemini = async (req, res, { vendor, baseMo
       if (req.apiKey?.id && (inputTokens > 0 || outputTokens > 0)) {
         const bridgeCosts = await apiKeyService.recordUsage(
           req.apiKey.id,
-          buildTokenUsagePayload({
-            inputTokens,
-            // 输出只记 candidate；thought 走 thinkingTokens，避免与「思考」重复展示
-            outputTokens: usageMetadata.candidatesTokenCount || 0,
-            rawUsage: usageMetadata,
-          }),
+          buildGeminiTokenUsagePayload(usageMetadata ?? {}),
           effectiveModel,
           accountId,
           'gemini',
@@ -1982,7 +1982,7 @@ export const handleAnthropicMessagesToGemini = async (req, res, { vendor, baseMo
             // 限流与计费一致：candidate + thought
             outputTokens: (usageMetadata.candidatesTokenCount || 0) + (usageMetadata.thoughtsTokenCount || 0),
             cacheCreateTokens: 0,
-            cacheReadTokens: 0,
+            cacheReadTokens,
           },
           effectiveModel,
           'anthropic-messages',
@@ -2001,6 +2001,7 @@ export const handleAnthropicMessagesToGemini = async (req, res, { vendor, baseMo
         stop_sequence: null,
         usage: {
           input_tokens: inputTokens,
+          cache_read_input_tokens: cacheReadTokens,
           output_tokens: outputTokens,
         },
       }
@@ -2200,6 +2201,7 @@ export const handleAnthropicMessagesToGemini = async (req, res, { vendor, baseMo
     // ===
 
     let buffer = ''
+    const streamDecoder = new StringDecoder('utf8')
     let emittedText = ''
     let emittedThinking = ''
     let emittedThoughtSignature = ''
@@ -2454,7 +2456,7 @@ export const handleAnthropicMessagesToGemini = async (req, res, { vendor, baseMo
         return
       }
 
-      const inputTokens = usageMetadata?.promptTokenCount || 0
+      const { inputTokens, cacheReadTokens } = normalizeGeminiTokenUsage(usageMetadata ?? {})
       const outputTokens = resolveUsageOutputTokens(usageMetadata)
 
       if (currentBlockType === 'text' || currentBlockType === 'thinking') {
@@ -2468,6 +2470,8 @@ export const handleAnthropicMessagesToGemini = async (req, res, { vendor, baseMo
           stop_sequence: null,
         },
         usage: {
+          input_tokens: inputTokens,
+          cache_read_input_tokens: cacheReadTokens,
           output_tokens: outputTokens,
         },
       })
@@ -2483,7 +2487,11 @@ export const handleAnthropicMessagesToGemini = async (req, res, { vendor, baseMo
         stop_reason: emittedAnyToolUse ? 'tool_use' : mapGeminiFinishReasonToAnthropicStopReason(finishReason),
         tool_use_names: Array.from(emittedToolUseNames).filter(Boolean),
         text_preview: emittedText ? emittedText.slice(0, 800) : '',
-        usage: { input_tokens: inputTokens, output_tokens: outputTokens },
+        usage: {
+          input_tokens: inputTokens,
+          cache_read_input_tokens: cacheReadTokens,
+          output_tokens: outputTokens,
+        },
       })
 
       // 记录 Antigravity 上游流摘要用于调试
@@ -2496,7 +2504,11 @@ export const handleAnthropicMessagesToGemini = async (req, res, { vendor, baseMo
           hasThinking: Boolean(emittedThinking || emittedThoughtSignature),
           hasToolCalls: emittedAnyToolUse,
           toolCallNames: Array.from(emittedToolUseNames).filter(Boolean),
-          usage: { input_tokens: inputTokens, output_tokens: outputTokens },
+          usage: {
+            input_tokens: inputTokens,
+            cache_read_input_tokens: cacheReadTokens,
+            output_tokens: outputTokens,
+          },
           textPreview: emittedText ? emittedText.slice(0, 500) : '',
         }).catch(() => {})
       }
@@ -2504,12 +2516,7 @@ export const handleAnthropicMessagesToGemini = async (req, res, { vendor, baseMo
       if (req.apiKey?.id && (inputTokens > 0 || outputTokens > 0)) {
         const bridgeStreamCosts = await apiKeyService.recordUsage(
           req.apiKey.id,
-          buildTokenUsagePayload({
-            inputTokens,
-            // 输出只记 candidate；thought 走 thinkingTokens
-            outputTokens: usageMetadata?.candidatesTokenCount || 0,
-            rawUsage: usageMetadata || {},
-          }),
+          buildGeminiTokenUsagePayload(usageMetadata ?? {}),
           effectiveModel,
           accountId,
           'gemini',
@@ -2526,7 +2533,7 @@ export const handleAnthropicMessagesToGemini = async (req, res, { vendor, baseMo
             inputTokens,
             outputTokens: (usageMetadata?.candidatesTokenCount || 0) + (usageMetadata?.thoughtsTokenCount || 0),
             cacheCreateTokens: 0,
-            cacheReadTokens: 0,
+            cacheReadTokens,
           },
           effectiveModel,
           'anthropic-messages-stream',
@@ -2536,14 +2543,8 @@ export const handleAnthropicMessagesToGemini = async (req, res, { vendor, baseMo
       }
     }
 
-    streamResponse.on('data', (chunk) => {
-      resetActivityTimeout() // 收到数据，重置倒计时
-
-      if (finished) {
-        return
-      }
-
-      buffer += chunk.toString()
+    const consumeStreamText = (text) => {
+      buffer += text
       const lines = buffer.split('\n')
       buffer = lines.pop() || ''
 
@@ -2725,9 +2726,19 @@ export const handleAnthropicMessagesToGemini = async (req, res, { vendor, baseMo
           }
         }
       }
+    }
+
+    streamResponse.on('data', (chunk) => {
+      resetActivityTimeout()
+      if (!finished) {
+        consumeStreamText(streamDecoder.write(chunk))
+      }
     })
 
     streamResponse.on('end', () => {
+      if (!finished) {
+        consumeStreamText(`${streamDecoder.end()}\n`)
+      }
       if (activityTimeout) {
         clearTimeout(activityTimeout)
       } // 正常结束，清除超时计时器

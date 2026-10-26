@@ -38,7 +38,17 @@ const getConfig = () => {
   return _config
 }
 
+export const TestPromptLimits = { templates: 100, promptCharacters: 32000, configBytes: 512 * 1024 }
+
 export const RedisKeys = {
+  relayRoutes: 'relay:routes',
+  tokenizer: {
+    settings: 'tokenizer:settings',
+    task: (id) => `tokenizer:task:${id}`,
+    cancel: (id) => `tokenizer:task_cancel:${id}`,
+    tasks: 'tokenizer:tasks',
+    taskLock: 'tokenizer:task_lock'
+  },
   // === API Key ===
   apiKey: {
     byId: (id) => `apikey:${id}`, // Hash: API Key 主数据
@@ -161,8 +171,9 @@ export const RedisKeys = {
     balanceScript: (platform, accountId) => `account_balance_script:${platform}:${accountId}`,
     overload: (accountId) => `account:overload:${accountId}`, // String: 过载冷却
     testHistory: (platform, accountId) => `account:test_history:${platform}:${accountId}`, // List
-    testConfig: (platform, accountId) => `account:test_config:${platform}:${accountId}`, // String JSON
+    testConfig: (platform, accountId) => `account:test_config:${platform}:${accountId}`, // Hash
     testConfigPattern: (platform) => `account:test_config:${platform}:*`,
+    testConfigIndex: (platform) => `account:test_config_index:${platform}`,
     lastTest: (platform, accountId) => `account:last_test:${platform}:${accountId}`,
   },
 
@@ -414,6 +425,7 @@ export const RedisKeys = {
   billingEvents: 'billing:events', // Stream
   relayConfig: 'claude_relay_config', // String(JSON): Claude relay 全局配置
   testModelConfig: 'test_model_config', // String(JSON): 连通性测试默认模型配置
+  testPromptConfig: 'test_prompt_config', // String(JSON): 访问测试题库,持久配置不设 TTL
   // String(JSON): 模型定价数据源(管理端可改,空/缺失回落 config/pricingSource.js)
   pricingSource: 'system:pricing_source',
   // Hash: 内部计费/目录模型(modelId -> 完整 JSON)
@@ -465,6 +477,7 @@ export const RedisKeys = {
     routeVersion: 'proxy:route:version', // String: 路由表版本号
     stats: (proxyId, contextKey) => `proxy:stats:${proxyId}:${contextKey}`, // Hash: 运行时统计
     statsPrefix: 'proxy:stats:', // stats key 扫描前缀
+    statsIndex: 'proxy:stats_index', // ZSet: stats key -> 到期毫秒
     probeLock: (proxyId, contextKey) => `proxy:stats:${proxyId}:${contextKey}:probe`,
     healthHistory: (proxyId) => `proxy:health_history:${proxyId}`, // List
     qualityResult: (proxyId) => `proxy:quality:${proxyId}`, // String(JSON)
@@ -483,6 +496,8 @@ export const RedisKeys = {
 const DAY = 86400
 
 export const TTL = {
+  tokenizerTask: 7 * 24 * 3600,
+  tokenizerTaskLock: 90,
   // —— 用量(API Key + 账户共用同套日/时/月) ——
   usageDaily: DAY * 32,
   usageHourly: DAY * 7,
@@ -511,6 +526,7 @@ export const TTL = {
   accountTestConfig: DAY * 365,
   accountLastTest: DAY * 7, // account:last_test 时间(7天)
   // —— 代理池 ——
+  proxyStats: 120,
   proxyHealthHistory: 7 * 24 * 3600,
   proxyQuality: 30 * 24 * 3600,
   proxyExitInfo: 30 * 24 * 3600,
@@ -577,13 +593,20 @@ export const TTL = {
   // 限流窗口(per-key 参数,毫秒)
   rateLimitWindowMs: (rateLimitWindow) => rateLimitWindow * 60 * 1000,
   // 并发租约(参数派生,毫秒)
-  concurrencyLeaseMs: (leaseSeconds, graceSeconds) => Math.max((leaseSeconds + graceSeconds) * 1000, 60000)
+  concurrencyLeaseMs: (leaseSeconds, graceSeconds) => Math.max((leaseSeconds + graceSeconds) * 1000, 60000),
 }
 
 // ===
 // LIMITS — 集合容量上限(仅"真有裁剪动作"的)
 // ===
 export const LIMITS = {
+  accountCatalogModels: 2000,
+  accountCatalogPages: 50,
+  accountCatalogBytes: 2 * 1024 * 1024,
+  tokenizerTasks: 50,
+  tokenizerDownloads: 4,
+  tokenizerRules: 200,
+  relayRoutes: 200,
   adminLoginAttempts: 20,
   adminLoginPeerAttempts: 200,
   usageRecords: 200,

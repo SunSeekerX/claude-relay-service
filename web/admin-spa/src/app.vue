@@ -4,26 +4,22 @@
 
     <!-- 全局组件 -->
     <ToastNotification ref="toastRef" />
+    <ThemeSettings />
+    <LayoutSettings />
   </div>
 </template>
 
 <script setup>
 import { onMounted, ref } from 'vue'
 import { useAuthStore } from '@/stores/auth'
-import { useThemeStore } from '@/stores/theme'
 import ToastNotification from '@/components/common/toast_notification.vue'
+import ThemeSettings from '@/components/common/theme_settings.vue'
+import LayoutSettings from '@/components/common/layout_settings.vue'
 
 const authStore = useAuthStore()
-const themeStore = useThemeStore()
 const toastRef = ref()
 
 onMounted(() => {
-  // 初始化主题
-  themeStore.initTheme()
-
-  // 监听系统主题变化
-  themeStore.watchSystemTheme()
-
   // 检查本地存储的认证状态
   authStore.checkAuth()
 

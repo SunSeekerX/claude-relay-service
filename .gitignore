@@ -239,6 +239,8 @@ dist/
 out/
 
 # Runtime files
+.agent_tmp/
+data/tokenizers/
 *.sock
 
 # Old admin interface (deprecated)

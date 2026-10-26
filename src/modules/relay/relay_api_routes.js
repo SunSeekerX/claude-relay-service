@@ -1,7 +1,9 @@
 import { trackRequestTiming } from '../../common/request_timing.js'
 import express from 'express'
+import { getLegacyProviderModels } from './relay_routing_service.js'
 import { claudeRelayService } from './relay_claude_relay_service.js'
 import { extractSafeMessage, buildAnthropicClientErrorBody } from '../../common/client_error_builder.js'
+import { modelAccessErrorBody } from './relay_model_access.js'
 import { claudeConsoleRelayService } from './relay_claude_console_relay_service.js'
 import { bedrockRelayService } from './relay_bedrock_relay_service.js'
 import { ccrRelayService } from './relay_ccr_relay_service.js'
@@ -20,9 +22,6 @@ import { claudeConsoleAccountService } from '../account/account_claude_console_s
 import { sanitizeUpstreamError } from '../../common/error_sanitizer.js'
 import { dumpAnthropicMessagesRequest } from './relay_anthropic_request_dump.js'
 import { createRequestDetailMeta } from './relay_request_detail_helper.js'
-import { unifiedGeminiScheduler } from './relay_unified_gemini_scheduler.js'
-import * as geminiAccountService from '../account/account_gemini_service.js'
-import { modelService } from '../pricing/pricing_model_service.js'
 import { isWarmupRequest, buildMockWarmupResponse, sendMockWarmupStream } from './relay_warmup_interceptor.js'
 import {
   handleAnthropicMessagesToGemini,
@@ -32,34 +31,7 @@ import { tryDedicatedBindingCrossProtocol } from './relay_messages_gateway.js'
 import { listTranslators, initTranslatorRegistry } from './translator/relay_translator_index.js'
 import { normalizeClaudeCodeToolsInRequest } from './relay_claude_code_tool_schemas.js'
 import { getAppVersion } from '../../common/common_helper.js'
-
-// Bedrock 等无上游 count_tokens 时的本地启发式：字符粗估
-const estimateAnthropicInputTokens = (body = {}) => {
-  const chunks = []
-  const push = (value) => {
-    if (value === null || value === undefined) {
-      return
-    }
-    if (typeof value === 'string') {
-      chunks.push(value)
-      return
-    }
-    try {
-      chunks.push(JSON.stringify(value))
-    } catch {
-      chunks.push(String(value))
-    }
-  }
-  push(body.system)
-  push(body.messages)
-  push(body.tools)
-  push(body.tool_choice)
-  push(body.thinking)
-  const text = chunks.join('\n')
-  const chars = text.length
-  const inputTokens = Math.max(1, Math.ceil(chars / 3))
-  return { input_tokens: inputTokens, chars }
-}
+import { countAnthropicEstimate, anthropicEstimateResponse } from '../tokenizer/tokenizer_service.js'
 
 export const apiRoutes = express.Router()
 
@@ -382,13 +354,12 @@ export const handleMessagesRequest = async (req, res) => {
           unifiedClaudeScheduler.selectAccountForApiKey(
             {
               ...req.apiKey,
-              _isClaudeCode:
-                claudeRelayService.isRealClaudeCodeRequest(req.body) === true
+              _isClaudeCode: claudeRelayService.isRealClaudeCodeRequest(req.body) === true,
             },
             sessionHash,
             requestedModel,
-            forcedAccount
-          )
+            forcedAccount,
+          ),
         )
         ;({ accountId, accountType } = selection)
         // 失败明细归属：选号成功即写入，finish 钩子可带上账户
@@ -1051,13 +1022,12 @@ export const handleMessagesRequest = async (req, res) => {
           unifiedClaudeScheduler.selectAccountForApiKey(
             {
               ...req.apiKey,
-              _isClaudeCode:
-                claudeRelayService.isRealClaudeCodeRequest(req.body) === true
+              _isClaudeCode: claudeRelayService.isRealClaudeCodeRequest(req.body) === true,
             },
             sessionHash,
             requestedModel,
-            forcedAccountNonStream
-          )
+            forcedAccountNonStream,
+          ),
         )
         ;({ accountId, accountType } = selection)
         // 失败明细归属：选号成功即写入，finish 钩子可带上账户
@@ -1168,7 +1138,7 @@ export const handleMessagesRequest = async (req, res) => {
           const result = await bedrockRelayService.handleNonStreamRequest(
             _requestBodyNonStream,
             bedrockAccountResult.data,
-            _headersNonStream,
+            req.apiKey,
           )
 
           // 构建标准响应格式
@@ -1376,6 +1346,9 @@ export const handleMessagesRequest = async (req, res) => {
     return undefined
   } catch (error) {
     let handledError = error
+    if (error.code === 'model_not_allowed' && !res.headersSent) {
+      return res.status(403).json(modelAccessErrorBody(req, error))
+    }
 
     // 并发满额降级处理：捕获CONSOLE_ACCOUNT_CONCURRENCY_FULL错误
     if (handledError.code === 'CONSOLE_ACCOUNT_CONCURRENCY_FULL' && !req._concurrencyRetryAttempted) {
@@ -1435,9 +1408,15 @@ export const handleMessagesRequest = async (req, res) => {
       }
     }
 
-    logger.error('Claude relay error:', handledError.message, {
+    logger.error('Claude relay error', {
+      message: extractSafeMessage(handledError.message),
+      name: handledError.name,
       code: handledError.code,
-      stack: handledError.stack,
+      stack: handledError.stack?.replace(handledError.message, extractSafeMessage(handledError.message)),
+      requestId: req.requestId ?? req.id,
+      accountId: req._crsAccountId,
+      accountType: req._crsAccountType,
+      statusCode: handledError.statusCode,
     })
 
     // 确保在任何情况下都能返回有效的JSON响应
@@ -1489,80 +1468,17 @@ apiRoutes.post('/claude/v1/messages', authenticateApiKey, handleMessagesRequest)
 // 模型列表端点 - 支持 Claude, OpenAI, Gemini
 apiRoutes.get('/v1/models', authenticateApiKey, async (req, res) => {
   try {
-    // Claude Code / Anthropic baseUrl 的分流：/antigravity/api/v1/models 返回 Antigravity 实时模型列表
-    //（通过 v1internal:fetchAvailableModels），避免依赖静态 modelService 列表。
-    const forcedVendor = req._anthropicVendor || null
-    if (forcedVendor === 'antigravity') {
-      if (!apiKeyService.hasPermission(req.apiKey?.permissions, 'gemini')) {
-        return res.status(403).json({
-          error: {
-            type: 'permission_error',
-            message: '此 API Key 无权访问 Gemini 服务',
-          },
-        })
-      }
-
-      let accountSelection
-      try {
-        accountSelection = await trackRequestTiming(req, 'scheduling', () =>
-          unifiedGeminiScheduler.selectAccountForApiKey(req.apiKey, null, null, {
-            oauthProvider: 'antigravity'
-          })
-        )
-      } catch (error) {
-        logger.error('Failed to select Gemini OAuth account (antigravity models):', error)
-        return res.status(503).json({ error: 'No available Gemini OAuth accounts' })
-      }
-
-      const account = await geminiAccountService.getAccount(accountSelection.accountId)
-      if (!account) {
-        return res.status(503).json({ error: 'Gemini OAuth account not found' })
-      }
-
-      let proxyConfig = null
-      if (account.proxy) {
-        try {
-          proxyConfig = typeof account.proxy === 'string' ? JSON.parse(account.proxy) : account.proxy
-        } catch (e) {
-          logger.warn('Failed to parse proxy configuration:', e)
-        }
-      }
-
-      const models = await geminiAccountService.fetchAvailableModelsAntigravity(
-        account.accessToken,
-        proxyConfig,
-        account.refreshToken,
-      )
-
-      // 可选：根据 API Key 的模型限制过滤（黑名单语义）
-      let filteredModels = models
-      if (req.apiKey.enableModelRestriction && req.apiKey.restrictedModels?.length > 0) {
-        filteredModels = models.filter((model) => !req.apiKey.restrictedModels.includes(model.id))
-      }
-
-      return res.json({ object: 'list', data: filteredModels })
-    }
-
-    // 从 modelService 获取所有支持的模型
-    const models = modelService.getAllModels()
-
-    // 可选：根据 API Key 的模型限制过滤
-    let filteredModels = models
-    if (req.apiKey.enableModelRestriction && req.apiKey.restrictedModels?.length > 0) {
-      // 将 restrictedModels 视为黑名单：过滤掉受限模型
-      filteredModels = models.filter((model) => !req.apiKey.restrictedModels.includes(model.id))
-    }
-
-    res.json({
-      object: 'list',
-      data: filteredModels,
-    })
+    const provider =
+      req._anthropicVendor === 'antigravity'
+        ? 'antigravity'
+        : req._anthropicVendor === 'gemini-cli'
+          ? 'gemini'
+          : 'claude'
+    const models = await getLegacyProviderModels(req.apiKey, provider, 'claude-messages')
+    return res.json({ object: 'list', data: models })
   } catch (error) {
     logger.error('Models list error:', error)
-    res.status(500).json({
-      error: 'Failed to get models list',
-      message: error.message,
-    })
+    return res.status(500).json({ error: 'Failed to get models list' })
   }
 })
 
@@ -1741,25 +1657,22 @@ export const handleCountTokensRequest = async (req, res) => {
       unifiedClaudeScheduler.selectAccountForApiKey(
         {
           ...req.apiKey,
-          _isClaudeCode:
-            claudeRelayService.isRealClaudeCodeRequest(req.body) === true
+          _isClaudeCode: claudeRelayService.isRealClaudeCodeRequest(req.body) === true,
         },
         sessionHash,
-        requestedModel
-      )
+        requestedModel,
+      ),
     )
 
     if (accountType === 'ccr') {
       // CCR 无可靠 count_tokens：本地启发式（与 Bedrock 同口径）
-      const estimate = estimateAnthropicInputTokens(req.body)
+      const estimate = await countAnthropicEstimate(req.body, req.apiKey._relayRoute?.tokenizerOverride)
       logger.info(
-        `[count_tokens] ccr local estimate input_tokens=${estimate.input_tokens} key=${req.apiKey?.name || ''}`,
+        `[count_tokens] ccr local estimate input_tokens=${estimate.contentTokens} key=${req.apiKey?.name || ''}`,
       )
       if (!res.headersSent) {
         res.status(200).json({
-          input_tokens: estimate.input_tokens,
-          _crs_estimate: true,
-          _crs_estimate_method: 'char_heuristic',
+          ...anthropicEstimateResponse(estimate),
           _crs_account_type: 'ccr',
         })
       }
@@ -1768,16 +1681,13 @@ export const handleCountTokensRequest = async (req, res) => {
 
     if (accountType === 'bedrock') {
       // Bedrock 无官方 count_tokens：本地启发式估算（不假装上游精确值）
-      const estimate = estimateAnthropicInputTokens(req.body)
+      const estimate = await countAnthropicEstimate(req.body, req.apiKey._relayRoute?.tokenizerOverride)
       logger.info(
-        `[count_tokens] bedrock local estimate input_tokens=${estimate.input_tokens} key=${req.apiKey?.name || ''}`,
+        `[count_tokens] bedrock local estimate input_tokens=${estimate.contentTokens} key=${req.apiKey?.name || ''}`,
       )
       if (!res.headersSent) {
         res.status(200).json({
-          input_tokens: estimate.input_tokens,
-          // 标明为估算，避免客户端当精确值
-          _crs_estimate: true,
-          _crs_estimate_method: 'char_heuristic',
+          ...anthropicEstimateResponse(estimate),
         })
       }
       return { fallbackResponse: false, handled: true }

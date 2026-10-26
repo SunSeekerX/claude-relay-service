@@ -1,4 +1,6 @@
 import * as openaiAccountService from '../account/account_openai_service.js'
+import { getRouteAccount } from './relay_routing_service.js'
+import { scopeRouteSession } from './relay_route_context.js'
 import { assertModelAccess } from './relay_model_access.js'
 import { openaiResponsesAccountService } from '../account/account_openai_responses_service.js'
 import { accountGroupService } from '../account/account_group_service.js'
@@ -285,27 +287,32 @@ class UnifiedOpenAIScheduler {
   }
 
   // 统一调度OpenAI账号
-  async selectAccountForApiKey(
-    apiKeyData,
-    sessionHash = null,
-    requestedModel = null,
-    options = {}
-  ) {
+  async selectAccountForApiKey(apiKeyData, sessionHash = null, requestedModel = null, options = {}) {
     assertModelAccess(apiKeyData, requestedModel)
     try {
+      const route = apiKeyData._relayRoute
+      if (route) {
+        if (route.provider !== 'openai') {
+          throw new Error('入口与 OpenAI 调度器不匹配')
+        }
+        if (route.binding.startsWith('group:')) {
+          return await this.selectAccountFromGroup(route.binding.slice(6), sessionHash, requestedModel, apiKeyData, options)
+        }
+        const target = await getRouteAccount(route.provider, route.binding)
+        if (!target || !(await this._isAccountAvailable(target.accountId, target.accountType, requestedModel))) {
+          const error = new Error('入口绑定账号当前不可用')
+          error.statusCode = 503
+          throw error
+        }
+        return { accountId: target.accountId, accountType: target.accountType }
+      }
       // 如果API Key绑定了专属账户或分组，优先使用
       if (apiKeyData.openaiAccountId) {
         // 检查是否是分组
         if (apiKeyData.openaiAccountId.startsWith('group:')) {
           const groupId = apiKeyData.openaiAccountId.replace('group:', '')
           logger.info(`API key ${apiKeyData.name} is bound to group ${groupId}, selecting from group`)
-          return await this.selectAccountFromGroup(
-            groupId,
-            sessionHash,
-            requestedModel,
-            apiKeyData,
-            options
-          )
+          return await this.selectAccountFromGroup(groupId, sessionHash, requestedModel, apiKeyData, options)
         }
 
         // 普通专属账户 - 根据前缀判断是 OpenAI 还是 OpenAI-Responses 类型
@@ -848,6 +855,7 @@ class UnifiedOpenAIScheduler {
 
   // 获取会话映射
   async _getSessionMapping(sessionHash) {
+    sessionHash = scopeRouteSession(sessionHash)
     const client = redis.getClientSafe()
     const mappingData = await client.get(RedisKeys.session.unifiedOpenaiMapping(sessionHash))
 
@@ -865,6 +873,7 @@ class UnifiedOpenAIScheduler {
 
   // 设置会话映射
   async _setSessionMapping(sessionHash, accountId, accountType) {
+    sessionHash = scopeRouteSession(sessionHash)
     const client = redis.getClientSafe()
     const mappingData = JSON.stringify({ accountId, accountType })
     // 依据配置设置TTL（小时）
@@ -874,12 +883,14 @@ class UnifiedOpenAIScheduler {
 
   // 删除会话映射
   async _deleteSessionMapping(sessionHash) {
+    sessionHash = scopeRouteSession(sessionHash)
     const client = redis.getClientSafe()
     await client.del(RedisKeys.session.unifiedOpenaiMapping(sessionHash))
   }
 
   // 续期统一调度会话映射TTL（针对 unified_openai_session_mapping:* 键），遵循会话配置
   async _extendSessionMappingTTL(sessionHash) {
+    sessionHash = scopeRouteSession(sessionHash)
     try {
       const client = redis.getClientSafe()
       const key = RedisKeys.session.unifiedOpenaiMapping(sessionHash)
@@ -1041,13 +1052,7 @@ class UnifiedOpenAIScheduler {
   }
 
   // 从分组中选择账户
-  async selectAccountFromGroup(
-    groupId,
-    sessionHash = null,
-    requestedModel = null,
-    holdTarget = null,
-    options = {}
-  ) {
+  async selectAccountFromGroup(groupId, sessionHash = null, requestedModel = null, holdTarget = null, options = {}) {
     let releaseGroupCostHoldOnce = null
     try {
       // 获取分组信息
@@ -1087,7 +1092,7 @@ class UnifiedOpenAIScheduler {
       await groupPolicy.assertGroupRequestAllowed(group, {
         requestedModel,
         holdTarget,
-        deferAdmission: options.deferGroupAdmission === true
+        deferAdmission: options.deferGroupAdmission === true,
       })
 
       // 如果有会话哈希，检查是否有已映射的账户
@@ -1198,16 +1203,10 @@ class UnifiedOpenAIScheduler {
   }
 
   // 检查账户是否在分组中
-  async assertAccountForWebSocket(
-    apiKeyData,
-    accountId,
-    requestedModel,
-    originalBinding = null,
-    options = {}
-  ) {
+  async assertAccountForWebSocket(apiKeyData, accountId, requestedModel, originalBinding = null, options = {}) {
     if (!(await this._isAccountAvailable(accountId, 'openai', requestedModel))) {
       throw Object.assign(new Error('OpenAI account is unavailable for this model'), {
-        statusCode: 503
+        statusCode: 503,
       })
     }
     const binding = apiKeyData.openaiAccountId
@@ -1220,17 +1219,17 @@ class UnifiedOpenAIScheduler {
         !(await this._isAccountInGroup(accountId, groupId))
       ) {
         throw Object.assign(new Error('Account is outside the bound OpenAI group'), {
-          statusCode: 403
+          statusCode: 403,
         })
       }
       await groupPolicy.assertGroupRequestAllowed(group, {
         requestedModel,
         holdTarget: apiKeyData,
-        deferAdmission: options.deferGroupAdmission === true
+        deferAdmission: options.deferGroupAdmission === true,
       })
     } else if (binding && binding !== accountId && binding !== originalBinding) {
       throw Object.assign(new Error('OpenAI account binding changed; reconnect'), {
-        statusCode: 403
+        statusCode: 403,
       })
     }
   }

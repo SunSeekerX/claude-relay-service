@@ -71,6 +71,7 @@ services:
       
       # 日志配置
       - LOG_LEVEL=${LOG_LEVEL:-info}
+      - LOG_CONSOLE_FORMAT=${LOG_CONSOLE_FORMAT:-compact}
       - LOG_MAX_SIZE=${LOG_MAX_SIZE:-10m}
       - LOG_MAX_FILES=${LOG_MAX_FILES:-5}
       

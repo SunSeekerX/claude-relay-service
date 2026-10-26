@@ -268,12 +268,7 @@ body {
   -moz-osx-font-smoothing: grayscale;
   text-rendering: optimizeLegibility;
   color: var(--text-primary);
-  background: linear-gradient(
-    135deg,
-    var(--primary-color) 0%,
-    var(--secondary-color) 50%,
-    var(--accent-color) 100%
-  );
+  background: var(--page-bg, #f1f4f8);
   background-attachment: fixed;
   /* 高度跟 html 100% 走；页面自己用 min-h-dvh/h-dvh。避免 body 再叠 100dvh 双高度 */
   height: 100%;

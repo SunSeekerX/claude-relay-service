@@ -20,6 +20,7 @@
           </div>
           <button
             class="p-1 text-gray-400 transition-colors hover:text-gray-600 dark:hover:text-gray-300"
+            :disabled="loading"
             @click="requestClose"
           >
             <i class="i-lucide-x text-lg sm:text-xl" />
@@ -28,7 +29,7 @@
 
         <form
           class="flex min-h-0 flex-1 flex-col overflow-hidden"
-          @submit.prevent="batchUpdateApiKeys"
+          @submit.prevent="batchUpdateApiKeys(false)"
         >
           <div class="modal-scroll-content custom-scrollbar min-h-0 flex-1 space-y-3 overflow-y-auto sm:space-y-3">
           <!-- 说明文本 -->
@@ -422,25 +423,20 @@
           </div>
           </div>
 
+          <section class="space-y-2">
+            <label class="flex items-center gap-2 text-sm"><input v-model="form.updateRelayRouting" class="h-4 w-4" type="checkbox" />替换所选 Key 的入口授权与默认项</label>
+            <RouteAuthorizationEditor v-model="form.relayRouting" :disabled="!form.updateRelayRouting" />
+          </section>
+
           <div
             class="flex shrink-0 items-center gap-2 border-t border-gray-200 pt-2 dark:border-gray-700"
           >
-            <button
-              class="inline-flex h-10 flex-1 items-center justify-center rounded-lg bg-gray-100 px-4 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600"
-              type="button"
-              @click="requestClose"
-            >
-              取消
-            </button>
-            <button
-              class="btn btn-primary inline-flex h-10 flex-1 items-center justify-center px-4 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-60"
-              :disabled="loading"
-              type="submit"
-            >
-              <div v-if="loading" class="loading-spinner mr-2" />
-              <i v-else class="i-lucide-save mr-2" />
-              {{ loading ? '保存中...' : '批量保存' }}
-            </button>
+            <DialogSaveActions
+              class="w-full"
+              :loading="loading"
+              @cancel="requestClose"
+              @save="batchUpdateApiKeys"
+            />
           </div>
         </form>
       </div>
@@ -452,7 +448,9 @@
 import { ref, reactive, computed, onMounted } from 'vue'
 
 import ModalTransition from '@/components/common/modal_transition.vue'
+import RouteAuthorizationEditor from './route_authorization_editor.vue'
 import CuteOptionCards from '@/components/common/cute_option_cards.vue'
+import { PLATFORM_ICONS } from '@/libs/platform_icons'
 import { showToast } from '@/libs/tools'
 import { isOk, msgOf } from '@/libs/http_envelope'
 import { useApiKeysStore } from '@/stores/api_keys'
@@ -529,10 +527,10 @@ const isActiveOptions = [
 const permissionOptions = [
   { value: '', label: '不修改', icon: 'i-lucide-minus' },
   { value: 'all', label: '全部服务', icon: 'i-lucide-globe' },
-  { value: 'claude', label: '仅 Claude', icon: 'i-lucide-brain' },
-  { value: 'gemini', label: '仅 Gemini', icon: 'i-lucide-gem' },
-  { value: 'openai', label: '仅 OpenAI', icon: 'i-lucide-bot' },
-  { value: 'droid', label: '仅 Droid', icon: 'i-logos-android-icon' }
+  { value: 'claude', label: '仅 Claude', icon: PLATFORM_ICONS.claude, brand: true },
+  { value: 'gemini', label: '仅 Gemini', icon: PLATFORM_ICONS.gemini, brand: true },
+  { value: 'openai', label: '仅 OpenAI', icon: PLATFORM_ICONS.openai, brand: true },
+  { value: 'droid', label: '仅 Droid', icon: PLATFORM_ICONS.droid, brand: true }
 ]
 
 const selectedCount = computed(() => props.selectedKeys.length)
@@ -563,6 +561,8 @@ const unselectedTags = computed(() => {
 
 // 表单数据
 const form = reactive({
+  updateRelayRouting: false,
+  relayRouting: { allowedRoutes: [], defaults: {} },
   rateLimitCost: '', // 费用限制替代token限制
   rateLimitWindow: '',
   rateLimitRequests: '',
@@ -771,12 +771,15 @@ const refreshAccounts = async () => {
 }
 
 // 批量更新API Keys
-const batchUpdateApiKeys = async () => {
+const batchUpdateApiKeys = async (closeAfter = false) => {
   loading.value = true
 
   try {
     // 准备提交的数据
     const updates = {}
+    if (form.updateRelayRouting) {
+      updates.relayRouting = form.relayRouting
+    }
 
     // 只有非空值才添加到更新对象中
     if (form.rateLimitCost !== '' && form.rateLimitCost !== null) {
@@ -891,8 +894,8 @@ const batchUpdateApiKeys = async () => {
         showToast('所有 API Keys 编辑失败', 'error')
       }
 
-      emit('success')
-      requestClose()
+      if (successCount > 0) emit('success', closeAfter && failedCount === 0)
+      if (closeAfter && failedCount === 0 && successCount > 0) requestClose()
     } else {
       showToast(msgOf(result, '批量编辑失败'), 'error')
     }

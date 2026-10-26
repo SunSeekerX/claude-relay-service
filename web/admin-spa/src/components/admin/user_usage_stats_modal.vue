@@ -1,394 +1,107 @@
 <template>
-  <ModalTransition>
-    <div
-      v-if="show"
-      class="fixed inset-0 z-50 h-full w-full overflow-y-auto bg-gray-600 bg-opacity-50"
-    >
-      <div
-        class="modal-panel relative top-10 mx-auto w-4/5 max-w-4xl rounded-md border border-gray-200 bg-white p-5 shadow-lg dark:border-gray-700 dark:bg-gray-800"
-      >
-        <div class="mt-3">
-          <div class="mb-3 flex items-center justify-between">
-            <div>
-              <h3 class="text-lg font-medium text-gray-900 dark:text-gray-100">
-                Usage Statistics - {{ user?.displayName || user?.username }}
-              </h3>
-              <p class="text-sm text-gray-500 dark:text-gray-400">
-                @{{ user?.username }} • {{ user?.role }}
-              </p>
-            </div>
-            <button
-              class="text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300"
-              @click="emit('close')"
-            >
-              <svg class="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path
-                  d="M6 18L18 6M6 6l12 12"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  stroke-width="2"
-                />
-              </svg>
-            </button>
-          </div>
-
-          <!-- Period Selector -->
-          <div class="mb-6 w-44">
-            <CustomDropdown
-              v-model="selectedPeriod"
-              accent="blue"
-              icon="i-lucide-calendar-days"
-              :options="periodOptions"
-              placeholder="Select period"
-              size="sm"
-              @change="loadUsageStats"
-            />
-          </div>
-
-          <!-- Loading State -->
-          <div v-if="loading" class="py-12 text-center">
-            <svg
-              class="mx-auto h-8 w-8 animate-spin text-blue-600"
-              fill="none"
-              viewBox="0 0 24 24"
-              xmlns="http://www.w3.org/2000/svg"
-            >
-              <circle
-                class="opacity-25"
-                cx="12"
-                cy="12"
-                r="10"
-                stroke="currentColor"
-                stroke-width="4"
-              ></circle>
-              <path
-                class="opacity-75"
-                d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-                fill="currentColor"
-              ></path>
-            </svg>
-            <p class="mt-2 text-sm text-gray-500 dark:text-gray-400">Loading usage statistics...</p>
-          </div>
-
-          <!-- Stats Content -->
-          <div v-else class="space-y-6">
-            <!-- Summary Cards -->
-            <div class="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
-              <div class="overflow-hidden rounded-lg bg-blue-50 shadow dark:bg-blue-900/20">
-                <div class="p-5">
-                  <div class="flex items-center">
-                    <div class="flex-shrink-0">
-                      <svg
-                        class="h-6 w-6 text-blue-600"
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
-                      >
-                        <path
-                          d="M13 10V3L4 14h7v7l9-11h-7z"
-                          stroke-linecap="round"
-                          stroke-linejoin="round"
-                          stroke-width="2"
-                        />
-                      </svg>
-                    </div>
-                    <div class="ml-5 w-0 flex-1">
-                      <dl>
-                        <dt class="truncate text-sm font-medium text-blue-600 dark:text-blue-400">
-                          Requests
-                        </dt>
-                        <dd class="text-lg font-medium text-blue-900 dark:text-blue-200">
-                          {{ formatNumber(usageStats?.totalRequests || 0) }}
-                        </dd>
-                      </dl>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <div class="overflow-hidden rounded-lg bg-green-50 shadow dark:bg-green-900/20">
-                <div class="p-5">
-                  <div class="flex items-center">
-                    <div class="flex-shrink-0">
-                      <svg
-                        class="h-6 w-6 text-green-600"
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
-                      >
-                        <path
-                          d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z"
-                          stroke-linecap="round"
-                          stroke-linejoin="round"
-                          stroke-width="2"
-                        />
-                      </svg>
-                    </div>
-                    <div class="ml-5 w-0 flex-1">
-                      <dl>
-                        <dt class="truncate text-sm font-medium text-green-600 dark:text-green-400">
-                          Input Tokens
-                        </dt>
-                        <dd class="text-lg font-medium text-green-900 dark:text-green-200">
-                          {{ formatNumber(usageStats?.totalInputTokens || 0) }}
-                        </dd>
-                      </dl>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <div class="overflow-hidden rounded-lg bg-purple-50 shadow dark:bg-purple-900/20">
-                <div class="p-5">
-                  <div class="flex items-center">
-                    <div class="flex-shrink-0">
-                      <svg
-                        class="h-6 w-6 text-purple-600"
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
-                      >
-                        <path
-                          d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z"
-                          stroke-linecap="round"
-                          stroke-linejoin="round"
-                          stroke-width="2"
-                        />
-                      </svg>
-                    </div>
-                    <div class="ml-5 w-0 flex-1">
-                      <dl>
-                        <dt
-                          class="truncate text-sm font-medium text-purple-600 dark:text-purple-400"
-                        >
-                          Output Tokens
-                        </dt>
-                        <dd class="text-lg font-medium text-purple-900 dark:text-purple-200">
-                          {{ formatNumber(usageStats?.totalOutputTokens || 0) }}
-                        </dd>
-                      </dl>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <div class="overflow-hidden rounded-lg bg-yellow-50 shadow dark:bg-yellow-900/20">
-                <div class="p-5">
-                  <div class="flex items-center">
-                    <div class="flex-shrink-0">
-                      <svg
-                        class="h-6 w-6 text-yellow-600"
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
-                      >
-                        <path
-                          d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1"
-                          stroke-linecap="round"
-                          stroke-linejoin="round"
-                          stroke-width="2"
-                        />
-                      </svg>
-                    </div>
-                    <div class="ml-5 w-0 flex-1">
-                      <dl>
-                        <dt
-                          class="truncate text-sm font-medium text-yellow-600 dark:text-yellow-400"
-                        >
-                          Total Cost
-                        </dt>
-                        <dd class="text-lg font-medium text-yellow-900 dark:text-yellow-200">
-                          ${{ (usageStats?.totalCost || 0).toFixed(4) }}
-                        </dd>
-                      </dl>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <!-- User API Keys Table -->
-            <div
-              v-if="userDetails?.apiKeys?.length > 0"
-              class="rounded-lg border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800"
-            >
-              <div class="border-b border-gray-200 px-4 py-5 dark:border-gray-700 sm:px-6">
-                <h4 class="text-lg font-medium leading-6 text-gray-900 dark:text-gray-100">
-                  API Keys Usage
-                </h4>
-              </div>
-              <div class="overflow-hidden">
-                <table class="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
-                  <thead class="bg-gray-50 dark:bg-gray-800/60">
-                    <tr>
-                      <th
-                        class="px-6 py-3 text-left text-sm font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400"
-                        scope="col"
-                      >
-                        API Key
-                      </th>
-                      <th
-                        class="px-6 py-3 text-left text-sm font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400"
-                        scope="col"
-                      >
-                        Status
-                      </th>
-                      <th
-                        class="px-6 py-3 text-left text-sm font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400"
-                        scope="col"
-                      >
-                        Requests
-                      </th>
-                      <th
-                        class="px-6 py-3 text-left text-sm font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400"
-                        scope="col"
-                      >
-                        Tokens
-                      </th>
-                      <th
-                        class="px-6 py-3 text-left text-sm font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400"
-                        scope="col"
-                      >
-                        Cost
-                      </th>
-                      <th
-                        class="px-6 py-3 text-left text-sm font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400"
-                        scope="col"
-                      >
-                        Last Used
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody class="divide-y divide-gray-200 bg-white dark:divide-gray-700 dark:bg-gray-800">
-                    <tr v-for="apiKey in userDetails.apiKeys" :key="apiKey.id">
-                      <td class="whitespace-nowrap px-6 py-4">
-                        <div class="text-sm font-medium text-gray-900 dark:text-gray-100">
-                          {{ apiKey.name }}
-                        </div>
-                        <div class="text-sm text-gray-500 dark:text-gray-400">
-                          {{ apiKey.keyPreview }}
-                        </div>
-                      </td>
-                      <td class="whitespace-nowrap px-6 py-4">
-                        <span
-                          :class="[
-                            'inline-flex items-center rounded-full px-2.5 py-0.5 text-sm font-medium',
-                            apiKey.isActive
-                              ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300'
-                              : 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300'
-                          ]"
-                        >
-                          {{ apiKey.isActive ? 'Active' : 'Disabled' }}
-                        </span>
-                      </td>
-                      <td
-                        class="whitespace-nowrap px-6 py-4 text-sm text-gray-900 dark:text-gray-100"
-                      >
-                        {{ formatNumber(apiKey.usage?.requests || 0) }}
-                      </td>
-                      <td
-                        class="whitespace-nowrap px-6 py-4 text-sm text-gray-900 dark:text-gray-100"
-                      >
-                        <div>In: {{ formatNumber(apiKey.usage?.inputTokens || 0) }}</div>
-                        <div>Out: {{ formatNumber(apiKey.usage?.outputTokens || 0) }}</div>
-                      </td>
-                      <td
-                        class="whitespace-nowrap px-6 py-4 text-sm text-gray-900 dark:text-gray-100"
-                      >
-                        ${{ (apiKey.usage?.totalCost || 0).toFixed(4) }}
-                      </td>
-                      <td
-                        class="whitespace-nowrap px-6 py-4 text-sm text-gray-500 dark:text-gray-400"
-                      >
-                        {{ apiKey.lastUsedAt ? formatDate(apiKey.lastUsedAt) : 'Never' }}
-                      </td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
-            <!-- Chart Placeholder -->
-            <div
-              class="rounded-lg border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800"
-            >
-              <div class="border-b border-gray-200 px-4 py-5 dark:border-gray-700 sm:px-6">
-                <h4 class="text-lg font-medium leading-6 text-gray-900 dark:text-gray-100">
-                  Usage Trend
-                </h4>
-              </div>
-              <div class="p-6">
-                <div
-                  class="flex h-64 items-center justify-center rounded-lg border-2 border-dashed border-gray-300 dark:border-gray-600"
-                >
-                  <div class="text-center">
-                    <svg
-                      class="mx-auto h-12 w-12 text-gray-400"
-                      fill="none"
-                      stroke="currentColor"
-                      viewBox="0 0 24 24"
-                    >
-                      <path
-                        d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                        stroke-width="2"
-                      />
-                    </svg>
-                    <h3 class="mt-2 text-sm font-medium text-gray-900 dark:text-gray-100">
-                      Usage Chart
-                    </h3>
-                    <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
-                      Daily usage trends for {{ selectedPeriod }} period
-                    </p>
-                    <p class="mt-2 text-sm text-gray-400 dark:text-gray-500">
-                      (Chart integration can be added with Chart.js, D3.js, or similar library)
-                    </p>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <!-- No Data State -->
-            <div v-if="usageStats && usageStats.totalRequests === 0" class="py-12 text-center">
-              <svg
-                class="mx-auto h-12 w-12 text-gray-400"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  stroke-width="2"
-                />
-              </svg>
-              <h3 class="mt-2 text-sm font-medium text-gray-900 dark:text-gray-100">No usage data</h3>
-              <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
-                This user hasn't made any API requests in the selected period.
-              </p>
-            </div>
-          </div>
-
-          <div class="mt-6 flex justify-end">
-            <button
-              class="rounded-md border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-700 dark:focus:ring-offset-gray-800"
-              @click="$emit('close')"
-            >
-              Close
-            </button>
-          </div>
+  <AppDialog
+    icon="i-lucide-chart-column"
+    :model-value="show"
+    size="xl"
+    :title="`用户使用统计 · ${user?.displayName || user?.username || ''}`"
+    @close="emit('close')"
+  >
+    <div class="mb-3 flex flex-wrap items-center gap-3">
+      <span class="text-sm t-text-secondary">统计范围</span>
+      <div class="w-44">
+        <CustomDropdown
+          v-model="selectedPeriod"
+          :options="periodOptions"
+          placeholder="选择时间范围"
+          size="sm"
+          @change="loadUsageStats"
+        />
+      </div>
+      <span class="text-sm t-text-secondary">@{{ user?.username }}</span>
+    </div>
+    <div v-if="loading" class="admin-empty-state">
+      <i class="i-lucide-loader-circle animate-spin" />正在加载统计...
+    </div>
+    <template v-else>
+      <div class="mb-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <div class="stat-card">
+          <p class="text-sm t-text-secondary">请求数</p>
+          <strong>{{ formatNumber(usageStats?.totalRequests ?? 0) }}</strong>
+        </div>
+        <div class="stat-card">
+          <p class="text-sm text-green-600 dark:text-green-400">输入 Token</p>
+          <strong>{{ formatNumber(usageStats?.totalInputTokens ?? 0) }}</strong>
+        </div>
+        <div class="stat-card">
+          <p class="text-sm text-blue-600 dark:text-blue-400">输出 Token</p>
+          <strong>{{ formatNumber(usageStats?.totalOutputTokens ?? 0) }}</strong>
+        </div>
+        <div class="stat-card">
+          <p class="text-sm t-text-secondary">费用</p>
+          <strong>${{ (usageStats?.totalCost ?? 0).toFixed(4) }}</strong>
         </div>
       </div>
-    </div>
-  </ModalTransition>
+      <h4 class="mb-2 text-sm font-semibold">用户 API Key</h4>
+      <div class="admin-table-scroll">
+        <table class="w-full min-w-[640px] text-sm">
+          <thead>
+            <tr>
+              <th>名称</th>
+              <th>状态</th>
+              <th class="text-right">请求数</th>
+              <th class="text-right">输入 / 输出 Token</th>
+              <th class="text-right">费用</th>
+              <th>最近使用</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="apiKey in userDetails?.apiKeys ?? []" :key="apiKey.id">
+              <td>
+                <strong>{{ apiKey.name }}</strong>
+                <p class="mt-1 t-text-secondary">{{ apiKey.keyPreview }}</p>
+              </td>
+              <td
+                :class="
+                  apiKey.isActive
+                    ? 'text-green-600 dark:text-green-400'
+                    : 'text-red-600 dark:text-red-400'
+                "
+              >
+                {{ apiKey.isActive ? '启用' : '停用' }}
+              </td>
+              <td class="text-right">{{ formatNumber(apiKey.usage?.requests ?? 0) }}</td>
+              <td class="text-right">
+                <span class="text-green-600 dark:text-green-400">{{
+                  formatNumber(apiKey.usage?.inputTokens ?? 0)
+                }}</span>
+                /
+                <span class="text-blue-600 dark:text-blue-400">{{
+                  formatNumber(apiKey.usage?.outputTokens ?? 0)
+                }}</span>
+              </td>
+              <td class="text-right">${{ (apiKey.usage?.totalCost ?? 0).toFixed(4) }}</td>
+              <td>{{ apiKey.lastUsedAt ? formatDate(apiKey.lastUsedAt) : '从未使用' }}</td>
+            </tr>
+            <tr v-if="!userDetails?.apiKeys?.length">
+              <td class="admin-empty-state" colspan="6">该用户暂无 API Key</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </template>
+    <template #footer
+      ><button class="btn btn-secondary ml-auto" type="button" @click="emit('close')">
+        关闭
+      </button></template
+    >
+  </AppDialog>
 </template>
 
 <script setup>
 import { ref, watch } from 'vue'
 
-import ModalTransition from '@/components/common/modal_transition.vue'
+import AppDialog from '@/components/common/app_dialog.vue'
+import CustomDropdown from '@/components/common/custom_dropdown.vue'
 import { getFrontUserUsageStatsApi, getFrontUserByIdApi } from '@/libs/http_apis'
 import { isOk, dataOf } from '@/libs/http_envelope'
 import { showToast, formatNumber, formatDate } from '@/libs/tools'
@@ -409,10 +122,10 @@ const emit = defineEmits(['close'])
 const loading = ref(false)
 const selectedPeriod = ref('week')
 const periodOptions = [
-  { value: 'day', label: 'Last 24 Hours' },
-  { value: 'week', label: 'Last 7 Days' },
-  { value: 'month', label: 'Last 30 Days' },
-  { value: 'quarter', label: 'Last 90 Days' }
+  { value: 'day', label: '最近 24 小时' },
+  { value: 'week', label: '最近 7 天' },
+  { value: 'month', label: '最近 30 天' },
+  { value: 'quarter', label: '最近 90 天' }
 ]
 const usageStats = ref(null)
 const userDetails = ref(null)
@@ -436,7 +149,7 @@ const loadUsageStats = async () => {
     }
   } catch (error) {
     console.error('Failed to load user usage stats:', error)
-    showToast('Failed to load usage statistics', 'error')
+    showToast('加载使用统计失败', 'error')
   } finally {
     loading.value = false
   }
@@ -449,3 +162,11 @@ watch([() => props.show, () => props.user], ([show, user]) => {
   }
 })
 </script>
+<style scoped>
+.stat-card strong {
+  display: block;
+  margin-top: 5px;
+  font-size: 20px;
+  font-weight: 600;
+}
+</style>

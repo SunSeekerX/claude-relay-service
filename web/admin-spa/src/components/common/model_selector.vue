@@ -10,6 +10,7 @@
       :model-value="modelValue"
       :options="dropdownOptions"
       placeholder="选择模型"
+      searchable
       size="sm"
       @update:model-value="handleSelectChange"
     />

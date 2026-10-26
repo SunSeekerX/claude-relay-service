@@ -4,8 +4,8 @@ import { authenticateApiKey } from '../../infra/middleware_auth.js'
 import { grokRelayService } from './relay_grok_relay_service.js'
 import { apiKeyService } from '../apikey/apikey_service.js'
 import { logger } from '../../common/logger.js'
-import * as xaiHelper from '../../common/xai_helper.js'
 import { sessionHelper } from './relay_session_helper.js'
+import { getLegacyProviderModels } from './relay_routing_service.js'
 /**
  * Grok / xAI 公共 API 路由
  * /grok/v1/chat/completions
@@ -70,12 +70,7 @@ router.get(['/v1/models', '/models'], authenticateApiKey, async (req, res) => {
   if (denyIfNoPermission(req, res)) {
     return
   }
-  const models = xaiHelper.DEFAULT_MODELS.map((model) => ({
-    id: model.id,
-    object: 'model',
-    owned_by: 'xai',
-    display_name: model.displayName,
-  }))
+  const models = await getLegacyProviderModels(req.apiKey, 'grok')
   res.json({ object: 'list', data: models })
 })
 

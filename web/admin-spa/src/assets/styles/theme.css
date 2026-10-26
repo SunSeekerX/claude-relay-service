@@ -1,0 +1,584 @@
+/* 主题组件契约。UnoCSS 的 gray 色阶、圆角和字号也引用同一组变量。 */
+html.theme-changing *,
+html.theme-changing *::before,
+html.theme-changing *::after {
+  transition: none !important;
+}
+
+html[data-theme] body {
+  font-size: var(--base-font-size);
+  background: linear-gradient(
+    135deg,
+    var(--bg-gradient-start),
+    var(--bg-gradient-mid) 55%,
+    var(--bg-gradient-end)
+  );
+  color: var(--text-primary);
+}
+
+html[data-theme] body::before {
+  background: none;
+}
+
+html[data-material='glass'] body::before {
+  background:
+    radial-gradient(ellipse at 12% 18%, rgba(var(--accent-rgb), 0.16), transparent 45%),
+    radial-gradient(ellipse at 88% 80%, rgba(var(--primary-rgb), 0.14), transparent 50%);
+}
+
+html[data-theme] :is(.glass, .glass-strong, .card, .stat-card, .table-container, .modal-content) {
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background: var(--surface-color);
+  color: var(--text-primary);
+  box-shadow: var(--shadow-md);
+}
+
+html[data-theme] .glass {
+  background: var(--glass-color);
+}
+
+html[data-theme] .glass-strong {
+  background: var(--glass-strong-color);
+}
+
+html[data-theme] :is(.glass, .glass-strong) {
+  backdrop-filter: blur(var(--surface-blur));
+  -webkit-backdrop-filter: blur(var(--surface-blur));
+}
+
+html[data-theme] :is(.main-panel, .app-header, .modal-content) {
+  border-radius: var(--radius-lg);
+}
+
+html[data-theme] .stat-card {
+  padding: var(--card-padding);
+  box-shadow: var(--shadow-sm);
+}
+
+html[data-theme] :is(.card, .stat-card)::before,
+html[data-theme] .btn::before,
+html[data-theme] .tab-btn::before {
+  content: none;
+}
+
+html[data-theme] :is(.stat-card, .table-row):hover {
+  transform: none;
+}
+
+html[data-theme] .header-title {
+  background: none;
+  color: var(--text-primary);
+  -webkit-text-fill-color: currentColor;
+}
+
+html[data-theme] .bg-white {
+  background-color: var(--surface-color);
+}
+
+/* 存量页面的文字强调色映射为主题语义色，平台标识和实心底色沿用原样。 */
+html[data-theme]
+  :is(
+    .text-blue-500,
+    .text-blue-600,
+    .text-indigo-500,
+    .text-indigo-600,
+    .text-purple-500,
+    .text-purple-600
+  ) {
+  color: var(--primary-color);
+}
+html[data-theme] :is(.text-green-500, .text-green-600, .text-emerald-500, .text-emerald-600) {
+  color: var(--success-color);
+}
+html[data-theme] :is(.text-red-500, .text-red-600, .text-rose-500, .text-rose-600) {
+  color: var(--error-color);
+}
+html[data-theme]
+  :is(
+    .text-amber-500,
+    .text-amber-600,
+    .text-orange-500,
+    .text-orange-600,
+    .text-yellow-500,
+    .text-yellow-600
+  ) {
+  color: var(--warning-color);
+}
+
+html[data-theme] .tab-scroll {
+  border-color: var(--border-color);
+  border-radius: var(--radius-md);
+  background: var(--surface-muted);
+}
+
+html[data-theme] .tab-btn {
+  border-radius: var(--radius-sm);
+  min-height: var(--control-height);
+  padding-block: 7px;
+  font-size: var(--base-font-size);
+}
+
+html[data-theme] .tab-btn.active {
+  background: var(--action-bg);
+  color: var(--text-on-primary);
+  box-shadow: var(--shadow-sm);
+  transform: none;
+}
+
+html[data-theme] :is(.btn, .toolbar-btn) {
+  min-height: var(--control-height);
+  border-radius: var(--radius-sm);
+  font-size: var(--base-font-size);
+  box-shadow: var(--control-shadow);
+}
+
+html[data-theme] .btn.btn-primary,
+html[data-theme] .user-menu-button,
+html[data-theme] .app-dialog__icon:not([class*='is-']),
+html[data-theme] .app-dialog__icon.is-blue,
+html[data-theme] .t-side-nav-mobile__item.is-active {
+  background: var(--action-bg);
+  color: var(--text-on-primary);
+  box-shadow: var(--shadow-sm);
+}
+
+html[data-theme] .btn.btn-secondary,
+html[data-theme] .toolbar-btn {
+  background: var(--surface-muted);
+  border: 1px solid var(--border-color);
+  color: var(--text-primary);
+}
+
+html[data-theme] .btn.btn-success {
+  background: var(--success-action);
+  color: #fff;
+}
+html[data-theme] .btn.btn-danger {
+  background: var(--error-action);
+  color: #fff;
+}
+html[data-theme] .btn:disabled {
+  opacity: 0.5;
+  box-shadow: none;
+}
+
+html[data-theme] .app-switch.is-off {
+  background-color: var(--input-border);
+}
+html[data-theme] .app-switch.is-on.is-blue {
+  background-color: var(--action-primary);
+}
+html[data-theme] .app-switch.is-on.is-green {
+  background-color: var(--success-action);
+}
+
+html[data-theme]
+  :is(
+    .t-setting-row__title,
+    .t-setting-row__desc,
+    .t-table-action,
+    .t-side-nav__item,
+    .t-side-nav-mobile__item,
+    .app-dialog__desc
+  ) {
+  font-size: var(--base-font-size);
+}
+
+html[data-theme]:root .form-input {
+  background: var(--input-bg);
+  color: var(--text-primary);
+  border: 1px solid var(--input-border);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--control-shadow);
+  font-size: var(--base-font-size);
+}
+
+html[data-theme] :is(input, button, select).form-input {
+  height: var(--control-height);
+  min-height: var(--control-height);
+  padding-block: 0;
+}
+
+html[data-theme] textarea.form-input {
+  min-height: 88px;
+}
+html[data-theme]:root .form-input::placeholder {
+  color: var(--text-muted);
+  opacity: 1;
+}
+html[data-theme]:root .form-input:hover {
+  border-color: var(--text-secondary);
+}
+html[data-theme]:root .form-input:focus {
+  border-color: var(--primary-color);
+  box-shadow: 0 0 0 3px var(--focus-ring);
+}
+html[data-theme]:root .form-input:disabled {
+  background: var(--surface-muted);
+  opacity: 0.65;
+}
+html[data-theme] input:is([type='checkbox'], [type='radio']) {
+  accent-color: var(--action-primary);
+}
+html[data-theme] input[type='checkbox']:checked {
+  background: var(--action-bg);
+  border-color: var(--action-primary);
+}
+
+html[data-theme] .cute-dropdown .cute-dropdown__trigger {
+  height: var(--control-height);
+  min-height: var(--control-height);
+  max-height: var(--control-height);
+  background: var(--input-bg);
+  color: var(--text-primary);
+  border-color: var(--input-border);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--control-shadow);
+  font-size: var(--base-font-size);
+}
+
+html[data-theme] .cute-dropdown.cd-sm .cute-dropdown__trigger {
+  height: 32px;
+  min-height: 32px;
+  max-height: 32px;
+}
+html[data-theme] .cute-dropdown .cute-dropdown__trigger:hover {
+  background: var(--surface-raised);
+  border-color: var(--text-secondary);
+}
+html[data-theme] .cute-dropdown .cute-dropdown__trigger.is-open {
+  border-color: var(--primary-color);
+  box-shadow: 0 0 0 3px var(--focus-ring);
+}
+html[data-theme] .cute-dropdown__glow {
+  display: none;
+}
+
+/* 面板传送到 body 后仍读取根主题，避免浮层出现另一套底色。 */
+html[data-theme] body .cute-dropdown__panel.cute-dropdown__panel,
+html[data-theme] .user-menu-dropdown {
+  background: var(--popover-bg);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-popover);
+  backdrop-filter: none;
+}
+
+html[data-theme] .cute-dropdown__panel .cute-dropdown__search-input {
+  background: var(--input-bg);
+  border-color: var(--input-border);
+  color: var(--text-primary);
+  border-radius: var(--radius-sm);
+  font-size: var(--base-font-size);
+}
+
+html[data-theme] .cute-dropdown__panel .cute-dropdown__search-input:focus {
+  border-color: var(--primary-color);
+}
+html[data-theme] .cute-dropdown__panel .cute-dropdown__option {
+  color: var(--text-primary);
+  font-size: var(--base-font-size);
+  border-radius: var(--radius-sm);
+}
+html[data-theme] .cute-dropdown__panel .cute-dropdown__option:hover {
+  background: var(--nav-item-hover);
+}
+html[data-theme] .cute-dropdown__panel .cute-dropdown__option:is(.is-selected, .is-focused) {
+  background: var(--primary-soft);
+  color: var(--primary-color);
+}
+html[data-theme] .cute-dropdown__trigger .cute-dropdown__label {
+  color: inherit;
+}
+html[data-theme] .cute-dropdown__trigger.is-placeholder .cute-dropdown__label {
+  color: var(--text-muted);
+}
+html[data-theme] :is(.cute-dropdown__chevron, .cute-dropdown__search-icon) {
+  color: var(--text-secondary);
+}
+
+html[data-theme] .seg-tabs {
+  border-radius: var(--radius-sm);
+}
+html[data-theme] .seg-tabs__item {
+  font-size: var(--base-font-size);
+}
+html[data-theme] .seg-tabs.variant-pill .seg-tabs__item {
+  border-radius: var(--radius-sm);
+}
+html[data-theme] .seg-tabs__item.is-active {
+  color: var(--primary-color);
+}
+
+html[data-theme] table {
+  background: var(--table-bg);
+  color: var(--text-primary);
+}
+html[data-theme] table :is(th, td) {
+  padding: var(--cell-padding-y) var(--cell-padding-x);
+  border-color: var(--divider-color);
+  font-size: var(--base-font-size);
+}
+html[data-theme] table th {
+  background: var(--table-head-bg);
+  color: var(--text-secondary);
+  font-weight: 600;
+}
+html[data-theme] table tbody tr:hover {
+  background: var(--table-hover);
+}
+html[data-theme] .table-row:hover {
+  background: var(--table-hover);
+}
+
+html[data-theme] .modal {
+  background: var(--modal-bg);
+  backdrop-filter: blur(4px);
+}
+html[data-theme] .modal-content {
+  background: var(--popover-bg);
+  box-shadow: var(--shadow-popover);
+}
+html[data-theme] :is(.app-dialog__header, .app-dialog__footer) {
+  border-color: var(--divider-color);
+  background: var(--surface-color);
+}
+html[data-theme] .app-dialog__title {
+  color: var(--text-primary);
+}
+html[data-theme] :is(.app-dialog__desc, .app-dialog__close) {
+  color: var(--text-secondary);
+}
+html[data-theme] .app-dialog__close:hover {
+  color: var(--text-primary);
+  background: var(--surface-muted);
+}
+html[data-theme] .app-dialog__footer :is(.btn, .toolbar-btn) {
+  min-height: var(--control-height);
+}
+
+/* 日期、模型选择器与公开查询页复用同一套浮层和控件形态。 */
+html[data-theme]:root body :is(.adr-panel, .model-picker__panel, .toast, .modal-panel) {
+  background: var(--popover-bg);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-popover);
+}
+html[data-theme]:root body .adr-trigger {
+  min-height: var(--control-height);
+  background: var(--input-bg);
+  border-color: var(--input-border);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--control-shadow);
+}
+html[data-theme]:root body :is(.adr-text, .adr-month-label, .adr-day, .model-picker__option-label) {
+  color: var(--text-primary);
+}
+html[data-theme]:root
+  body
+  :is(
+    .adr-text.is-placeholder,
+    .adr-sep,
+    .adr-caret,
+    .adr-clear,
+    .adr-week span,
+    .adr-hint,
+    .adr-colon,
+    .adr-time-title,
+    .adr-time-preview,
+    .model-picker__option-id,
+    .model-picker__empty
+  ) {
+  color: var(--text-secondary);
+}
+html[data-theme]:root
+  body
+  :is(.adr-chip, .adr-nav, .adr-time-block, .adr-btn.ghost, .model-picker__preset) {
+  background: var(--surface-muted);
+  color: var(--text-secondary);
+  border-color: var(--border-color);
+  border-radius: var(--radius-sm);
+}
+html[data-theme]:root
+  body
+  :is(.adr-day.is-in, .adr-day:hover:not(:disabled), .adr-chip:hover, .adr-nav:hover) {
+  background: var(--primary-soft);
+  color: var(--primary-color);
+}
+html[data-theme]:root body .adr-day.is-out {
+  color: var(--text-muted);
+  opacity: 0.55;
+}
+html[data-theme]:root
+  body
+  :is(
+    .adr-chip.is-active,
+    .adr-day.is-start,
+    .adr-day.is-end,
+    .adr-btn.primary,
+    .mode-switch-btn.active,
+    .tab-pill-button.active
+  ) {
+  background: var(--action-bg);
+  color: #fff;
+  box-shadow: var(--shadow-sm);
+}
+html[data-theme]:root body :is(.adr-trigger:hover, .adr.is-open .adr-trigger, .adr-day.is-today) {
+  border-color: var(--primary-color);
+}
+
+html[data-theme]:root body .tab-pill-button {
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  font-size: var(--base-font-size);
+}
+html[data-theme]:root body .tab-pill-button:hover {
+  color: var(--primary-color);
+  background: var(--primary-soft);
+}
+html[data-theme]:root body .tab-pill-button.active {
+  background: var(--action-bg);
+  color: #fff;
+}
+html[data-theme] :is(.gradient-bg, .gradient-bg-dark)::before {
+  background: none;
+}
+html[data-theme]:root body .api-input-wide-card {
+  background: var(--glass-strong-color);
+  box-shadow: var(--shadow-md);
+  border-radius: var(--radius-lg);
+  backdrop-filter: blur(var(--surface-blur));
+  transform: none;
+}
+html[data-theme]:root body .wide-card-input {
+  background: var(--input-bg);
+  color: var(--text-primary);
+  border: 1px solid var(--input-border);
+  border-radius: var(--radius-sm);
+  font-size: var(--base-font-size);
+  box-shadow: var(--control-shadow);
+}
+html[data-theme]:root body .wide-card-input::placeholder {
+  color: var(--text-muted);
+}
+html[data-theme]:root body .wide-card-input:focus {
+  background: var(--input-bg);
+  color: var(--text-primary);
+  border-color: var(--primary-color);
+  box-shadow: 0 0 0 3px var(--focus-ring);
+}
+html[data-theme]:root body .mode-switch-group {
+  background: var(--surface-muted);
+  border-radius: var(--radius-sm);
+}
+html[data-theme]:root body .mode-switch-btn:not(.active) {
+  color: var(--text-secondary);
+}
+
+html[data-theme]:root .table-container table :is(th, td) {
+  padding: var(--cell-padding-y) var(--cell-padding-x);
+  font-size: var(--base-font-size);
+  color: var(--text-primary);
+}
+html[data-theme]:root .table-container table th {
+  background: var(--table-head-bg);
+  color: var(--text-secondary);
+}
+html[data-theme]:root .table-container table tbody tr:nth-child(even) {
+  background: var(--surface-muted);
+}
+html[data-theme]:root .table-container table tbody tr:hover {
+  background: var(--table-hover);
+}
+
+.theme-status {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 7px;
+  border-radius: var(--radius-sm);
+  font-size: var(--base-font-size);
+  line-height: 1.35;
+  white-space: nowrap;
+}
+.theme-status--success {
+  color: var(--success-color);
+  background: var(--success-soft);
+}
+.theme-status--warning {
+  color: var(--warning-color);
+  background: var(--warning-soft);
+}
+.theme-status--error {
+  color: var(--error-color);
+  background: var(--error-soft);
+}
+.theme-status--info {
+  color: var(--info-color);
+  background: var(--info-soft);
+}
+
+html[data-theme]
+  :is(.btn, .toolbar-btn, button, a, input, select, textarea, [tabindex='0']):focus-visible {
+  outline: 2px solid var(--primary-color);
+  outline-offset: 2px;
+}
+
+html[data-theme] *,
+html[data-theme] .custom-scrollbar {
+  scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
+}
+html[data-theme] *::-webkit-scrollbar-track {
+  background: var(--scrollbar-track);
+}
+html[data-theme] *::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+html[data-density='compact'] :is(.t-setting-row, .t-page-head) {
+  padding-block: 8px;
+}
+html[data-density='compact'] .main-panel {
+  padding: 12px;
+}
+html[data-density='compact'] .app-header {
+  padding: 10px 12px;
+}
+html[data-density='compact'] .tab-btn {
+  padding-block: 5px;
+}
+html[data-density='compact'] :is(.seg-tabs__item, .t-side-nav__item) {
+  padding-block: 6px;
+}
+
+/* 动效偏好覆盖旧页面 transition-all 和全局装饰动画。 */
+html[data-motion='reduced'] *,
+html[data-motion='reduced'] *::before,
+html[data-motion='reduced'] *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+  scroll-behavior: auto !important;
+}
+html[data-motion='reduced'] .btn {
+  translate: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  html[data-theme] *,
+  html[data-theme] *::before,
+  html[data-theme] *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+@media (max-width: 767px) {
+  html[data-density='compact'] .main-panel {
+    padding: 8px;
+  }
+}

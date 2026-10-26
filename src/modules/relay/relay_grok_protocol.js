@@ -8,7 +8,7 @@ const IMAGE_SIZE_ALIASES = {
   '1024x1536': '2:3',
   '1792x1024': '16:9',
   '1024x1792': '9:16',
-  '2048x2048': '1:1'
+  '2048x2048': '1:1',
 }
 
 export const normalizeGrokImageBody = (body) => {
@@ -20,7 +20,7 @@ export const normalizeGrokImageBody = (body) => {
   if (size !== 'auto' && !IMAGE_SIZE_ALIASES[size]) {
     throw Object.assign(new Error('Unsupported image size; use aspect_ratio and resolution'), {
       statusCode: 400,
-      code: 'invalid_image_size'
+      code: 'invalid_image_size',
     })
   }
   if (result.aspect_ratio === undefined && size !== 'auto') {

@@ -3,6 +3,24 @@
  * 将 Gemini API 的原生响应转为标准 OpenAI chat.completion / chat.completion.chunk 格式
  */
 
+export const mapGeminiUsageToOpenAI = (meta) => {
+  if (!meta) {
+    return undefined
+  }
+  const result = {
+    prompt_tokens: meta.promptTokenCount ?? 0,
+    completion_tokens: (meta.candidatesTokenCount ?? 0) + (meta.thoughtsTokenCount ?? 0),
+    total_tokens: meta.totalTokenCount ?? 0,
+  }
+  if (meta.thoughtsTokenCount > 0) {
+    result.completion_tokens_details = { reasoning_tokens: meta.thoughtsTokenCount }
+  }
+  if (meta.cachedContentTokenCount > 0) {
+    result.prompt_tokens_details = { cached_tokens: meta.cachedContentTokenCount }
+  }
+  return result
+}
+
 export class GeminiToOpenAIConverter {
   createStreamState() {
     return {
@@ -118,7 +136,7 @@ export class GeminiToOpenAIConverter {
             },
             ...(part.thoughtSignature
               ? { extra_content: { google: { thought_signature: part.thoughtSignature } } }
-              : {})
+              : {}),
           })
           fnIndex++
         } else if (part.text !== undefined) {
@@ -244,9 +262,9 @@ export class GeminiToOpenAIConverter {
                 },
                 ...(part.thoughtSignature
                   ? { extra_content: { google: { thought_signature: part.thoughtSignature } } }
-                  : {})
-              }
-            ]
+                  : {}),
+              },
+            ],
           }
           this._injectRole(state, chunk.choices[0].delta)
           state.functionIndex++
@@ -357,21 +375,6 @@ export class GeminiToOpenAIConverter {
   }
 
   _mapUsage(meta) {
-    if (!meta) {
-      return undefined
-    }
-    const completionTokens = (meta.candidatesTokenCount || 0) + (meta.thoughtsTokenCount || 0)
-    const result = {
-      prompt_tokens: meta.promptTokenCount || 0,
-      completion_tokens: completionTokens,
-      total_tokens: meta.totalTokenCount || 0,
-    }
-    if (meta.thoughtsTokenCount > 0) {
-      result.completion_tokens_details = { reasoning_tokens: meta.thoughtsTokenCount }
-    }
-    if (meta.cachedContentTokenCount > 0) {
-      result.prompt_tokens_details = { cached_tokens: meta.cachedContentTokenCount }
-    }
-    return result
+    return mapGeminiUsageToOpenAI(meta)
   }
 }

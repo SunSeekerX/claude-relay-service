@@ -14,6 +14,7 @@ export const useApiStatsStore = defineStore('apistats', () => {
   const error = ref('')
   const statsPeriod = ref('daily')
   const statsData = ref(null)
+  const verifiedApiKeyIdentity = ref(null)
   const modelStats = ref([])
   const dailyModelStats = ref([])
   const monthlyModelStats = ref([])
@@ -29,6 +30,25 @@ export const useApiStatsStore = defineStore('apistats', () => {
 
   // 多 Key 模式相关状态
   const multiKeyMode = ref(false)
+  const testApiKey = computed(() =>
+    !multiKeyMode.value &&
+    verifiedApiKeyIdentity.value?.id === statsData.value?.id &&
+    verifiedApiKeyIdentity.value?.key === apiKey.value.trim()
+      ? verifiedApiKeyIdentity.value.key
+      : ''
+  )
+  const verifyCurrentApiKeyIdentity = async () => {
+    const key = apiKey.value.trim()
+    if (!key || verifiedApiKeyIdentity.value?.key === key) return
+    try {
+      const result = await httpApis.getKeyIdApi(key)
+      if (apiKey.value.trim() === key && isOk(result)) {
+        verifiedApiKeyIdentity.value = { key, id: result.data.id }
+      }
+    } catch {
+      if (apiKey.value.trim() === key) verifiedApiKeyIdentity.value = null
+    }
+  }
   const apiKeys = ref([]) // 多个 API Key 数组
   const apiIds = ref([]) // 对应的 ID 数组
   const aggregatedStats = ref(null) // 聚合后的统计数据
@@ -61,7 +81,7 @@ export const useApiStatsStore = defineStore('apistats', () => {
       } else if (statsPeriod.value === 'monthly') {
         return aggregatedStats.value.monthlyUsage || defaultData
       } else {
-        return aggregatedStats.value.alltimeUsage || defaultData
+        return aggregatedStats.value.alltimeUsage ?? aggregatedStats.value.usage ?? defaultData
       }
     }
 
@@ -133,6 +153,7 @@ export const useApiStatsStore = defineStore('apistats', () => {
 
       if (isOk(idResult)) {
         apiId.value = idResult.data.id
+        verifiedApiKeyIdentity.value = { key: trimmedKey, id: idResult.data.id }
 
         // 使用 apiId 查询统计数据
         const statsResult = await httpApis.getUserStatsApi(apiId.value)
@@ -171,141 +192,99 @@ export const useApiStatsStore = defineStore('apistats', () => {
     }
   }
 
-  // 加载所有时间段的统计数据
-  async function loadAllPeriodStats() {
-    if (!apiId.value) return
+  const periodModels = {
+    daily: dailyModelStats,
+    monthly: monthlyModelStats,
+    alltime: alltimeModelStats
+  }
+  const periodSummaries = { daily: dailyStats, monthly: monthlyStats, alltime: alltimeStats }
 
-    // 并行加载今日和本月的数据
-    await Promise.all([loadPeriodStats('daily'), loadPeriodStats('monthly')])
-
-    // 并行加载三个时间段的模型统计
-    await loadAllModelStats()
+  const summarizeModels = (models) => {
+    const summary = {
+      requests: 0,
+      inputTokens: 0,
+      outputTokens: 0,
+      cacheCreateTokens: 0,
+      cacheReadTokens: 0,
+      allTokens: 0,
+      cost: 0
+    }
+    for (const model of models) {
+      for (const field of [
+        'requests',
+        'inputTokens',
+        'outputTokens',
+        'cacheCreateTokens',
+        'cacheReadTokens',
+        'allTokens'
+      ])
+        summary[field] += model[field] || 0
+      summary.cost += model.costs?.total || 0
+    }
+    return { ...summary, formattedCost: formatCost(summary.cost) }
   }
 
-  // 加载所有时间段的模型统计
-  async function loadAllModelStats() {
+  const applyPeriodModels = (period, models) => {
+    periodModels[period].value = models
+    periodSummaries[period].value = summarizeModels(models)
+    if (statsPeriod.value === period) modelStats.value = models
+  }
+
+  const invalidatePeriodModels = (period) => {
+    periodModels[period].value = []
+    periodSummaries[period].value = null
+    if (statsPeriod.value === period) modelStats.value = []
+  }
+
+  // 每个时间范围只查询一次，摘要与模型表复用同一份结果。
+  const loadAllModelStats = async () => {
     if (!apiId.value) return
-
     modelStatsLoading.value = true
-
     try {
-      const [dailyResult, monthlyResult, alltimeResult] = await Promise.all([
-        httpApis.getUserModelStatsApi(apiId.value, 'daily'),
-        httpApis.getUserModelStatsApi(apiId.value, 'monthly'),
-        httpApis.getUserModelStatsApi(apiId.value, 'alltime')
-      ])
-
-      dailyModelStats.value = isOk(dailyResult) ? dailyResult.data || [] : []
-      monthlyModelStats.value = isOk(monthlyResult) ? monthlyResult.data || [] : []
-      alltimeModelStats.value = isOk(alltimeResult) ? alltimeResult.data || [] : []
-
-      // 保持 modelStats 兼容性（用于现有组件）
-      modelStats.value = dailyModelStats.value
+      const periods = ['daily', 'monthly', 'alltime']
+      const results = await Promise.all(
+        periods.map((period) => httpApis.getUserModelStatsApi(apiId.value, period))
+      )
+      periods.forEach((period, index) => {
+        if (isOk(results[index])) applyPeriodModels(period, results[index].data || [])
+        else invalidatePeriodModels(period)
+      })
     } catch (err) {
       console.error('Load all model stats error:', err)
-      dailyModelStats.value = []
-      monthlyModelStats.value = []
-      alltimeModelStats.value = []
-      modelStats.value = []
+      for (const period of ['daily', 'monthly', 'alltime']) invalidatePeriodModels(period)
     } finally {
       modelStatsLoading.value = false
     }
   }
 
-  // 加载指定时间段的统计数据
-  async function loadPeriodStats(period) {
+  const loadAllPeriodStats = () => loadAllModelStats()
+
+  const loadPeriodStats = async (period) => {
+    if (!apiId.value) return
+    modelStatsLoading.value = true
     try {
       const result = await httpApis.getUserModelStatsApi(apiId.value, period)
-
-      if (isOk(result)) {
-        // 计算汇总数据
-        const modelData = result.data || []
-        const summary = {
-          requests: 0,
-          inputTokens: 0,
-          outputTokens: 0,
-          cacheCreateTokens: 0,
-          cacheReadTokens: 0,
-          allTokens: 0,
-          cost: 0,
-          formattedCost: '$0.000000'
-        }
-
-        modelData.forEach((model) => {
-          summary.requests += model.requests || 0
-          summary.inputTokens += model.inputTokens || 0
-          summary.outputTokens += model.outputTokens || 0
-          summary.cacheCreateTokens += model.cacheCreateTokens || 0
-          summary.cacheReadTokens += model.cacheReadTokens || 0
-          summary.allTokens += model.allTokens || 0
-          summary.cost += model.costs?.total || 0
-        })
-
-        summary.formattedCost = formatCost(summary.cost)
-
-        // 存储到对应的时间段数据
-        if (period === 'daily') {
-          dailyStats.value = summary
-        } else if (period === 'monthly') {
-          monthlyStats.value = summary
-        } else if (period === 'alltime') {
-          alltimeStats.value = summary
-        }
-      } else {
-        console.warn(`Failed to load ${period} stats:`, msgOf(result))
-      }
+      if (isOk(result)) applyPeriodModels(period, result.data || [])
+      else invalidatePeriodModels(period)
     } catch (err) {
       console.error(`Load ${period} stats error:`, err)
-    }
-  }
-
-  // 加载模型统计数据
-  async function loadModelStats(period = 'daily') {
-    if (!apiId.value) return
-
-    modelStatsLoading.value = true
-
-    try {
-      const result = await httpApis.getUserModelStatsApi(apiId.value, period)
-
-      if (isOk(result)) {
-        modelStats.value = result.data || []
-      } else {
-        throw new Error(msgOf(result, '加载模型统计失败'))
-      }
-    } catch (err) {
-      console.error('Load model stats error:', err)
-      modelStats.value = []
+      invalidatePeriodModels(period)
     } finally {
       modelStatsLoading.value = false
     }
   }
 
-  // 切换时间范围
-  async function switchPeriod(period) {
-    if (statsPeriod.value === period || modelStatsLoading.value) {
-      return
-    }
+  const loadModelStats = (period = 'daily') => loadPeriodStats(period)
 
+  const switchPeriod = async (period) => {
+    if (statsPeriod.value === period || loading.value || modelStatsLoading.value) return
     statsPeriod.value = period
-
-    // 多 Key 模式下加载批量模型统计
     if (multiKeyMode.value && apiIds.value.length > 0) {
       await loadBatchModelStats(period)
       return
     }
-
-    // 如果对应时间段的数据还没有加载，则加载它
-    if (
-      (period === 'daily' && !dailyStats.value) ||
-      (period === 'monthly' && !monthlyStats.value) ||
-      (period === 'alltime' && !alltimeStats.value)
-    ) {
-      await loadPeriodStats(period)
-    }
-
-    // 加载对应的模型统计
-    await loadModelStats(period)
+    if (!periodSummaries[period].value) await loadPeriodStats(period)
+    else modelStats.value = periodModels[period].value
   }
 
   // 使用 apiId 直接加载数据
@@ -314,14 +293,14 @@ export const useApiStatsStore = defineStore('apistats', () => {
 
     loading.value = true
     error.value = ''
-    statsData.value = null
-    modelStats.value = []
+    if (statsData.value?.id !== apiId.value) statsData.value = null
 
     try {
       const result = await httpApis.getUserStatsApi(apiId.value)
 
       if (isOk(result)) {
         statsData.value = result.data
+        verifyCurrentApiKeyIdentity()
 
         // 保存 Key 级别的服务倍率
         keyServiceRates.value = result.data.serviceRates || {}
@@ -572,6 +551,7 @@ export const useApiStatsStore = defineStore('apistats', () => {
 
   // 重置
   function reset() {
+    verifiedApiKeyIdentity.value = null
     apiKey.value = ''
     multiKeyMode.value = false
     clearData()
@@ -580,6 +560,8 @@ export const useApiStatsStore = defineStore('apistats', () => {
   return {
     // State
     apiKey,
+    testApiKey,
+    verifiedApiKeyIdentity,
     apiId,
     loading,
     modelStatsLoading,

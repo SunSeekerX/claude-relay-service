@@ -1,4 +1,5 @@
 import express from 'express'
+import { markAccountModelIdentityUpdate } from './account_model_identity.js'
 import crypto from 'node:crypto'
 import axios from 'axios'
 
@@ -590,7 +591,7 @@ router.put(
           : currentAccount.emailVerified
     }
 
-    const updatedAccount = await openaiAccountService.updateAccount(id, updateData)
+    const updatedAccount = await openaiAccountService.updateAccount(id, markAccountModelIdentityUpdate(updateData))
 
     // 如果需要刷新但不强制成功（非关键更新）
     if (needsImmediateRefresh && !requireRefreshSuccess) {

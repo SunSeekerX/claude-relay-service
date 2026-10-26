@@ -14,6 +14,7 @@ export const useTestState = () => {
   const testDuration = ref(0)
   const testStartTime = ref(null)
   const abortController = ref(null)
+  let requestSequence = 0
 
   // ========== 状态样式计算属性 ==========
   const statusStyleMap = {
@@ -48,6 +49,14 @@ export const useTestState = () => {
       icon: 'i-lucide-circle-alert',
       iconColor: 'text-red-500 dark:text-red-400',
       text: 'text-red-700 dark:text-red-300'
+    },
+    cancelled: {
+      title: '已停止',
+      card: 'border-gray-200 bg-gray-50 dark:border-gray-700 dark:bg-gray-800/50',
+      iconBg: 'bg-gray-200 dark:bg-gray-700',
+      icon: 'i-lucide-square',
+      iconColor: 'text-gray-500 dark:text-gray-400',
+      text: 'text-gray-700 dark:text-gray-300'
     }
   }
 
@@ -87,7 +96,7 @@ export const useTestState = () => {
   }
 
   // ========== SSE 流读取 ==========
-  const readSSEStream = async (response) => {
+  const readSSEStream = async (response, sequence) => {
     const reader = response.body.getReader()
     const decoder = new TextDecoder()
     let streamDone = false
@@ -95,6 +104,10 @@ export const useTestState = () => {
 
     while (!streamDone) {
       const { done, value } = await reader.read()
+      if (sequence !== requestSequence) {
+        await reader.cancel()
+        return
+      }
       if (done) {
         streamDone = true
         // 处理缓冲区中剩余的数据
@@ -129,6 +142,7 @@ export const useTestState = () => {
   // ========== 通用测试请求 ==========
   const sendTestRequest = async (endpoint, payload, options = {}) => {
     const { useSSE = true, headers = {} } = options
+    const sequence = ++requestSequence
 
     // 重置状态
     testStatus.value = 'testing'
@@ -152,6 +166,10 @@ export const useTestState = () => {
         responseType: 'response',
         signal: abortController.value.signal
       })
+      if (sequence !== requestSequence) {
+        await response.body?.cancel()
+        return
+      }
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}))
@@ -164,10 +182,11 @@ export const useTestState = () => {
       }
 
       if (useSSE) {
-        await readSSEStream(response)
+        await readSSEStream(response, sequence)
       } else {
         // JSON 响应（管理信封 code/msg/data）
         const data = await response.json()
+        if (sequence !== requestSequence) return
         testDuration.value = Date.now() - testStartTime.value
         if (isOk(data)) {
           testStatus.value = 'success'
@@ -178,6 +197,7 @@ export const useTestState = () => {
         }
       }
     } catch (err) {
+      if (sequence !== requestSequence) return
       if (err.name === 'AbortError') return
       testStatus.value = 'error'
       errorMessage.value = err.message || '连接失败'
@@ -195,10 +215,17 @@ export const useTestState = () => {
   }
 
   const cleanup = () => {
+    requestSequence += 1
     if (abortController.value) {
       abortController.value.abort()
       abortController.value = null
     }
+  }
+  const stopTest = () => {
+    if (testStatus.value !== 'testing') return
+    cleanup()
+    testDuration.value = Date.now() - testStartTime.value
+    testStatus.value = 'cancelled'
   }
 
   onUnmounted(cleanup)
@@ -216,6 +243,7 @@ export const useTestState = () => {
     statusTextClass,
     sendTestRequest,
     resetState,
+    stopTest,
     cleanup
   }
 }

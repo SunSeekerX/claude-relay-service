@@ -19,6 +19,7 @@ import { cacheMonitor } from './common/cache_monitor.js'
 import { getSafeMessage } from './common/error_sanitizer.js'
 import * as migrations from './infra/migration_runner.js'
 import { apiRoutes } from './modules/relay/relay_api_routes.js'
+import { namedRoutes } from './modules/relay/relay_routing_dispatch.js'
 import { unifiedRoutes } from './modules/relay/relay_unified_routes.js'
 import { router as adminRoutes } from './modules/admin/admin_routes.js'
 import { router as webRoutes } from './modules/admin/admin_web_routes.js'
@@ -39,7 +40,7 @@ import { createOfficialAliasRouter } from './modules/relay/relay_official_aliase
 import { initPaymentProviders } from './modules/payment/payment_providers.js'
 import { browserFallbackMiddleware } from './infra/middleware_browser_fallback.js'
 import { requestDecompress } from './infra/middleware_request_decompress.js'
-import { getBannerEndpoints } from './common/startup_banner.js'
+import { formatStartupSummary } from './common/startup_banner.js'
 import { accountBalanceService } from './modules/account/account_balance_service.js'
 import { registerAllProviders } from './modules/payment/payment_balance_providers.js'
 import { modelService } from './modules/pricing/pricing_model_service.js'
@@ -55,10 +56,7 @@ import { proxyPoolService } from './modules/proxy/proxy_pool_service.js'
 import { proxyWebSocketUpgrade } from './common/gateway_websocket_upgrade_proxy.js'
 import { authenticateApiKeyForUpgrade } from './common/gateway_ws_api_key_auth.js'
 import { createResponsesWsBilling } from './modules/relay/relay_responses_ws_billing.js'
-import {
-  isGrokResponsesWebSocketPath,
-  handleGrokResponsesWebSocket
-} from './modules/relay/relay_grok_responses_ws.js'
+import { isGrokResponsesWebSocketPath, handleGrokResponsesWebSocket } from './modules/relay/relay_grok_responses_ws.js'
 import { unifiedOpenAIScheduler } from './modules/relay/relay_unified_openai_scheduler.js'
 import * as openaiAccountService from './modules/account/account_openai_service.js'
 import { apiKeyService } from './modules/apikey/apikey_service.js'
@@ -84,17 +82,6 @@ const pkgVersion = packageJson.version
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
 
-// 业务时区当前时间 yyyy-MM-dd HH:mm:ss（读 config.system.timezoneOffset，与统计口径一致）
-const formatBusinessTime = () => {
-  const offsetHours = config.system?.timezoneOffset ?? 8
-  const tzDate = new Date(Date.now() + offsetHours * 3600000)
-  const pad = (n) => String(n).padStart(2, '0')
-  return (
-    `${tzDate.getUTCFullYear()}-${pad(tzDate.getUTCMonth() + 1)}-${pad(tzDate.getUTCDate())} ` +
-    `${pad(tzDate.getUTCHours())}:${pad(tzDate.getUTCMinutes())}:${pad(tzDate.getUTCSeconds())}`
-  )
-}
-
 export class Application {
   constructor() {
     this.app = express()
@@ -103,10 +90,14 @@ export class Application {
 
   async initialize() {
     try {
+      logger.beginStartup()
+      logger.startupStage('[1/7] 连接 Redis')
       // 连接Redis
       logger.info('Connecting to Redis...')
       await redis.connect()
       logger.success('Redis connected successfully')
+
+      logger.startupStage('[2/7] 协议注册与数据检查')
 
       // 跨协议转换注册表（openai/claude/gemini/responses）
       try {
@@ -148,6 +139,7 @@ export class Application {
       }
 
       // 初始化价格服务
+      logger.startupStage('[3/7] 定价、模型与缓存')
       logger.info('Initializing pricing service...')
       await pricingService.initialize()
 
@@ -159,6 +151,7 @@ export class Application {
       await this.initializeCacheMonitoring()
 
       // 初始化管理员凭据
+      logger.startupStage('[4/7] 管理员与会话检查')
       logger.info('Initializing admin credentials...')
       await this.initializeAdmin()
 
@@ -167,6 +160,7 @@ export class Application {
       await this.cleanupInvalidSessions()
 
       // 初始化费用数据
+      logger.startupStage('[5/7] 费用统计与索引')
       logger.info('Checking cost data initialization...')
       const needsInit = await costInitService.needsInitialization()
       if (needsInit) {
@@ -202,6 +196,7 @@ export class Application {
       })
 
       // 初始化代理池（冷加载 L1 + Pub/Sub 订阅 + 统计写回）
+      logger.startupStage('[6/7] 代理、路由与后台任务')
       try {
         await proxyPoolService.start()
       } catch (error) {
@@ -433,6 +428,7 @@ export class Application {
       }
 
       // 路由
+      this.app.use('/r/:routeCode', namedRoutes)
       this.app.use('/api', apiRoutes)
       this.app.use('/api', unifiedRoutes) //统一智能路由（支持 /v1/chat/completions 等）
       this.app.use('/claude', apiRoutes) ///claude 路由别名，与 /api 功能相同
@@ -590,6 +586,7 @@ export class Application {
 
       logger.success('Application initialized successfully')
     } catch (error) {
+      logger.finishStartup()
       logger.error('Application initialization failed:', error)
       throw error
     }
@@ -777,7 +774,7 @@ export class Application {
             } catch (e) {
               console.error(e)
             }
-          }
+          },
         })
         releaseAuth = auth.release || releaseAuth
         if (!auth.ok) {
@@ -786,6 +783,11 @@ export class Application {
           return
         }
         const apiKeyData = auth.keyData
+        if (isResponsesWs && apiKeyData._relayRoute) {
+          const { handleNamedResponsesWebSocket } = await import('./modules/relay/relay_routing_websocket.js')
+          await handleNamedResponsesWebSocket(req, socket, head, { releaseAuth })
+          return
+        }
 
         const callId = isRealtimeWs ? codexRealtime.extractCallIdFromWsRequest(pathname, url.searchParams) : null
         const sessionId =
@@ -820,7 +822,7 @@ export class Application {
             const wsBilling = createResponsesWsBilling({
               req,
               apiKeyData,
-              onLeaseExpired: () => socket.destroy()
+              onLeaseExpired: () => socket.destroy(),
             })
             const usageAcc = wsBilling
             const finalizeBilling = async () => {
@@ -831,60 +833,55 @@ export class Application {
                 req._crsCyberPolicyBlocked = true
               }
             }
-            await codexResponsesWsBridge.handleResponsesWebSocketLazyPassthrough(
-              req,
-              socket,
-              head,
-              {
-                apiKeyData,
-                releaseAuth: async () => {
-                  try {
-                    await finalizeBilling()
-                  } catch (e) {
-                    console.error(e)
-                  }
-                  await releaseAuth()
-                },
-                sessionId,
-                beforeClientText: wsBilling.beforeClientText,
-                onUpstreamTextMessage: (text) => {
-                  try {
-                    // 仅上游帧可入账 usage
-                    if (typeof usageAcc.ingestUpstreamText === 'function') {
-                      usageAcc.ingestUpstreamText(text)
-                    } else {
-                      usageAcc.ingestText(text)
-                    }
-                  } catch (e) {
-                    console.error(e)
-                  }
-                },
-                onClientTextMessage: (text) => {
-                  try {
-                    // 客户端只采 response.create 档位，禁止伪造 usage
-                    // DEC_20260906_011816
-                    if (typeof usageAcc.ingestClientText === 'function') {
-                      usageAcc.ingestClientText(text)
-                    }
-                  } catch (e) {
-                    console.error(e)
-                  }
-                },
-                hasActiveTurns: wsBilling.hasActiveTurns,
-                onUpgrade: ({ accountId, selfBilled = false } = {}) => {
-                  wsBilling.setAccount(accountId, selfBilled, (model, keyData, options) =>
-                    unifiedOpenAIScheduler.assertAccountForWebSocket(
-                      keyData,
-                      accountId,
-                      model,
-                      apiKeyData.openaiAccountId,
-                      options
-                    )
-                  )
-                  // http_bridge 内 runOneTurn 已 recordUsage；外层不可再兜底记 request_count
+            await codexResponsesWsBridge.handleResponsesWebSocketLazyPassthrough(req, socket, head, {
+              apiKeyData,
+              releaseAuth: async () => {
+                try {
+                  await finalizeBilling()
+                } catch (e) {
+                  console.error(e)
                 }
-              }
-            )
+                await releaseAuth()
+              },
+              sessionId,
+              beforeClientText: wsBilling.beforeClientText,
+              onUpstreamTextMessage: (text) => {
+                try {
+                  // 仅上游帧可入账 usage
+                  if (typeof usageAcc.ingestUpstreamText === 'function') {
+                    usageAcc.ingestUpstreamText(text)
+                  } else {
+                    usageAcc.ingestText(text)
+                  }
+                } catch (e) {
+                  console.error(e)
+                }
+              },
+              onClientTextMessage: (text) => {
+                try {
+                  // 客户端只采 response.create 档位，禁止伪造 usage
+                  // DEC_20260906_011816
+                  if (typeof usageAcc.ingestClientText === 'function') {
+                    usageAcc.ingestClientText(text)
+                  }
+                } catch (e) {
+                  console.error(e)
+                }
+              },
+              hasActiveTurns: wsBilling.hasActiveTurns,
+              onUpgrade: ({ accountId, selfBilled = false } = {}) => {
+                wsBilling.setAccount(accountId, selfBilled, (model, keyData, options) =>
+                  unifiedOpenAIScheduler.assertAccountForWebSocket(
+                    keyData,
+                    accountId,
+                    model,
+                    apiKeyData.openaiAccountId,
+                    options,
+                  ),
+                )
+                // http_bridge 内 runOneTurn 已 recordUsage；外层不可再兜底记 request_count
+              },
+            })
             return
           }
         }
@@ -926,7 +923,7 @@ export class Application {
               sessionId ? crypto.createHash('sha256').update(String(sessionId)).digest('hex') : null,
               // Responses/Realtime 握手尽量带 model，避免共享池选到不支持模型的账户
               boundModel,
-              { deferGroupAdmission: isResponsesWs }
+              { deferGroupAdmission: isResponsesWs },
             )(({ accountId } = selected))
             if (selected.accountType && selected.accountType !== 'openai') {
               throw new Error(`${wsKind} requires OpenAI OAuth account`)
@@ -1012,7 +1009,7 @@ export class Application {
               req,
               apiKeyData,
               initialModel: boundModel,
-              onLeaseExpired: () => socket.destroy()
+              onLeaseExpired: () => socket.destroy(),
             })
           : null
         wsBilling?.setAccount(accountId, false, (model, keyData, options) =>
@@ -1021,8 +1018,8 @@ export class Application {
             accountId,
             model,
             apiKeyData.openaiAccountId,
-            options
-          )
+            options,
+          ),
         )
         const usageAcc = wsBilling ?? codexRealtime.createRealtimeUsageAccumulator()
         const startedAt = Date.now()
@@ -1272,7 +1269,7 @@ export class Application {
               console.error(e)
             }
             releaseOnce(err).catch((e) => console.error(e))
-          }
+          },
         })
       } catch (error) {
         console.error(error)
@@ -1291,34 +1288,31 @@ export class Application {
     try {
       await this.initialize()
 
-      this.server = this.app.listen(config.server.port, config.server.host, () => {
-        const { port } = config.server
-        // 依实际监听地址推导 Local / Network（对齐 llysc 输出契约，明确标注而非无差别罗列）
-        const { local, networks } = getBannerEndpoints(config.server.host)
-        const routes = [
-          { label: 'Web interface', path: '/admin-next/api-stats' },
-          { label: 'API endpoint', path: '/api/v1/messages' },
-          { label: 'Official aliases', path: '/v1/*| /backend-api/codex/*| /v1beta/*' },
-          { label: 'Admin API', path: '/admin' },
-          { label: 'Health check', path: '/health' },
-          { label: 'Metrics', path: '/metrics' },
-        ]
-
-        logger.start(`Claude Relay Service started on ${config.server.host}:${port}`)
-        logger.info(`- APP_ENV: ${config.server.nodeEnv || env.NODE_ENV || 'development'}`)
-        logger.info(`- Locale: ${new Date().toString()}`)
-        logger.info(`- 业务时区: ${formatBusinessTime()}`)
-        for (const route of routes) {
-          logger.info(`${route.label}:`)
-          if (local) {
-            logger.info(`- Local: http://${local}:${port}${route.path}`)
+      await new Promise((resolve, reject) => {
+        this.server = this.app.listen(config.server.port, config.server.host, (error) => {
+          if (error) {
+            reject(error)
+            return
           }
-          // 多网卡逐条标注 Network，用户自行识别物理网卡/Docker/WSL/VPN
-          for (const host of networks) {
-            logger.info(`- Network: http://${host}:${port}${route.path}`)
-          }
-        }
+          resolve()
+        })
       })
+      logger.startupStage('[7/7] HTTP 服务就绪')
+      const durationMs = logger.finishStartup()
+      logger.info(
+        formatStartupSummary({
+          bindHost: config.server.host,
+          port: this.server.address().port,
+          version: pkgVersion,
+          pid: process.pid,
+          environment: config.server.nodeEnv,
+          durationMs,
+          warnings: logger.stats.warnings,
+          errors: logger.stats.errors,
+          logDirectory: config.logging.dirname,
+        }),
+        { type: 'startup-summary', durationMs },
+      )
 
       const serverTimeout = 600000 //默认10分钟
       this.server.timeout = serverTimeout
@@ -1334,6 +1328,7 @@ export class Application {
       // 优雅关闭
       this.setupGracefulShutdown()
     } catch (error) {
+      logger.finishStartup()
       logger.error('Failed to start server:', error)
       process.exit(1)
     }
@@ -1503,8 +1498,12 @@ export class Application {
     const accountTestSchedulerEnabled =
       env.ACCOUNT_TEST_SCHEDULER_ENABLED !== 'false' && config.accountTestScheduler?.enabled !== false
     if (accountTestSchedulerEnabled) {
-      accountTestSchedulerService.start()
-      logger.info('Account test scheduler service started')
+      accountTestSchedulerService
+        .start()
+        .then(() => logger.info('Account test scheduler service started'))
+        .catch((error) => {
+          logger.error('Account test scheduler failed to start', { error })
+        })
     } else {
       logger.info('Account test scheduler service disabled')
     }
@@ -1520,6 +1519,15 @@ export class Application {
       if (this.server) {
         this.server.close(async () => {
           logger.info('HTTP server closed')
+
+          try {
+            const { stopTokenizerTasks } = await import('./modules/tokenizer/tokenizer_tasks.js')
+            const { closeTokenizerWorkers } = await import('./modules/tokenizer/tokenizer_count_pool.js')
+            await stopTokenizerTasks()
+            await closeTokenizerWorkers()
+          } catch (error) {
+            logger.error('Error stopping tokenizer tasks and workers:', error)
+          }
 
           // 清理 pricing service 的文件监听器
           try {

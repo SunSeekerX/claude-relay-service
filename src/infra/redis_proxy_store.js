@@ -44,6 +44,92 @@ const PROXY_BINDABLE_STORES = [
 ]
 
 export const attach = (redisClient) => {
+  redisClient.saveProxyStats = async function (shardId, states) {
+    const client = this.getClientSafe()
+    for (let offset = 0; offset < states.length; offset += 100) {
+      const transaction = client.multi()
+      for (const { proxyId, contextKey, value } of states.slice(offset, offset + 100)) {
+        const key = RedisKeys.proxy.stats(proxyId, contextKey)
+        transaction.hset(key, shardId, value)
+        transaction.expire(key, TTL.proxyStats)
+        transaction.zadd(RedisKeys.proxy.statsIndex, Date.now() + TTL.proxyStats * 1000, key)
+      }
+      const results = await transaction.exec()
+      for (const [error] of results) {
+        if (error) {
+          throw error
+        }
+      }
+    }
+  }
+
+  redisClient.rebuildProxyStatsIndex = async function () {
+    const client = this.getClientSafe()
+    let cursor = '0'
+    do {
+      const [next, keys] = await client.scan(cursor, 'MATCH', `${RedisKeys.proxy.statsPrefix}*`, 'COUNT', 200)
+      cursor = next
+      const statsKeys = keys.filter((key) => !key.endsWith(':probe'))
+      for (let offset = 0; offset < statsKeys.length; offset += 100) {
+        const batch = statsKeys.slice(offset, offset + 100)
+        const reads = client.pipeline()
+        for (const key of batch) {
+          reads.pttl(key)
+        }
+        const results = await reads.exec()
+        const writes = client.pipeline()
+        let pending = 0
+        for (let index = 0; index < batch.length; index++) {
+          const [error, ttl] = results[index]
+          if (error) {
+            throw error
+          }
+          if (ttl > 0) {
+            writes.zadd(RedisKeys.proxy.statsIndex, 'GT', Date.now() + ttl, batch[index])
+            pending++
+          }
+        }
+        if (pending > 0) {
+          for (const [error] of await writes.exec()) {
+            if (error) {
+              throw error
+            }
+          }
+        }
+      }
+    } while (cursor !== '0')
+  }
+
+  redisClient.iterateProxyStats = async function* () {
+    const client = this.getClientSafe()
+    await client.zremrangebyscore(RedisKeys.proxy.statsIndex, '-inf', Date.now())
+    const seen = new Set()
+    let cursor = '0'
+    do {
+      const [next, members] = await client.zscan(RedisKeys.proxy.statsIndex, cursor, 'COUNT', 100)
+      cursor = next
+      const keys = members.filter((_, index) => index % 2 === 0)
+      for (let offset = 0; offset < keys.length; offset += 100) {
+        const batch = keys.slice(offset, offset + 100)
+        const pipeline = client.pipeline()
+        for (const key of batch) {
+          pipeline.hgetall(key)
+        }
+        const results = await pipeline.exec()
+        for (let index = 0; index < batch.length; index++) {
+          const [error, value] = results[index]
+          if (error) {
+            throw error
+          }
+          if (!seen.has(batch[index])) {
+            seen.add(batch[index])
+            yield { key: batch[index], value }
+          }
+        }
+      }
+    } while (cursor !== '0')
+  }
+
   // 全量代理配置（返回已解析的对象数组）
   redisClient.getProxyConfigsAll = async function () {
     const client = this.getClientSafe()

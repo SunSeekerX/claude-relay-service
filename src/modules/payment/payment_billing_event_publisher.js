@@ -12,7 +12,7 @@ export const buildBillingEvent = (eventData) => ({
   apiKey: {
     id: eventData.keyId,
     name: eventData.keyName ?? null,
-    userId: eventData.userId ?? null
+    userId: eventData.userId ?? null,
   },
   usage: {
     model: eventData.model,
@@ -23,7 +23,7 @@ export const buildBillingEvent = (eventData) => ({
     ephemeral5mTokens: eventData.ephemeral5mTokens ?? 0,
     ephemeral1hTokens: eventData.ephemeral1hTokens ?? 0,
     totalTokens: eventData.totalTokens ?? 0,
-    toolUsage: eventData.toolUsage ?? null
+    toolUsage: eventData.toolUsage ?? null,
   },
   cost: {
     total: eventData.realCost ?? eventData.cost ?? 0,
@@ -35,7 +35,7 @@ export const buildBillingEvent = (eventData) => ({
     realCostSource: eventData.realCostSource ?? 'price_table',
     tools: eventData.toolCost ?? 0,
     breakdown: eventData.costBreakdown ?? null,
-    baseBreakdown: eventData.baseCostBreakdown ?? eventData.costBreakdown ?? null
+    baseBreakdown: eventData.baseCostBreakdown ?? eventData.costBreakdown ?? null,
   },
   account: { id: eventData.accountId ?? null, type: eventData.accountType ?? null },
   context: {
@@ -44,8 +44,8 @@ export const buildBillingEvent = (eventData) => ({
     statusCode: eventData.statusCode ?? null,
     serviceTier: eventData.serviceTier ?? null,
     isLongContext: eventData.isLongContext === true,
-    requestTimestamp: eventData.requestTimestamp ?? new Date().toISOString()
-  }
+    requestTimestamp: eventData.requestTimestamp ?? new Date().toISOString(),
+  },
 })
 
 /**

@@ -7,9 +7,7 @@
         <i class="i-lucide-coins text-sm text-yellow-500" />
         Token 使用分布
       </span>
-      <span class="text-sm font-normal text-gray-500 dark:text-gray-400"
-        >({{ statsPeriod === 'daily' ? '今日' : '本月' }})</span
-      >
+      <span class="text-sm font-normal text-gray-500 dark:text-gray-400">({{ periodLabel }})</span>
     </h3>
     <div class="space-y-1">
       <div class="flex items-center justify-between gap-2 py-0.5">
@@ -17,7 +15,7 @@
           <i class="i-lucide-arrow-right text-sm text-green-500" />
           输入 Token
         </span>
-        <span class="text-sm font-medium text-gray-900 dark:text-gray-100">{{
+        <span class="usage-input text-sm font-medium text-gray-900 dark:text-gray-100">{{
           formatNumber(currentPeriodData.inputTokens)
         }}</span>
       </div>
@@ -26,7 +24,7 @@
           <i class="i-lucide-arrow-left text-sm text-blue-500" />
           输出 Token
         </span>
-        <span class="text-sm font-medium text-gray-900 dark:text-gray-100">{{
+        <span class="usage-output text-sm font-medium text-gray-900 dark:text-gray-100">{{
           formatNumber(currentPeriodData.outputTokens)
         }}</span>
       </div>
@@ -35,7 +33,7 @@
           <i class="i-lucide-save text-sm text-purple-500" />
           缓存创建 Token
         </span>
-        <span class="text-sm font-medium text-gray-900 dark:text-gray-100">{{
+        <span class="usage-cache text-sm font-medium text-gray-900 dark:text-gray-100">{{
           formatNumber(currentPeriodData.cacheCreateTokens)
         }}</span>
       </div>
@@ -44,14 +42,14 @@
           <i class="i-lucide-download text-sm text-orange-500" />
           缓存读取 Token
         </span>
-        <span class="text-sm font-medium text-gray-900 dark:text-gray-100">{{
+        <span class="usage-cache text-sm font-medium text-gray-900 dark:text-gray-100">{{
           formatNumber(currentPeriodData.cacheReadTokens)
         }}</span>
       </div>
     </div>
     <div class="mt-1.5 border-t border-gray-200 pt-1.5 dark:border-gray-700">
       <div class="flex items-center justify-between font-semibold text-gray-900 dark:text-gray-100">
-        <span class="text-sm">{{ statsPeriod === 'daily' ? '今日' : '本月' }}总计</span>
+        <span class="text-sm">{{ periodLabel }}总计</span>
         <span class="text-sm">{{ formatNumber(currentPeriodData.allTokens) }}</span>
       </div>
     </div>
@@ -59,6 +57,7 @@
 </template>
 
 <script setup>
+import { computed } from 'vue'
 import { formatNumber } from '@/libs/tools'
 import { storeToRefs } from 'pinia'
 import { useApiStatsStore } from '@/stores/api_stats'
@@ -66,7 +65,9 @@ import { useApiStatsStore } from '@/stores/api_stats'
 const apiStatsStore = useApiStatsStore()
 const { statsPeriod, currentPeriodData } = storeToRefs(apiStatsStore)
 
-// 格式化数字
+const periodLabel = computed(
+  () => ({ daily: '今日', monthly: '本月', alltime: '全部' })[statsPeriod.value]
+)
 </script>
 
 <style scoped>

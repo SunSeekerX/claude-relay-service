@@ -151,6 +151,10 @@ export const sendStreamTestRequest = async (options) => {
     timeout,
     responseType: 'stream',
     validateStatus: () => true,
+    signal: options.signal,
+  }
+  if (options.proxy === false) {
+    requestConfig.proxy = false
   }
 
   if (proxyAgent) {
@@ -162,6 +166,9 @@ export const sendStreamTestRequest = async (options) => {
   try {
     const response = await axios(requestConfig)
     logger.debug(`Test response status: ${response.status}`)
+    if (options.consumeResponse) {
+      return await options.consumeResponse(response)
+    }
 
     // 处理非200响应
     if (response.status !== 200) {

@@ -11,21 +11,15 @@
           <div class="mb-4 flex items-center justify-between">
             <h3 class="text-lg font-medium text-gray-900 dark:text-gray-100">Create New API Key</h3>
             <button
+              aria-label="Close dialog"
               class="text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300"
               @click="$emit('close')"
             >
-              <svg class="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path
-                  d="M6 18L18 6M6 6l12 12"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  stroke-width="2"
-                />
-              </svg>
+              <i aria-hidden="true" class="i-lucide-x h-6 w-6" />
             </button>
           </div>
 
-          <form class="space-y-4" @submit.prevent="handleSubmit">
+          <form class="space-y-4" @submit.prevent="handleSubmit(false)">
             <div>
               <label class="block text-sm font-medium text-gray-700 dark:text-gray-200" for="name">
                 Name *
@@ -34,7 +28,7 @@
                 id="name"
                 v-model="form.name"
                 class="form-input w-full mt-1"
-                :disabled="loading"
+                :disabled="loading || !!newApiKey"
                 placeholder="Enter API key name"
                 required
                 type="text"
@@ -52,7 +46,7 @@
                 id="description"
                 v-model="form.description"
                 class="form-input w-full mt-1"
-                :disabled="loading"
+                :disabled="loading || !!newApiKey"
                 placeholder="Optional description"
                 rows="3"
               ></textarea>
@@ -64,13 +58,7 @@
             >
               <div class="flex">
                 <div class="flex-shrink-0">
-                  <svg class="h-5 w-5 text-red-400" fill="currentColor" viewBox="0 0 20 20">
-                    <path
-                      clip-rule="evenodd"
-                      d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z"
-                      fill-rule="evenodd"
-                    />
-                  </svg>
+                  <i aria-hidden="true" class="i-lucide-circle-x h-5 w-5 text-red-400" />
                 </div>
                 <div class="ml-3">
                   <p class="text-sm text-red-700 dark:text-red-300">{{ error }}</p>
@@ -79,44 +67,12 @@
             </div>
 
             <div class="flex justify-end gap-2 pt-2.5">
-              <button
-                class="rounded-md border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-700 dark:focus:ring-offset-gray-800"
-                :disabled="loading"
-                type="button"
-                @click="$emit('close')"
-              >
-                Cancel
-              </button>
-              <button
-                class="rounded-md border border-transparent bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 dark:focus:ring-offset-gray-800"
-                :disabled="loading || !form.name.trim()"
-                type="submit"
-              >
-                <span v-if="loading" class="flex items-center">
-                  <svg
-                    class="-ml-1 mr-2 h-4 w-4 animate-spin text-white"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    xmlns="http://www.w3.org/2000/svg"
-                  >
-                    <circle
-                      class="opacity-25"
-                      cx="12"
-                      cy="12"
-                      r="10"
-                      stroke="currentColor"
-                      stroke-width="4"
-                    ></circle>
-                    <path
-                      class="opacity-75"
-                      d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-                      fill="currentColor"
-                    ></path>
-                  </svg>
-                  Creating...
-                </span>
-                <span v-else>Create API Key</span>
-              </button>
+              <DialogSaveActions
+                :disabled="!form.name.trim()"
+                :loading="loading"
+                @cancel="emit('close')"
+                @save="handleSubmit"
+              />
             </div>
           </form>
 
@@ -127,13 +83,7 @@
           >
             <div class="flex items-start">
               <div class="flex-shrink-0">
-                <svg class="h-5 w-5 text-green-400" fill="currentColor" viewBox="0 0 20 20">
-                  <path
-                    clip-rule="evenodd"
-                    d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"
-                    fill-rule="evenodd"
-                  />
-                </svg>
+                <i aria-hidden="true" class="i-lucide-circle-check h-5 w-5 text-green-400" />
               </div>
               <div class="ml-3 flex-1">
                 <h4 class="text-sm font-medium text-green-800 dark:text-green-300">
@@ -155,19 +105,7 @@
                         class="ml-3 inline-flex flex-shrink-0 items-center rounded border border-transparent bg-green-100 px-2 py-1 text-sm font-medium text-green-700 hover:bg-green-200 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 dark:bg-green-900/40 dark:text-green-300 dark:hover:bg-green-900/60 dark:focus:ring-offset-gray-800"
                         @click="copyToClipboard(newApiKey.key)"
                       >
-                        <svg
-                          class="mr-1 h-3 w-3"
-                          fill="none"
-                          stroke="currentColor"
-                          viewBox="0 0 24 24"
-                        >
-                          <path
-                            d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"
-                            stroke-linecap="round"
-                            stroke-linejoin="round"
-                            stroke-width="2"
-                          />
-                        </svg>
+                        <i aria-hidden="true" class="i-lucide-copy mr-1 h-3 w-3" />
                         Copy
                       </button>
                     </div>
@@ -225,7 +163,11 @@ const resetForm = () => {
   newApiKey.value = null
 }
 
-const handleSubmit = async () => {
+const handleSubmit = async (closeAfter = false) => {
+  if (newApiKey.value) {
+    if (closeAfter) handleClose()
+    return
+  }
   if (!form.name.trim()) {
     error.value = 'API key name is required'
     return
@@ -243,8 +185,10 @@ const handleSubmit = async () => {
     const result = await userStore.createApiKey(apiKeyData)
 
     if (isOk(result)) {
-      newApiKey.value = result.apiKey
+      newApiKey.value = result.data.apiKey
       showToast('API key created successfully!', 'success')
+      emit('created', newApiKey.value, closeAfter)
+      if (closeAfter) emit('close')
     } else {
       error.value = msgOf(result, 'Failed to create API key')
     }
@@ -268,7 +212,6 @@ const copyToClipboard = async (text) => {
 
 const handleClose = () => {
   resetForm()
-  emit('created')
   emit('close')
 }
 

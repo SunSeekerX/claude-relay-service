@@ -1,5 +1,6 @@
 import crypto from 'node:crypto'
 import express from 'express'
+import { getLegacyProviderModels } from './relay_routing_service.js'
 import { authenticateApiKey } from '../../infra/middleware_auth.js'
 import { droidRelayService } from './relay_droid_relay_service.js'
 import { sessionHelper } from './relay_session_helper.js'
@@ -133,37 +134,13 @@ router.post(['/openai/v1/responses', '/openai/responses'], authenticateApiKey, a
 // 模型列表端点（兼容性）
 router.get('/*prefix/v1/models', authenticateApiKey, async (req, res) => {
   try {
-    // 返回可用的模型列表
-    const models = [
-      {
-        id: 'claude-opus-4-1-20250805',
-        object: 'model',
-        created: Date.now(),
-        owned_by: 'anthropic',
-      },
-      {
-        id: 'claude-sonnet-4-5-20250929',
-        object: 'model',
-        created: Date.now(),
-        owned_by: 'anthropic',
-      },
-      {
-        id: 'gpt-5-2025-08-07',
-        object: 'model',
-        created: Date.now(),
-        owned_by: 'openai',
-      },
-    ]
-
-    res.json({
-      object: 'list',
-      data: models,
-    })
+    if (!hasDroidPermission(req.apiKey)) return res.status(403).json({ error: 'permission_denied' })
+    const format = req.path.includes('/comm/') ? 'openai-chat' :
+      req.path.includes('/openai/') ? 'openai-responses' : 'claude-messages'
+    const models = await getLegacyProviderModels(req.apiKey, 'droid', format)
+    return res.json({ object: 'list', data: models })
   } catch (error) {
     logger.error('Droid models list error:', error)
-    res.status(500).json({
-      error: 'internal_server_error',
-      message: error.message,
-    })
+    return res.status(500).json({ error: 'internal_server_error' })
   }
 })

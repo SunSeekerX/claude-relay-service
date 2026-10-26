@@ -13,6 +13,7 @@ logs/
 *.log
 
 # Data files
+.agent_tmp/
 data/
 temp/
 redis_data/

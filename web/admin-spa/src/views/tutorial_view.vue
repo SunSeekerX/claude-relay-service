@@ -21,12 +21,12 @@
           :class="[
             'flex flex-1 items-center justify-center gap-1 whitespace-nowrap rounded-lg px-3 py-1.5 text-sm font-semibold transition-all duration-300',
             activeTutorialSystem === system.key
-              ? 'bg-white text-blue-600 shadow-sm dark:bg-blue-600 dark:text-white dark:shadow-blue-500/40'
+              ? 'bg-[var(--surface-color)] text-[var(--text-primary)] shadow-sm ring-1 ring-[var(--border-color)]'
               : 'text-gray-600 hover:bg-white/50 hover:text-gray-900 dark:text-gray-300 dark:hover:bg-gray-700 dark:hover:text-white'
           ]"
           @click="activeTutorialSystem = system.key"
         >
-          <i :class="system.icon" />
+          <i aria-hidden="true" class="shrink-0 text-base" :class="system.icon" />
           {{ system.name }}
         </button>
       </div>
@@ -41,12 +41,12 @@
           :class="[
             'flex flex-1 items-center justify-center gap-1 whitespace-nowrap rounded-lg px-3 py-1.5 text-sm font-semibold transition-all duration-300',
             activeCliTool === tool.key
-              ? 'bg-white text-blue-600 shadow-sm dark:bg-blue-600 dark:text-white dark:shadow-blue-500/40'
+              ? 'bg-[var(--surface-color)] text-[var(--text-primary)] shadow-sm ring-1 ring-[var(--border-color)]'
               : 'text-gray-600 hover:bg-white/50 hover:text-gray-900 dark:text-gray-300 dark:hover:bg-gray-700 dark:hover:text-white'
           ]"
           @click="activeCliTool = tool.key"
         >
-          <i :class="tool.icon" />
+          <i aria-hidden="true" class="shrink-0 text-xl" :class="tool.icon" />
           {{ tool.name }}
         </button>
       </div>
@@ -59,6 +59,7 @@
 
 <script setup>
 import { computed, ref } from 'vue'
+import { PLATFORM_ICONS, CLIENT_ICONS, SYSTEM_ICONS } from '@/libs/platform_icons'
 import ClaudeCodeTutorial from '@/components/tutorial/claude_code_tutorial.vue'
 import GeminiCliTutorial from '@/components/tutorial/gemini_cli_tutorial.vue'
 import CodexTutorial from '@/components/tutorial/codex_tutorial.vue'
@@ -73,18 +74,28 @@ const activeCliTool = ref('claude-code')
 
 // 系统列表
 const tutorialSystems = [
-  { key: 'windows', name: 'Windows', icon: 'i-logos-microsoft-windows' },
-  { key: 'macos', name: 'macOS', icon: 'i-logos-apple' },
-  { key: 'linux', name: 'Linux / WSL2', icon: 'i-logos-linux-tux' }
+  { key: 'windows', name: 'Windows', icon: SYSTEM_ICONS.windows },
+  { key: 'macos', name: 'macOS', icon: SYSTEM_ICONS.macos },
+  { key: 'linux', name: 'Linux / WSL2', icon: SYSTEM_ICONS.linux }
 ]
 
 // CLI 工具列表
 const cliTools = [
-  { key: 'claude-code', name: 'Claude Code', icon: 'i-lucide-bot', component: ClaudeCodeTutorial },
-  { key: 'codex', name: 'Codex', icon: 'i-lucide-code', component: CodexTutorial },
-  { key: 'gemini-cli', name: 'Gemini CLI', icon: 'i-logos-google-icon', component: GeminiCliTutorial },
-  { key: 'droid-cli', name: 'Droid CLI', icon: 'i-lucide-terminal', component: DroidCliTutorial },
-  { key: 'grok-cli', name: 'Grok / Codex', icon: 'i-lucide-zap', component: GrokCliTutorial }
+  {
+    key: 'claude-code',
+    name: 'Claude Code',
+    icon: CLIENT_ICONS.claude_code,
+    component: ClaudeCodeTutorial
+  },
+  { key: 'codex', name: 'Codex', icon: CLIENT_ICONS.codex, component: CodexTutorial },
+  {
+    key: 'gemini-cli',
+    name: 'Gemini CLI',
+    icon: PLATFORM_ICONS.gemini,
+    component: GeminiCliTutorial
+  },
+  { key: 'droid-cli', name: 'Droid CLI', icon: PLATFORM_ICONS.droid, component: DroidCliTutorial },
+  { key: 'grok-cli', name: 'Grok / Codex', icon: PLATFORM_ICONS.grok, component: GrokCliTutorial }
 ]
 
 // 当前工具标题

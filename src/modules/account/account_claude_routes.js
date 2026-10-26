@@ -1,4 +1,5 @@
 import express from 'express'
+import { markAccountModelIdentityUpdate } from './account_model_identity.js'
 import crypto from 'node:crypto'
 
 import { claudeAccountService } from './account_claude_service.js'
@@ -716,7 +717,7 @@ router.put(
       }
     }
 
-    await claudeAccountService.updateAccount(accountId, mappedUpdates)
+    await claudeAccountService.updateAccount(accountId, markAccountModelIdentityUpdate(mappedUpdates))
 
     logger.success(`Admin updated Claude account: ${accountId}`)
     return ok(undefined, 'Claude account updated successfully')
@@ -857,7 +858,7 @@ router.post(
     // 请求显式指定优先，否则用后台配置的默认测试模型（单一事实源）
     const body = parseObjectBody(req.body, '测试Claude账户')
     const model = await testModelConfigService.resolveAccountModel('claude', body.model)
-    await claudeRelayService.testAccountConnection(accountId, res, model)
+    await claudeRelayService.testAccountConnection(accountId, res, model, body.prompt)
     return SEND_RAW
   }),
 )
@@ -984,7 +985,7 @@ router.post(
     // 执行测试（请求显式指定优先，否则用后台配置默认）
     const body = parseObjectBody(req.body, '同步测试Claude账户')
     const model = await testModelConfigService.resolveAccountModel('claude', body.model)
-    const testResult = await claudeRelayService.testAccountConnectionSync(accountId, model)
+    const testResult = await claudeRelayService.testAccountConnectionSync(accountId, model, body.prompt)
 
     // 保存测试结果到历史
     await redis.saveAccountTestResult(accountId, 'claude', testResult)

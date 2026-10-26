@@ -1,5 +1,5 @@
 <template>
-  <div class="flex min-h-0 flex-1 flex-col">
+  <div class="payment-manage-page admin-list-page flex min-h-0 flex-1 flex-col">
     <!-- 页面标题与主 Tab「支付管理」重复，已移除 -->
     <!-- Tab 切换 + 全局配置入口 -->
     <SegmentedTabs v-model="activeTab" class="mb-4" :tabs="tabs" variant="underline">
@@ -135,17 +135,13 @@
             </div>
           </div>
           <div class="mt-6 flex gap-3">
-            <button :class="[BTN_SECONDARY, 'flex-1']" @click="configModal = false">
-              {{ configLoadFailed ? '关闭' : '取消' }}
-            </button>
-            <button
-              v-if="!configLoading && !configLoadFailed"
-              :class="[BTN_PRIMARY, 'flex-1']"
-              :disabled="savingConfig"
-              @click="saveConfig"
-            >
-              <i v-if="savingConfig" class="i-lucide-loader-circle animate-spin mr-2" />保存配置
-            </button>
+            <DialogSaveActions
+              class="w-full"
+              :disabled="configLoading || configLoadFailed"
+              :loading="savingConfig"
+              @cancel="configModal = false"
+              @save="saveConfig"
+            />
           </div>
         </div>
       </div>
@@ -163,9 +159,9 @@
           <thead class="bg-gray-100 dark:bg-gray-700">
             <tr>
               <th :class="TH">名称</th>
-              <th :class="TH">额度</th>
-              <th :class="TH">价格</th>
-              <th :class="TH">排序</th>
+              <th :class="[TH, 'text-right']">额度</th>
+              <th :class="[TH, 'text-right']">价格</th>
+              <th :class="[TH, 'text-right']">排序</th>
               <th :class="TH">状态</th>
               <th :class="[TH, 'text-right']">操作</th>
             </tr>
@@ -176,9 +172,11 @@
             </tr>
             <tr v-for="p in plans" :key="p.id" class="hover:bg-gray-50 dark:hover:bg-gray-700/50">
               <td :class="TD">{{ p.name }}</td>
-              <td :class="[TD, 'text-green-600 dark:text-green-400']">${{ p.quotaAmount }}</td>
-              <td :class="TD">{{ p.price }} {{ p.currency }}</td>
-              <td :class="TD">{{ p.sortOrder }}</td>
+              <td :class="[TD, 'text-right text-green-600 dark:text-green-400']">
+                ${{ p.quotaAmount }}
+              </td>
+              <td :class="[TD, 'text-right']">{{ p.price }} {{ p.currency }}</td>
+              <td :class="[TD, 'text-right']">{{ p.sortOrder }}</td>
               <td :class="TD">
                 <span
                   :class="[
@@ -262,7 +260,7 @@
 
     <!-- ④ 订单 -->
     <div v-show="activeTab === 'orders'" class="space-y-3">
-      <div class="flex items-center gap-2">
+      <div class="admin-toolbar">
         <div class="w-40">
           <CustomDropdown
             v-model="orderStatus"
@@ -284,8 +282,8 @@
             <tr>
               <th :class="TH">订单号</th>
               <th :class="TH">Key</th>
-              <th :class="TH">应付</th>
-              <th :class="TH">额度</th>
+              <th :class="[TH, 'text-right']">应付</th>
+              <th :class="[TH, 'text-right']">额度</th>
               <th :class="TH">方式</th>
               <th :class="TH">状态</th>
               <th :class="TH">时间</th>
@@ -299,8 +297,10 @@
             <tr v-for="o in orders" :key="o.id" class="hover:bg-gray-50 dark:hover:bg-gray-700/50">
               <td :class="[TD, 'font-mono']">{{ o.outTradeNo }}</td>
               <td :class="TD">{{ o.apiKeyName || o.apiKeyId }}</td>
-              <td :class="TD">{{ o.payAmount }}</td>
-              <td :class="[TD, 'text-green-600 dark:text-green-400']">${{ o.quotaAmount }}</td>
+              <td :class="[TD, 'text-right']">{{ o.payAmount }} {{ o.currency }}</td>
+              <td :class="[TD, 'text-right text-green-600 dark:text-green-400']">
+                ${{ o.quotaAmount }}
+              </td>
               <td :class="TD">{{ paymentTypeLabel(o.paymentType) }}</td>
               <td :class="TD">
                 <span
@@ -484,8 +484,12 @@
             </label>
           </div>
           <div class="mt-6 flex gap-3">
-            <button :class="[BTN_SECONDARY, 'flex-1']" @click="planModal = false">取消</button>
-            <button :class="[BTN_PRIMARY, 'flex-1']" @click="savePlan">保存</button>
+            <DialogSaveActions
+              class="w-full"
+              :loading="savingPlan"
+              @cancel="planModal = false"
+              @save="savePlan"
+            />
           </div>
         </div>
       </div>
@@ -631,14 +635,13 @@
             </div>
           </div>
           <div class="mt-6 flex gap-3">
-            <button :class="[BTN_SECONDARY, 'flex-1']" @click="providerModal = false">取消</button>
-            <button
-              :class="[BTN_PRIMARY, 'flex-1']"
+            <DialogSaveActions
+              class="w-full"
               :disabled="loadingProviderDetail"
-              @click="saveProvider"
-            >
-              保存
-            </button>
+              :loading="savingProvider"
+              @cancel="providerModal = false"
+              @save="saveProvider"
+            />
           </div>
         </div>
       </div>
@@ -671,8 +674,7 @@
               <pre
                 v-if="log.detail"
                 class="mt-1 overflow-x-auto text-sm text-gray-500 dark:text-gray-400"
-                >{{ JSON.stringify(log.detail) }}</pre
-              >
+                >{{ JSON.stringify(log.detail) }}</pre>
             </li>
           </ul>
         </div>
@@ -768,8 +770,7 @@ const TH =
   'px-4 py-3 text-left text-sm font-medium uppercase tracking-wider text-gray-500 dark:text-gray-300'
 const TD = 'whitespace-nowrap px-4 py-3 text-sm text-gray-700 dark:text-gray-200'
 const TD_EMPTY = 'px-4 py-5 text-center text-sm text-gray-400'
-const INPUT =
-  'form-input w-full'
+const INPUT = 'form-input w-full'
 const LABEL = 'mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300'
 const CHECKBOX =
   'h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700'
@@ -778,7 +779,8 @@ const BTN_PRIMARY =
   'btn btn-primary h-10 inline-flex items-center justify-center rounded-xl px-4 text-sm font-medium text-white shadow-sm transition-colors disabled:opacity-50'
 const BTN_SECONDARY =
   'toolbar-btn h-10 inline-flex items-center justify-center px-4 text-sm font-medium disabled:opacity-50'
-const LINK = 'ml-3 text-sm text-blue-500 hover:text-blue-600'
+const LINK =
+  'mx-0.5 inline-flex min-h-8 items-center rounded-md border border-gray-200 px-2 py-1 text-sm text-blue-500 hover:bg-gray-50 dark:border-gray-600 dark:hover:bg-gray-800'
 const BADGE_ON = 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300'
 const BADGE_OFF = 'bg-gray-100 text-gray-500 dark:bg-gray-700'
 const STAT_CARD =
@@ -911,7 +913,7 @@ const loadConfig = async () => {
     showToast(msgOf(res, '配置加载失败，请重试'), 'error')
   }
 }
-const saveConfig = async () => {
+const saveConfig = async (closeAfter = false) => {
   // 配置未成功加载时禁止保存（否则会把生产配置覆盖成本地默认值）
   if (configLoading.value || configLoadFailed.value) {
     return showToast('配置尚未加载成功，无法保存', 'error')
@@ -919,11 +921,8 @@ const saveConfig = async () => {
   savingConfig.value = true
   const res = await updatePaymentConfigApi(config.value)
   savingConfig.value = false
-  showToast(
-    isOk(res) ? '配置已保存' : msgOf(res, '保存失败'),
-    isOk(res) ? 'success' : 'error'
-  )
-  if (isOk(res)) configModal.value = false
+  showToast(isOk(res) ? '配置已保存' : msgOf(res, '保存失败'), isOk(res) ? 'success' : 'error')
+  if (isOk(res) && closeAfter) configModal.value = false
 }
 
 // ========== 商品 ==========
@@ -948,12 +947,16 @@ const openPlanModal = (p) => {
       }
   planModal.value = true
 }
-const savePlan = async () => {
+const savingPlan = ref(false)
+const savePlan = async (closeAfter = false) => {
   const { id, ...data } = planForm.value
+  savingPlan.value = true
   const res = id ? await updatePaymentPlanApi(id, data) : await createPaymentPlanApi(data)
+  savingPlan.value = false
   if (!isOk(res)) return showToast(msgOf(res, '保存失败'), 'error')
   showToast('已保存', 'success')
-  planModal.value = false
+  if (!id) planForm.value.id = res.data.id
+  if (closeAfter) planModal.value = false
   loadPlans()
 }
 
@@ -1049,7 +1052,8 @@ const switchConfigMode = (mode) => {
   }
   configMode.value = mode
 }
-const saveProvider = async () => {
+const savingProvider = ref(false)
+const saveProvider = async (closeAfter = false) => {
   // 字段模式先并回 JSON 文本，统一从 configText 出口
   if (configMode.value === 'fields') fieldsToJson()
   const { id, configText, ...rest } = providerForm.value
@@ -1061,10 +1065,13 @@ const saveProvider = async () => {
       return showToast('配置 JSON 格式错误', 'error')
     }
   }
+  savingProvider.value = true
   const res = id ? await updatePaymentProviderApi(id, data) : await createPaymentProviderApi(data)
+  savingProvider.value = false
   if (!isOk(res)) return showToast(msgOf(res, '保存失败'), 'error')
   showToast('已保存', 'success')
-  providerModal.value = false
+  if (!id) providerForm.value.id = res.data.id
+  if (closeAfter) providerModal.value = false
   loadProviders()
 }
 
@@ -1232,8 +1239,13 @@ const runConfirm = async () => {
   if (fn) await fn()
 }
 
-onMounted(() => {
-  // 默认 tab 为数据看板，首屏加载；失败后可通过看板内「重新加载」或切 tab 重试
-  loadDashboard()
-})
+const loadActiveTab = () => {
+  if (activeTab.value === 'plans') return loadPlans()
+  if (activeTab.value === 'providers') return loadProviders()
+  if (activeTab.value === 'orders') return reloadOrders()
+  return loadDashboard()
+}
+
+watch(activeTab, loadActiveTab)
+onMounted(loadActiveTab)
 </script>

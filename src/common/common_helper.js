@@ -338,6 +338,8 @@ export const filterAvailableAccounts = (accounts) =>
 // 账户"状态类"字段：仅由系统内部（调度/限流/自动保护）写入，外部更新请求禁止写入，防止伪造自动停用证据
 // [人工决策-2026-06-02 23:30:05] review#3：账户更新入口字段白名单——剥离这些状态字段，只允许写配置类字段
 export const READONLY_ACCOUNT_STATE_FIELDS = new Set([
+  'modelCatalog',
+  'modelIdentityVersion',
   'status',
   'errorMessage',
   'rateLimitStatus',

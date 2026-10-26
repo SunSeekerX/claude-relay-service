@@ -1,3 +1,4 @@
+import { normalizeAccountModelRange } from './account_model_policy.js'
 import crypto from 'node:crypto'
 import { ProxyHelper } from '../proxy/proxy_helper.js'
 import axios from 'axios'
@@ -727,6 +728,8 @@ class ClaudeAccountService {
       }
 
       const allowedUpdates = [
+        'modelIdentityVersion',
+        'supportedModels',
         'name',
         'description',
         'email',
@@ -765,6 +768,8 @@ class ClaudeAccountService {
         if (allowedUpdates.includes(field)) {
           if (['email', 'password', 'refreshToken'].includes(field)) {
             updatedData[field] = this._encryptSensitiveData(value)
+          } else if (field === 'supportedModels') {
+            updatedData[field] = JSON.stringify(normalizeAccountModelRange(value))
           } else if (field === 'proxy') {
             updatedData[field] = value ? JSON.stringify(value) : ''
           } else if (field === 'priority' || field === 'maxConcurrency') {
@@ -887,7 +892,12 @@ class ClaudeAccountService {
         }
       }
 
-      await redis.setClaudeAccount(accountId, updatedData)
+      await redis.setClaudeAccount(accountId, updatedData, {
+        ...(Object.hasOwn(updates, 'supportedModels') ? { supportedModels: updatedData.supportedModels } : {}),
+        ...(Object.hasOwn(updates, 'modelIdentityVersion')
+          ? { modelIdentityVersion: updatedData.modelIdentityVersion }
+          : {}),
+      })
 
       // 开启 disableAutoProtection 后清理临时冷却与过载 key，确保账户立即可被调度
       if (enablingAutoProtection) {

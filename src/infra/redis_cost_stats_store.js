@@ -121,7 +121,7 @@ export const attach = function attach(redisClient) {
           String(amount),
           String(actualRealAmount),
           String(dedupTtl),
-          owner
+          owner,
         )
         if (Number(applied) === 0) {
           return false
@@ -156,7 +156,7 @@ export const attach = function attach(redisClient) {
         String(TTL.costDaily),
         String(TTL.costMonthly),
         String(TTL.costHourly),
-        String(dedupTtl)
+        String(dedupTtl),
       )
     } catch (error) {
       logger.error(`Cost stats write failed for ${keyId} (billing already recorded):`, error)

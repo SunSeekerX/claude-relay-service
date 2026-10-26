@@ -9,12 +9,12 @@ import { assertModelAccess } from './relay_model_access.js'
 import {
   ResponsesStreamState,
   hasReportedTokenUsage,
-  isResponsesTerminalEvent
+  isResponsesTerminalEvent,
 } from './relay_responses_stream_state.js'
 import {
   normalizeOpenAITokenUsage,
   buildTokenUsagePayload,
-  createRequestDetailMeta
+  createRequestDetailMeta,
 } from './relay_request_detail_helper.js'
 import { requestDetailService } from './relay_request_detail_service.js'
 
@@ -26,7 +26,7 @@ export const createResponsesWsBilling = ({
   initialModel = null,
   onLeaseExpired = null,
   validateAccount = null,
-  onTerminal = null
+  onTerminal = null,
 }) => {
   const url = new URL(req.url, `http://${req.headers.host ?? 'localhost'}`)
   let accountId = null
@@ -45,9 +45,7 @@ export const createResponsesWsBilling = ({
       return
     }
     const turns = turnsByStream.get(entry.streamId) ?? []
-    let index = turns.findIndex((turn) =>
-      entry.responseId ? turn.responseId === entry.responseId : !turn.responseId
-    )
+    let index = turns.findIndex((turn) => (entry.responseId ? turn.responseId === entry.responseId : !turn.responseId))
     if (index === -1 && entry.responseId) {
       index = turns.findIndex((turn) => !turn.responseId)
     }
@@ -55,8 +53,7 @@ export const createResponsesWsBilling = ({
     if (turns.length === 0) {
       turnsByStream.delete(entry.streamId)
     }
-    const inheritedModel =
-      turns.at(-1)?.model ?? acceptedModelsByStream.get(entry.streamId) ?? initialModel
+    const inheritedModel = turns.at(-1)?.model ?? acceptedModelsByStream.get(entry.streamId) ?? initialModel
     if (inheritedModel) {
       modelsByStream.set(entry.streamId, inheritedModel)
     }
@@ -71,12 +68,9 @@ export const createResponsesWsBilling = ({
       groupCostHoldGroupId: turn?.keyData?.groupCostHoldGroupId ?? null,
       groupCostHoldMeta: turn?.keyData?.groupCostHoldMeta ?? null,
       stream: true,
-      billingDedupId: crypto
-        .createHash('sha256')
-        .update([apiKeyData.id, accountId, requestId].join(':'))
-        .digest('hex'),
+      billingDedupId: crypto.createHash('sha256').update([apiKeyData.id, accountId, requestId].join(':')).digest('hex'),
       throwOnBillingFailure: true,
-      requestBody: { model: entry.model, stream_id: entry.streamId, transport: 'websocket' }
+      requestBody: { model: entry.model, stream_id: entry.streamId, transport: 'websocket' },
     })
     try {
       try {
@@ -92,16 +86,15 @@ export const createResponsesWsBilling = ({
         accountType === 'grok' &&
         Boolean(
           entry.rawUsage &&
-          ((entry.rawUsage.cost_in_usd_ticks !== undefined &&
-            entry.rawUsage.cost_in_usd_ticks !== null) ||
-            entry.rawUsage.server_side_tool_usage_details)
+          ((entry.rawUsage.cost_in_usd_ticks !== undefined && entry.rawUsage.cost_in_usd_ticks !== null) ||
+            entry.rawUsage.server_side_tool_usage_details),
         )
       if (!reportedTokens && !reportedGrokCost) {
         await requestDetailService.captureUnmeteredRequest(req, {
           apiKeyId: apiKeyData.id,
           accountId,
           accountType,
-          result: { ...meta, model: entry.model }
+          result: { ...meta, model: entry.model },
         })
         return
       }
@@ -117,7 +110,7 @@ export const createResponsesWsBilling = ({
         accountId,
         accountType,
         entry.serviceTier,
-        meta
+        meta,
       )
       if (turn?.keyData) {
         turn.keyData.groupCostHoldGroupId = null
@@ -138,7 +131,7 @@ export const createResponsesWsBilling = ({
         }
         Object.assign(turn.keyData, auth.keyData, {
           groupCostHoldGroupId: null,
-          groupCostHoldMeta: null
+          groupCostHoldMeta: null,
         })
         try {
           await accountValidator?.(entry.model, turn.keyData)
@@ -165,10 +158,10 @@ export const createResponsesWsBilling = ({
           logger.error('Responses WebSocket turn billing failed', {
             error,
             accountId,
-            responseId: entry.responseId
+            responseId: entry.responseId,
           })
         })
-    }
+    },
   })
 
   const flush = async () => {
@@ -176,7 +169,7 @@ export const createResponsesWsBilling = ({
     if (billingError) {
       throw Object.assign(new Error('WebSocket billing unavailable'), {
         statusCode: 503,
-        code: 'billing_unavailable'
+        code: 'billing_unavailable',
       })
     }
   }
@@ -193,7 +186,7 @@ export const createResponsesWsBilling = ({
     if (accumulator.snapshot().cyberPolicyEvent) {
       throw Object.assign(new Error('Session blocked by cyber policy; start a new session'), {
         statusCode: 403,
-        code: 'session_blocked_by_cyber_policy'
+        code: 'session_blocked_by_cyber_policy',
       })
     }
     const auth = await validateWsApiKey(req, url, requiredPermission)
@@ -205,25 +198,20 @@ export const createResponsesWsBilling = ({
     if (steering && !parent) {
       throw Object.assign(new Error('Response not found on this connection'), {
         statusCode: 400,
-        code: 'response_not_found'
+        code: 'response_not_found',
       })
     }
-    const streamId = steering
-      ? parent.streamId
-      : (message.stream_id ?? message.response?.stream_id ?? null)
-    if (
-      streamId !== null &&
-      (typeof streamId !== 'string' || !/^[A-Za-z0-9_.-]{1,256}$/.test(streamId))
-    ) {
+    const streamId = steering ? parent.streamId : (message.stream_id ?? message.response?.stream_id ?? null)
+    if (streamId !== null && (typeof streamId !== 'string' || !/^[A-Za-z0-9_.-]{1,256}$/.test(streamId))) {
       throw Object.assign(new Error('Invalid stream_id'), {
         statusCode: 400,
-        code: 'invalid_stream_id'
+        code: 'invalid_stream_id',
       })
     }
     if (accountType === 'grok' && (streamId !== null || steering)) {
       throw Object.assign(new Error('Unsupported Grok WebSocket event'), {
         statusCode: 400,
-        code: 'invalid_request_error'
+        code: 'invalid_request_error',
       })
     }
     if (
@@ -233,7 +221,7 @@ export const createResponsesWsBilling = ({
     ) {
       throw Object.assign(new Error('WebSocket stream limit reached'), {
         statusCode: 400,
-        code: 'websocket_stream_limit_reached'
+        code: 'websocket_stream_limit_reached',
       })
     }
     const model = steering
@@ -242,20 +230,17 @@ export const createResponsesWsBilling = ({
     let upstreamModel = model
     assertModelAccess(auth.keyData, model)
     const cachedModel = acceptedModelsByStream.get(streamId) ?? initialModel
-    const inheritsModel =
-      !steering && message.model === undefined && message.response?.model === undefined
+    const inheritsModel = !steering && message.model === undefined && message.response?.model === undefined
     if (inheritsModel && !cachedModel) {
       throw Object.assign(new Error('Specify model until the first response.created event'), {
         statusCode: 400,
-        code: 'invalid_request_error'
+        code: 'invalid_request_error',
       })
     }
     const possibleInheritedModels = inheritsModel
       ? new Set([
           cachedModel,
-          ...(turnsByStream.get(streamId) ?? [])
-            .filter((turn) => !turn.terminal)
-            .map((turn) => turn.model)
+          ...(turnsByStream.get(streamId) ?? []).filter((turn) => !turn.terminal).map((turn) => turn.model),
         ])
       : new Set()
     for (const candidate of possibleInheritedModels) {
@@ -268,18 +253,18 @@ export const createResponsesWsBilling = ({
       if ([...turnsByStream.values()].reduce((count, turns) => count + turns.length, 0) >= 64) {
         throw Object.assign(new Error('Too many pending WebSocket turns'), {
           statusCode: 429,
-          code: 'rate_limit_exceeded'
+          code: 'rate_limit_exceeded',
         })
       }
       const warmup = message.generate === false || message.response?.generate === false
       const lease = await acquireWsTurnConcurrency(auth.keyData, {
         onLeaseExpired,
-        acquireConcurrency: !warmup
+        acquireConcurrency: !warmup,
       })
       if (!lease.ok) {
         throw Object.assign(new Error(lease.message), {
           statusCode: lease.status,
-          code: lease.code
+          code: lease.code,
         })
       }
       try {
@@ -306,7 +291,7 @@ export const createResponsesWsBilling = ({
         transferred: false,
         terminal: false,
         warmup,
-        keyData: auth.keyData
+        keyData: auth.keyData,
       })
       turnsByStream.set(streamId, turns)
     }
@@ -338,10 +323,7 @@ export const createResponsesWsBilling = ({
           turn.terminal = true
         }
       }
-      if (
-        event.type === 'response.incomplete' &&
-        event.response?.incomplete_details?.reason === 'steered'
-      ) {
+      if (event.type === 'response.incomplete' && event.response?.incomplete_details?.reason === 'steered') {
         const turn = responseContexts.get(event.response.id)
         if (turn && turns.includes(turn) && !turn.transferred) {
           turn.transferred = true
@@ -350,7 +332,7 @@ export const createResponsesWsBilling = ({
             responseId: null,
             startedAt: Date.now(),
             transferred: false,
-            terminal: false
+            terminal: false,
           })
         }
       }
@@ -378,17 +360,15 @@ export const createResponsesWsBilling = ({
                   statusCode: 502,
                   stream: true,
                   errorCode: 'upstream_stream_incomplete',
-                  errorMessage: 'WebSocket closed before a terminal response event'
-                }
+                  errorMessage: 'WebSocket closed before a terminal response event',
+                },
               })
             }
           } catch (error) {
             logger.error('Failed to capture unfinished WebSocket turn', { error, accountId })
           } finally {
             if (!turn.transferred) {
-              await turn
-                .release()
-                .catch((error) => logger.error('Failed to release WebSocket turn', error))
+              await turn.release().catch((error) => logger.error('Failed to release WebSocket turn', error))
             }
           }
         }
@@ -408,20 +388,19 @@ export const createResponsesWsBilling = ({
           ...message,
           ...source,
           model: modelsByStream.get(streamId) ?? initialModel,
-          stream_id: streamId
-        })
+          stream_id: streamId,
+        }),
       )
     },
     ingestUpstreamText,
     snapshot: accumulator.snapshot,
     flush,
     close,
-    hasActiveTurns: () =>
-      [...turnsByStream.values()].some((turns) => turns.some((turn) => !turn.terminal)),
+    hasActiveTurns: () => [...turnsByStream.values()].some((turns) => turns.some((turn) => !turn.terminal)),
     setAccount: (id, billed = false, validator = accountValidator) => {
       accountId = id
       selfBilled = billed
       accountValidator = validator
-    }
+    },
   }
 }

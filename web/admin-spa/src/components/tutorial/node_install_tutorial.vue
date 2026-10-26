@@ -21,7 +21,7 @@
         <h5
           class="mb-2 flex items-center text-base font-semibold text-gray-800 dark:text-gray-200 sm:mb-3 sm:text-lg"
         >
-          <i class="i-logos-microsoft-windows mr-2 text-blue-600" />
+          <i aria-hidden="true" class="mr-2" :class="SYSTEM_ICONS.windows" />
           Windows 安装方法
         </h5>
         <div class="mb-3 sm:mb-4">
@@ -108,7 +108,11 @@
         <h5
           class="mb-2 flex items-center text-base font-semibold text-gray-800 dark:text-gray-200 sm:mb-3 sm:text-lg"
         >
-          <i class="i-logos-apple mr-2 text-gray-700 dark:text-gray-400" />
+          <i
+            aria-hidden="true"
+            class="mr-2 text-gray-700 dark:text-gray-300"
+            :class="SYSTEM_ICONS.macos"
+          />
           macOS 安装方法
         </h5>
         <div class="mb-4">
@@ -194,7 +198,7 @@
         <h5
           class="mb-2 flex items-center text-base font-semibold text-gray-800 dark:text-gray-200 sm:mb-3 sm:text-lg"
         >
-          <i class="i-logos-linux-tux mr-2 text-orange-600" />
+          <i aria-hidden="true" class="mr-2" :class="SYSTEM_ICONS.linux" />
           Linux / WSL2 安装方法
         </h5>
         <div class="mb-4">
@@ -268,6 +272,7 @@
 </template>
 
 <script setup>
+import { SYSTEM_ICONS } from '@/libs/platform_icons'
 defineProps({
   platform: {
     type: String,

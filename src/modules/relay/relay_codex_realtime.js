@@ -248,11 +248,7 @@ const extractRequestServiceTier = (eventObj) => {
   return normalizeRequestServiceTier(top)
 }
 
-export const createRealtimeUsageAccumulator = ({
-  onUsage = null,
-  terminalOnly = false,
-  retainUsage = true
-} = {}) => {
+export const createRealtimeUsageAccumulator = ({ onUsage = null, terminalOnly = false, retainUsage = true } = {}) => {
   // 按单次 completed usage 分桶（turn 序号 + tier + model），禁止跨 turn 合并后一次计费
   // DEC_20260905_194420
   // 档位：FIFO 队列 + response.id 绑定，禁止连接级单槽错配
@@ -356,7 +352,7 @@ export const createRealtimeUsageAccumulator = ({
       tier,
       streamId: eventObj.stream_id ?? null,
       model: eventObj.model ?? null,
-      warmup: eventObj.generate === false
+      warmup: eventObj.generate === false,
     })
     totals.lastRequestServiceTier = tier
   }
@@ -375,8 +371,8 @@ export const createRealtimeUsageAccumulator = ({
     const streamId = eventObj.stream_id ?? null
     const pendingIndex = pendingTierQueue.findIndex((entry) => entry.streamId === streamId)
     if (pendingIndex === -1) {
-return
-}
+      return
+    }
     const [pending] = pendingTierQueue.splice(pendingIndex, 1)
     refreshLastRequestServiceTier()
     tierByResponseId.set(responseId, pending)
@@ -399,8 +395,8 @@ return
       return pending
     }
     if (responseId && exhaustedResponseIds.has(responseId)) {
-                                       return null
-                                     }
+      return null
+    }
     // DEC_20260906_105200 冻结后仍禁止未知 id 通过 FIFO 消费其它回合档位。
     if (associationFrozen) {
       return null
@@ -408,8 +404,8 @@ return
     const streamId = eventObj.stream_id ?? null
     const index = pendingTierQueue.findIndex((entry) => entry.streamId === streamId)
     if (index === -1) {
- return null
-}
+      return null
+    }
     const [pending] = pendingTierQueue.splice(index, 1)
     refreshLastRequestServiceTier()
     rememberExhaustedResponseId(responseId)
@@ -426,9 +422,9 @@ return
       }
       const eventType = eventObj.type
       if (eventType === 'response.create' || eventType === 'response.append') {
-                                           enqueueRequestTier(eventObj)
-                                           continue
-                                         }
+        enqueueRequestTier(eventObj)
+        continue
+      }
       // 客户端其余事件一律忽略（含假 completed / usage）
       if (fromClient) {
         continue
@@ -443,8 +439,8 @@ return
       const isTerminal = isResponsesTerminalEvent(eventType)
       const responseId = extractEventResponseId(eventObj, usage?.responseId)
       if (isTerminal && responseId && exhaustedResponseIds.has(responseId)) {
-                                                                  continue
-                                                                }
+        continue
+      }
       const consumed = isTerminal ? consumeTurnTier(eventObj, responseId) : null
       if (
         eventType === 'response.incomplete' &&
@@ -458,8 +454,8 @@ return
         rememberExhaustedResponseId(responseId)
       }
       if (terminalOnly && !isTerminal) {
-                             continue
-                           }
+        continue
+      }
       const serviceTier = usage?.service_tier ?? consumed?.tier ?? null
       const model = usage?.model ?? consumed?.model ?? totals.lastModel
       const entry = {
@@ -477,7 +473,7 @@ return
         warmup: consumed?.warmup === true,
         rawUsage: eventObj.response?.usage ?? eventObj.usage ?? null,
         eventCount: 1,
-        lastModel: model
+        lastModel: model,
       }
       if (typeof onUsage === 'function' && (usage || isTerminal)) {
         onUsage(entry, eventObj)

@@ -1,8 +1,4 @@
-import {
-  startUpstreamTiming,
-  finishUpstreamTiming,
-  trackRequestTiming
-} from '../../common/request_timing.js'
+import { startUpstreamTiming, finishUpstreamTiming, trackRequestTiming } from '../../common/request_timing.js'
 import { fileURLToPath } from 'node:url'
 import https from 'node:https'
 import zlib from 'node:zlib'
@@ -27,6 +23,7 @@ import { ClaudeCodeValidator } from '../../common/validator_client_claude_code_v
 import { formatDateWithTimezone } from '../../common/date_helper.js'
 import * as requestIdentityService from './relay_request_identity_service.js'
 import { createClaudeTestPayload } from '../../common/test_payload_helper.js'
+import { testPromptConfigService } from './relay_test_prompt_config_service.js'
 import { userMessageQueueService } from '../user/user_message_queue_service.js'
 import { createStreamBackpressure, isStreamWritable } from '../../common/stream_helper.js'
 import * as upstreamErrorHelper from './relay_upstream_error_helper.js'
@@ -452,17 +449,19 @@ class ClaudeRelayService {
       }
 
       const parser = new IncrementalSSEParser()
-      return parser.feedFrames(transformed).concat(parser.finishFrames()).map((frame) => {
-        const event = parseSSEEvent(frame)
-        if (event.type !== 'data') {
-          return frame
-        }
-        this._restoreToolNamesInStreamEvent(event.data, toolNameMap)
-        const fields = frame.split(/\r\n|\n|\r/)
-          .filter((line) => line && !line.startsWith('data:'))
-        return `${fields.join('\n')}${fields.length ? '\n' : ''}` +
-          `data: ${JSON.stringify(event.data)}\n\n`
-      }).join('')
+      return parser
+        .feedFrames(transformed)
+        .concat(parser.finishFrames())
+        .map((frame) => {
+          const event = parseSSEEvent(frame)
+          if (event.type !== 'data') {
+            return frame
+          }
+          this._restoreToolNamesInStreamEvent(event.data, toolNameMap)
+          const fields = frame.split(/\r\n|\n|\r/).filter((line) => line && !line.startsWith('data:'))
+          return `${fields.join('\n')}${fields.length ? '\n' : ''}` + `data: ${JSON.stringify(event.data)}\n\n`
+        })
+        .join('')
     }
   }
 
@@ -497,11 +496,11 @@ class ClaudeRelayService {
           unifiedClaudeScheduler.selectAccountForApiKey(
             {
               ...apiKeyData,
-              _isClaudeCode: this.isRealClaudeCodeRequest(requestBody) === true
+              _isClaudeCode: this.isRealClaudeCodeRequest(requestBody) === true,
             },
             sessionHash,
-            requestBody.model
-          )
+            requestBody.model,
+          ),
         )
       } catch (error) {
         if (error.code === 'CLAUDE_DEDICATED_RATE_LIMITED') {
@@ -1832,18 +1831,15 @@ class ClaudeRelayService {
       // 选择可用的Claude账户（支持专属绑定和sticky会话）
       let accountSelection
       try {
-        accountSelection = await trackRequestTiming(
-          responseStream.req,
-          'scheduling',
-          () =>
-            unifiedClaudeScheduler.selectAccountForApiKey(
-              {
-                ...apiKeyData,
-                _isClaudeCode: this.isRealClaudeCodeRequest(requestBody) === true
-              },
-              sessionHash,
-              requestBody.model
-            )
+        accountSelection = await trackRequestTiming(responseStream.req, 'scheduling', () =>
+          unifiedClaudeScheduler.selectAccountForApiKey(
+            {
+              ...apiKeyData,
+              _isClaudeCode: this.isRealClaudeCodeRequest(requestBody) === true,
+            },
+            sessionHash,
+            requestBody.model,
+          ),
         )
       } catch (error) {
         if (error.code === 'CLAUDE_DEDICATED_RATE_LIMITED') {
@@ -2736,7 +2732,7 @@ class ClaudeRelayService {
           usageCallback,
           clientRequest: clientReq,
           accountId,
-          accountType
+          accountType,
         })
         const { isRealClaudeCodeRequest } = requestOptions
         let finishing = false
@@ -2765,9 +2761,7 @@ class ClaudeRelayService {
             }
             if (state.terminalType === 'error') {
               if (output && isStreamWritable(responseStream)) {
-                const transformed = toolNameStreamTransformer
-                  ? toolNameStreamTransformer(output)
-                  : output
+                const transformed = toolNameStreamTransformer ? toolNameStreamTransformer(output) : output
                 if (transformed) {
                   writable = responseStream.write(transformed) && writable
                 }
@@ -2779,7 +2773,7 @@ class ClaudeRelayService {
               this._writeStreamClientError(responseStream, {
                 statusCode: result.statusCode,
                 rawBody: { error: state.error },
-                streamTransformer
+                streamTransformer,
               })
               errorForwarded = true
             } else {
@@ -2787,9 +2781,7 @@ class ClaudeRelayService {
             }
           }
           if (output && isStreamWritable(responseStream)) {
-            const transformed = toolNameStreamTransformer
-              ? toolNameStreamTransformer(output)
-              : output
+            const transformed = toolNameStreamTransformer ? toolNameStreamTransformer(output) : output
             if (transformed) {
               writable = responseStream.write(transformed) && writable
             }
@@ -2811,7 +2803,7 @@ class ClaudeRelayService {
               this._writeStreamClientError(responseStream, {
                 statusCode: result.statusCode,
                 rawBody: { error: state.error },
-                streamTransformer
+                streamTransformer,
               })
               errorForwarded = true
             }
@@ -2838,11 +2830,7 @@ class ClaudeRelayService {
 
             // 处理限流状态
             if (rateLimitDetected || res.statusCode === 429) {
-              const rateLimitReset = this._resolveRateLimitReset(
-                res.headers,
-                requestModelFamily,
-                '[Stream-End]'
-              )
+              const rateLimitReset = this._resolveRateLimitReset(res.headers, requestModelFamily, '[Stream-End]')
               const parsedResetTimestamp = rateLimitReset.resetTimestamp ?? NaN
 
               // DEC_20260913_155429 仅权威 model scope 记模型级；账号级窗口走账号限流
@@ -2856,7 +2844,7 @@ class ClaudeRelayService {
                 await claudeAccountService.markAccountModelRateLimited(
                   accountId,
                   requestModelFamily,
-                  parsedResetTimestamp
+                  parsedResetTimestamp,
                 )
                 // 关闭自动防护时 markAccountModelRateLimited 直接返回，仍必须留详细错误历史
                 upstreamErrorHelper
@@ -2875,21 +2863,21 @@ class ClaudeRelayService {
                       responseStatus: 429,
                       responseHeaders: res.headers,
                       responseBody: rateLimitErrorBody,
-                      reason: `model_family_rate_limit:${requestModelFamily}`
-                    })
+                      reason: `model_family_rate_limit:${requestModelFamily}`,
+                    }),
                   )
                   .catch((error) => console.error(error))
                 logger.warn(
-                  ` [Stream] Account ${accountId} hit ${requestModelFamily} limit, resets at ${new Date(parsedResetTimestamp * 1000).toISOString()}`
+                  ` [Stream] Account ${accountId} hit ${requestModelFamily} limit, resets at ${new Date(parsedResetTimestamp * 1000).toISOString()}`,
                 )
               } else if (this._isAgentViewAuxiliaryRequest(body, clientHeaders)) {
                 logger.warn(
-                  ` [Stream] Agent View auxiliary request hit rate limit at stream end for account ${accountId}; skipping account-level rate-limit marking`
+                  ` [Stream] Agent View auxiliary request hit rate limit at stream end for account ${accountId}; skipping account-level rate-limit marking`,
                 )
               } else if (Number.isNaN(parsedResetTimestamp)) {
                 // 无权威 reset 头的 429 大概率不是真实限流，不标记账号、不进入冷却，直接透传错误
                 logger.warn(
-                  ` [Stream] Rate limit at stream end without reset header for account ${accountId}, skipping rate limit marking`
+                  ` [Stream] Rate limit at stream end without reset header for account ${accountId}, skipping rate limit marking`,
                 )
                 // SSE 限流常挂在 HTTP 200 上，历史状态记 429，并带上 SSE error 体
                 const historyStatusNoReset = rateLimitDetected ? 429 : res.statusCode
@@ -2902,7 +2890,7 @@ class ClaudeRelayService {
                   sessionId: sessionHash,
                   responseStatus: historyStatusNoReset,
                   responseHeaders: res.headers,
-                  responseBody: rateLimitErrorBody
+                  responseBody: rateLimitErrorBody,
                 })
                 upstreamErrorHelper
                   .recordErrorHistory(
@@ -2910,7 +2898,7 @@ class ClaudeRelayService {
                     accountType,
                     historyStatusNoReset,
                     'rate_limit',
-                    errorContext429StreamNoReset
+                    errorContext429StreamNoReset,
                   )
                   .catch((error) => console.error(error))
               } else if (
@@ -2919,14 +2907,14 @@ class ClaudeRelayService {
                 !Number.isNaN(parsedResetTimestamp)
               ) {
                 logger.info(
-                  `Extracted rate limit reset timestamp from stream: ${parsedResetTimestamp} (${new Date(parsedResetTimestamp * 1000).toISOString()})`
+                  `Extracted rate limit reset timestamp from stream: ${parsedResetTimestamp} (${new Date(parsedResetTimestamp * 1000).toISOString()})`,
                 )
 
                 await unifiedClaudeScheduler.markAccountRateLimited(
                   accountId,
                   accountType,
                   sessionHash,
-                  parsedResetTimestamp
+                  parsedResetTimestamp,
                 )
                 const errorContext429Stream = upstreamErrorHelper.buildErrorContext({
                   url: this.claudeApiUrl,
@@ -2937,7 +2925,7 @@ class ClaudeRelayService {
                   sessionId: sessionHash,
                   responseStatus: 429,
                   responseHeaders: res.headers,
-                  responseBody: rateLimitErrorBody
+                  responseBody: rateLimitErrorBody,
                 })
                 await upstreamErrorHelper
                   .markTempUnavailable(
@@ -2945,13 +2933,13 @@ class ClaudeRelayService {
                     accountType,
                     429,
                     upstreamErrorHelper.parseRetryAfter(res.headers),
-                    errorContext429Stream
+                    errorContext429Stream,
                   )
                   .catch(() => {})
               } else {
                 // 非权威 fallback：不标记限流，但仍记错误历史（与非流式一致）
                 logger.warn(
-                  ` [Stream] Non-authoritative rate limit at stream end for account ${accountId}, skip marking`
+                  ` [Stream] Non-authoritative rate limit at stream end for account ${accountId}, skip marking`,
                 )
                 const historyStatusNonAuth = rateLimitDetected ? 429 : res.statusCode
                 const errorContext429StreamNonAuth = upstreamErrorHelper.buildErrorContext({
@@ -2964,7 +2952,7 @@ class ClaudeRelayService {
                   responseStatus: historyStatusNonAuth,
                   responseHeaders: res.headers,
                   responseBody: rateLimitErrorBody,
-                  reason: 'non_authoritative_rate_limit'
+                  reason: 'non_authoritative_rate_limit',
                 })
                 upstreamErrorHelper
                   .recordErrorHistory(
@@ -2972,7 +2960,7 @@ class ClaudeRelayService {
                     accountType,
                     historyStatusNonAuth,
                     'rate_limit',
-                    errorContext429StreamNonAuth
+                    errorContext429StreamNonAuth,
                   )
                   .catch((error) => console.error(error))
               }
@@ -2981,10 +2969,7 @@ class ClaudeRelayService {
               await this.clearUnauthorizedErrors(accountId)
               await claudeAccountService.clearInternalErrors(accountId)
               // 如果请求成功，检查并移除限流状态
-              const isRateLimited = await unifiedClaudeScheduler.isAccountRateLimited(
-                accountId,
-                accountType
-              )
+              const isRateLimited = await unifiedClaudeScheduler.isAccountRateLimited(accountId, accountType)
               if (isRateLimited) {
                 await unifiedClaudeScheduler.removeAccountRateLimit(accountId, accountType)
               }
@@ -2998,16 +2983,12 @@ class ClaudeRelayService {
               } catch (overloadError) {
                 logger.error(
                   `[Stream] Failed to check/remove overload status for account ${accountId}:`,
-                  summarizeErrorForLog(overloadError)
+                  summarizeErrorForLog(overloadError),
                 )
               }
 
               // 只有真实的 Claude Code 请求才更新 headers（流式请求）
-              if (
-                clientHeaders &&
-                Object.keys(clientHeaders).length > 0 &&
-                isRealClaudeCodeRequest
-              ) {
+              if (clientHeaders && Object.keys(clientHeaders).length > 0 && isRealClaudeCodeRequest) {
                 await claudeCodeHeadersService.storeAccountHeaders(accountId, clientHeaders)
               }
             }
@@ -3024,7 +3005,7 @@ class ClaudeRelayService {
               this._writeStreamClientError(responseStream, {
                 statusCode: 502,
                 rawBody: { error: { type: 'api_error', message: 'Stream processing error' } },
-                streamTransformer
+                streamTransformer,
               })
             }
             settleStreamErr(error)
@@ -3457,8 +3438,9 @@ class ClaudeRelayService {
   }
 
   // 测试账号连接（供Admin API使用，直接复用 _makeClaudeStreamRequestWithUsageCapture）
-  async testAccountConnection(accountId, responseStream, model = 'claude-sonnet-4-5-20250929') {
-    const testRequestBody = createClaudeTestPayload(model, { stream: true })
+  async testAccountConnection(accountId, responseStream, model = 'claude-sonnet-4-5-20250929', requestedPrompt) {
+    const prompt = await testPromptConfigService.resolvePrompt(requestedPrompt)
+    const testRequestBody = createClaudeTestPayload(model, { stream: true, prompt })
 
     try {
       const { account, accessToken, proxyAgent } = await this._prepareAccountForTest(accountId)
@@ -3522,8 +3504,9 @@ class ClaudeRelayService {
 
   // 非流式测试账号连接（供定时任务使用）
   // 复用流式请求方法，收集结果后返回
-  async testAccountConnectionSync(accountId, model = 'claude-sonnet-4-5-20250929') {
-    const testRequestBody = createClaudeTestPayload(model, { stream: true })
+  async testAccountConnectionSync(accountId, model = 'claude-sonnet-4-5-20250929', requestedPrompt) {
+    const prompt = await testPromptConfigService.resolvePrompt(requestedPrompt)
+    const testRequestBody = createClaudeTestPayload(model, { stream: true, prompt })
     const startTime = Date.now()
 
     try {

@@ -3,6 +3,7 @@ import axios from 'axios'
 
 import { geminiApiAccountService } from './account_gemini_api_service.js'
 import { testModelConfigService } from '../relay/relay_test_model_config_service.js'
+import { testPromptConfigService } from '../relay/relay_test_prompt_config_service.js'
 import { apiKeyService } from '../apikey/apikey_service.js'
 import { accountGroupService } from './account_group_service.js'
 import { redis } from '../../infra/redis.js'
@@ -371,7 +372,7 @@ router.post(
   asyncRoute('Gemini-API account test failed', async (req, res) => {
     const { accountId } = req.params
     const body = parseObjectBody(req.body, '测试Gemini-API账户')
-    const { prompt = 'hi' } = body
+    const prompt = await testPromptConfigService.resolvePrompt(body.prompt)
     const maxTokens = sanitizeMaxTokens(body.maxTokens)
 
     const abortController = new AbortController()

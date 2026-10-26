@@ -1,151 +1,216 @@
 <template>
-  <div class="card p-2 sm:p-2.5">
-    <div class="mb-1.5">
-      <h3
-        class="flex flex-wrap items-center gap-x-1.5 text-sm font-semibold text-gray-900 dark:text-gray-100"
-      >
-        <span class="inline-flex items-center gap-1">
-          <i class="i-lucide-bot text-sm text-indigo-500" />
-          模型使用统计
-        </span>
-        <span class="text-sm font-normal text-gray-500 dark:text-gray-400"
-          >({{ periodLabel }})</span
-        >
-      </h3>
-    </div>
-
-    <div v-if="loading" class="py-3 text-center">
-      <i class="i-lucide-loader-circle loading-spinner mb-1 text-lg text-gray-500" />
-      <p class="text-sm text-gray-500 dark:text-gray-400">加载模型统计数据中...</p>
-    </div>
-
-    <div
-      v-else-if="stats.length > 0"
-      class="model-usage-list divide-y divide-gray-100 dark:divide-gray-800"
-    >
-      <div v-for="(model, index) in stats" :key="index" class="model-usage-item py-1.5">
-        <button
-          class="mb-0.5 inline-flex max-w-full items-center gap-1 truncate text-sm font-semibold text-gray-900 hover:text-indigo-600 dark:text-gray-100 dark:hover:text-indigo-400"
-          title="点击复制"
-          type="button"
-          @click="copyModelName(model.model)"
-        >
-          <span class="truncate">{{ model.model }}</span>
-          <i class="i-lucide-copy shrink-0 text-sm text-gray-400" />
-        </button>
-        <!-- 完整标签 + 语义色，紧凑横排 -->
-        <div class="flex flex-wrap items-baseline gap-x-2.5 gap-y-0.5 text-sm leading-tight">
-          <span class="stat-pair">
-            <span class="stat-label text-gray-500 dark:text-gray-400">请求</span>
-            <span class="stat-value text-gray-900 dark:text-gray-100">{{
-              formatNumber(model.requests)
-            }}</span>
-          </span>
-          <span class="stat-pair">
-            <span class="stat-label text-gray-500 dark:text-gray-400">总Token</span>
-            <span class="stat-value text-gray-900 dark:text-gray-100">{{
-              formatNumber(model.allTokens)
-            }}</span>
-          </span>
-          <span class="stat-pair">
-            <span class="stat-label text-green-600 dark:text-green-400">输入</span>
-            <span class="stat-value text-green-700 dark:text-green-300">{{
-              formatNumber(model.inputTokens)
-            }}</span>
-          </span>
-          <span class="stat-pair">
-            <span class="stat-label text-blue-600 dark:text-blue-400">输出</span>
-            <span class="stat-value text-blue-700 dark:text-blue-300">{{
-              formatNumber(model.outputTokens)
-            }}</span>
-          </span>
-          <span v-if="thinkingTokensOf(model) > 0" class="stat-pair">
-            <span class="stat-label text-indigo-600 dark:text-indigo-400">思考</span>
-            <span class="stat-value text-indigo-700 dark:text-indigo-300">{{
-              formatNumber(thinkingTokensOf(model))
-            }}</span>
-          </span>
-          <span class="stat-pair">
-            <span class="stat-label text-purple-600 dark:text-purple-400">缓存写</span>
-            <span class="stat-value text-purple-700 dark:text-purple-300">{{
-              formatNumber(model.cacheCreateTokens || 0)
-            }}</span>
-          </span>
-          <span class="stat-pair">
-            <span class="stat-label text-purple-600 dark:text-purple-400">缓存读</span>
-            <span class="stat-value text-purple-700 dark:text-purple-300">{{
-              formatNumber(model.cacheReadTokens || 0)
-            }}</span>
-          </span>
-          <span class="stat-pair">
-            <span class="stat-label text-cyan-600 dark:text-cyan-400">命中率</span>
-            <span class="stat-value text-cyan-700 dark:text-cyan-300">{{
-              formatHitRate(model)
-            }}</span>
-          </span>
-          <span class="stat-pair">
-            <span class="stat-label text-amber-600 dark:text-amber-400">原始</span>
-            <span class="stat-value font-semibold text-amber-700 dark:text-amber-300">{{
-              model.formatted?.total || formatCostValue(model.costs?.total)
-            }}</span>
-          </span>
-          <span v-if="serviceRates?.rates" class="stat-pair">
-            <span class="stat-label text-emerald-600 dark:text-emerald-400">扣费</span>
-            <span class="stat-value font-semibold text-emerald-700 dark:text-emerald-300">{{
-              calculateCcCost(model)
-            }}</span>
-          </span>
-        </div>
+  <section :aria-busy="modelStatsLoading" aria-label="模型使用统计" class="model-stats-panel card">
+    <header class="model-stats-toolbar">
+      <div class="model-stats-heading">
+        <h3><i class="i-lucide-bot" />模型使用统计</h3>
+        <span>{{ stats.length }} / {{ modelStats.length }} 个模型</span>
       </div>
+      <div class="model-stats-controls">
+        <div class="model-search">
+          <label class="sr-only" for="model-stats-keyword">筛选模型</label
+          ><input
+            id="model-stats-keyword"
+            v-model="keyword"
+            class="form-input"
+            placeholder="筛选模型名称"
+            type="search"
+            @keydown.esc.stop="clearKeyword"
+          />
+        </div>
+        <SegmentedTabs
+          aria-label="模型统计时间范围"
+          :disabled="modelStatsLoading"
+          :model-value="statsPeriod"
+          size="sm"
+          :tabs="periodOptions"
+          @update:model-value="switchPeriod"
+        />
+      </div>
+    </header>
+    <p class="model-stats-note">
+      Token 数悬停可查看完整值；点击模型名称复制。合计以总 Token 为准。
+    </p>
+    <div v-if="modelStatsLoading" aria-live="polite" class="model-stats-empty">
+      <i class="i-lucide-loader-circle animate-spin" />正在加载{{ periodLabel }}模型统计...
     </div>
-
-    <div v-else class="py-3 text-center text-gray-500 dark:text-gray-400">
-      <i class="i-lucide-chart-pie mb-1 text-xl opacity-60" />
-      <p class="text-sm">暂无{{ periodLabel }}模型使用数据</p>
+    <template v-else-if="stats.length">
+      <div class="model-table-scroll">
+        <table class="model-stats-table">
+          <caption class="sr-only">
+            {{
+              periodLabel
+            }}模型使用统计
+          </caption>
+          <thead>
+            <tr>
+              <th scope="col">模型</th>
+              <th class="text-right" scope="col">请求</th>
+              <th class="text-right" scope="col">总 Token</th>
+              <th class="text-right usage-input" scope="col">输入</th>
+              <th class="text-right usage-output" scope="col">输出</th>
+              <th
+                class="text-right usage-thinking"
+                scope="col"
+                title="部分模型的思考已包含在输出中，合计请以总 Token 为准"
+              >
+                思考
+              </th>
+              <th class="text-right usage-cache" scope="col">缓存写入</th>
+              <th class="text-right usage-cache" scope="col">缓存读取</th>
+              <th class="text-right usage-hit" scope="col">命中率</th>
+              <th class="text-right usage-original" scope="col">原始费用</th>
+              <th class="text-right usage-charge" scope="col">实际扣费</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="model in stats" :key="model.model">
+              <th scope="row">
+                <button
+                  :aria-label="`复制模型 ${model.model}`"
+                  class="model-copy"
+                  :title="model.model"
+                  type="button"
+                  @click="copyModelName(model.model)"
+                >
+                  {{ model.model }}
+                </button>
+              </th>
+              <td class="text-right" :title="exactNumber(model.requests)">
+                {{ formatNumber(model.requests) }}
+              </td>
+              <td class="text-right model-total" :title="exactNumber(model.allTokens)">
+                {{ formatNumber(model.allTokens) }}
+              </td>
+              <td class="usage-input text-right" :title="exactNumber(model.inputTokens)">
+                {{ formatNumber(model.inputTokens) }}
+              </td>
+              <td class="usage-output text-right" :title="exactNumber(model.outputTokens)">
+                {{ formatNumber(model.outputTokens) }}
+              </td>
+              <td class="usage-thinking text-right" :title="exactNumber(thinkingTokensOf(model))">
+                {{ formatNumber(thinkingTokensOf(model)) }}
+              </td>
+              <td class="usage-cache text-right" :title="exactNumber(model.cacheCreateTokens)">
+                {{ formatNumber(model.cacheCreateTokens ?? 0) }}
+              </td>
+              <td class="usage-cache text-right" :title="exactNumber(model.cacheReadTokens)">
+                {{ formatNumber(model.cacheReadTokens ?? 0) }}
+              </td>
+              <td class="usage-hit text-right" :title="`缓存读取 /（输入 + 缓存读取 + 缓存写入）`">
+                {{ formatHitRate(model) }}
+              </td>
+              <td
+                class="usage-original text-right"
+                :title="`$${Number(model.costs?.total ?? 0).toFixed(6)}`"
+              >
+                {{ model.formatted?.total || formatCostValue(model.costs?.total) }}
+              </td>
+              <td
+                class="usage-charge text-right model-charge"
+                :title="
+                  model.costs?.rated !== undefined
+                    ? `$${Number(model.costs.rated).toFixed(6)}`
+                    : calculateCcCost(model)
+                "
+              >
+                {{ calculateCcCost(model) }}
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="model-mobile-list">
+        <article v-for="model in stats" :key="model.model" class="model-mobile-row">
+          <header>
+            <button
+              :aria-label="`复制模型 ${model.model}`"
+              class="model-copy"
+              :title="model.model"
+              type="button"
+              @click="copyModelName(model.model)"
+            >
+              {{ model.model }}</button
+            ><span>{{ formatNumber(model.requests) }} 次</span>
+          </header>
+          <dl>
+            <div>
+              <dt>总 Token</dt>
+              <dd :title="exactNumber(model.allTokens)">{{ formatNumber(model.allTokens) }}</dd>
+            </div>
+            <div>
+              <dt class="usage-charge">实际扣费</dt>
+              <dd class="model-charge usage-charge">{{ calculateCcCost(model) }}</dd>
+            </div>
+            <div>
+              <dt>
+                <span class="usage-input">输入</span> / <span class="usage-output">输出</span>
+              </dt>
+              <dd>
+                <span class="usage-input">{{ formatNumber(model.inputTokens) }}</span> /
+                <span class="usage-output">{{ formatNumber(model.outputTokens) }}</span>
+              </dd>
+            </div>
+            <div>
+              <dt class="usage-thinking">思考</dt>
+              <dd class="usage-thinking">{{ formatNumber(thinkingTokensOf(model)) }}</dd>
+            </div>
+            <div>
+              <dt class="usage-cache">缓存写 / 读</dt>
+              <dd class="usage-cache">
+                {{ formatNumber(model.cacheCreateTokens ?? 0) }} /
+                {{ formatNumber(model.cacheReadTokens ?? 0) }}
+              </dd>
+            </div>
+            <div>
+              <dt class="usage-hit">命中率</dt>
+              <dd class="usage-hit">{{ formatHitRate(model) }}</dd>
+            </div>
+            <div>
+              <dt class="usage-original">原始费用</dt>
+              <dd class="usage-original">
+                {{ model.formatted?.total || formatCostValue(model.costs?.total) }}
+              </dd>
+            </div>
+          </dl>
+        </article>
+      </div>
+    </template>
+    <div v-else aria-live="polite" class="model-stats-empty">
+      {{ keyword.trim() ? '没有匹配的模型，试试其他关键词' : `暂无${periodLabel}模型使用数据` }}
     </div>
-  </div>
+  </section>
 </template>
 
 <script setup>
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
+import SegmentedTabs from '@/components/common/segmented_tabs.vue'
 import { storeToRefs } from 'pinia'
 import { useApiStatsStore } from '@/stores/api_stats'
 import { copyText, formatNumber } from '@/libs/tools'
 
-const props = defineProps({
-  period: {
-    type: String,
-    default: 'daily',
-    validator: (value) => ['daily', 'monthly', 'alltime'].includes(value)
-  }
-})
-
 const apiStatsStore = useApiStatsStore()
-const {
-  dailyModelStats,
-  monthlyModelStats,
-  alltimeModelStats,
-  modelStatsLoading,
-  serviceRates,
-  keyServiceRates,
-  multiKeyMode
-} = storeToRefs(apiStatsStore)
-
+const { modelStats, modelStatsLoading, statsPeriod, serviceRates, keyServiceRates, multiKeyMode } =
+  storeToRefs(apiStatsStore)
+const { switchPeriod } = apiStatsStore
+const keyword = ref('')
+const periodOptions = [
+  { key: 'daily', label: '今日' },
+  { key: 'monthly', label: '本月' },
+  { key: 'alltime', label: '全部' }
+]
 const stats = computed(() => {
-  if (props.period === 'daily') return dailyModelStats.value
-  if (props.period === 'monthly') return monthlyModelStats.value
-  if (props.period === 'alltime') return alltimeModelStats.value
-  return []
+  const query = keyword.value.trim().toLowerCase()
+  return query
+    ? modelStats.value.filter((model) => model.model.toLowerCase().includes(query))
+    : modelStats.value
 })
-
-const loading = computed(() => modelStatsLoading.value)
-
-const periodLabel = computed(() => {
-  if (props.period === 'daily') return '今日'
-  if (props.period === 'monthly') return '本月'
-  if (props.period === 'alltime') return '所有时间'
-  return ''
-})
+const periodLabel = computed(
+  () => periodOptions.find((option) => option.key === statsPeriod.value).label
+)
+const exactNumber = (value) => Number(value ?? 0).toLocaleString('zh-CN')
+const clearKeyword = () => {
+  keyword.value = ''
+}
 
 const copyModelName = (name) => copyText(name, '模型名称已复制')
 
@@ -214,63 +279,164 @@ const calculateCcCost = (model) => {
 </script>
 
 <style scoped>
-.card {
-  background: var(--surface-color);
-  border-radius: 12px;
-  border: 1px solid rgb(229 231 235);
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
-  overflow: hidden;
-  position: relative;
+.model-stats-panel {
+  min-width: 0;
+  padding: 12px;
 }
-
-:global(.dark) .card {
-  border-color: rgb(55 65 81);
+.model-stats-toolbar,
+.model-stats-heading,
+.model-stats-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
 }
-
-.model-usage-list {
-  margin: 0 -0.25rem;
+.model-stats-toolbar {
+  justify-content: space-between;
 }
-
-.model-usage-item {
-  padding-left: 0.25rem;
-  padding-right: 0.25rem;
-  transition: background-color 0.15s ease;
+.model-stats-heading h3 {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
 }
-
-.model-usage-item:hover {
-  background: rgba(var(--primary-rgb), 0.04);
+.model-stats-heading > span,
+.model-stats-note {
+  color: var(--text-secondary);
+  font-size: 14px;
 }
-
-:global(.dark) .model-usage-item:hover {
-  background: rgba(var(--primary-rgb), 0.08);
+.model-stats-note {
+  margin: 7px 0 10px;
 }
-
-.stat-pair {
-  display: inline-flex;
-  align-items: baseline;
-  gap: 0.2rem;
+.model-search input {
+  width: 190px;
+}
+.model-table-scroll {
+  overflow-x: auto;
+}
+.model-stats-table {
+  width: 100%;
+  min-width: 1010px;
+  border-collapse: collapse;
+  font-size: 14px;
+  table-layout: fixed;
+}
+.model-stats-table :is(th, td) {
+  padding: 8px 7px;
+  text-align: right;
   white-space: nowrap;
+  font-size: 14px;
+  border-bottom: 1px solid var(--divider-color);
+  font-variant-numeric: tabular-nums;
 }
-
-.stat-label {
+.model-stats-table :is(th, td):first-child {
+  width: 22%;
+  text-align: left;
+}
+.model-stats-table thead th {
+  background: var(--table-head-bg);
+  color: var(--text-secondary);
   font-weight: 500;
 }
-
-.stat-value {
-  font-variant-numeric: tabular-nums;
+.model-stats-table tbody th {
+  background: transparent;
+  color: var(--text-primary);
+  font-weight: 500;
+}
+.model-stats-table tbody tr:hover {
+  background: var(--table-hover);
+}
+.model-copy {
+  display: block;
+  max-width: 100%;
+  text-align: left;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 14px;
+}
+.model-copy:hover {
+  color: var(--primary-color);
+}
+.model-total {
   font-weight: 600;
 }
-
-.loading-spinner {
-  animation: spin 1s linear infinite;
+.model-charge {
+  color: var(--usage-charge, var(--success-color));
+  font-weight: 600;
 }
-
-@keyframes spin {
-  from {
-    transform: rotate(0deg);
+.model-mobile-list {
+  display: none;
+}
+.model-stats-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 28px 12px;
+  font-size: 14px;
+  color: var(--text-secondary);
+}
+@media (max-width: 1099px) {
+  .model-table-scroll {
+    display: none;
   }
-  to {
-    transform: rotate(360deg);
+  .model-mobile-list {
+    display: block;
+  }
+  .model-mobile-row {
+    padding: 10px 0;
+    border-top: 1px solid var(--divider-color);
+  }
+  .model-mobile-row header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    justify-content: space-between;
+  }
+  .model-mobile-row header > span {
+    flex-shrink: 0;
+    font-size: 14px;
+    color: var(--text-secondary);
+  }
+  .model-mobile-row dl {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 7px 14px;
+    margin: 10px 0 0;
+  }
+  .model-mobile-row dl > div {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 8px;
+    min-width: 0;
+    font-size: 14px;
+  }
+  .model-mobile-row dt {
+    color: var(--text-secondary);
+    flex-shrink: 0;
+  }
+  .model-mobile-row dd {
+    margin: 0;
+    text-align: right;
+    overflow-wrap: anywhere;
+  }
+}
+@media (max-width: 639px) {
+  .model-stats-controls {
+    width: 100%;
+  }
+  .model-search,
+  .model-search input {
+    width: 100%;
+  }
+  .model-mobile-row dl {
+    grid-template-columns: 1fr;
   }
 }
 </style>

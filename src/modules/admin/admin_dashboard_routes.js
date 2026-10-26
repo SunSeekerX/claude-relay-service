@@ -479,7 +479,7 @@ router.get(
       // 使用默认的period
       dates.push({
         dateStr: period === 'daily' ? today : currentMonth,
-        period: period === 'daily' ? 'daily' : 'monthly'
+        period: period === 'daily' ? 'daily' : 'monthly',
       })
     }
 

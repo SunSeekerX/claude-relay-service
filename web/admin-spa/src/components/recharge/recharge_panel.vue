@@ -43,10 +43,7 @@
         <i class="i-lucide-circle-check mb-3 text-5xl text-green-500" />
         <p class="text-xl font-bold text-green-700 dark:text-green-300">支付成功！</p>
         <p class="mt-2 text-sm text-green-600 dark:text-green-400">余额已更新</p>
-        <button
-          class="btn btn-primary h-10 mt-4 px-5 text-sm font-medium"
-          @click="resetToSelect"
-        >
+        <button class="btn btn-primary h-10 mt-4 px-5 text-sm font-medium" @click="resetToSelect">
           继续充值
         </button>
       </div>
@@ -182,7 +179,9 @@
         @click="toggleOrders"
       >
         <span><i class="i-lucide-scroll-text mr-2" />我的充值记录</span>
-        <i :class="[showOrders ? 'i-lucide-chevron-up' : 'i-lucide-chevron-down', 'text-gray-400']" />
+        <i
+          :class="[showOrders ? 'i-lucide-chevron-up' : 'i-lucide-chevron-down', 'text-gray-400']"
+        />
       </button>
       <div v-if="showOrders" class="border-t border-gray-200 px-4 py-3 dark:border-gray-700">
         <div v-if="ordersLoading" class="py-4 text-center text-sm text-gray-400">
@@ -265,7 +264,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 
 import { isOk, msgOf, reasonOf } from '@/libs/http_envelope'
 import { showToast, formatDateTime } from '@/libs/tools'
@@ -286,6 +285,8 @@ const props = defineProps({
   apiKeyName: { type: String, default: '' }
 })
 
+const emit = defineEmits(['busy-change', 'completed'])
+
 const config = ref({
   enabled: false,
   allowCustomAmount: false,
@@ -304,6 +305,7 @@ const customQuota = ref(0)
 const paymentType = ref('')
 
 const ordering = ref(false)
+watch(ordering, (busy) => emit('busy-change', busy), { immediate: true })
 const payState = ref('select') // select | paying | success
 const order = ref({})
 const pay = ref({})
@@ -456,6 +458,7 @@ const startPolling = () => {
       payState.value = 'success'
       showToast('支付成功', 'success')
       loadBalance()
+      emit('completed')
     } else if (['expired', 'cancelled', 'failed'].includes(o.status)) {
       clearTimers()
       payState.value = 'select'

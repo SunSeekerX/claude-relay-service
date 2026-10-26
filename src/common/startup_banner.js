@@ -138,3 +138,38 @@ export const getBannerEndpoints = (bindHost, interfaces) => {
   // 指定 IP：仅该地址可访问，作为 Network（无 localhost）
   return { local: null, networks: [toUrlHost(bindHost)] }
 }
+
+export const formatStartupSummary = ({
+  bindHost,
+  port,
+  version,
+  pid,
+  environment,
+  durationMs,
+  warnings,
+  errors,
+  logDirectory,
+  interfaces,
+}) => {
+  const { local, networks } = getBannerEndpoints(bindHost, interfaces)
+  const base = `http://${local ?? networks[0]}:${port}`
+  return [
+    `Claude Relay Service 已就绪 | v${version} | ${environment} | PID ${pid} | ${(durationMs / 1000).toFixed(2)}s`,
+    `监听: ${bindHost}:${port} | 启动时间: ${new Date().toISOString()}`,
+    `管理界面: ${base}/admin-next/`,
+    `用量查询: ${base}/admin-next/api-stats`,
+    `API: ${base}/api/v1/messages`,
+    `官方路径: /v1/*  /backend-api/codex/*  /v1beta/*`,
+    `健康检查: ${base}/health | 指标: ${base}/metrics`,
+    ...(networks.length ? [`局域网: ${networks.map((host) => `http://${host}:${port}`).join('  ')}`] : []),
+    `启动诊断: ${warnings} 条警告 / ${errors} 条错误（详情见上方或文件日志）`,
+    `日志目录: ${logDirectory}`,
+    '查日志: pnpm run logs -- --level warn --since 30m | 按请求: --request-id <id>',
+    ...(environment === 'development'
+      ? [
+          '开发操作: rs 重启后端 | pnpm --dir web/admin-spa run dev 启动前端',
+          '重建数据: pnpm run rebuild（恢复本地快照后，rs 重启后端）',
+        ]
+      : []),
+  ].join('\n')
+}

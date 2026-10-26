@@ -107,9 +107,7 @@ export class ResponsesStreamState {
       return { statusCode: 200, errorCode: null, errorMessage: null, clientError: null }
     }
     if (this.terminalType === 'response.incomplete') {
-      const limited = ['max_output_tokens', 'max_tokens', 'steered', 'interrupted'].includes(
-        this.incompleteReason
-      )
+      const limited = ['max_output_tokens', 'max_tokens', 'steered', 'interrupted'].includes(this.incompleteReason)
       return {
         statusCode: limited ? 200 : 502,
         errorCode: 'response_incomplete',

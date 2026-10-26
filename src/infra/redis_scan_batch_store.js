@@ -329,16 +329,10 @@ export const attach = (redisClient) => {
    * @param {number|null} indexTtl - 重建用量索引时沿用对应统计周期的 TTL
    * @returns {Promise<string[]>} ID 列表
    */
-  redisClient.getAllIdsByIndex = async function (
-    indexKey,
-    scanPattern,
-    extractRegex,
-    indexTtl = null
-  ) {
+  redisClient.getAllIdsByIndex = async function (indexKey, scanPattern, extractRegex, indexTtl = null) {
     const client = this.getClientSafe()
     const emptyKey = RedisKeys.emptyMarker(indexKey)
-    const reservedIds = new Set([indexKey, emptyKey]
-      .map((key) => key.match(extractRegex)?.[1]).filter(Boolean))
+    const reservedIds = new Set([indexKey, emptyKey].map((key) => key.match(extractRegex)?.[1]).filter(Boolean))
     // 检查是否已标记为空（避免重复 SCAN）
     const emptyMarker = await client.get(emptyKey)
     if (emptyMarker === '1') {
@@ -366,7 +360,11 @@ export const attach = (redisClient) => {
       if (indexTtl === null) {
         await client.sadd(indexKey, ...ids)
       } else {
-        await client.multi().sadd(indexKey, ...ids).expire(indexKey, indexTtl).exec()
+        await client
+          .multi()
+          .sadd(indexKey, ...ids)
+          .expire(indexKey, indexTtl)
+          .exec()
       }
     }
     return ids

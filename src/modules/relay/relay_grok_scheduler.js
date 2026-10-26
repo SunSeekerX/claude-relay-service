@@ -169,7 +169,7 @@ class GrokScheduler {
       await groupPolicy.assertGroupRequestAllowed(group, {
         requestedModel,
         holdTarget,
-        deferAdmission: options.deferGroupAdmission === true
+        deferAdmission: options.deferGroupAdmission === true,
       })
 
       const memberIds = await accountGroupService.getGroupMembers(groupId)
@@ -221,7 +221,7 @@ class GrokScheduler {
         candidates = await this._loadGroupAccounts(groupId, requestedModel, {
           mediaGeneration,
           holdTarget: apiKeyData,
-          deferGroupAdmission: options.deferGroupAdmission === true
+          deferGroupAdmission: options.deferGroupAdmission === true,
         })
         // 分组绑定：只在组内选，绝不退回共享池
         if (!candidates.length) {
@@ -332,7 +332,7 @@ class GrokScheduler {
     const account = await grokAccountService.getAccount(accountId, { decryptSecrets: false })
     if (!(await this._isGrokAccountUsable(account, requestedModel))) {
       throw Object.assign(new Error('Grok account is unavailable for this model'), {
-        statusCode: 503
+        statusCode: 503,
       })
     }
     const upstreamModel = commonHelper.getMappedModelName(account.modelMapping, requestedModel)
@@ -344,13 +344,13 @@ class GrokScheduler {
       const members = await accountGroupService.getGroupMembers(groupId)
       if (!group || (group.platform && group.platform !== 'grok') || !members.includes(accountId)) {
         throw Object.assign(new Error('Account is outside the bound Grok group'), {
-          statusCode: 403
+          statusCode: 403,
         })
       }
       await groupPolicy.assertGroupRequestAllowed(group, {
         requestedModel,
         holdTarget: apiKeyData,
-        deferAdmission: options.deferGroupAdmission === true
+        deferAdmission: options.deferGroupAdmission === true,
       })
     } else if (binding && binding !== accountId) {
       throw Object.assign(new Error('Grok account binding changed; reconnect'), { statusCode: 403 })

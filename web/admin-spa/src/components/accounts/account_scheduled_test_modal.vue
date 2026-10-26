@@ -173,26 +173,12 @@
         <div
           class="flex shrink-0 items-center justify-end gap-3 border-t border-gray-100 bg-gray-50/80 px-5 py-3 dark:border-gray-800 dark:bg-gray-900/50"
         >
-          <button
-            class="rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm font-medium text-gray-700 shadow-sm transition hover:bg-gray-50 hover:shadow dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
-            :disabled="saving"
-            @click="handleClose"
-          >
-            取消
-          </button>
-          <button
-            :class="[
-              'flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium shadow-sm transition',
-              saving
-                ? 'cursor-not-allowed bg-gray-200 text-gray-400 dark:bg-gray-700 dark:text-gray-500'
-                : 'bg-gradient-to-r from-blue-500 to-indigo-500 text-white hover:from-blue-600 hover:to-indigo-600 hover:shadow-md'
-            ]"
-            :disabled="saving || loading"
-            @click="saveConfig"
-          >
-            <i :class="[saving ? 'i-lucide-loader-circle animate-spin' : 'i-lucide-save']" />
-            {{ saving ? '保存中...' : '保存配置' }}
-          </button>
+          <DialogSaveActions
+            :disabled="loading"
+            :loading="saving"
+            @cancel="handleClose"
+            @save="saveConfig"
+          />
         </div>
       </div>
     </div>
@@ -309,7 +295,7 @@ async function loadConfig() {
 }
 
 // 保存配置（仅 claude 平台支持）
-async function saveConfig() {
+const saveConfig = async (closeAfter = false) => {
   if (!props.account || props.account.platform !== 'claude') return
 
   saving.value = true
@@ -322,9 +308,7 @@ async function saveConfig() {
     if (isOk(res)) {
       showToast('配置已保存', 'success')
       emit('saved')
-      // 直接 emit('close')：handleClose 的 saving 守卫只用于拦截手动关闭，
-      // 此处 saving 仍为 true（finally 才复位），走 handleClose 会被守卫挡住而关不掉
-      emit('close')
+      if (closeAfter) emit('close')
     } else {
       showToast(msgOf(res, '保存失败'), 'error')
     }

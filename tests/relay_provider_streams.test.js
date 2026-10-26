@@ -37,6 +37,8 @@ const geminiAccount = {
 }
 
 const modules = {
+  '../src/modules/relay/relay_routing_service.js': { getLegacyProviderModels: async () => [] },
+  '../src/modules/relay/relay_test_prompt_config_service.js': { testPromptConfigService: {} },
   axios: { default: axios },
   '../config/config.js': { config: { requestTimeout: 1000, proxy: { timeout: 1000 } } },
   '../src/common/logger.js': { logger },
@@ -52,7 +54,10 @@ const modules = {
   '../src/modules/account/account_openai_responses_service.js': { openaiResponsesAccountService },
   '../src/modules/account/account_gemini_service.js': {},
   '../src/modules/account/account_gemini_api_service.js': {
-    geminiApiAccountService: { getAccount: jest.fn().mockResolvedValue(geminiAccount) },
+    geminiApiAccountService: {
+      getAccount: jest.fn().mockResolvedValue(geminiAccount),
+      markAccountUsed: jest.fn().mockResolvedValue(undefined)
+    },
   },
   '../src/modules/relay/relay_grok_scheduler.js': { grokScheduler: {} },
   '../src/modules/relay/relay_unified_openai_scheduler.js': { unifiedOpenAIScheduler },
@@ -98,7 +103,7 @@ const modules = {
     handleNonProtocolUpstream: jest.fn(),
   },
   '../src/modules/relay/relay_openai_compact_v2.js': { applyOpenAIServiceTierAlias: jest.fn() },
-  '../src/modules/relay/relay_openai_model_alias.js': { applyOpenAIPublicModelAlias: jest.fn() },
+  '../src/modules/relay/relay_openai_model_alias.js': { applyOpenAIPublicModelAlias: jest.fn(), normalizeKnownOpenAICodexModel: () => null },
   '../src/modules/relay/relay_codex_bootstrap_normalize.js': { normalizeCodexBootstrapBody: jest.fn() },
   '../src/modules/relay/relay_gemini_relay_service.js': {
     sendGeminiRequest: jest.fn(),
@@ -119,7 +124,7 @@ const { claudeConsoleRelayService } =
 const { grokRelayService } = await import('../src/modules/relay/relay_grok_relay_service.js')
 const { CodexToOpenAIConverter } = await import('../src/modules/relay/relay_codex_to_openai.js')
 const { openaiResponsesRelayService } = await import('../src/modules/relay/relay_openai_responses_relay_service.js')
-const { handleStandardGenerateContent, handleStandardStreamGenerateContent } =
+const { handleMessages, handleStandardGenerateContent, handleStandardStreamGenerateContent } =
   await import('../src/modules/relay/relay_gemini_handlers_routes.js')
 
 const makeResponse = () => {
@@ -548,6 +553,49 @@ describe('Gemini API Key tool responses', () => {
 
 
 describe('Gemini UTF-8 success stream', () => {
+  it.each([false, true])('normalizes cached input and reasoning, stream=%s', async (stream) => {
+    apiKeyService.recordUsage.mockClear()
+    const event = {
+      candidates: [{ content: { parts: [{ text: '中文' }] }, finishReason: 'STOP' }],
+      usageMetadata: { promptTokenCount: 1000, cachedContentTokenCount: 900,
+        candidatesTokenCount: 100, thoughtsTokenCount: 50, totalTokenCount: 1150 }
+    }
+    const res = makeResponse()
+    const req = makeRequest(res, { contents: [{ role: 'user', parts: [{ text: 'hello' }] }] })
+    req.params.modelName = 'gemini-test'
+    axios.mockResolvedValue({ status: 200, headers: {},
+      data: stream ? Readable.from([Buffer.from(`data: ${JSON.stringify(event)}\n\n`)]) : event })
+    await (stream ? handleStandardStreamGenerateContent : handleStandardGenerateContent)(req, res)
+    await res.completion
+    expect(apiKeyService.recordUsage.mock.calls[0][1]).toMatchObject({
+      input_tokens: 100, cache_read_input_tokens: 900, output_tokens: 100,
+      reasoning_tokens: 50, reasoning_included_in_output: false
+    })
+  })
+
+  it('keeps legacy UTF-8 and captures usage at EOF without a newline', async () => {
+    apiKeyService.recordUsage.mockClear()
+    const event = {
+      candidates: [{ content: { parts: [{ text: '中文测试' }] }, finishReason: 'STOP' }],
+      usageMetadata: { promptTokenCount: 1000, cachedContentTokenCount: 900,
+        candidatesTokenCount: 100, totalTokenCount: 1100 }
+    }
+    const wire = Buffer.from(`data: null\n\ndata: ${JSON.stringify(event)}`)
+    const res = makeResponse()
+    const bytes = []
+    res.write.mockImplementation((chunk) => { bytes.push(Buffer.from(chunk)); return true })
+    const req = makeRequest(res, { messages: [{ role: 'user', content: 'hello' }], stream: true })
+    axios.mockResolvedValue({ status: 200, headers: {},
+      data: Readable.from([...wire].map((byte) => Buffer.from([byte]))) })
+    await handleMessages(req, res)
+    await res.completion
+    expect(res.body).toBeUndefined()
+    expect(Buffer.concat(bytes).toString()).toBe(wire.toString())
+    expect(apiKeyService.recordUsage.mock.calls[0][1]).toMatchObject({
+      input_tokens: 100, cache_read_input_tokens: 900
+    })
+  })
+
   it('preserves multibyte content when the network splits every byte', async () => {
     const event = {
       candidates: [{ content: { parts: [{ text: '中文测试' }] } }],

@@ -230,27 +230,21 @@ class ProxyPoolService {
 
   // 启动时从 Redis stats 恢复各 context 的运行时状态到 L1
   async _restoreContextStates() {
-    const client = redis.getClientSafe()
-    let cursor = '0'
-    const prefix = RedisKeys.proxy.statsPrefix
+    await redis.rebuildProxyStatsIndex()
     this.proxyStates = new Map()
-    do {
-      const [next, keys] = await client.scan(cursor, 'MATCH', `${prefix}*`, 'COUNT', 200)
-      cursor = next
-      for (const key of keys) {
-        const parsed = this._parseStatsKey(key)
-        if (!parsed || !this.proxyConfigs.has(parsed.proxyId)) {
-          continue
-        }
-        const shardMap = await client.hgetall(key)
-        const states = this._deserializeActiveShards(parsed.proxyId, parsed.contextKey, shardMap)
-        if (states.length === 0) {
-          continue
-        }
-        const merged = this._mergeShards(parsed.proxyId, parsed.contextKey, states)
-        this.proxyStates.set(`${parsed.proxyId}:${parsed.contextKey}`, merged)
+    for await (const { key, value } of redis.iterateProxyStats()) {
+      const parsed = this._parseStatsKey(key)
+      if (!parsed || !this.proxyConfigs.has(parsed.proxyId)) {
+        continue
       }
-    } while (cursor !== '0')
+      const states = this._deserializeActiveShards(parsed.proxyId, parsed.contextKey, value)
+      if (states.length > 0) {
+        this.proxyStates.set(
+          `${parsed.proxyId}:${parsed.contextKey}`,
+          this._mergeShards(parsed.proxyId, parsed.contextKey, states),
+        )
+      }
+    }
   }
 
   // 解析 stats key -> { proxyId, contextKey }；探针锁键返回 null
@@ -489,17 +483,9 @@ class ProxyPoolService {
     const sepIndex = stateKey.lastIndexOf(':')
     const proxyId = stateKey.slice(0, sepIndex)
     const contextKey = stateKey.slice(sepIndex + 1)
-    const statsKey = RedisKeys.proxy.stats(proxyId, contextKey)
-    const client = redis.getClient()
-    if (!client) {
-      return
-    }
     state.lastActive = Date.now()
-    client
-      .multi()
-      .hset(statsKey, SHARD_ID, state.serialize())
-      .expire(statsKey, 120)
-      .exec()
+    redis
+      .saveProxyStats(SHARD_ID, [{ proxyId, contextKey, value: state.serialize() }])
       .catch((error) => logger.error('[ProxyPool] state write-through failed:', error))
   }
 
@@ -811,38 +797,51 @@ class ProxyPoolService {
       const dirtyKeys = this.statsDirty
       this.statsDirty = new Set()
       if (dirtyKeys.size > 0) {
-        const pipeline = client.pipeline()
+        const states = []
         for (const stateKey of dirtyKeys) {
           const state = this.proxyStates.get(stateKey)
           if (!state) {
             continue
           }
           const sepIndex = stateKey.lastIndexOf(':')
-          const proxyId = stateKey.slice(0, sepIndex)
-          const contextKey = stateKey.slice(sepIndex + 1)
-          const statsKey = RedisKeys.proxy.stats(proxyId, contextKey)
           state.lastActive = Date.now()
-          pipeline.hset(statsKey, SHARD_ID, state.serialize())
-          pipeline.expire(statsKey, 120)
+          states.push({
+            proxyId: stateKey.slice(0, sepIndex),
+            contextKey: stateKey.slice(sepIndex + 1),
+            value: state.serialize(),
+          })
         }
-        await pipeline.exec()
+        try {
+          await redis.saveProxyStats(SHARD_ID, states)
+        } catch (error) {
+          for (const stateKey of dirtyKeys) {
+            this.statsDirty.add(stateKey)
+          }
+          throw error
+        }
       }
 
-      // Phase 2: 扫描所有分片，聚合更新 L1
-      let cursor = '0'
-      const prefix = RedisKeys.proxy.statsPrefix
-      do {
-        const [next, keys] = await client.scan(cursor, 'MATCH', `${prefix}*`, 'COUNT', 200)
-        cursor = next
-        for (const key of keys) {
-          const parsed = this._parseStatsKey(key)
-          if (!parsed || !this.proxyConfigs.has(parsed.proxyId)) {
-            continue
-          }
-          const shardMap = await client.hgetall(key)
-          this._reconcileShards(parsed.proxyId, parsed.contextKey, key, shardMap)
+      const indexedKeys = new Set()
+      for await (const { key, value } of redis.iterateProxyStats()) {
+        const parsed = this._parseStatsKey(key)
+        if (!parsed || !this.proxyConfigs.has(parsed.proxyId)) {
+          continue
         }
-      } while (cursor !== '0')
+        indexedKeys.add(`${parsed.proxyId}:${parsed.contextKey}`)
+        this._reconcileShards(parsed.proxyId, parsed.contextKey, key, value)
+      }
+      for (const [stateKey, state] of this.proxyStates) {
+        if (
+          !indexedKeys.has(stateKey) &&
+          !this.statsDirty.has(stateKey) &&
+          Date.now() - state.lastActive > proxyPoolCore.CORE_CONFIG.shardActiveMs
+        ) {
+          const sepIndex = stateKey.lastIndexOf(':')
+          const proxyId = stateKey.slice(0, sepIndex)
+          const contextKey = stateKey.slice(sepIndex + 1)
+          this._reconcileShards(proxyId, contextKey, RedisKeys.proxy.stats(proxyId, contextKey), {})
+        }
+      }
     } finally {
       this.isSyncing = false
     }

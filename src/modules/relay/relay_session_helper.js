@@ -2,6 +2,7 @@ import crypto from 'node:crypto'
 import { logger } from '../../common/logger.js'
 import * as metadataUserIdHelper from './relay_metadata_user_id_helper.js'
 import { RedisKeys } from '../../infra/redis_key.js'
+import { scopeRouteSession } from './relay_route_context.js'
 
 class SessionHelper {
   /**
@@ -11,6 +12,10 @@ class SessionHelper {
    * @returns {string|null} - 32字符的会话哈希，如果无法生成则返回null
    */
   generateSessionHash(requestBody) {
+    return scopeRouteSession(this._generateSessionHash(requestBody))
+  }
+
+  _generateSessionHash(requestBody) {
     if (!requestBody || typeof requestBody !== 'object') {
       return null
     }

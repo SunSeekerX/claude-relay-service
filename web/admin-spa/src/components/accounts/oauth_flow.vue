@@ -7,9 +7,9 @@
       >
         <div class="flex items-start gap-4">
           <div
-            class="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg bg-blue-500"
+            class="flex h-8 w-8 shrink-0 items-center justify-center text-[var(--text-primary)]"
           >
-            <i class="i-lucide-link text-white" />
+            <i aria-hidden="true" class="text-xl" :class="PLATFORM_ICONS.claude" />
           </div>
           <div class="flex-1">
             <h4 class="mb-3 font-semibold text-blue-900 dark:text-blue-200">Claude 账户授权</h4>
@@ -276,14 +276,18 @@
       >
         <div class="flex items-start gap-4">
           <div
-            class="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg bg-green-500"
+            class="flex h-8 w-8 shrink-0 items-center justify-center text-[var(--text-primary)]"
           >
-            <i class="i-lucide-bot text-white" />
+            <i
+              aria-hidden="true"
+              class="text-xl"
+              :class="platform === 'gemini-antigravity' ? PLATFORM_ICONS.antigravity : PLATFORM_ICONS.gemini"
+            />
           </div>
           <div class="flex-1">
-            <h4 class="mb-3 font-semibold text-green-900 dark:text-green-200">Gemini 账户授权</h4>
+            <h4 class="mb-3 font-semibold text-green-900 dark:text-green-200">{{ platform === 'gemini-antigravity' ? 'Antigravity' : 'Gemini' }} 账户授权</h4>
             <p class="mb-4 text-sm text-green-800 dark:text-green-300">
-              请按照以下步骤完成 Gemini 账户的授权：
+              请按照以下步骤完成 {{ platform === 'gemini-antigravity' ? 'Antigravity' : 'Gemini' }} 账户的授权：
             </p>
 
             <!-- 授权来源显示（由平台类型决定） -->
@@ -432,9 +436,9 @@
       >
         <div class="flex items-start gap-4">
           <div
-            class="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg bg-orange-500"
+            class="flex h-8 w-8 shrink-0 items-center justify-center text-[var(--text-primary)]"
           >
-            <i class="i-lucide-brain text-white" />
+            <i aria-hidden="true" class="text-xl" :class="PLATFORM_ICONS.openai" />
           </div>
           <div class="flex-1">
             <h4 class="mb-3 font-semibold text-orange-900 dark:text-orange-200">OpenAI 账户授权</h4>
@@ -605,9 +609,9 @@
       >
         <div class="flex items-start gap-4">
           <div
-            class="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg bg-cyan-500"
+            class="flex h-8 w-8 shrink-0 items-center justify-center text-[var(--text-primary)]"
           >
-            <i class="i-lucide-bot text-white" />
+            <i aria-hidden="true" class="text-xl" :class="PLATFORM_ICONS.droid" />
           </div>
           <div class="flex-1">
             <h4 class="mb-3 font-semibold text-cyan-900 dark:text-cyan-200">Droid 账户授权</h4>
@@ -769,9 +773,9 @@
       >
         <div class="flex items-start gap-4">
           <div
-            class="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg bg-violet-500"
+            class="flex h-8 w-8 shrink-0 items-center justify-center text-[var(--text-primary)]"
           >
-            <i class="i-lucide-zap text-white" />
+            <i aria-hidden="true" class="text-xl" :class="PLATFORM_ICONS.grok" />
           </div>
           <div class="flex-1">
             <h4 class="mb-3 font-semibold text-violet-900 dark:text-violet-200">
@@ -936,6 +940,7 @@
 <script setup>
 import { ref, computed, watch, onBeforeUnmount } from 'vue'
 import { showToast } from '@/libs/tools'
+import { PLATFORM_ICONS } from '@/libs/platform_icons'
 import { isOk, msgOf, dataOf } from '@/libs/http_envelope'
 import { useAccountsStore } from '@/stores/accounts'
 import CuteOptionCards from '@/components/common/cute_option_cards.vue'

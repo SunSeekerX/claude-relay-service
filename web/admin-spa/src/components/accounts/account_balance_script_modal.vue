@@ -118,8 +118,12 @@
 
     <div class="flex shrink-0 items-center gap-2 border-t border-gray-200 px-5 py-3 dark:border-gray-700">
         <button class="inline-flex h-10 items-center justify-center rounded-lg border border-gray-200 px-4 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800" :disabled="testing" type="button" @click="testScript"><i v-if="testing" class="i-lucide-loader-circle animate-spin mr-1" />测试脚本</button>
-        <button class="btn btn-primary h-10 inline-flex items-center justify-center px-4 text-sm font-medium disabled:opacity-50" :disabled="saving" type="button" @click="saveConfig"><i v-if="saving" class="i-lucide-loader-circle animate-spin mr-1" />保存配置</button>
-        <button class="inline-flex h-10 items-center justify-center rounded-lg border border-gray-200 px-4 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800" type="button" @click="emitClose">取消</button>
+        <DialogSaveActions
+          class="ml-auto"
+          :loading="saving"
+          @cancel="emitClose"
+          @save="saveConfig"
+        />
       </div>
       </div>
     </div>
@@ -199,7 +203,9 @@ const buildDefaultForm = () => ({
   scriptBody: presetScript
 })
 
-const emitClose = () => emit('close')
+const emitClose = () => {
+  if (!saving.value) emit('close')
+}
 
 const resetForm = () => {
   Object.assign(form, buildDefaultForm())
@@ -216,7 +222,7 @@ const loadConfig = async () => {
   }
 }
 
-const saveConfig = async () => {
+const saveConfig = async (closeAfter = false) => {
   if (!props.account?.id || !props.account?.platform) return
   saving.value = true
   const res = await updateAccountBalanceScriptApi(props.account.id, props.account.platform, {
@@ -224,7 +230,7 @@ const saveConfig = async () => {
   })
   if (isOk(res)) {
     showToast('已保存', 'success')
-    emit('saved')
+    emit('saved', closeAfter)
   } else {
     showToast(msgOf(res, '保存失败'), 'error')
   }

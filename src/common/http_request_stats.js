@@ -6,9 +6,9 @@ const createStats = () => ({
     status2xx: 0,
     status3xx: 0,
     status4xx: 0,
-    status5xx: 0
+    status5xx: 0,
   },
-  relay: { total: 0, completed: 0, failed: 0, incomplete: 0, unmetered: 0 }
+  relay: { total: 0, completed: 0, failed: 0, incomplete: 0, unmetered: 0 },
 })
 
 let stats = createStats()
@@ -62,12 +62,7 @@ export const httpRequestStats = {
         }
       }
       // 非流式上游拒绝也计入转发结果；断连 drain 的终态由用量链稍后报告。
-      if (
-        !disconnected &&
-        !relayOutcome &&
-        req._crsUpstreamHeaders &&
-        !req._crsUsageDetailHandled
-      ) {
+      if (!disconnected && !relayOutcome && req._crsUpstreamHeaders && !req._crsUsageDetailHandled) {
         req._crsRecordRelayResult({ statusCode: res.statusCode })
       }
     }
@@ -79,5 +74,5 @@ export const httpRequestStats = {
   },
   reset() {
     stats = createStats()
-  }
+  },
 }

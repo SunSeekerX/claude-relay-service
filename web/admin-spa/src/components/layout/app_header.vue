@@ -5,6 +5,7 @@
     style="z-index: 10; position: relative"
   >
     <div class="flex items-center justify-between gap-2 md:gap-3">
+      <span aria-hidden="true" class="theme-window-controls"><span /><span /><span /></span>
       <div class="flex min-w-0 flex-1 items-center gap-2 md:gap-4">
         <LogoTitle
           class="app-header-brand min-w-0"
@@ -45,6 +46,17 @@
           <ThemeToggle mode="dropdown" />
         </div>
 
+        <button
+          aria-haspopup="dialog"
+          aria-label="布局设置"
+          class="admin-layout-trigger"
+          title="布局设置"
+          type="button"
+          @click="themeStore.layoutSettingsOpen = true"
+        >
+          <i class="i-lucide-panels-top-left" /><span class="hidden lg:inline">布局</span>
+        </button>
+
         <!-- 分隔线 -->
         <div
           class="hidden h-8 w-px bg-gradient-to-b from-transparent via-gray-300 to-transparent opacity-50 dark:via-gray-600 md:block"
@@ -76,9 +88,7 @@
             <div class="user-menu-section px-4 py-3">
               <div class="user-menu-meta flex items-center justify-between text-sm">
                 <span class="user-menu-muted">当前版本</span>
-                <span class="user-menu-strong font-mono"
-                  >v{{ versionInfo.current || '...' }}</span
-                >
+                <span class="user-menu-strong font-mono">v{{ versionInfo.current || '...' }}</span>
               </div>
               <div v-if="versionInfo.hasUpdate" class="mt-2">
                 <div class="mb-2 flex items-center justify-between text-sm">
@@ -153,11 +163,16 @@
   <!-- 修改账户信息模态框 -->
   <AppDialog
     v-model="showChangePasswordModal"
+    :closable="!changePasswordLoading"
+    :close-on-mask="!changePasswordLoading"
     icon="i-lucide-key"
     title="修改账户信息"
     @close="closeChangePasswordModal"
   >
-    <form id="change-password-form" class="space-y-4" @submit.prevent="changePassword">
+    <p v-if="passwordSaved" class="text-sm text-green-600 dark:text-green-400">
+      账户信息已保存，关闭后请重新登录。
+    </p>
+    <form v-else id="change-password-form" class="space-y-4" @submit.prevent="changePassword(false)">
       <div>
         <label class="mb-1.5 block text-sm font-semibold text-gray-700 dark:text-gray-300"
           >当前用户名</label
@@ -233,19 +248,13 @@
     </form>
 
     <template #footer>
-      <button class="toolbar-btn flex-1" type="button" @click="closeChangePasswordModal">
-        取消
-      </button>
-      <button
-        class="btn btn-primary h-10 flex-1"
-        form="change-password-form"
-        type="submit"
-        :disabled="changePasswordLoading"
-      >
-        <div v-if="changePasswordLoading" class="loading-spinner mr-2" />
-        <i v-else class="i-lucide-save mr-2" />
-        {{ changePasswordLoading ? '保存中...' : '保存修改' }}
-      </button>
+      <DialogSaveActions
+        class="w-full"
+        :form="passwordSaved ? undefined : 'change-password-form'"
+        :loading="changePasswordLoading"
+        @cancel="closeChangePasswordModal"
+        @save="changePassword"
+      />
     </template>
   </AppDialog>
 
@@ -266,6 +275,7 @@
 import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
+import { useThemeStore } from '@/stores/theme'
 import { showToast } from '@/libs/tools'
 import { isOk, msgOf } from '@/libs/http_envelope'
 
@@ -277,6 +287,7 @@ import AppDialog from '@/components/common/app_dialog.vue'
 
 const router = useRouter()
 const authStore = useAuthStore()
+const themeStore = useThemeStore()
 
 // 当前用户信息
 const currentUser = computed(() => authStore.user || { username: 'Admin' })
@@ -302,6 +313,7 @@ const userMenuOpen = ref(false)
 // 修改密码模态框
 const showChangePasswordModal = ref(false)
 const changePasswordLoading = ref(false)
+const passwordSaved = ref(false)
 const showCurrentPassword = ref(false)
 const changePasswordForm = reactive({
   currentPassword: '',
@@ -404,6 +416,7 @@ const checkForUpdates = async () => {
 
 // 打开修改密码弹窗
 const openChangePasswordModal = () => {
+  passwordSaved.value = false
   changePasswordForm.currentPassword = ''
   changePasswordForm.newPassword = ''
   changePasswordForm.confirmPassword = ''
@@ -415,10 +428,18 @@ const openChangePasswordModal = () => {
 // 关闭修改密码弹窗
 const closeChangePasswordModal = () => {
   showChangePasswordModal.value = false
+  if (passwordSaved.value) {
+    authStore.logout()
+    router.push('/login')
+  }
 }
 
 // 修改密码
-const changePassword = async () => {
+const changePassword = async (closeAfter = false) => {
+  if (passwordSaved.value) {
+    if (closeAfter) closeChangePasswordModal()
+    return
+  }
   if (changePasswordForm.newPassword !== changePasswordForm.confirmPassword) {
     showToast('两次输入的密码不一致', 'error')
     return
@@ -443,13 +464,8 @@ const changePassword = async () => {
         ? '账户信息修改成功，请重新登录'
         : '密码修改成功，请重新登录'
       showToast(message, 'success')
-      closeChangePasswordModal()
-
-      // 延迟后退出登录
-      setTimeout(() => {
-        authStore.logout()
-        router.push('/login')
-      }, 1500)
+      passwordSaved.value = true
+      if (closeAfter) closeChangePasswordModal()
     } else {
       showToast(msgOf(data, '修改失败'), 'error')
     }

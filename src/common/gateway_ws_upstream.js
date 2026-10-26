@@ -20,8 +20,8 @@ export const connectWebSocketUpstream = ({ targetUrl, headers, agent = null, sig
       connection: 'Upgrade',
       upgrade: 'websocket',
       'sec-websocket-version': '13',
-      'sec-websocket-key': crypto.randomBytes(16).toString('base64')
-    }
+      'sec-websocket-key': crypto.randomBytes(16).toString('base64'),
+    },
   }
   delete requestOptions.headers['sec-websocket-extensions']
   return new Promise((resolve, reject) => {
@@ -33,21 +33,16 @@ export const connectWebSocketUpstream = ({ targetUrl, headers, agent = null, sig
       reject(
         Object.assign(new Error('Upstream refused WebSocket upgrade'), {
           statusCode: response.statusCode,
-          upstream: true
-        })
+          upstream: true,
+        }),
       )
     })
     request.on('upgrade', (response, socket, head) => {
       const expected = crypto
         .createHash('sha1')
-        .update(
-          `${requestOptions.headers['sec-websocket-key']}258EAFA5-E914-47DA-95CA-C5AB0DC85B11`
-        )
+        .update(`${requestOptions.headers['sec-websocket-key']}258EAFA5-E914-47DA-95CA-C5AB0DC85B11`)
         .digest('base64')
-      if (
-        response.headers['sec-websocket-accept'] !== expected ||
-        response.headers['sec-websocket-extensions']
-      ) {
+      if (response.headers['sec-websocket-accept'] !== expected || response.headers['sec-websocket-extensions']) {
         socket.destroy()
         reject(new Error('Invalid upstream WebSocket handshake'))
         return

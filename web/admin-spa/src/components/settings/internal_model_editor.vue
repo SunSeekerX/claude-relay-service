@@ -37,7 +37,7 @@
                 <input
                   v-model="form.name"
                   class="form-input w-full"
-                  :disabled="!isCreate"
+                  :disabled="!isCreate || created"
                   placeholder="claude-sonnet-4-5"
                 />
               </label>
@@ -503,22 +503,7 @@
         <div
           class="flex shrink-0 items-center justify-end gap-2 border-t border-gray-200 px-4 py-3 dark:border-gray-700"
         >
-          <button
-            class="inline-flex h-10 items-center justify-center rounded-lg border border-gray-200 px-4 text-sm font-medium text-gray-600 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-800"
-            type="button"
-            @click="$emit('close')"
-          >
-            取消
-          </button>
-          <button
-            class="btn btn-primary h-10 inline-flex items-center justify-center px-4 text-sm font-medium disabled:opacity-50"
-            type="button"
-            :disabled="saving"
-            @click="handleSave"
-          >
-            <i :class="['mr-1', saving ? 'i-lucide-loader-circle animate-spin' : 'i-lucide-save']" />
-            保存
-          </button>
+          <DialogSaveActions :loading="saving" @cancel="emit('close')" @save="handleSave" />
         </div>
       </div>
     </div>
@@ -540,6 +525,11 @@ const props = defineProps({
 })
 
 const emit = defineEmits(['close', 'saved'])
+const created = ref(false)
+
+watch(() => props.show, () => {
+  created.value = false
+})
 
 const capabilityKeys = [
   'vision',
@@ -871,7 +861,7 @@ const cleanPricing = (pricing) => {
   return cleaned
 }
 
-const handleSave = async () => {
+const handleSave = async (closeAfter = false) => {
   if (!form.name?.trim()) {
     showToast('请填写模型名称', 'error')
     return
@@ -898,14 +888,16 @@ const handleSave = async () => {
     // 整模保存：把 from-seed 带来的完整种子 metadata 一并落库
     metadata: form.metadata && typeof form.metadata === 'object' ? form.metadata : null
   }
-  const result = props.isCreate
-    ? await createInternalModelApi(payload)
-    : await saveInternalModelApi(payload.name, payload)
+  const result =
+    props.isCreate && !created.value
+      ? await createInternalModelApi(payload)
+      : await saveInternalModelApi(payload.name, payload)
   saving.value = false
   if (isOk(result)) {
     showToast('已保存内部计费模型', 'success')
     emit('saved', result.data)
-    emit('close')
+    created.value = true
+    if (closeAfter) emit('close')
   } else {
     showToast(msgOf(result, '保存失败'), 'error')
   }

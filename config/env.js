@@ -1,7 +1,7 @@
 // 进程环境唯一入口：业务与 config 只许从本模块读环境，禁止直访 process.env
 import dotenv from 'dotenv'
 
-dotenv.config()
+dotenv.config({ quiet: true })
 
 const raw = process.env
 
@@ -36,7 +36,6 @@ export const env = new Proxy(
     },
     has(_target, prop) {
       return typeof prop === 'string' && Object.prototype.hasOwnProperty.call(raw, prop)
-    }
-  }
+    },
+  },
 )
-

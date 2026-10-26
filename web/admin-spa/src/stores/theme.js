@@ -1,422 +1,231 @@
 import { defineStore } from 'pinia'
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, onScopeDispose } from 'vue'
+import { ColorSchemes, createThemeTokens } from '@/libs/theme_presets'
 
-// 主题模式枚举
-export const ThemeMode = {
-  LIGHT: 'light',
-  DARK: 'dark',
-  AUTO: 'auto'
-}
-
-// 中国传统色系预设
-export const ColorSchemes = {
-  purple: {
-    name: '默认紫',
-    nameEn: 'Purple',
-    primary: '#667eea',
-    secondary: '#764ba2',
-    accent: '#f093fb',
-    gradientStart: '#667eea',
-    gradientMid: '#764ba2',
-    gradientEnd: '#f093fb',
-    // 玻璃态背景色（亮色模式）
-    glassStrong: 'rgba(255, 255, 255, 0.95)',
-    glass: 'rgba(255, 255, 255, 0.1)',
-    // 暗黑模式
-    darkPrimary: '#818cf8',
-    darkSecondary: '#a78bfa',
-    darkAccent: '#c084fc',
-    darkGradientStart: '#1f2937',
-    darkGradientMid: '#374151',
-    darkGradientEnd: '#4b5563',
-    darkGlassStrong: 'rgba(31, 41, 55, 0.95)',
-    darkGlass: 'rgba(0, 0, 0, 0.2)'
-  },
-  celadon: {
-    name: '青瓷',
-    nameEn: 'Celadon',
-    primary: '#7faaaf',
-    secondary: '#5d8a8e',
-    accent: '#a8d8dc',
-    gradientStart: '#7faaaf',
-    gradientMid: '#5d8a8e',
-    gradientEnd: '#3d6a6e',
-    glassStrong: 'rgba(248, 253, 253, 0.95)',
-    glass: 'rgba(168, 216, 220, 0.1)',
-    darkPrimary: '#9fcacd',
-    darkSecondary: '#7daaae',
-    darkAccent: '#c8f8fc',
-    darkGradientStart: '#1a2a2b',
-    darkGradientMid: '#2a3a3b',
-    darkGradientEnd: '#3a4a4b',
-    darkGlassStrong: 'rgba(26, 42, 43, 0.95)',
-    darkGlass: 'rgba(0, 20, 20, 0.2)'
-  },
-  cinnabar: {
-    name: '朱砂',
-    nameEn: 'Cinnabar',
-    primary: '#c45a5a',
-    secondary: '#8b3a3a',
-    accent: '#e8a0a0',
-    gradientStart: '#c45a5a',
-    gradientMid: '#8b3a3a',
-    gradientEnd: '#5c2a2a',
-    glassStrong: 'rgba(255, 252, 252, 0.95)',
-    glass: 'rgba(232, 160, 160, 0.1)',
-    darkPrimary: '#e47a7a',
-    darkSecondary: '#ab5a5a',
-    darkAccent: '#f8c0c0',
-    darkGradientStart: '#2a1a1a',
-    darkGradientMid: '#3a2a2a',
-    darkGradientEnd: '#4a3a3a',
-    darkGlassStrong: 'rgba(42, 26, 26, 0.95)',
-    darkGlass: 'rgba(20, 0, 0, 0.2)'
-  },
-  jade: {
-    name: '墨玉',
-    nameEn: 'Jade',
-    primary: '#4a7c59',
-    secondary: '#2d5a3d',
-    accent: '#7eb08c',
-    gradientStart: '#4a7c59',
-    gradientMid: '#2d5a3d',
-    gradientEnd: '#1a3d28',
-    glassStrong: 'rgba(250, 255, 252, 0.95)',
-    glass: 'rgba(126, 176, 140, 0.1)',
-    darkPrimary: '#6a9c79',
-    darkSecondary: '#4d7a5d',
-    darkAccent: '#9ed0ac',
-    darkGradientStart: '#1a2a1e',
-    darkGradientMid: '#2a3a2e',
-    darkGradientEnd: '#3a4a3e',
-    darkGlassStrong: 'rgba(26, 42, 30, 0.95)',
-    darkGlass: 'rgba(0, 20, 10, 0.2)'
-  },
-  indigo: {
-    name: '藏蓝',
-    nameEn: 'Indigo',
-    primary: '#3a5a8c',
-    secondary: '#2a4066',
-    accent: '#6a8ab8',
-    gradientStart: '#3a5a8c',
-    gradientMid: '#2a4066',
-    gradientEnd: '#1a2a44',
-    glassStrong: 'rgba(250, 252, 255, 0.95)',
-    glass: 'rgba(106, 138, 184, 0.1)',
-    darkPrimary: '#5a7aac',
-    darkSecondary: '#4a6086',
-    darkAccent: '#8aaad8',
-    darkGradientStart: '#1a1a2a',
-    darkGradientMid: '#2a2a3a',
-    darkGradientEnd: '#3a3a4a',
-    darkGlassStrong: 'rgba(26, 26, 42, 0.95)',
-    darkGlass: 'rgba(0, 0, 20, 0.2)'
-  },
-  amber: {
-    name: '琥珀',
-    nameEn: 'Amber',
-    primary: '#c49a3a',
-    secondary: '#8b6914',
-    accent: '#e8c86a',
-    gradientStart: '#c49a3a',
-    gradientMid: '#8b6914',
-    gradientEnd: '#5c4a0a',
-    glassStrong: 'rgba(255, 253, 248, 0.95)',
-    glass: 'rgba(232, 200, 106, 0.1)',
-    darkPrimary: '#e4ba5a',
-    darkSecondary: '#ab8934',
-    darkAccent: '#f8e88a',
-    darkGradientStart: '#2a2a1a',
-    darkGradientMid: '#3a3a2a',
-    darkGradientEnd: '#4a4a3a',
-    darkGlassStrong: 'rgba(42, 42, 26, 0.95)',
-    darkGlass: 'rgba(20, 20, 0, 0.2)'
-  },
-  rouge: {
-    name: '胭脂',
-    nameEn: 'Rouge',
-    primary: '#b85a6a',
-    secondary: '#8a3a4a',
-    accent: '#e8a0b0',
-    gradientStart: '#b85a6a',
-    gradientMid: '#8a3a4a',
-    gradientEnd: '#5c2a3a',
-    glassStrong: 'rgba(255, 250, 252, 0.95)',
-    glass: 'rgba(232, 160, 176, 0.1)',
-    darkPrimary: '#d87a8a',
-    darkSecondary: '#aa5a6a',
-    darkAccent: '#f8c0d0',
-    darkGradientStart: '#2a1a1e',
-    darkGradientMid: '#3a2a2e',
-    darkGradientEnd: '#4a3a3e',
-    darkGlassStrong: 'rgba(42, 26, 30, 0.95)',
-    darkGlass: 'rgba(20, 0, 10, 0.2)'
-  }
-}
+export { ColorSchemes }
+export const ThemeMode = { LIGHT: 'light', DARK: 'dark', AUTO: 'auto' }
 
 export const useThemeStore = defineStore('theme', () => {
-  // 状态 - 支持三种模式：light, dark, auto
   const themeMode = ref(ThemeMode.AUTO)
   const systemPrefersDark = ref(false)
-  // 色系状态
+  const systemPrefersReducedMotion = ref(false)
   const colorScheme = ref('purple')
+  const density = ref('comfortable')
+  const fontSize = ref(14)
+  const motion = ref('system')
+  const settingsOpen = ref(false)
+  const layoutSettingsOpen = ref(false)
+  const workspaceWidth = ref('wide')
+  const navigationLayout = ref('sidebar')
+  let initialized = false
+  let stopSystemTheme
+  let themeFrame
 
-  // 计算属性 - 实际的暗黑模式状态
-  const isDarkMode = computed(() => {
-    if (themeMode.value === ThemeMode.DARK) {
-      return true
-    } else if (themeMode.value === ThemeMode.LIGHT) {
-      return false
-    } else {
-      // auto 模式，跟随系统
-      return systemPrefersDark.value
-    }
-  })
+  const isDarkMode = computed(() =>
+    themeMode.value === ThemeMode.AUTO
+      ? systemPrefersDark.value
+      : themeMode.value === ThemeMode.DARK
+  )
+  const reducedMotion = computed(
+    () => motion.value === 'reduced' || systemPrefersReducedMotion.value
+  )
+  const currentTheme = computed(() => (isDarkMode.value ? ThemeMode.DARK : ThemeMode.LIGHT))
+  const currentColorScheme = computed(() => ColorSchemes[colorScheme.value])
+  const currentNavigationLayout = computed(() =>
+    navigationLayout.value === 'auto' ? currentColorScheme.value.layout : navigationLayout.value
+  )
+  const currentColors = computed(() =>
+    isDarkMode.value ? currentColorScheme.value.dark : currentColorScheme.value.light
+  )
 
-  // 计算属性 - 当前实际使用的主题
-  const currentTheme = computed(() => {
-    return isDarkMode.value ? ThemeMode.DARK : ThemeMode.LIGHT
-  })
-
-  // 计算属性 - 当前色系配置
-  const currentColorScheme = computed(() => {
-    return ColorSchemes[colorScheme.value] || ColorSchemes.purple
-  })
-
-  // 初始化主题
-  const initTheme = () => {
-    // 检测系统主题偏好
-    const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)')
-    systemPrefersDark.value = mediaQuery.matches
-
-    // 从 localStorage 读取保存的主题模式
-    const savedMode = localStorage.getItem('themeMode')
-
-    if (savedMode && Object.values(ThemeMode).includes(savedMode)) {
-      themeMode.value = savedMode
-    } else {
-      // 默认使用 auto 模式
-      themeMode.value = ThemeMode.AUTO
-    }
-
-    // 从 localStorage 读取保存的色系
-    const savedColorScheme = localStorage.getItem('colorScheme')
-    if (savedColorScheme && ColorSchemes[savedColorScheme]) {
-      colorScheme.value = savedColorScheme
-    }
-
-    // 应用主题
-    applyTheme()
-
-    // 开始监听系统主题变化
-    watchSystemTheme()
-  }
-
-  // 应用主题到 DOM
   const applyTheme = () => {
     const root = document.documentElement
-
-    if (isDarkMode.value) {
-      root.classList.add('dark')
-    } else {
-      root.classList.remove('dark')
+    // 一次更新所有颜色，避免旧页面的逐元素 transition 产生混色闪烁。
+    root.classList.add('theme-changing')
+    cancelAnimationFrame(themeFrame)
+    root.classList.toggle('dark', isDarkMode.value)
+    root.dataset.theme = colorScheme.value
+    root.dataset.material = currentColorScheme.value.material
+    root.dataset.themeLayout = currentNavigationLayout.value
+    root.dataset.workspaceWidth = workspaceWidth.value
+    root.style.setProperty(
+      '--workspace-max-width',
+      { focused: '1360px', wide: '1680px', fluid: 'none' }[workspaceWidth.value]
+    )
+    root.dataset.density = density.value
+    root.dataset.motion = motion.value
+    root.style.colorScheme = currentTheme.value
+    root.style.backgroundColor = currentColors.value.page
+    for (const [name, value] of Object.entries(
+      createThemeTokens(colorScheme.value, isDarkMode.value, density.value)
+    )) {
+      root.style.setProperty(`--${name}`, value)
     }
-
-    // 应用色系 CSS 变量
-    applyColorScheme()
+    root.style.setProperty('--base-font-size', `${fontSize.value}px`)
+    themeFrame = requestAnimationFrame(() => {
+      themeFrame = requestAnimationFrame(() => {
+        root.classList.remove('theme-changing')
+        window.dispatchEvent(new Event('resize'))
+      })
+    })
   }
 
-  // 应用色系 CSS 变量
-  const applyColorScheme = () => {
-    const root = document.documentElement
-    const scheme = currentColorScheme.value
-    const dark = isDarkMode.value
-
-    const primary = dark ? scheme.darkPrimary : scheme.primary
-    const secondary = dark ? scheme.darkSecondary : scheme.secondary
-    const accent = dark ? scheme.darkAccent : scheme.accent
-
-    // 设置主题色
-    root.style.setProperty('--primary-color', primary)
-    root.style.setProperty('--secondary-color', secondary)
-    root.style.setProperty('--accent-color', accent)
-
-    // 设置背景渐变
-    root.style.setProperty(
-      '--bg-gradient-start',
-      dark ? scheme.darkGradientStart : scheme.gradientStart
-    )
-    root.style.setProperty('--bg-gradient-mid', dark ? scheme.darkGradientMid : scheme.gradientMid)
-    root.style.setProperty('--bg-gradient-end', dark ? scheme.darkGradientEnd : scheme.gradientEnd)
-
-    // 设置玻璃态背景色
-    root.style.setProperty(
-      '--glass-strong-color',
-      dark ? scheme.darkGlassStrong : scheme.glassStrong
-    )
-    root.style.setProperty('--glass-color', dark ? scheme.darkGlass : scheme.glass)
-
-    // 设置表面颜色（卡片背景等）
-    root.style.setProperty('--surface-color', dark ? scheme.darkGlassStrong : scheme.glassStrong)
-    root.style.setProperty('--table-bg', dark ? scheme.darkGlassStrong : scheme.glassStrong)
-    root.style.setProperty('--input-bg', dark ? scheme.darkGlassStrong : scheme.glassStrong)
-
-    // 解析颜色为 RGB 值用于 rgba()
-    const hexToRgb = (hex) => {
-      const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex)
-      return result
-        ? `${parseInt(result[1], 16)}, ${parseInt(result[2], 16)}, ${parseInt(result[3], 16)}`
-        : '102, 126, 234'
+  // 多个旧页面仍调用初始化；系统监听只注册一次。
+  const watchSystemTheme = () => {
+    if (stopSystemTheme) return stopSystemTheme
+    const query = window.matchMedia('(prefers-color-scheme: dark)')
+    const motionQuery = window.matchMedia('(prefers-reduced-motion: reduce)')
+    systemPrefersDark.value = query.matches
+    systemPrefersReducedMotion.value = motionQuery.matches
+    const handleChange = (event) => {
+      systemPrefersDark.value = event.matches
     }
-
-    const primaryRgb = hexToRgb(primary)
-    const secondaryRgb = hexToRgb(secondary)
-    const accentRgb = hexToRgb(accent)
-
-    // 设置 RGB 变量用于 rgba()
-    root.style.setProperty('--primary-rgb', primaryRgb)
-    root.style.setProperty('--secondary-rgb', secondaryRgb)
-    root.style.setProperty('--accent-rgb', accentRgb)
-
-    // 设置表格 hover 颜色（暗黑模式透明度更高）
-    root.style.setProperty('--table-hover', `rgba(${primaryRgb}, ${dark ? 0.1 : 0.05})`)
-
-    // 设置边框颜色（基于主题色）
-    root.style.setProperty('--border-color', `rgba(${primaryRgb}, ${dark ? 0.25 : 0.2})`)
-
-    // 设置输入框边框
-    root.style.setProperty('--input-border', `rgba(${primaryRgb}, ${dark ? 0.3 : 0.25})`)
-
-    // 派生交互面：导航选中、软底、焦点环（随色系走）
-    root.style.setProperty('--primary-soft', `rgba(${primaryRgb}, ${dark ? 0.16 : 0.1})`)
-    root.style.setProperty('--primary-soft-strong', `rgba(${primaryRgb}, ${dark ? 0.24 : 0.16})`)
-    root.style.setProperty('--nav-item-active-bg', `rgba(${primaryRgb}, ${dark ? 0.18 : 0.1})`)
-    root.style.setProperty('--nav-item-active-fg', primary)
-    root.style.setProperty('--focus-ring', `rgba(${primaryRgb}, ${dark ? 0.35 : 0.28})`)
-    root.style.setProperty(
-      '--surface-muted',
-      dark ? 'rgba(55, 65, 81, 0.55)' : 'rgba(249, 250, 251, 0.92)'
-    )
-    root.style.setProperty(
-      '--nav-item-hover',
-      dark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(17, 24, 39, 0.04)'
-    )
-    root.style.setProperty(
-      '--divider-color',
-      dark ? 'rgba(243, 244, 246, 0.1)' : 'rgba(17, 24, 39, 0.08)'
-    )
-    root.style.setProperty('--text-primary', dark ? '#f3f4f6' : '#111827')
-    root.style.setProperty('--text-secondary', dark ? '#9ca3af' : '#6b7280')
-    root.style.setProperty('--text-muted', dark ? '#6b7280' : '#9ca3af')
-    root.style.setProperty('--text-on-primary', '#ffffff')
+    const handleMotionChange = (event) => {
+      systemPrefersReducedMotion.value = event.matches
+    }
+    query.addEventListener('change', handleChange)
+    motionQuery.addEventListener('change', handleMotionChange)
+    stopSystemTheme = () => {
+      query.removeEventListener('change', handleChange)
+      motionQuery.removeEventListener('change', handleMotionChange)
+      stopSystemTheme = undefined
+    }
+    return stopSystemTheme
   }
 
-  // 设置主题模式
+  const initTheme = () => {
+    if (initialized) return
+    const savedMode = localStorage.getItem('themeMode')
+    const savedScheme = localStorage.getItem('colorScheme')
+    const savedDensity = localStorage.getItem('themeDensity')
+    const savedFontSize = Number(localStorage.getItem('themeFontSize'))
+    const savedMotion = localStorage.getItem('themeMotion')
+    const savedWidth = localStorage.getItem('adminWorkspaceWidth')
+    const savedNavigation = localStorage.getItem('adminNavigationLayout')
+    const hasLayoutPreference = localStorage.getItem('adminLayoutVersion') === '1'
+    if (Object.values(ThemeMode).includes(savedMode)) themeMode.value = savedMode
+    if (Object.hasOwn(ColorSchemes, savedScheme)) colorScheme.value = savedScheme
+    if (['comfortable', 'compact'].includes(savedDensity)) density.value = savedDensity
+    if ([14, 15, 16].includes(savedFontSize)) fontSize.value = savedFontSize
+    if (['system', 'reduced'].includes(savedMotion)) motion.value = savedMotion
+    if (hasLayoutPreference && ['focused', 'wide', 'fluid'].includes(savedWidth))
+      workspaceWidth.value = savedWidth
+    if (hasLayoutPreference && ['auto', 'top', 'sidebar'].includes(savedNavigation))
+      navigationLayout.value = savedNavigation
+    localStorage.setItem('adminLayoutVersion', '1')
+    localStorage.setItem('adminWorkspaceWidth', workspaceWidth.value)
+    localStorage.setItem('adminNavigationLayout', navigationLayout.value)
+    watchSystemTheme()
+    initialized = true
+    applyTheme()
+  }
+
+  const setWorkspaceWidth = (value) => {
+    if (['focused', 'wide', 'fluid'].includes(value)) workspaceWidth.value = value
+  }
+  const setNavigationLayout = (value) => {
+    if (['auto', 'top', 'sidebar'].includes(value)) navigationLayout.value = value
+  }
+  const resetLayout = () => {
+    workspaceWidth.value = 'wide'
+    navigationLayout.value = 'sidebar'
+  }
   const setThemeMode = (mode) => {
-    if (Object.values(ThemeMode).includes(mode)) {
-      themeMode.value = mode
-    }
+    if (Object.values(ThemeMode).includes(mode)) themeMode.value = mode
   }
-
-  // 循环切换主题模式
-  const cycleThemeMode = () => {
-    const modes = [ThemeMode.LIGHT, ThemeMode.DARK, ThemeMode.AUTO]
-    const currentIndex = modes.indexOf(themeMode.value)
-    const nextIndex = (currentIndex + 1) % modes.length
-    themeMode.value = modes[nextIndex]
-  }
-
-  // 设置色系
   const setColorScheme = (scheme) => {
-    if (ColorSchemes[scheme]) {
-      colorScheme.value = scheme
-    }
+    if (Object.hasOwn(ColorSchemes, scheme)) colorScheme.value = scheme
   }
-
-  // 循环切换色系
+  const setDensity = (value) => {
+    if (['comfortable', 'compact'].includes(value)) density.value = value
+  }
+  const setFontSize = (value) => {
+    if ([14, 15, 16].includes(value)) fontSize.value = value
+  }
+  const setMotion = (value) => {
+    if (['system', 'reduced'].includes(value)) motion.value = value
+  }
+  const cycleThemeMode = () => {
+    const modes = Object.values(ThemeMode)
+    setThemeMode(modes[(modes.indexOf(themeMode.value) + 1) % modes.length])
+  }
   const cycleColorScheme = () => {
     const schemes = Object.keys(ColorSchemes)
-    const currentIndex = schemes.indexOf(colorScheme.value)
-    const nextIndex = (currentIndex + 1) % schemes.length
-    colorScheme.value = schemes[nextIndex]
+    setColorScheme(schemes[(schemes.indexOf(colorScheme.value) + 1) % schemes.length])
+  }
+  const resetAppearance = () => {
+    themeMode.value = ThemeMode.AUTO
+    colorScheme.value = 'purple'
+    density.value = 'comfortable'
+    fontSize.value = 14
+    motion.value = 'system'
   }
 
-  // 监听主题模式变化，自动保存到 localStorage 并应用
-  watch(themeMode, (newMode) => {
-    localStorage.setItem('themeMode', newMode)
-    applyTheme()
-  })
-
-  // 监听色系变化，自动保存到 localStorage 并应用
-  watch(colorScheme, (newScheme) => {
-    localStorage.setItem('colorScheme', newScheme)
-    applyColorScheme()
-  })
-
-  // 监听系统主题偏好变化
-  watch(systemPrefersDark, () => {
-    // 只有在 auto 模式下才需要重新应用主题
-    if (themeMode.value === ThemeMode.AUTO) {
+  watch(
+    [
+      themeMode,
+      colorScheme,
+      density,
+      fontSize,
+      motion,
+      systemPrefersDark,
+      workspaceWidth,
+      navigationLayout
+    ],
+    () => {
+      if (!initialized) return
+      localStorage.setItem('themeMode', themeMode.value)
+      localStorage.setItem('colorScheme', colorScheme.value)
+      localStorage.setItem('themeDensity', density.value)
+      localStorage.setItem('themeFontSize', String(fontSize.value))
+      localStorage.setItem('themeMotion', motion.value)
+      localStorage.setItem('adminWorkspaceWidth', workspaceWidth.value)
+      localStorage.setItem('adminNavigationLayout', navigationLayout.value)
       applyTheme()
-    }
+    },
+    { flush: 'sync' }
+  )
+
+  onScopeDispose(() => {
+    stopSystemTheme?.()
+    cancelAnimationFrame(themeFrame)
+    document.documentElement.classList.remove('theme-changing')
   })
-
-  // 监听系统主题变化
-  const watchSystemTheme = () => {
-    const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)')
-
-    const handleChange = (e) => {
-      systemPrefersDark.value = e.matches
-    }
-
-    // 初始检测
-    systemPrefersDark.value = mediaQuery.matches
-
-    // 添加监听器
-    mediaQuery.addEventListener('change', handleChange)
-
-    // 返回清理函数
-    return () => {
-      mediaQuery.removeEventListener('change', handleChange)
-    }
-  }
-
-  // 兼容旧版 API
-  const toggleTheme = () => {
-    cycleThemeMode()
-  }
-
-  const setTheme = (theme) => {
-    if (theme === 'dark') {
-      setThemeMode(ThemeMode.DARK)
-    } else if (theme === 'light') {
-      setThemeMode(ThemeMode.LIGHT)
-    }
-  }
 
   return {
-    // State
     themeMode,
-    isDarkMode,
-    currentTheme,
     systemPrefersDark,
     colorScheme,
+    density,
+    fontSize,
+    motion,
+    settingsOpen,
+    layoutSettingsOpen,
+    workspaceWidth,
+    navigationLayout,
+    currentNavigationLayout,
+    setWorkspaceWidth,
+    setNavigationLayout,
+    resetLayout,
+    isDarkMode,
+    reducedMotion,
+    currentTheme,
     currentColorScheme,
-
-    // Constants
-    ThemeMode,
-    ColorSchemes,
-
-    // Actions
+    currentColors,
     initTheme,
-    setThemeMode,
-    cycleThemeMode,
+    applyTheme,
     watchSystemTheme,
+    setThemeMode,
     setColorScheme,
+    setDensity,
+    setFontSize,
+    setMotion,
+    cycleThemeMode,
     cycleColorScheme,
-
-    // 兼容旧版 API
-    toggleTheme,
-    setTheme
+    resetAppearance,
+    toggleTheme: cycleThemeMode,
+    setTheme: setThemeMode,
+    ThemeMode,
+    ColorSchemes
   }
 })

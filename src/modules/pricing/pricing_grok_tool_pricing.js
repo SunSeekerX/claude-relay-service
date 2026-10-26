@@ -7,14 +7,14 @@ export const GROK_TOOL_UNIT_PRICES = {
   x_users_fetched: 0.01,
   code_interpreter_calls: 0.005,
   file_search_calls: 0.0025,
-  document_search_calls: 0.01
+  document_search_calls: 0.01,
 }
 
 export const GROK_TOOL_FALLBACK_PRICING = {
   [GROK_TOOL_PRICING_MODEL]: {
     mode: 'server_tools',
-    xai_tool_costs_per_unit: GROK_TOOL_UNIT_PRICES
-  }
+    xai_tool_costs_per_unit: GROK_TOOL_UNIT_PRICES,
+  },
 }
 
 export const calculateGrokToolCost = (usage, pricing) => {

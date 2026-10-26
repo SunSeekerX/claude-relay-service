@@ -1,3 +1,4 @@
+import { normalizeAccountModelRange } from './account_model_policy.js'
 import crypto from 'node:crypto'
 import { redis } from '../../infra/redis.js'
 import { logger } from '../../common/logger.js'
@@ -6,6 +7,7 @@ import { LRUCache } from '../../common/lru_cache.js'
 import * as upstreamErrorHelper from '../relay/relay_upstream_error_helper.js'
 import { RedisKeys } from '../../infra/redis_key.js'
 import { InvokeModelWithResponseStreamCommand } from '@aws-sdk/client-bedrock-runtime'
+import { testPromptConfigService } from '../relay/relay_test_prompt_config_service.js'
 import { webhookNotifier } from '../webhook/webhook_notifier.js'
 import { env } from '../../../config/env.js'
 import { createRequire } from 'node:module'
@@ -235,6 +237,7 @@ class BedrockAccountService {
             description: account.description,
             region: account.region,
             defaultModel: account.defaultModel,
+            supportedModels: account.supportedModels ?? [],
             isActive: account.isActive,
             accountType: account.accountType,
             priority: account.priority,
@@ -312,6 +315,9 @@ class BedrockAccountService {
         }
         if (updates.defaultModel !== undefined) {
           account.defaultModel = updates.defaultModel
+        }
+        if (updates.supportedModels !== undefined) {
+          account.supportedModels = normalizeAccountModelRange(updates.supportedModels)
         }
         if (updates.isActive !== undefined) {
           account.isActive = updates.isActive
@@ -570,7 +576,8 @@ class BedrockAccountService {
    * @param {Object} res - Express response 对象
    * @param {string} model - 测试使用的模型
    */
-  async testAccountConnection(accountId, res, model = null) {
+  async testAccountConnection(accountId, res, model = null, requestedPrompt) {
+    const prompt = await testPromptConfigService.resolvePrompt(requestedPrompt)
     try {
       // 获取账户信息
       const accountResult = await this.getAccount(accountId)
@@ -607,8 +614,7 @@ class BedrockAccountService {
         messages: [
           {
             role: 'user',
-            content:
-              'Hello! Please respond with a simple greeting to confirm the connection is working. And tell me who are you?',
+            content: prompt,
           },
         ],
       }

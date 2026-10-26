@@ -6,6 +6,7 @@ import { logger } from '../../common/logger.js'
 import * as upstreamErrorHelper from './relay_upstream_error_helper.js'
 import { RedisKeys } from '../../infra/redis_key.js'
 import * as commonHelper from '../../common/common_helper.js'
+import { isAccountModelInRange } from '../account/account_model_policy.js'
 class DroidScheduler {
   _isAccountSchedulable(account) {
     return commonHelper.isTruthy(account?.schedulable ?? true)
@@ -14,8 +15,11 @@ class DroidScheduler {
   // [人工决策-2026-06-03 14:51:27] droid 账户同步硬门单一判定（完整清单）：schedulable(手动停用)、订阅过期、endpoint 兼容
   // 始终生效；开关 ON 仅跳过 status 健康检查。temp_unavailable 为异步,由各路径单独 await（不并入此处）。
   // group/dedicated/syncFiltered 三条路径统一调用此函数,避免订阅/endpoint 等硬门在某条路径漏检漂移。
-  _passesDroidSyncGates(account, normalizedEndpoint) {
+  _passesDroidSyncGates(account, normalizedEndpoint, requestedModel = null) {
     if (!account || !this._isAccountSchedulable(account)) {
+      return false
+    }
+    if (!isAccountModelInRange(account.supportedModels, requestedModel)) {
       return false
     }
     // [人工决策-2026-06-03 14:51:27] isActive(手动停用) 是硬门,开关 ON 也不豁免。
@@ -37,8 +41,8 @@ class DroidScheduler {
   // [人工决策-2026-06-03 14:51:27] droid 账户完整可调度判定(唯一真相,含异步 temp_unavailable)：
   // sync 硬门(_passesDroidSyncGates) + temp_unavailable(开关 ON 跳过)。group/dedicated/共享池三路径统一调用此函数,
   // 不再各自在外面叠 temp,避免"两段式 gate"漂移。
-  async _isDroidAccountUsable(account, normalizedEndpoint) {
-    if (!this._passesDroidSyncGates(account, normalizedEndpoint)) {
+  async _isDroidAccountUsable(account, normalizedEndpoint, requestedModel = null) {
+    if (!this._passesDroidSyncGates(account, normalizedEndpoint, requestedModel)) {
       return false
     }
     if (commonHelper.isAutoProtectionDisabled(account)) {
@@ -120,7 +124,7 @@ class DroidScheduler {
       const result = []
       for (const account of accounts) {
         // 统一走 _isDroidAccountUsable（完整可调度判定单点：sync 硬门 + 异步 temp）
-        if (await this._isDroidAccountUsable(account, normalizedEndpoint)) {
+        if (await this._isDroidAccountUsable(account, normalizedEndpoint, requestedModel)) {
           result.push(account)
         }
       }
@@ -154,7 +158,7 @@ class DroidScheduler {
     }
   }
 
-  async selectAccount(apiKeyData, endpointType, sessionHash) {
+  async selectAccount(apiKeyData, endpointType, sessionHash, requestedModel = null) {
     const normalizedEndpoint = commonHelper.normalizeEndpointType(endpointType)
     const stickyKey = this._composeStickySessionKey(normalizedEndpoint, sessionHash, apiKeyData?.id)
 
@@ -166,7 +170,7 @@ class DroidScheduler {
       if (binding.startsWith('group:')) {
         const groupId = binding.substring('group:'.length)
         logger.info(`API Key ${apiKeyData.name || apiKeyData.id} 绑定 Droid 分组 ${groupId}，按分组调度`)
-        candidates = await this._loadGroupAccounts(groupId, normalizedEndpoint, null, apiKeyData)
+        candidates = await this._loadGroupAccounts(groupId, normalizedEndpoint, requestedModel, apiKeyData)
         // 分组绑定：只在组内选，绝不退回共享池
         if (!candidates.length) {
           throw new Error(`No available Droid accounts in bound group ${groupId} (respecting binding)`)
@@ -175,7 +179,7 @@ class DroidScheduler {
         const account = await droidAccountService.getAccount(binding)
         if (account) {
           // 专属绑定走与共享池一致的完整判定 _isDroidAccountUsable（sync 硬门 + temp）
-          if (await this._isDroidAccountUsable(account, normalizedEndpoint)) {
+          if (await this._isDroidAccountUsable(account, normalizedEndpoint, requestedModel)) {
             candidates = [account]
             isDedicatedBinding = true
           } else {
@@ -202,7 +206,7 @@ class DroidScheduler {
     // 统一走 _isDroidAccountUsable（完整可调度判定单点：sync 硬门 + 异步 temp）
     const usabilityResults = await Promise.all(
       candidates.map(async (account) =>
-        (await this._isDroidAccountUsable(account, normalizedEndpoint)) ? account : null,
+        (await this._isDroidAccountUsable(account, normalizedEndpoint, requestedModel)) ? account : null,
       ),
     )
     const filtered = usabilityResults.filter(Boolean)

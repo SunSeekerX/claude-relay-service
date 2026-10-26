@@ -1,5 +1,7 @@
 <template>
-  <div class="request-details-container flex h-full min-h-0 flex-col overflow-hidden">
+  <div
+    class="request-details-container admin-list-page flex h-full min-h-0 flex-col overflow-hidden"
+  >
     <!-- 去掉内层 .card：外层 MainLayout 已是卡片，避免卡片套卡片 -->
     <div class="flex min-h-0 flex-1 flex-col overflow-hidden">
       <div class="mb-2 flex shrink-0 flex-col gap-2 sm:gap-2.5">
@@ -43,7 +45,8 @@
                 请求明细采集尚未开启
               </h3>
               <p class="mt-2 text-sm text-gray-500 dark:text-gray-400">
-                到「系统设置 → 转发配置」开启“请求明细采集”后，后台会开始记录新的请求摘要。历史请求不会回填。
+                到「系统设置 →
+                转发配置」开启“请求明细采集”后，后台会开始记录新的请求摘要。历史请求不会回填。
               </p>
             </div>
             <div class="flex flex-col gap-2 sm:flex-row">
@@ -74,7 +77,9 @@
                   <i
                     :class="[
                       'relative text-red-500',
-                      requestDetailBodyPreviewPurging ? 'i-lucide-loader-circle animate-spin' : 'i-lucide-trash-2'
+                      requestDetailBodyPreviewPurging
+                        ? 'i-lucide-loader-circle animate-spin'
+                        : 'i-lucide-trash-2'
                     ]"
                   />
                   <span class="relative">清理历史预览</span>
@@ -116,7 +121,10 @@
                   formatNumber(summary.outputTokens)
                 }}</span>
               </span>
-              <span class="inline-flex items-center gap-1 whitespace-nowrap" :title="`读 / (输入 + 读 + 建)：${formatNumber(summary.cacheHitNumerator)} / ${formatNumber(summary.cacheHitDenominator)}`">
+              <span
+                class="inline-flex items-center gap-1 whitespace-nowrap"
+                :title="`读 / (输入 + 读 + 建)：${formatNumber(summary.cacheHitNumerator)} / ${formatNumber(summary.cacheHitDenominator)}`"
+              >
                 <span>缓存命中:</span>
                 <span class="font-semibold text-cyan-600 dark:text-cyan-400">{{
                   formatPercent(summary.cacheHitRate)
@@ -168,7 +176,9 @@
                       class="toolbar-control-glow bg-gradient-to-r from-cyan-500 to-teal-500"
                     ></div>
                     <div class="toolbar-search-wrap toolbar-element">
-                      <i class="input-affix-icon input-affix-icon--left i-lucide-search text-cyan-500" />
+                      <i
+                        class="input-affix-icon input-affix-icon--left i-lucide-search text-cyan-500"
+                      />
                       <input
                         v-model="filters.keyword"
                         class="toolbar-search-input"
@@ -306,7 +316,9 @@
                     <i
                       :class="[
                         'relative text-red-500',
-                        requestDetailBodyPreviewPurging ? 'i-lucide-loader-circle animate-spin' : 'i-lucide-trash-2'
+                        requestDetailBodyPreviewPurging
+                          ? 'i-lucide-loader-circle animate-spin'
+                          : 'i-lucide-trash-2'
                       ]"
                     />
                     <span class="relative">清理历史预览</span>
@@ -340,7 +352,9 @@
         <div v-else class="flex min-h-0 flex-1 flex-col overflow-hidden">
           <!-- 桌面：表体内滚动，表头 sticky -->
           <div class="table-container hidden min-h-0 flex-1 md:block">
-            <table class="request-table w-full table-fixed divide-y divide-gray-200 dark:divide-gray-700">
+            <table
+              class="request-table w-full table-fixed divide-y divide-gray-200 dark:divide-gray-700"
+            >
               <colgroup>
                 <col class="w-[14%]" />
                 <col class="w-[18%]" />
@@ -359,7 +373,9 @@
                   <th class="px-2 py-2 text-right"></th>
                 </tr>
               </thead>
-              <tbody class="divide-y divide-gray-100 bg-white dark:divide-gray-800 dark:bg-gray-900">
+              <tbody
+                class="divide-y divide-gray-100 bg-white dark:divide-gray-800 dark:bg-gray-900"
+              >
                 <tr
                   v-for="record in records"
                   :key="record.requestId"
@@ -436,7 +452,8 @@
                         class="ml-1 font-normal text-violet-600 dark:text-violet-400"
                         :title="`点击复制推理：${formatReasoning(record.reasoningDisplay)}`"
                         @click.stop="copyText(formatReasoning(record.reasoningDisplay), '推理')"
-                      >{{ formatReasoning(record.reasoningDisplay) }}</span>
+                        >{{ formatReasoning(record.reasoningDisplay) }}</span
+                      >
                     </div>
                     <div
                       class="cursor-pointer truncate text-sm text-gray-500 hover:text-blue-500 dark:text-gray-400"
@@ -534,7 +551,8 @@
                     <span
                       v-if="formatReasoning(record.reasoningDisplay) !== '-'"
                       class="font-normal text-violet-600 dark:text-violet-400"
-                    >· {{ formatReasoning(record.reasoningDisplay) }}</span>
+                      >· {{ formatReasoning(record.reasoningDisplay) }}</span
+                    >
                   </p>
                   <p
                     class="cursor-pointer text-sm text-gray-500 dark:text-gray-400"
@@ -591,13 +609,11 @@
                 · {{ record.accountName || record.accountId || '-' }}
               </p>
               <p class="mt-1 text-sm text-gray-600 dark:text-gray-300">
-                入 {{ formatNumber(record.inputTokens) }}
-                · 出 {{ formatNumber(record.outputTokens) }}
-                · 读 {{ formatNumber(record.cacheReadTokens) }}
+                入 {{ formatNumber(record.inputTokens) }} · 出
+                {{ formatNumber(record.outputTokens) }} · 读
+                {{ formatNumber(record.cacheReadTokens) }}
                 · 建
-                {{
-                  formatCacheCreate(record.cacheCreateTokens, record.cacheCreateNotApplicable)
-                }}
+                {{ formatCacheCreate(record.cacheCreateTokens, record.cacheCreateNotApplicable) }}
                 · 命中 {{ formatPercent(record.cacheHitRate) }}
               </p>
             </div>
@@ -1058,9 +1074,15 @@ const exportCsv = async () => {
         formatCost(record.cost),
         record.durationMs || 0,
         record.firstTokenMs != null ? record.firstTokenMs : '',
-        ...['authenticationMs', 'schedulingMs', 'localPreparationMs', 'upstreamHeadersMs',
-          'firstContentWaitMs', 'upstreamResponseMs', 'upstreamAttempts']
-          .map((field) => record.timings?.[field] ?? '')
+        ...[
+          'authenticationMs',
+          'schedulingMs',
+          'localPreparationMs',
+          'upstreamHeadersMs',
+          'firstContentWaitMs',
+          'upstreamResponseMs',
+          'upstreamAttempts'
+        ].map((field) => record.timings?.[field] ?? '')
       ]
       rows.push(row.map((cell) => escapeCsvCell(cell)).join(','))
     })
@@ -1228,7 +1250,6 @@ onMounted(() => {
 </script>
 
 <style scoped>
-
 .request-toolbar {
   display: flex;
   flex-direction: column;
@@ -1286,7 +1307,6 @@ onMounted(() => {
   max-width: 100%;
 }
 
-
 .toolbar-control-glow {
   position: absolute;
   inset: -2px;
@@ -1299,10 +1319,6 @@ onMounted(() => {
 .toolbar-control:hover .toolbar-control-glow {
   opacity: 0.16;
 }
-
-
-
-
 
 .request-toolbar-actions {
   display: flex;

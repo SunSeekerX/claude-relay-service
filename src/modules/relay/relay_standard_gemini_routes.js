@@ -2,6 +2,7 @@ import express from 'express'
 import { authenticateApiKey } from '../../infra/middleware_auth.js'
 import { logger } from '../../common/logger.js'
 import * as geminiHandlers from './relay_gemini_handlers_routes.js'
+import { createCodeAssistHandler } from './relay_gemini_code_assist_handlers.js'
 /**
  * 标准 Gemini API 路由模块
  *
@@ -20,6 +21,29 @@ import * as geminiHandlers from './relay_gemini_handlers_routes.js'
  */
 
 export const router = express.Router()
+
+for (const apiMethod of ['fetchAdminControls', 'recordCodeAssistMetrics', 'setCodeAssistGlobalUserSetting']) {
+  router.post(
+    `/v1internal\\:${apiMethod}`,
+    authenticateApiKey,
+    geminiHandlers.ensureGeminiPermissionMiddleware,
+    createCodeAssistHandler(apiMethod, {
+      dedicatedOnly: apiMethod === 'setCodeAssistGlobalUserSetting',
+    }),
+  )
+}
+router.get(
+  '/v1internal\\:getCodeAssistGlobalUserSetting',
+  authenticateApiKey,
+  geminiHandlers.ensureGeminiPermissionMiddleware,
+  createCodeAssistHandler('getCodeAssistGlobalUserSetting', { method: 'GET' }),
+)
+router.get(
+  '/v1internal/operations/:operationId',
+  authenticateApiKey,
+  geminiHandlers.ensureGeminiPermissionMiddleware,
+  createCodeAssistHandler('getOperation', { method: 'GET' }),
+)
 
 // 从 handlers/geminiHandlers.js 导入所有处理函数
 // ===

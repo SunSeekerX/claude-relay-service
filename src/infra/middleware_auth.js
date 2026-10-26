@@ -1,8 +1,4 @@
-import {
-  startRequestTiming,
-  finishRequestTiming,
-  getRequestTimings
-} from '../common/request_timing.js'
+import { startRequestTiming, finishRequestTiming, getRequestTimings } from '../common/request_timing.js'
 import { config } from '../../config/config.js'
 import { apiKeyService } from '../modules/apikey/apikey_service.js'
 import { userService } from '../modules/user/user_service.js'
@@ -22,6 +18,18 @@ import * as groupPolicy from '../modules/account/account_group_policy.js'
 import crypto from 'node:crypto'
 import { env } from '../../config/env.js'
 import { sendAuthFail, sendError, resolveStatusCode } from '../common/http_result.js'
+import { getRequestRouteFormat, getDefaultRouteFormat } from '../modules/relay/relay_routing_contract.js'
+import {
+  resolveRequestRoute,
+  applyRouteBinding,
+  resolveDefaultModelRoutes,
+  getRouteModels,
+  getLegacyProviderModels,
+} from '../modules/relay/relay_routing_service.js'
+import { sendModelDiscovery } from '../modules/relay/relay_model_discovery.js'
+import { runWithRelayRoute } from '../modules/relay/relay_route_context.js'
+import { applyRouteModel } from '../modules/relay/relay_route_model.js'
+import { routeErrorBody } from '../modules/relay/relay_routing_errors.js'
 
 // 管理 JSON 面 vs 中转/运维面划分
 // 用 originalUrl（去 query）匹配前缀，避免子路由 req.path 变成相对路径导致误判
@@ -498,6 +506,22 @@ export const authenticateApiKey = async (req, res, next) => {
       })
     }
 
+    const routeFormat = getRequestRouteFormat(req)
+    let relayRoute
+    let discoveryRoutes = []
+    try {
+      relayRoute = await resolveRequestRoute(validation.keyData, req.params?.routeCode ? routeFormat : getDefaultRouteFormat(req, routeFormat), req.params?.routeCode ?? null)
+      if (!relayRoute) {discoveryRoutes = await resolveDefaultModelRoutes(validation.keyData, req)}
+      if (relayRoute && req.method === 'POST') {
+        const pathModel = req.path.match(/\/models\/([^/]+):(?:generateContent|streamGenerateContent|countTokens)$/)?.[1]
+        applyRouteModel(req, res, relayRoute, pathModel ? decodeURIComponent(pathModel) : null, validation.keyData)
+      }
+    } catch (error) {
+      logger.warn('Relay route admission rejected', { error, keyId: validation.keyData.id })
+      const status = error.statusCode ?? 500
+      return res.status(status).json(routeErrorBody(req, status, error.statusCode ? error.message : '调用入口配置不可用'))
+    }
+
     const skipKeyRestrictions = isTokenCountRequest(req)
     if (!skipKeyRestrictions) {
       try {
@@ -542,8 +566,9 @@ export const authenticateApiKey = async (req, res, next) => {
     if (!skipKeyRestrictions) {
       const normalizedPath = (req.originalUrl || req.path || '').toLowerCase()
       const isClaudeMessagesEndpoint =
-        normalizedPath.includes('/v1/messages') &&
-        (normalizedPath.startsWith('/api') || normalizedPath.startsWith('/claude'))
+        (relayRoute && routeFormat === 'claude-messages') ||
+        (normalizedPath.includes('/v1/messages') &&
+        (normalizedPath.startsWith('/api') || normalizedPath.startsWith('/claude')))
 
       if (isClaudeMessagesEndpoint) {
         try {
@@ -1256,7 +1281,7 @@ export const authenticateApiKey = async (req, res, next) => {
     if (!isPrepaid && weeklyOpusCostLimit > 0) {
       // 从请求中获取模型信息
       const requestBody = req.body || {}
-      const model = requestBody.model || ''
+      const model = req._relayRouteModel?.mappedModel ?? requestBody.model ?? ''
 
       // 判断是否为 Claude 模型
       if (isClaudeFamilyModel(model)) {
@@ -1328,6 +1353,9 @@ export const authenticateApiKey = async (req, res, next) => {
       groupCostHoldGroupId: null,
       groupCostHoldMeta: null,
     }
+    if (relayRoute) {
+      req.apiKey = applyRouteBinding(req.apiKey, relayRoute)
+    }
 
     // 分组额度 hold 请求结束兜底：选号成功但未计费/中途失败时 DEL hold，防单在途卡死
     const releaseGroupCostHoldOnClose = () => {
@@ -1356,6 +1384,23 @@ export const authenticateApiKey = async (req, res, next) => {
     logger.api(`User-Agent: "${userAgent}"`)
 
     finishRequestTiming(req, 'authentication')
+    if (discoveryRoutes.length > 0) {
+      const models = new Map()
+      const modelCache = new Map()
+      for (const route of discoveryRoutes) {
+        const scopedModels = route.legacyProvider
+          ? await getLegacyProviderModels(req.apiKey, route.legacyProvider, route.discoveryFormat, modelCache)
+          : await getRouteModels(route, req.apiKey, null, modelCache, route.discoveryFormat)
+        for (const model of scopedModels) {
+          models.set(model.id, model)
+        }
+      }
+      return sendModelDiscovery(req, res, [...models.values()], req.path.includes('v1beta'))
+    }
+    if (relayRoute) {
+      const { dispatchRoutedRequest } = await import('../modules/relay/relay_routing_dispatch.js')
+      return await runWithRelayRoute(req.apiKey, () => dispatchRoutedRequest(req, res, routeFormat))
+    }
     return next()
   } catch (error) {
     authErrored = true
@@ -1903,8 +1948,7 @@ export const requestLogger = (req, res, next) => {
       logger[payload.level](payload.message, meta)
     }
 
-    const streaming = req.body?.stream === true ||
-      String(res.get('Content-Type') ?? '').includes('text/event-stream')
+    const streaming = req.body?.stream === true || String(res.get('Content-Type') ?? '').includes('text/event-stream')
     const waitMs = streaming ? req.firstTokenMs : duration
     if (waitMs > 5000) {
       const kind = streaming ? 'Slow first token' : 'Slow request'

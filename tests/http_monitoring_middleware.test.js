@@ -2,9 +2,7 @@ import { jest } from '@jest/globals'
 import { EventEmitter } from 'node:events'
 import { httpRequestStats } from '../src/common/http_request_stats.js'
 
-const logger = Object.fromEntries(
-  ['info', 'warn', 'error', 'debug', 'security'].map((name) => [name, jest.fn()])
-)
+const logger = Object.fromEntries(['info', 'warn', 'error', 'debug', 'security'].map((name) => [name, jest.fn()]))
 const modules = {
   '../config/config.js': { config: { security: {} } },
   '../config/env.js': { env: {} },
@@ -14,7 +12,13 @@ const modules = {
   '../src/modules/user/user_service.js': { userService: {} },
   '../src/modules/relay/relay_claude_relay_config_service.js': { claudeRelayConfigService: {} },
   '../src/modules/payment/payment_balance_ledger.js': { balanceLedger: {} },
-  '../src/modules/account/account_group_policy.js': {}
+  '../src/modules/account/account_group_policy.js': {},
+  '../src/modules/relay/relay_routing_service.js': {
+    resolveRequestRoute: jest.fn(),
+    applyRouteBinding: jest.fn(),
+    resolveDefaultModelRoutes: jest.fn(),
+    getRouteModels: jest.fn(),
+  },
 }
 for (const [name, exports] of Object.entries(modules)) {
   jest.unstable_mockModule(name, () => exports)
@@ -26,7 +30,7 @@ const fixture = (path, stream = false) => {
     method: stream ? 'POST' : 'GET',
     body: { stream },
     get: () => undefined,
-    ip: '127.0.0.1'
+    ip: '127.0.0.1',
   }
   const res = new EventEmitter()
   Object.assign(res, {
@@ -40,7 +44,7 @@ const fixture = (path, stream = false) => {
       res.headersSent = true
       return true
     }),
-    json: jest.fn()
+    json: jest.fn(),
   })
   requestLogger(req, res, jest.fn())
   return { req, res }
@@ -72,7 +76,7 @@ it('warns about a slow content start and includes the request identity', () => {
   res.emit('finish')
   expect(logger.warn).toHaveBeenCalledWith('Slow first token: 6000ms POST /openai/responses', {
     requestId: req.requestId,
-    durationMs: 6000
+    durationMs: 6000,
   })
 })
 

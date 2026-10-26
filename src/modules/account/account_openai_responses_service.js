@@ -463,7 +463,7 @@ class OpenAIResponsesAccountService {
       logger.warn(`Account ${result[3]} exceeded daily quota`, {
         accountId,
         dailyUsage: result[0],
-        dailyQuota: result[1]
+        dailyQuota: result[1],
       })
     }
   }

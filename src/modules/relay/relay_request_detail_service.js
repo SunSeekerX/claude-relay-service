@@ -744,6 +744,7 @@ class RequestDetailService {
       reasoningDisplay: detail.reasoningDisplay || reasoningInfo.reasoningDisplay || null,
       reasoningSource: detail.reasoningSource || reasoningInfo.reasoningSource || null,
       protocolBridge: detail.protocolBridge || null,
+      relayRoute: detail.relayRoute ?? null,
       tokenCountEstimate: detail.tokenCountEstimate === true,
       tokenCountEstimateMethod: detail.tokenCountEstimateMethod || null,
       // DEC_20260905_194420 上游请求标识落 request detail
@@ -751,7 +752,7 @@ class RequestDetailService {
         typeof detail.upstreamRequestId === 'string' && detail.upstreamRequestId.trim()
           ? detail.upstreamRequestId.trim().slice(0, 200)
           : null,
-      videoTaskId: detail.videoTaskId || null
+      videoTaskId: detail.videoTaskId || null,
     }
 
     if (options.bodyPreviewEnabled && requestBodySource !== undefined) {
@@ -794,7 +795,7 @@ class RequestDetailService {
       cacheCreateTokens: 0,
       totalTokens: 0,
       cost: 0,
-      realCost: 0
+      realCost: 0,
     })
   }
 

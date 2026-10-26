@@ -1,10 +1,11 @@
+import { mapGeminiUsageToOpenAI } from './relay_gemini_to_openai.js'
 import { trackRequestTiming, timedUpstreamRequest } from '../../common/request_timing.js'
 import { logger } from '../../common/logger.js'
 import { StringDecoder } from 'node:string_decoder'
 import { onClientDisconnect } from '../../common/client_disconnect.js'
 import * as geminiAccountService from '../account/account_gemini_service.js'
 import { geminiApiAccountService } from '../account/account_gemini_api_service.js'
-import { sendGeminiRequest, getAvailableModels } from './relay_gemini_relay_service.js'
+import { sendGeminiRequest } from './relay_gemini_relay_service.js'
 import { sendAntigravityRequest } from './relay_antigravity_relay_service.js'
 import crypto from 'node:crypto'
 import { sessionHelper } from './relay_session_helper.js'
@@ -12,14 +13,19 @@ import { unifiedGeminiScheduler } from './relay_unified_gemini_scheduler.js'
 import { apiKeyService } from '../apikey/apikey_service.js'
 import { redis } from '../../infra/redis.js'
 import { updateRateLimitCounters } from './relay_rate_limit_helper.js'
-import { parseSSELine } from './relay_sse_parser.js'
+import { IncrementalSSEParser, parseSSELine } from './relay_sse_parser.js'
 import { buildGeminiGenerateBody } from './relay_gemini_request.js'
 import axios from 'axios'
+import { getLegacyProviderModels } from './relay_routing_service.js'
 import { getSafeMessage } from '../../common/error_sanitizer.js'
 import { ProxyHelper } from '../proxy/proxy_helper.js'
 import { proxyResolver } from '../proxy/proxy_resolver.js'
 import * as upstreamErrorHelper from './relay_upstream_error_helper.js'
-import { buildTokenUsagePayload, createRequestDetailMeta } from './relay_request_detail_helper.js'
+import {
+  buildGeminiTokenUsagePayload,
+  normalizeGeminiTokenUsage,
+  createRequestDetailMeta,
+} from './relay_request_detail_helper.js'
 import * as interactionsX from './translator/relay_translator_interactions.js'
 /**
  * Gemini API 处理函数模块
@@ -401,8 +407,8 @@ export const handleMessages = async (req, res) => {
           apiKeyData,
           sessionHash,
           model, // 传递请求的模型进行过滤
-          { allowApiAccounts: true } // 允许调度 API 账户
-        )
+          { allowApiAccounts: true }, // 允许调度 API 账户
+        ),
       )
       ;({ accountId, accountType } = schedulerResult)
     } catch (error) {
@@ -534,22 +540,14 @@ export const handleMessages = async (req, res) => {
                 finish_reason: 'stop',
               },
             ],
-            usage: {
-              prompt_tokens: geminiData.usageMetadata?.promptTokenCount || 0,
-              completion_tokens: geminiData.usageMetadata?.candidatesTokenCount || 0,
-              total_tokens: geminiData.usageMetadata?.totalTokenCount || 0,
-            },
+            usage: mapGeminiUsageToOpenAI(geminiData.usageMetadata),
           }
 
           // 记录使用统计
           if (geminiData.usageMetadata) {
             await apiKeyService.recordUsage(
               apiKeyData.id,
-              buildTokenUsagePayload({
-                inputTokens: geminiData.usageMetadata.promptTokenCount || 0,
-                outputTokens: geminiData.usageMetadata.candidatesTokenCount || 0,
-                rawUsage: geminiData.usageMetadata,
-              }),
+              buildGeminiTokenUsagePayload(geminiData.usageMetadata),
               model,
               accountId,
               'gemini',
@@ -629,47 +627,30 @@ export const handleMessages = async (req, res) => {
           candidatesTokenCount: 0,
           totalTokenCount: 0,
         }
-        let streamBuffer = ''
+        const usageParser = new IncrementalSSEParser()
+        const captureUsage = (events) => {
+          for (const event of events) {
+            if (event.type === 'data' && event.data && typeof event.data === 'object') {
+              totalUsage = event.data.usageMetadata ?? event.data.response?.usageMetadata ?? totalUsage
+            }
+          }
+        }
 
         geminiResponse.on('data', (chunk) => {
           try {
-            const chunkStr = chunk.toString()
-            res.write(chunkStr)
-
-            // 尝试从 SSE 流中提取 usage 数据
-            streamBuffer += chunkStr
-
-            // 如果 buffer 过大，进行保护性清理（防止内存泄漏）
-            if (streamBuffer.length > 1024 * 1024) {
-              // 1MB
-              streamBuffer = streamBuffer.slice(-1024 * 64) // 只保留最后 64KB
-            }
-
-            const lines = streamBuffer.split('\n')
-            // 保留最后一行（可能不完整）
-            streamBuffer = lines.pop() || ''
-
-            for (const line of lines) {
-              if (line.startsWith('data:')) {
-                const data = line.substring(5).trim()
-                if (data && data !== '[DONE]') {
-                  try {
-                    const parsed = JSON.parse(data)
-                    if (parsed.usageMetadata || parsed.response?.usageMetadata) {
-                      totalUsage = parsed.usageMetadata || parsed.response.usageMetadata
-                    }
-                  } catch (e) {
-                    // 解析失败，忽略
-                  }
-                }
-              }
-            }
+            res.write(chunk)
+            captureUsage(usageParser.feed(chunk))
           } catch (error) {
-            logger.error('Error processing stream chunk:', error)
+            logger.error('Error processing Gemini stream chunk', {
+              error,
+              requestId: req.requestId,
+            })
+            geminiResponse.destroy(error)
           }
         })
 
         geminiResponse.on('end', () => {
+          captureUsage(usageParser.finish())
           res.end()
 
           // 异步记录使用统计
@@ -677,11 +658,7 @@ export const handleMessages = async (req, res) => {
             apiKeyService
               .recordUsage(
                 apiKeyData.id,
-                buildTokenUsagePayload({
-                  inputTokens: totalUsage.promptTokenCount || 0,
-                  outputTokens: totalUsage.candidatesTokenCount || 0,
-                  rawUsage: totalUsage,
-                }),
+                buildGeminiTokenUsagePayload(totalUsage),
                 model,
                 accountId,
                 'gemini',
@@ -787,116 +764,26 @@ export const handleMessages = async (req, res) => {
  */
 export const handleModels = async (req, res) => {
   try {
-    const apiKeyData = req.apiKey
-
-    // 检查权限
-    if (!checkPermissions(apiKeyData, 'gemini')) {
+    if (!checkPermissions(req.apiKey, 'gemini')) {
       return res.status(403).json({
-        error: {
-          message: 'This API key does not have permission to access Gemini',
-          type: 'permission_denied',
-        },
+        error: { message: 'This API key does not have permission to access Gemini', type: 'permission_denied' },
       })
     }
-
-    // 选择账户获取模型列表（允许 API 账户）
-    let account = null
-    let isApiAccount
-    try {
-      const accountSelection = await trackRequestTiming(req, 'scheduling', () =>
-        unifiedGeminiScheduler.selectAccountForApiKey(apiKeyData, null, null, {
-          allowApiAccounts: true
-        })
-      )
-      isApiAccount = accountSelection.accountType === 'gemini-api'
-      if (isApiAccount) {
-        account = await geminiApiAccountService.getAccount(accountSelection.accountId)
-      } else {
-        account = await geminiAccountService.getAccount(accountSelection.accountId)
-      }
-    } catch (error) {
-      logger.warn('Failed to select Gemini account for models endpoint:', error)
+    const modelCache = new Map()
+    const lists = await Promise.all(
+      ['gemini', 'antigravity'].map((provider) =>
+        getLegacyProviderModels(req.apiKey, provider, 'gemini-generate', modelCache),
+      ),
+    )
+    const models = [...new Map(lists.flat().map((model) => [model.id, model])).values()]
+    if (/\/v1(?:beta)?\/models$/.test(req.path)) {
+      return res.json({ models: models.map((model) => ({ name: `models/${model.id}`, displayName: model.id })) })
     }
-
-    if (!account) {
-      // 返回默认模型列表
-      return res.json({
-        object: 'list',
-        data: [
-          {
-            id: 'gemini-2.5-flash',
-            object: 'model',
-            created: Date.now() / 1000,
-            owned_by: 'google',
-          },
-        ],
-      })
-    }
-
-    // 获取模型列表
-    let models
-    if (isApiAccount) {
-      // API Key 账户：使用 API Key 获取模型列表
-      const proxyConfig = parseProxyConfig(account)
-      try {
-        const apiUrl = buildGeminiApiUrl(account.baseUrl, null, null, account.apiKey, {
-          listModels: true,
-        })
-        const axiosConfig = {
-          method: 'GET',
-          url: apiUrl,
-          headers: { 'Content-Type': 'application/json' },
-        }
-        if (proxyConfig) {
-          axiosConfig.httpsAgent = ProxyHelper.createProxyAgent(proxyConfig)
-          axiosConfig.httpAgent = ProxyHelper.createProxyAgent(proxyConfig)
-        }
-        const response = await timedUpstreamRequest(req, () => axios(axiosConfig))
-        models = (response.data.models || []).map((m) => ({
-          id: m.name?.replace('models/', '') || m.name,
-          object: 'model',
-          created: Date.now() / 1000,
-          owned_by: 'google',
-        }))
-      } catch (error) {
-        logger.warn('Failed to fetch models from Gemini API:', error.message)
-        // 返回默认模型列表
-        models = [
-          {
-            id: 'gemini-2.5-flash',
-            object: 'model',
-            created: Date.now() / 1000,
-            owned_by: 'google',
-          },
-        ]
-      }
-    } else {
-      // OAuth 账户：根据 OAuth provider 选择上游
-      const oauthProvider = account.oauthProvider || 'gemini-cli'
-      models =
-        oauthProvider === 'antigravity'
-          ? await geminiAccountService.fetchAvailableModelsAntigravity(
-              account.accessToken,
-              parseProxyConfig(account),
-              account.refreshToken,
-            )
-          : await getAvailableModels(account.accessToken, parseProxyConfig(account))
-    }
-
-    res.json({
-      object: 'list',
-      data: models,
-    })
+    return res.json({ object: 'list', data: models })
   } catch (error) {
     logger.error('Failed to get Gemini models:', error)
-    res.status(500).json({
-      error: {
-        message: 'Failed to retrieve models',
-        type: 'api_error',
-      },
-    })
+    return res.status(500).json({ error: { message: 'Failed to retrieve models', type: 'api_error' } })
   }
-  return undefined
 }
 
 /**
@@ -1010,11 +897,7 @@ export const handleSimpleEndpoint = (apiMethod) => async (req, res) => {
     // 从路径参数或请求体中获取模型名
     const requestedModel = req.body.model || req.params.modelName || 'gemini-2.5-flash'
     const schedulerResult = await trackRequestTiming(req, 'scheduling', () =>
-      unifiedGeminiScheduler.selectAccountForApiKey(
-        req.apiKey,
-        sessionHash,
-        requestedModel
-      )
+      unifiedGeminiScheduler.selectAccountForApiKey(req.apiKey, sessionHash, requestedModel),
     )
     const { accountId, accountType } = schedulerResult
 
@@ -1085,11 +968,7 @@ export const handleLoadCodeAssist = async (req, res) => {
     // 从路径参数或请求体中获取模型名
     const requestedModel = req.body.model || req.params.modelName || 'gemini-2.5-flash'
     const schedulerResult = await trackRequestTiming(req, 'scheduling', () =>
-      unifiedGeminiScheduler.selectAccountForApiKey(
-        req.apiKey,
-        sessionHash,
-        requestedModel
-      )
+      unifiedGeminiScheduler.selectAccountForApiKey(req.apiKey, sessionHash, requestedModel),
     )
     const { accountId, accountType } = schedulerResult
 
@@ -1181,11 +1060,7 @@ export const handleOnboardUser = async (req, res) => {
     // 从路径参数或请求体中获取模型名
     const requestedModel = req.body.model || req.params.modelName || 'gemini-2.5-flash'
     const schedulerResult = await trackRequestTiming(req, 'scheduling', () =>
-      unifiedGeminiScheduler.selectAccountForApiKey(
-        req.apiKey,
-        sessionHash,
-        requestedModel
-      )
+      unifiedGeminiScheduler.selectAccountForApiKey(req.apiKey, sessionHash, requestedModel),
     )
     const { accountId, accountType } = schedulerResult
 
@@ -1283,11 +1158,7 @@ export const handleRetrieveUserQuota = async (req, res) => {
     // 3. 账户选择
     const requestedModel = req.body.model || req.params.modelName || 'gemini-2.5-flash'
     const schedulerResult = await trackRequestTiming(req, 'scheduling', () =>
-      unifiedGeminiScheduler.selectAccountForApiKey(
-        req.apiKey,
-        sessionHash,
-        requestedModel
-      )
+      unifiedGeminiScheduler.selectAccountForApiKey(req.apiKey, sessionHash, requestedModel),
     )
     const { accountId, accountType } = schedulerResult
 
@@ -1397,8 +1268,8 @@ export const handleCountTokens = async (req, res) => {
     // 使用统一调度选择账号（允许 API 账户）
     const schedulerResult = await trackRequestTiming(req, 'scheduling', () =>
       unifiedGeminiScheduler.selectAccountForApiKey(req.apiKey, sessionHash, model, {
-        allowApiAccounts: true
-      })
+        allowApiAccounts: true,
+      }),
     )
     const { accountId, accountType } = schedulerResult
     const isApiAccount = accountType === 'gemini-api'
@@ -1513,8 +1384,8 @@ export const handleEmbedContent = async (req, res) => {
 
     const schedulerResult = await trackRequestTiming(req, 'scheduling', () =>
       unifiedGeminiScheduler.selectAccountForApiKey(req.apiKey, sessionHash, model, {
-        allowApiAccounts: true
-      })
+        allowApiAccounts: true,
+      }),
     )
     const { accountId, accountType } = schedulerResult
     const isApiAccount = accountType === 'gemini-api'
@@ -1672,7 +1543,7 @@ export const handleGenerateContent = async (req, res) => {
 
     // 使用统一调度选择账号（v1internal 不允许 API 账户）
     const schedulerResult = await trackRequestTiming(req, 'scheduling', () =>
-      unifiedGeminiScheduler.selectAccountForApiKey(req.apiKey, sessionHash, model)
+      unifiedGeminiScheduler.selectAccountForApiKey(req.apiKey, sessionHash, model),
     )
     ;({ accountId, accountType } = schedulerResult)
 
@@ -1790,11 +1661,7 @@ export const handleGenerateContent = async (req, res) => {
         const usage = response.response.usageMetadata
         const geminiNonStreamCosts = await apiKeyService.recordUsage(
           req.apiKey.id,
-          buildTokenUsagePayload({
-            inputTokens: usage.promptTokenCount || 0,
-            outputTokens: usage.candidatesTokenCount || 0,
-            rawUsage: usage,
-          }),
+          buildGeminiTokenUsagePayload(usage),
           model,
           account.id,
           'gemini',
@@ -1812,10 +1679,8 @@ export const handleGenerateContent = async (req, res) => {
         await applyRateLimitTracking(
           req,
           {
-            inputTokens: usage.promptTokenCount || 0,
-            outputTokens: usage.candidatesTokenCount || 0,
-            cacheCreateTokens: 0,
-            cacheReadTokens: 0,
+            ...normalizeGeminiTokenUsage(usage),
+            outputTokens: (usage.candidatesTokenCount ?? 0) + (usage.thoughtsTokenCount ?? 0),
           },
           model,
           'gemini-non-stream',
@@ -1912,7 +1777,7 @@ export const handleStreamGenerateContent = async (req, res) => {
 
     // 使用统一调度选择账号（v1internal 不允许 API 账户）
     const schedulerResult = await trackRequestTiming(req, 'scheduling', () =>
-      unifiedGeminiScheduler.selectAccountForApiKey(req.apiKey, sessionHash, model)
+      unifiedGeminiScheduler.selectAccountForApiKey(req.apiKey, sessionHash, model),
     )
     ;({ accountId, accountType } = schedulerResult)
 
@@ -2146,11 +2011,7 @@ export const handleStreamGenerateContent = async (req, res) => {
         apiKeyService
           .recordUsage(
             req.apiKey.id,
-            buildTokenUsagePayload({
-              inputTokens: totalUsage.promptTokenCount || 0,
-              outputTokens: totalUsage.candidatesTokenCount || 0,
-              rawUsage: totalUsage,
-            }),
+            buildGeminiTokenUsagePayload(totalUsage),
             model,
             account.id,
             'gemini',
@@ -2165,10 +2026,8 @@ export const handleStreamGenerateContent = async (req, res) => {
             applyRateLimitTracking(
               req,
               {
-                inputTokens: totalUsage.promptTokenCount || 0,
-                outputTokens: totalUsage.candidatesTokenCount || 0,
-                cacheCreateTokens: 0,
-                cacheReadTokens: 0,
+                ...normalizeGeminiTokenUsage(totalUsage),
+                outputTokens: (totalUsage.candidatesTokenCount ?? 0) + (totalUsage.thoughtsTokenCount ?? 0),
               },
               model,
               'gemini-stream',
@@ -2300,8 +2159,8 @@ export const handleStandardGenerateContent = async (req, res) => {
     // 使用统一调度选择账号
     const schedulerResult = await trackRequestTiming(req, 'scheduling', () =>
       unifiedGeminiScheduler.selectAccountForApiKey(req.apiKey, sessionHash, model, {
-        allowApiAccounts: true
-      })
+        allowApiAccounts: true,
+      }),
     )
     ;({ accountId, accountType } = schedulerResult)
 
@@ -2455,11 +2314,7 @@ export const handleStandardGenerateContent = async (req, res) => {
         const usage = response.response.usageMetadata
         await apiKeyService.recordUsage(
           req.apiKey.id,
-          buildTokenUsagePayload({
-            inputTokens: usage.promptTokenCount || 0,
-            outputTokens: usage.candidatesTokenCount || 0,
-            rawUsage: usage,
-          }),
+          buildGeminiTokenUsagePayload(usage),
           model,
           accountId,
           'gemini',
@@ -2544,8 +2399,8 @@ export const handleStandardStreamGenerateContent = async (req, res) => {
     // 使用统一调度选择账号
     const schedulerResult = await trackRequestTiming(req, 'scheduling', () =>
       unifiedGeminiScheduler.selectAccountForApiKey(req.apiKey, sessionHash, model, {
-        allowApiAccounts: true
-      })
+        allowApiAccounts: true,
+      }),
     )
     ;({ accountId, accountType } = schedulerResult)
 
@@ -2852,11 +2707,7 @@ export const handleStandardStreamGenerateContent = async (req, res) => {
         apiKeyService
           .recordUsage(
             req.apiKey.id,
-            buildTokenUsagePayload({
-              inputTokens: totalUsage.promptTokenCount || 0,
-              outputTokens: totalUsage.candidatesTokenCount || 0,
-              rawUsage: totalUsage,
-            }),
+            buildGeminiTokenUsagePayload(totalUsage),
             model,
             accountId,
             'gemini',

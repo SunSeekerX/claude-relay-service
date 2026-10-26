@@ -1,120 +1,69 @@
 <template>
-  <div v-if="serviceRates && modelStats.length > 0" class="card p-2 sm:p-2.5">
-    <h3
-      class="mb-1.5 flex flex-wrap items-center justify-between gap-1 text-sm font-semibold text-gray-900 dark:text-gray-100"
-    >
-      <span class="inline-flex items-center gap-1">
-        <i class="i-lucide-coins text-sm text-amber-500" />
-        服务费用统计
-      </span>
-      <span class="text-sm font-normal text-gray-500 dark:text-gray-400">
-        计费 = 官方 × 全局 × Key
-      </span>
-    </h3>
-
-    <div class="grid grid-cols-1 gap-1.5 sm:grid-cols-2 lg:grid-cols-4">
-      <div
-        v-for="service in serviceStats"
-        :key="service.name"
-        class="rounded-lg border border-gray-200 bg-gray-50 p-2 dark:border-gray-700 dark:bg-gray-800/50"
-      >
-        <!-- 服务名和倍率 -->
-        <div class="mb-1 flex items-center justify-between gap-1">
-          <span class="text-sm font-semibold text-gray-900 dark:text-gray-100">
-            {{ service.label }}
-          </span>
-          <div class="flex items-center gap-1">
-            <span
-              class="rounded-full bg-blue-100 px-2 py-0.5 text-sm font-medium text-blue-700 dark:bg-blue-900/30 dark:text-blue-300"
-              title="全局倍率"
-            >
-              全局 {{ service.globalRate }}x
-            </span>
-            <span
-              v-if="!multiKeyMode"
-              class="rounded-full bg-purple-100 px-2 py-0.5 text-sm font-medium text-purple-700 dark:bg-purple-900/30 dark:text-purple-300"
-              title="Key倍率"
-            >
-              Key {{ service.keyRate }}x
-            </span>
-          </div>
+  <section aria-label="服务费用统计" class="service-cost-panel card">
+    <header class="service-cost-heading">
+      <h3><i class="i-lucide-coins" />服务费用</h3>
+      <span>{{ periodLabel }} · 原始费用与实际扣费</span>
+    </header>
+    <div v-if="serviceStats.length" class="service-cost-list">
+      <article v-for="service in serviceStats" :key="service.name" class="service-cost-row">
+        <div class="service-name">
+          <strong>{{ service.label }}</strong
+          ><span>{{ formatNumber(service.requests) }} 次请求</span>
         </div>
-
-        <!-- Token 详情 -->
-        <div class="mb-2 space-y-0.5 text-sm text-gray-600 dark:text-gray-400">
-          <div class="flex justify-between">
-            <span>请求</span>
-            <span class="text-gray-900 dark:text-gray-200">{{
-              formatNumber(service.requests)
-            }}</span>
+        <dl class="service-token-pairs">
+          <div>
+            <dt>输入 / 输出</dt>
+            <dd>
+              {{ formatNumber(service.inputTokens) }} / {{ formatNumber(service.outputTokens) }}
+            </dd>
           </div>
-          <div class="flex justify-between">
-            <span>输入</span>
-            <span class="text-gray-900 dark:text-gray-200">{{
-              formatNumber(service.inputTokens)
-            }}</span>
+          <div>
+            <dt>缓存写 / 读</dt>
+            <dd>
+              {{ formatNumber(service.cacheCreateTokens) }} /
+              {{ formatNumber(service.cacheReadTokens) }}
+            </dd>
           </div>
-          <div class="flex justify-between">
-            <span>输出</span>
-            <span class="text-gray-900 dark:text-gray-200">{{
-              formatNumber(service.outputTokens)
-            }}</span>
+        </dl>
+        <dl class="service-fees">
+          <div>
+            <dt class="usage-original">原始费用</dt>
+            <dd class="usage-original">{{ service.officialCost }}</dd>
           </div>
-          <div class="flex justify-between">
-            <span>缓存创建</span>
-            <span class="text-gray-900 dark:text-gray-200">{{
-              formatNumber(service.cacheCreateTokens)
-            }}</span>
+          <div>
+            <dt>实际扣费</dt>
+            <dd class="service-charged usage-charge">{{ service.ccCost }}</dd>
           </div>
-          <div class="flex justify-between">
-            <span>缓存读取</span>
-            <span class="text-gray-900 dark:text-gray-200">{{
-              formatNumber(service.cacheReadTokens)
-            }}</span>
-          </div>
+        </dl>
+        <div class="service-rate">
+          <span>全局 {{ service.globalRate }}x</span><span>Key {{ service.keyRate }}x</span>
         </div>
-
-        <!-- 费用 -->
-        <div class="mb-2 space-y-0.5 border-t border-gray-200 pt-2 text-sm dark:border-gray-700">
-          <div class="flex justify-between">
-            <span class="text-gray-600 dark:text-gray-400">官方API</span>
-            <span class="font-semibold text-green-600 dark:text-green-400">
-              {{ service.officialCost }}
-            </span>
-          </div>
-          <div class="flex justify-between">
-            <span class="text-gray-600 dark:text-gray-400">计费费用</span>
-            <span class="font-semibold text-amber-600 dark:text-amber-400">
-              {{ service.ccCost }}
-            </span>
-          </div>
-        </div>
-
-        <!-- 价格参考 -->
-        <div
-          v-if="service.pricing"
-          class="space-y-0.5 border-t border-gray-200 pt-2 text-sm text-gray-500 dark:border-gray-700 dark:text-gray-500"
-        >
-          <div class="flex justify-between">
-            <span>输入</span>
-            <span>{{ service.pricing.input }}/M</span>
-          </div>
-          <div class="flex justify-between">
-            <span>输出</span>
-            <span>{{ service.pricing.output }}/M</span>
-          </div>
-          <div class="flex justify-between">
-            <span>缓存创建</span>
-            <span>{{ service.pricing.cacheCreate || '$0.00' }}/M</span>
-          </div>
-          <div class="flex justify-between">
-            <span>缓存读取</span>
-            <span>{{ service.pricing.cacheRead || '$0.00' }}/M</span>
-          </div>
-        </div>
-      </div>
+        <details class="service-price">
+          <summary>参考单价</summary>
+          <dl v-if="service.pricing">
+            <div>
+              <dt>输入</dt>
+              <dd>{{ service.pricing.input }}/M</dd>
+            </div>
+            <div>
+              <dt>输出</dt>
+              <dd>{{ service.pricing.output }}/M</dd>
+            </div>
+            <div>
+              <dt>缓存写入</dt>
+              <dd>{{ service.pricing.cacheCreate || '$0.00' }}/M</dd>
+            </div>
+            <div>
+              <dt>缓存读取</dt>
+              <dd>{{ service.pricing.cacheRead || '$0.00' }}/M</dd>
+            </div>
+          </dl>
+          <p v-else>暂无参考单价</p>
+        </details>
+      </article>
     </div>
-  </div>
+    <p v-else class="service-cost-empty">暂无{{ periodLabel }}服务费用统计</p>
+  </section>
 </template>
 
 <script setup>
@@ -124,7 +73,12 @@ import { storeToRefs } from 'pinia'
 import { useApiStatsStore } from '@/stores/api_stats'
 
 const apiStatsStore = useApiStatsStore()
-const { modelStats, serviceRates, keyServiceRates, multiKeyMode } = storeToRefs(apiStatsStore)
+const { modelStats, serviceRates, keyServiceRates, multiKeyMode, statsPeriod } =
+  storeToRefs(apiStatsStore)
+
+const periodLabel = computed(
+  () => ({ daily: '今日', monthly: '本月', alltime: '全部' })[statsPeriod.value]
+)
 
 // 服务标签映射
 const serviceLabels = {
@@ -246,16 +200,125 @@ const formatCost = (cost) => {
 
 // 格式化数字
 </script>
-
 <style scoped>
-.card {
-  background: var(--surface-color);
-  border-radius: 12px;
-  border: 1px solid rgb(229 231 235);
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
-  overflow: hidden;
+.service-cost-panel {
+  padding: 11px 13px;
 }
-:global(.dark) .card {
-  border-color: rgb(55 65 81);
+.service-cost-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 7px;
+}
+.service-cost-heading h3 {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+.service-cost-heading > span,
+.service-cost-empty {
+  font-size: 14px;
+  color: var(--text-secondary);
+}
+.service-cost-row {
+  display: grid;
+  grid-template-columns: minmax(90px, 0.7fr) minmax(240px, 1.8fr) minmax(230px, 1.5fr) auto auto;
+  align-items: start;
+  gap: 12px;
+  padding: 9px 0;
+  border-top: 1px solid var(--divider-color);
+  font-size: 14px;
+}
+.service-name {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.service-name > span,
+.service-rate {
+  color: var(--text-secondary);
+}
+.service-token-pairs,
+.service-fees {
+  display: grid;
+  gap: 5px;
+  margin: 0;
+}
+.service-token-pairs > div,
+.service-fees > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+.service-cost-row dt {
+  color: var(--text-secondary);
+}
+.service-cost-row dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+.service-charged {
+  color: var(--primary-color);
+  font-weight: 600;
+}
+.service-rate {
+  display: grid;
+  gap: 5px;
+  padding-inline: 12px;
+  border-left: 1px solid var(--divider-color);
+}
+.service-price summary {
+  color: var(--primary-color);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.service-price dl {
+  display: grid;
+  gap: 5px;
+  margin: 8px 0 0;
+  min-width: 145px;
+}
+.service-price dl > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+}
+.service-cost-empty {
+  margin: 0;
+  padding: 10px 0;
+}
+@media (max-width: 1099px) {
+  .service-cost-row {
+    grid-template-columns: minmax(90px, 1fr) minmax(170px, 2fr);
+  }
+  .service-fees {
+    grid-column: 2;
+  }
+  .service-rate {
+    grid-column: 1;
+    grid-row: 2;
+    padding-inline: 0;
+    border: 0;
+  }
+  .service-price {
+    grid-column: 1 / -1;
+  }
+}
+@media (max-width: 479px) {
+  .service-cost-row {
+    grid-template-columns: minmax(70px, 1fr) minmax(0, 2fr);
+    gap: 9px;
+  }
+  .service-token-pairs > div,
+  .service-fees > div {
+    flex-wrap: wrap;
+    gap: 4px;
+  }
 }
 </style>

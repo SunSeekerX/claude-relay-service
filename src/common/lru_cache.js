@@ -1,3 +1,5 @@
+import { logger } from './logger.js'
+
 /**
  * LRU (Least Recently Used) 缓存实现
  * 用于缓存解密结果，提高性能同时控制内存使用
@@ -86,7 +88,7 @@ export class LRUCache {
 
     this.lastCleanup = now
     if (cleanedCount > 0) {
-      console.log(`LRU Cache: Cleaned ${cleanedCount} expired items`)
+      logger.info(`LRU 缓存已清理 ${cleanedCount} 个过期项`, { cleanedCount })
     }
   }
 
@@ -99,7 +101,7 @@ export class LRUCache {
     this.hits = 0
     this.misses = 0
     this.evictions = 0
-    console.log(`LRU Cache: Cleared ${size} items`)
+    logger.info(`LRU 缓存已清空 ${size} 项`, { size })
   }
 
   /**

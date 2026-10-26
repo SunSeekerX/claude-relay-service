@@ -1,3 +1,5 @@
+import { isAccountModelInRange } from '../account/account_model_policy.js'
+import { assertOutboundModelAccess } from './relay_model_access.js'
 import path from 'node:path'
 import { createRequire } from 'node:module'
 import { fromEnv } from '@aws-sdk/credential-providers'
@@ -160,7 +162,8 @@ class BedrockRelayService {
   }
 
   // 处理非流式请求
-  async handleNonStreamRequest(requestBody, bedrockAccount = null) {
+  async handleNonStreamRequest(requestBody, bedrockAccount = null, apiKey = {}) {
+    await this._assertModelAccess(requestBody, bedrockAccount, apiKey)
     const accountId = bedrockAccount?.id
     let queueLockAcquired = false
     let queueRequestId = null
@@ -304,6 +307,7 @@ class BedrockRelayService {
 
   // 处理流式请求
   async handleStreamRequest(requestBody, bedrockAccount = null, res, _req = null) {
+    await this._assertModelAccess(requestBody, bedrockAccount, _req?.apiKey ?? {})
     const accountId = bedrockAccount?.id
     let queueLockAcquired = false
     let queueRequestId = null
@@ -546,20 +550,24 @@ class BedrockRelayService {
   }
 
   // 选择使用的模型
+  async _assertModelAccess(requestBody, account, apiKey) {
+    const model = requestBody.model || account?.defaultModel || this.defaultModel
+    if (!isAccountModelInRange(account?.supportedModels, model)) {
+      throw Object.assign(new Error('此账号不支持所选模型'), { statusCode: 403, code: 'model_not_allowed' })
+    }
+    await assertOutboundModelAccess(apiKey, model, 'bedrock')
+  }
+
   _selectModel(requestBody, bedrockAccount) {
     let selectedModel
 
-    // 优先使用账户配置的模型
-    if (bedrockAccount?.defaultModel) {
+    if (requestBody.model) {
+      selectedModel = requestBody.model
+    } else if (bedrockAccount?.defaultModel) {
       selectedModel = bedrockAccount.defaultModel
       logger.info(`使用账户配置的模型: ${selectedModel}`, {
         metadata: { source: 'account', accountId: bedrockAccount.id },
       })
-    }
-    // 检查请求中指定的模型
-    else if (requestBody.model) {
-      selectedModel = requestBody.model
-      logger.info(`使用请求指定的模型: ${selectedModel}`, { metadata: { source: 'request' } })
     }
     // 使用默认模型
     else {

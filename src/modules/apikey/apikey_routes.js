@@ -1418,6 +1418,7 @@ router.post(
       enableOpenAIResponsesPayloadRules,
       openaiResponsesPayloadRules,
     } = parseObjectBody(req.body, '创建 API Key')
+    const { relayRouting } = req.body
 
     // 输入验证
     if (!name || typeof name !== 'string' || name.trim().length === 0) {
@@ -1564,6 +1565,7 @@ router.post(
     }
 
     const newKey = await apiKeyService.generateApiKey({
+      relayRouting,
       name,
       description,
       tokenLimit,
@@ -1648,6 +1650,7 @@ router.post(
       icon,
       serviceRates,
     } = parseObjectBody(req.body, '批量创建 API Key')
+    const { relayRouting } = req.body
 
     // 输入验证
     if (!baseName || typeof baseName !== 'string' || baseName.trim().length === 0) {
@@ -1682,6 +1685,7 @@ router.post(
       try {
         const name = `${baseName}_${i}`
         const newKey = await apiKeyService.generateApiKey({
+          relayRouting,
           name,
           description,
           tokenLimit,
@@ -1837,6 +1841,9 @@ router.put(
         if (updates.serviceRates !== undefined) {
           finalUpdates.serviceRates = updates.serviceRates
         }
+        if (updates.relayRouting !== undefined) {
+          finalUpdates.relayRouting = updates.relayRouting
+        }
         if (updates.weeklyResetDay !== undefined) {
           const day = Number(updates.weeklyResetDay)
           if (Number.isInteger(day) && day >= 1 && day <= 7) {
@@ -1949,6 +1956,7 @@ router.put(
   asyncRoute('Failed to update API key', async (req) => {
     try {
       const { keyId } = req.params
+      const relayRouting = req.body?.relayRouting
       const {
         name, // 添加名称字段
         tokenLimit,
@@ -2066,6 +2074,9 @@ router.put(
 
       if (grokAccountId !== undefined) {
         updates.grokAccountId = grokAccountId || ''
+      }
+      if (relayRouting !== undefined) {
+        updates.relayRouting = relayRouting
       }
 
       if (permissions !== undefined) {

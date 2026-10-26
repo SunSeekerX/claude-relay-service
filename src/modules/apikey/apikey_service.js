@@ -11,6 +11,9 @@ import {
   finalizeRequestDetailMeta,
 } from '../relay/relay_request_detail_helper.js'
 import * as requestBodyRuleService from '../relay/relay_request_body_rule_service.js'
+import { normalizeKeyRouting } from '../relay/relay_routing_contract.js'
+import { validateKeyRouting } from '../relay/relay_routing_service.js'
+import { getRelayRouteContext } from '../relay/relay_route_context.js'
 import { normalizePermissions, hasPermission } from '../../common/compat_permissions.js'
 import * as groupPolicy from '../account/account_group_policy.js'
 import { RedisKeys, TTL, LIMITS } from '../../infra/redis_key.js'
@@ -22,11 +25,21 @@ import { grokMediaPricingOverlayService } from '../pricing/pricing_grok_media_ov
 import {
   GROK_TOOL_PRICING_MODEL,
   calculateGrokToolCost,
-  getGrokUpstreamCost
+  getGrokUpstreamCost,
 } from '../pricing/pricing_grok_tool_pricing.js'
 import { createRequire } from 'node:module'
 
 const require = createRequire(import.meta.url)
+const resolveRouteBilling = (keyId, explicit) => {
+  if (explicit) {
+    return explicit
+  }
+  const context = getRelayRouteContext()
+  if (context?.keyId !== keyId) {
+    return null
+  }
+  return { groupId: context.route.binding.startsWith('group:') ? context.route.binding.slice(6) : null }
+}
 let _userService = null
 const getUserService = () => {
   if (!_userService) {
@@ -178,6 +191,7 @@ class ApiKeyService {
 
   // 生成新的API Key
   async generateApiKey(options = {}) {
+    const relayRouting = await validateKeyRouting(options.relayRouting)
     const {
       name = 'Unnamed Key',
       description = '',
@@ -249,6 +263,7 @@ class ApiKeyService {
       bedrockAccountId: bedrockAccountId || '', // 添加 Bedrock 账号ID
       droidAccountId: droidAccountId || '',
       grokAccountId: grokAccountId || '',
+      relayRouting: JSON.stringify(relayRouting),
       permissions: JSON.stringify(normalizePermissions(permissions)),
       enableModelRestriction: String(enableModelRestriction),
       restrictedModels: JSON.stringify(restrictedModels || []),
@@ -338,6 +353,7 @@ class ApiKeyService {
       bedrockAccountId: keyData.bedrockAccountId, // 添加 Bedrock 账号ID
       droidAccountId: keyData.droidAccountId,
       grokAccountId: keyData.grokAccountId || '',
+      relayRouting: normalizeKeyRouting(keyData.relayRouting),
       permissions: normalizePermissions(keyData.permissions),
       enableModelRestriction: keyData.enableModelRestriction === 'true',
       restrictedModels: JSON.parse(keyData.restrictedModels),
@@ -533,6 +549,7 @@ class ApiKeyService {
           bedrockAccountId: keyData.bedrockAccountId, // 添加 Bedrock 账号ID
           droidAccountId: keyData.droidAccountId,
           grokAccountId: keyData.grokAccountId || '',
+          relayRouting: normalizeKeyRouting(keyData.relayRouting),
           permissions: normalizePermissions(keyData.permissions),
           tokenLimit: parseInt(keyData.tokenLimit),
           concurrencyLimit: parseInt(keyData.concurrencyLimit || 0),
@@ -651,6 +668,7 @@ class ApiKeyService {
           bedrockAccountId: keyData.bedrockAccountId,
           droidAccountId: keyData.droidAccountId,
           grokAccountId: keyData.grokAccountId || '',
+          relayRouting: normalizeKeyRouting(keyData.relayRouting),
           permissions: normalizePermissions(keyData.permissions),
           tokenLimit: parseInt(keyData.tokenLimit),
           concurrencyLimit: parseInt(keyData.concurrencyLimit || 0),
@@ -1430,6 +1448,9 @@ class ApiKeyService {
         'openaiResponsesPayloadRules',
       ]
       const updatedData = { ...keyData }
+      if (updates.relayRouting !== undefined) {
+        updatedData.relayRouting = JSON.stringify(await validateKeyRouting(updates.relayRouting))
+      }
 
       // 禁用/激活变更：写前对比，写后记流水
       let isActiveChange = null
@@ -1853,7 +1874,7 @@ class ApiKeyService {
     accountId = null,
     accountType = null,
     serviceTier = null,
-    requestMeta = null
+    requestMeta = null,
   ) {
     // 重载：recordUsage(keyId, usageObject, model, accountId, accountType, serviceTier?, requestMeta?)
     // usageObject 可含 input_tokens / image_count / audio_input_seconds 等，供媒体路由一次传入
@@ -1960,15 +1981,14 @@ class ApiKeyService {
       let upstreamCost = null
       let toolCost = null
       if (accountType === 'grok') {
-        const toolPricing =
-          await grokMediaPricingOverlayService.getEffectiveModelPricing(GROK_TOOL_PRICING_MODEL)
+        const toolPricing = await grokMediaPricingOverlayService.getEffectiveModelPricing(GROK_TOOL_PRICING_MODEL)
         toolCost = calculateGrokToolCost(usageExtras, toolPricing.xai_tool_costs_per_unit)
         upstreamCost = getGrokUpstreamCost(usageExtras)
         costInfo.costs = {
           ...costInfo.costs,
           tools: toolCost.total,
           toolBreakdown: toolCost.breakdown,
-          total: costInfo.costs.total + toolCost.total
+          total: costInfo.costs.total + toolCost.total,
         }
       }
       // DEC_20261013_143953 客户沿用价表与倍率，Grok 官方实付仅记真实成本。
@@ -1977,7 +1997,7 @@ class ApiKeyService {
       ratedCost = baseCost
       if (baseCost > 0) {
         const service = serviceRatesService.getService(accountType, model)
-        ratedCost = await this.calculateRatedCost(keyId, service, baseCost, accountType)
+        ratedCost = await this.calculateRatedCost(keyId, service, baseCost, accountType, finalizedRequestMeta?.routeBilling)
       }
 
       // 预付费余额为派生（净充值 − usage:cost:total 基线后增量），消费由计费落账反映，不再实时扣减。
@@ -1986,7 +2006,7 @@ class ApiKeyService {
       if (ratedCost > 0 || realCost > 0 || finalizedRequestMeta?.billingDedupId) {
         const applied = await redis.incrementDailyCost(keyId, ratedCost, realCost, {
           dedupId: finalizedRequestMeta?.billingDedupId ?? null,
-          dedupTtl: finalizedRequestMeta?.billingDedupTtl ?? null
+          dedupTtl: finalizedRequestMeta?.billingDedupTtl ?? null,
         })
         if (applied === false) {
           return { realCost, ratedCost, duplicate: true }
@@ -2088,7 +2108,7 @@ class ApiKeyService {
         realCostSource: upstreamCost ? 'upstream' : 'price_table',
         costBreakdown: costInfo?.costs || undefined,
         realCostBreakdown: upstreamCost ? { total: realCost } : costInfo?.costs,
-        isLongContext: isLongContextRequest
+        isLongContext: isLongContextRequest,
       }
 
       await redis.addUsageRecord(keyId, usageRecord)
@@ -2100,6 +2120,7 @@ class ApiKeyService {
         ratedCost,
         accountType,
         finalizedRequestMeta?.groupCostHoldGroupId || null,
+        finalizedRequestMeta?.routeBilling,
       )
 
       const logParts = [
@@ -2177,7 +2198,7 @@ class ApiKeyService {
     model = 'unknown',
     accountId = null,
     accountType = null,
-    requestMeta = null
+    requestMeta = null,
   ) {
     // 计费要素提升到 try 外：catch 中完整记录（同 recordUsage）
     let realCostWithDetails = 0
@@ -2280,7 +2301,7 @@ class ApiKeyService {
       ratedCostWithDetails = realCostWithDetails
       if (realCostWithDetails > 0) {
         const service = serviceRatesService.getService(accountType, model)
-        ratedCostWithDetails = await this.calculateRatedCost(keyId, service, realCostWithDetails, accountType)
+        ratedCostWithDetails = await this.calculateRatedCost(keyId, service, realCostWithDetails, accountType, finalizedRequestMeta?.routeBilling)
       }
 
       // 计费关键写先于一切统计写（幂等+重试，见 redis.incrementDailyCost）；落账失败由 catch 记含金额 ERROR
@@ -2423,6 +2444,7 @@ class ApiKeyService {
         ratedCostWithDetails,
         accountType,
         finalizedRequestMeta?.groupCostHoldGroupId || null,
+        finalizedRequestMeta?.routeBilling,
       )
 
       const logParts = [`Model: ${model}`, `Input: ${inputTokens}`, `Output: ${outputTokens}`]
@@ -2493,6 +2515,7 @@ class ApiKeyService {
       // DEC_20260905_194420 上游请求标识必须从 requestMeta 落到 detail
       upstreamRequestId: requestMeta?.upstreamRequestId || usageRecord.upstreamRequestId || null,
       protocolBridge: requestMeta?.protocolBridge || usageRecord.protocolBridge || null,
+      relayRoute: requestMeta?.relayRoute ?? null,
       tokenCountEstimate: requestMeta?.tokenCountEstimate === true,
       tokenCountEstimateMethod: requestMeta?.tokenCountEstimateMethod || null,
       inputTokens: usageRecord.inputTokens || 0,
@@ -2511,14 +2534,13 @@ class ApiKeyService {
       realCostBreakdown: usageRecord.realCostBreakdown ?? usageRecord.costBreakdown ?? null,
       pricingSource: usageRecord.pricingSource || null,
       usedFallbackPricing: usageRecord.usedFallbackPricing === true,
-      isLongContextRequest:
-        usageRecord.isLongContext === true || usageRecord.isLongContextRequest === true
+      isLongContextRequest: usageRecord.isLongContext === true || usageRecord.isLongContextRequest === true,
     })
   }
 
   // 分组绑定 Key 计费后累加「本次实际调度服务」对应分组的窗口费用
   // 禁止写入 Key 上其它平台的 group 绑定（否则 OpenAI 请求会吃掉 Claude 分组额度）
-  async _recordBoundGroupCost(keyId, ratedCost, accountType = null, selectedGroupId = null) {
+  async _recordBoundGroupCost(keyId, ratedCost, accountType = null, selectedGroupId = null, routeBilling = null) {
     // amount=0 也必须走 record（其内部会 DEL hold），否则选号成功但零费用时 hold 泄漏
     if (!keyId) {
       return
@@ -2527,9 +2549,11 @@ class ApiKeyService {
     const costAmount = Number.isFinite(amount) ? amount : 0
     try {
       const keyData = await redis.getApiKey(keyId)
-      const groupId =
-        (typeof selectedGroupId === 'string' && selectedGroupId ? selectedGroupId : null) ||
-        groupPolicy.extractBoundGroupIdForAccountType(keyData || {}, accountType)
+      const routing = resolveRouteBilling(keyId, routeBilling)
+      const groupId = routing
+        ? routing.groupId
+        : (typeof selectedGroupId === 'string' && selectedGroupId ? selectedGroupId : null) ||
+          groupPolicy.extractBoundGroupIdForAccountType(keyData || {}, accountType)
       if (!groupId) {
         return
       }
@@ -2681,7 +2705,7 @@ class ApiKeyService {
       costBreakdown: record.realCostBreakdown ?? record.costBreakdown,
       baseCostBreakdown: record.costBreakdown,
       isLongContext: record.isLongContext === true,
-      requestTimestamp: record.timestamp
+      requestTimestamp: record.timestamp,
     })
   }
 
@@ -2727,7 +2751,7 @@ class ApiKeyService {
       return {
         ...record,
         costBreakdown: breakdown,
-        realCostBreakdown: record.realCostBreakdown ?? breakdown
+        realCostBreakdown: record.realCostBreakdown ?? breakdown,
       }
     })
 
@@ -2845,6 +2869,7 @@ class ApiKeyService {
         droidAccountId: keyData.droidAccountId,
         azureOpenaiAccountId: keyData.azureOpenaiAccountId,
         grokAccountId: keyData.grokAccountId || '',
+        relayRouting: normalizeKeyRouting(keyData.relayRouting),
         ccrAccountId: keyData.ccrAccountId,
         enableOpenAIResponsesCodexAdaptation: parseBooleanWithDefault(
           keyData.enableOpenAIResponsesCodexAdaptation,
@@ -3106,7 +3131,7 @@ class ApiKeyService {
    * @param {number} realCost - 真实成本（USD）
    * @returns {Promise<number>} 应用倍率后的费用
    */
-  async calculateRatedCost(keyId, service, realCost, accountType = null) {
+  async calculateRatedCost(keyId, service, realCost, accountType = null, routeBilling = null) {
     try {
       // 获取全局倍率
       const globalRate = await serviceRatesService.getServiceRate(service)
@@ -3123,9 +3148,11 @@ class ApiKeyService {
 
       // 仅乘「本次服务」对应平台的分组倍率，禁止跨平台乘积
       let groupRate = 1
-      const groupId =
-        groupPolicy.extractBoundGroupIdForAccountType(keyData || {}, accountType) ||
-        groupPolicy.extractBoundGroupIdForService(keyData || {}, service)
+      const routing = resolveRouteBilling(keyId, routeBilling)
+      const groupId = routing
+        ? routing.groupId
+        : groupPolicy.extractBoundGroupIdForAccountType(keyData || {}, accountType) ||
+          groupPolicy.extractBoundGroupIdForService(keyData || {}, service)
       if (groupId) {
         const { accountGroupService } = await import('../account/account_group_service.js')
         const group = await accountGroupService.getGroup(groupId)

@@ -2,7 +2,7 @@ import {
   startUpstreamTiming,
   finishUpstreamTiming,
   getRequestTimings,
-  timedUpstreamRequest
+  timedUpstreamRequest,
 } from '../../common/request_timing.js'
 import axios from 'axios'
 import { redis } from '../../infra/redis.js'
@@ -28,6 +28,7 @@ import { normalizeCodexBootstrapBody } from './relay_codex_bootstrap_normalize.j
 import { onClientDisconnect } from '../../common/client_disconnect.js'
 import { createStreamBackpressure } from '../../common/stream_helper.js'
 import { getMappedModelName } from '../../common/common_helper.js'
+import { assertOutboundModelAccess, modelAccessErrorBody } from './relay_model_access.js'
 import { CostCalculator } from '../pricing/pricing_cost_calculator.js'
 import { pricingService } from '../pricing/pricing_service.js'
 import { isNonProtocolUpstreamBody, handleNonProtocolUpstream } from './relay_upstream_protocol_guard.js'
@@ -220,6 +221,7 @@ class OpenAIResponsesRelayService {
           mapped,
         })
       }
+      await assertOutboundModelAccess(apiKeyData, outboundBody?.model, 'openai-responses')
 
       // 配置请求选项
       const requestOptions = {
@@ -661,6 +663,10 @@ class OpenAIResponsesRelayService {
         }
       }
 
+      if (error.code === 'model_not_allowed') {
+        return res.status(403).json(modelAccessErrorBody(req, error))
+      }
+
       // 其他错误：禁止把内部 error.message 放进客户端 details
       // DEC_20260905_162636
       const clientError = buildClientError({
@@ -947,7 +953,7 @@ class OpenAIResponsesRelayService {
       statusCode: response.status,
       errorCode: responseData?.error?.code ?? responseData?.response?.error?.code,
       hasUsage: Boolean(usageData),
-      final: true
+      final: true,
     })
     const actualModel = responseData?.model || responseData?.response?.model || requestedModel || 'gpt-4'
 
@@ -1209,6 +1215,7 @@ class OpenAIResponsesRelayService {
           originalModel: requestedModelName || null,
           mapped,
         })
+        await assertOutboundModelAccess(apiKeyData, outboundBody?.model, 'openai-responses')
       }
 
       const proxyResolution = proxyResolver.resolveAgent(fullAccount, 'openai-responses')
@@ -1298,6 +1305,9 @@ class OpenAIResponsesRelayService {
       console.error(summarizeErrorForLog(error))
       logger.error('[OpenAI-Responses] embeddings failed:', summarizeErrorForLog(error))
       if (!res.headersSent) {
+        if (error.code === 'model_not_allowed') {
+          return res.status(403).json(modelAccessErrorBody(req, error))
+        }
         // DEC_20260905_162636 禁止 error.message 原文出站
         const clientError = buildClientError({
           statusCode: error.statusCode || 500,
@@ -1380,6 +1390,7 @@ class OpenAIResponsesRelayService {
           originalModel: requestedModelName || null,
           mapped: outboundModel !== requestedModelName,
         })
+        await assertOutboundModelAccess(apiKeyData, aliasBody.model, 'openai-responses')
         if (aliasBody.model && aliasBody.model !== requestedModelName) {
           requestData = rewriteMultipartFormField(req.rawBody, 'model', aliasBody.model, {
             contentType: multipartContentType,
@@ -1404,6 +1415,7 @@ class OpenAIResponsesRelayService {
           originalModel: requestedModelName || null,
           mapped,
         })
+        await assertOutboundModelAccess(apiKeyData, requestData.model, 'openai-responses')
         // 显式保留 reasoning 字段（即使别名/映射路径以后再加字段剥离也不会默丢）
         if (req.body && typeof req.body === 'object') {
           if (Object.prototype.hasOwnProperty.call(req.body, 'reasoning')) {
@@ -1571,6 +1583,9 @@ class OpenAIResponsesRelayService {
       console.error(summarizeErrorForLog(error))
       logger.error('[OpenAI-Responses] generic passthrough failed:', summarizeErrorForLog(error))
       if (!res.headersSent) {
+        if (error.code === 'model_not_allowed') {
+          return res.status(403).json(modelAccessErrorBody(req, error))
+        }
         // DEC_20260905_162636 禁止 error.message 原文出站
         const clientError = buildClientError({
           statusCode: error.statusCode || 500,

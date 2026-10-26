@@ -3,6 +3,7 @@ import axios from 'axios'
 
 import { openaiResponsesAccountService } from './account_openai_responses_service.js'
 import { testModelConfigService } from '../relay/relay_test_model_config_service.js'
+import { testPromptConfigService } from '../relay/relay_test_prompt_config_service.js'
 import { apiKeyService } from '../apikey/apikey_service.js'
 import { accountGroupService } from './account_group_service.js'
 import { redis } from '../../infra/redis.js'
@@ -395,7 +396,8 @@ router.post(
         endpointPath = `/v1${endpointPath}`
       }
       const apiUrl = `${baseUrl}${endpointPath}`
-      const payload = createOpenAITestPayload(model, { stream: false })
+      const prompt = await testPromptConfigService.resolvePrompt(body.prompt)
+      const payload = createOpenAITestPayload(model, { stream: false, prompt })
 
       const requestConfig = {
         headers: {

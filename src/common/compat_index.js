@@ -16,3 +16,8 @@
 export * from './compat_permissions.js'
 export * from './compat_token_stats.js'
 export * from './compat_api_key_hash.js'
+// account model CSV: remove after all historical nonempty Redis ranges have been saved as JSON.
+// Console/CCR mapping-derived ranges: remove once every account has an explicit allowedModels field.
+export * from './compat_account_models.js'
+// tokenizer absolute paths: remove after every applied.json has been saved with relative blob paths.
+export * from './compat_tokenizer_path.js'

@@ -1,3 +1,4 @@
+import { normalizeAccountModelRange } from './account_model_policy.js'
 import { redis as redisClient } from '../../infra/redis.js'
 import axios from 'axios'
 import { ProxyHelper } from '../proxy/proxy_helper.js'
@@ -622,6 +623,9 @@ export const updateAccount = async (accountId, updates) => {
     }
   }
 
+  if (updates.supportedModels !== undefined) {
+    updates.supportedModels = JSON.stringify(normalizeAccountModelRange(updates.supportedModels, true))
+  }
   await client.hset(RedisKeys.accounts.openai(accountId), updates)
 
   if (enablingAutoProtection) {

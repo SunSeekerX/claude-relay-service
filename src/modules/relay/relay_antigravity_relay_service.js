@@ -1,5 +1,6 @@
+import { StringDecoder } from 'node:string_decoder'
 import { apiKeyService } from '../apikey/apikey_service.js'
-import { buildTokenUsagePayload } from './relay_request_detail_helper.js'
+import { buildGeminiTokenUsagePayload } from './relay_request_detail_helper.js'
 import { convertMessagesToGemini, convertGeminiResponse } from './relay_gemini_relay_service.js'
 import { normalizeAntigravityModelInput } from './relay_antigravity_model.js'
 import * as antigravityClient from './relay_antigravity_client.js'
@@ -31,6 +32,7 @@ const buildRequestData = ({ messages, model, temperature, maxTokens, sessionId }
 
 async function* handleStreamResponse(response, model, apiKeyId, accountId, requestMeta = null) {
   let buffer = ''
+  const decoder = new StringDecoder('utf8')
   let totalUsage = {
     promptTokenCount: 0,
     candidatesTokenCount: 0,
@@ -40,7 +42,7 @@ async function* handleStreamResponse(response, model, apiKeyId, accountId, reque
 
   try {
     for await (const chunk of response.data) {
-      buffer += chunk.toString()
+      buffer += decoder.write(chunk)
 
       const lines = buffer.split('\n')
       buffer = lines.pop() || ''
@@ -77,11 +79,7 @@ async function* handleStreamResponse(response, model, apiKeyId, accountId, reque
               if (apiKeyId && totalUsage.totalTokenCount > 0) {
                 await apiKeyService.recordUsage(
                   apiKeyId,
-                  buildTokenUsagePayload({
-                    inputTokens: totalUsage.promptTokenCount || 0,
-                    outputTokens: totalUsage.candidatesTokenCount || 0,
-                    rawUsage: totalUsage,
-                  }),
+                  buildGeminiTokenUsagePayload(totalUsage),
                   model,
                   accountId,
                   'gemini',
@@ -102,11 +100,7 @@ async function* handleStreamResponse(response, model, apiKeyId, accountId, reque
     if (!usageRecorded && apiKeyId && totalUsage.totalTokenCount > 0) {
       await apiKeyService.recordUsage(
         apiKeyId,
-        buildTokenUsagePayload({
-          inputTokens: totalUsage.promptTokenCount || 0,
-          outputTokens: totalUsage.candidatesTokenCount || 0,
-          rawUsage: totalUsage,
-        }),
+        buildGeminiTokenUsagePayload(totalUsage),
         model,
         accountId,
         'gemini',
@@ -162,14 +156,7 @@ export const sendAntigravityRequest = async ({
   if (apiKeyId && openaiResponse?.usage) {
     await apiKeyService.recordUsage(
       apiKeyId,
-      buildTokenUsagePayload({
-        inputTokens: openaiResponse.usage.prompt_tokens || 0,
-        outputTokens: openaiResponse.usage.completion_tokens || 0,
-        rawUsage: {
-          ...openaiResponse.usage,
-          thoughtsTokenCount: openaiResponse.usage.completion_tokens_details?.reasoning_tokens || 0,
-        },
-      }),
+      buildGeminiTokenUsagePayload(payload.usageMetadata),
       requestedModel,
       accountId,
       'gemini',

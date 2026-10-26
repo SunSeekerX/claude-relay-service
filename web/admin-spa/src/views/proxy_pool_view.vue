@@ -1,5 +1,5 @@
 <template>
-  <div class="tab-content">
+  <div class="proxy-pool-page admin-list-page tab-content">
     <!-- 去掉内层 .card：外层 MainLayout 已是卡片，避免卡片套卡片 -->
     <div class="relative flex flex-col">
       <!-- 概览卡片 -->
@@ -31,7 +31,7 @@
       </div>
 
       <!-- 区域切换：移动端纵向堆叠，桌面端单行（操作靠右） -->
-      <div class="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center">
+      <div class="admin-toolbar">
         <!-- 左侧：列表 / 分组切换 -->
         <SegmentedTabs
           v-model="activeTab"
@@ -40,8 +40,23 @@
             { key: 'groups', label: '分组管理' }
           ]"
         />
+        <div class="toolbar-search-wrap">
+          <i class="input-affix-icon input-affix-icon--left i-lucide-search" /><input
+            v-model="searchKeyword"
+            aria-label="搜索代理或分组"
+            class="toolbar-search-input"
+            :placeholder="
+              activeTab === 'proxies' ? '搜索代理名称、地址或出口 IP' : '搜索分组名称或说明'
+            "
+            type="search"
+          />
+        </div>
+        <span class="admin-result-count"
+          >显示 {{ activeTab === 'proxies' ? filteredProxies.length : filteredGroups.length }} /
+          {{ activeTab === 'proxies' ? store.proxies.length : store.groups.length }}</span
+        >
         <!-- 右侧：操作随 tab 切换（窄屏可换行，桌面靠右） -->
-        <div class="flex flex-wrap gap-2 sm:ml-auto">
+        <div class="admin-actions">
           <button
             class="inline-flex items-center rounded-md bg-gray-100 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600"
             @click="openSettingsModal()"
@@ -97,16 +112,18 @@
                   <i class="i-lucide-loader-circle animate-spin mr-2 text-blue-500" />加载中...
                 </td>
               </tr>
-              <tr v-else-if="store.proxies.length === 0">
+              <tr v-else-if="filteredProxies.length === 0">
                 <td
                   class="px-4 py-5 text-center text-sm text-gray-500 dark:text-gray-400"
                   colspan="6"
                 >
-                  暂无代理，点击左上角添加
+                  {{
+                    searchKeyword ? '没有匹配的代理，请调整搜索条件' : '暂无代理，点击添加代理创建'
+                  }}
                 </td>
               </tr>
               <tr
-                v-for="proxy in store.proxies"
+                v-for="proxy in filteredProxies"
                 v-else
                 :key="proxy.id"
                 class="hover:bg-gray-50 dark:hover:bg-gray-700/50"
@@ -165,12 +182,12 @@
             <i class="i-lucide-loader-circle animate-spin mr-2 text-blue-500" />加载中...
           </div>
           <div
-            v-else-if="store.proxies.length === 0"
+            v-else-if="filteredProxies.length === 0"
             class="card p-3 text-center text-sm text-gray-500 dark:text-gray-400 sm:p-4"
           >
-            暂无代理，点击左上角添加
+            {{ searchKeyword ? '没有匹配的代理，请调整搜索条件' : '暂无代理，点击添加代理创建' }}
           </div>
-          <div v-for="proxy in store.proxies" v-else :key="proxy.id" class="card p-4">
+          <div v-for="proxy in filteredProxies" v-else :key="proxy.id" class="card p-4">
             <div class="mb-3 flex items-start justify-between gap-3">
               <div class="min-w-0">
                 <div class="truncate font-medium text-gray-900 dark:text-gray-100">
@@ -251,16 +268,16 @@
                   <i class="i-lucide-loader-circle animate-spin mr-2 text-blue-500" />加载中...
                 </td>
               </tr>
-              <tr v-else-if="store.groups.length === 0">
+              <tr v-else-if="filteredGroups.length === 0">
                 <td
                   class="px-4 py-5 text-center text-sm text-gray-500 dark:text-gray-400"
                   colspan="5"
                 >
-                  暂无分组
+                  {{ searchKeyword ? '没有匹配的分组，请调整搜索条件' : '暂无分组' }}
                 </td>
               </tr>
               <tr
-                v-for="group in store.groups"
+                v-for="group in filteredGroups"
                 v-else
                 :key="group.id"
                 class="hover:bg-gray-50 dark:hover:bg-gray-700/50"
@@ -301,12 +318,12 @@
             <i class="i-lucide-loader-circle animate-spin mr-2 text-blue-500" />加载中...
           </div>
           <div
-            v-else-if="store.groups.length === 0"
+            v-else-if="filteredGroups.length === 0"
             class="card p-3 text-center text-sm text-gray-500 dark:text-gray-400 sm:p-4"
           >
-            暂无分组
+            {{ searchKeyword ? '没有匹配的分组，请调整搜索条件' : '暂无分组' }}
           </div>
-          <div v-for="group in store.groups" v-else :key="group.id" class="card p-4">
+          <div v-for="group in filteredGroups" v-else :key="group.id" class="card p-4">
             <div class="mb-3 flex items-start justify-between gap-3">
               <div class="min-w-0">
                 <div class="truncate font-medium text-gray-900 dark:text-gray-100">
@@ -411,12 +428,12 @@
             </div>
           </div>
           <div class="mt-6 flex gap-3">
-            <button class="btn-cancel" @click="proxyModal = false">取消</button>
-            <button class="btn-primary" :disabled="saving" @click="saveProxy">
-              <i v-if="saving" class="i-lucide-loader-circle animate-spin mr-2" />{{
-                saving ? '提交中...' : '确定'
-              }}
-            </button>
+            <DialogSaveActions
+              class="w-full"
+              :loading="saving"
+              @cancel="proxyModal = false"
+              @save="saveProxy"
+            />
           </div>
         </div>
       </div>
@@ -464,12 +481,12 @@
             </div>
           </div>
           <div class="mt-6 flex gap-3">
-            <button class="btn-cancel" @click="groupModal = false">取消</button>
-            <button class="btn-primary" :disabled="saving" @click="saveGroup">
-              <i v-if="saving" class="i-lucide-loader-circle animate-spin mr-2" />{{
-                saving ? '提交中...' : '确定'
-              }}
-            </button>
+            <DialogSaveActions
+              class="w-full"
+              :loading="saving"
+              @cancel="groupModal = false"
+              @save="saveGroup"
+            />
           </div>
         </div>
       </div>
@@ -573,11 +590,7 @@
             <div class="space-y-3">
               <div class="flex items-center justify-between">
                 <span class="text-sm text-gray-700 dark:text-gray-200">定时健康检查</span>
-                <AppSwitch
-                  v-model="settingsForm.healthCheckEnabled"
-                  color="blue"
-                  size="md"
-                />
+                <AppSwitch v-model="settingsForm.healthCheckEnabled" color="blue" size="md" />
               </div>
               <div>
                 <label class="form-label">探测目标 URL</label>
@@ -679,12 +692,12 @@
           </div>
 
           <div class="mt-6 flex gap-3">
-            <button class="btn-cancel" @click="settingsModal = false">取消</button>
-            <button class="btn-primary" :disabled="settingsSaving" @click="saveSettings">
-              <i v-if="settingsSaving" class="i-lucide-loader-circle animate-spin mr-2" />{{
-                settingsSaving ? '保存中...' : '保存'
-              }}
-            </button>
+            <DialogSaveActions
+              class="w-full"
+              :loading="settingsSaving"
+              @cancel="settingsModal = false"
+              @save="saveSettings"
+            />
           </div>
         </div>
       </div>
@@ -695,7 +708,7 @@
 <script setup>
 import SegmentedTabs from '@/components/common/segmented_tabs.vue'
 import AppSwitch from '@/components/common/app_switch.vue'
-import { ref, onMounted } from 'vue'
+import { ref, computed, watch, onMounted } from 'vue'
 
 import ModalTransition from '@/components/common/modal_transition.vue'
 import { useProxyPoolStore } from '@/stores/proxy_pool'
@@ -705,6 +718,34 @@ import { showToast } from '@/libs/tools'
 const store = useProxyPoolStore()
 
 const activeTab = ref('proxies')
+const searchKeyword = ref('')
+const filteredProxies = computed(() => {
+  const keyword = searchKeyword.value.trim().toLowerCase()
+  return keyword
+    ? store.proxies.filter((proxy) =>
+        [proxy.name, proxy.url, proxy.exitInfo?.ip].some((value) =>
+          String(value ?? '')
+            .toLowerCase()
+            .includes(keyword)
+        )
+      )
+    : store.proxies
+})
+const filteredGroups = computed(() => {
+  const keyword = searchKeyword.value.trim().toLowerCase()
+  return keyword
+    ? store.groups.filter((group) =>
+        [group.name, group.description].some((value) =>
+          String(value ?? '')
+            .toLowerCase()
+            .includes(keyword)
+        )
+      )
+    : store.groups
+})
+watch(activeTab, () => {
+  searchKeyword.value = ''
+})
 const refreshing = ref(false)
 const saving = ref(false)
 
@@ -800,14 +841,15 @@ const openProxyModal = (proxy) => {
   proxyModal.value = true
 }
 
-const saveProxy = async () => {
+const saveProxy = async (closeAfter = false) => {
   saving.value = true
   const { id, ...data } = proxyForm.value
   const res = id ? await store.updateProxy(id, data) : await store.createProxy(data)
   saving.value = false
   if (isOk(res)) {
     showToast(id ? '代理已更新' : '代理已添加', 'success')
-    proxyModal.value = false
+    if (!id) proxyForm.value.id = res.data.id
+    if (closeAfter) proxyModal.value = false
     await refreshAll()
   } else {
     showToast(msgOf(res, '保存失败'), 'error')
@@ -872,7 +914,7 @@ const openGroupModal = (group) => {
   groupModal.value = true
 }
 
-const saveGroup = async () => {
+const saveGroup = async (closeAfter = false) => {
   if (!groupForm.value.name) {
     showToast('请填写分组名称', 'warning')
     return
@@ -883,7 +925,8 @@ const saveGroup = async () => {
   saving.value = false
   if (isOk(res)) {
     showToast(id ? '分组已更新' : '分组已添加', 'success')
-    groupModal.value = false
+    if (!id) groupForm.value.id = res.data.id
+    if (closeAfter) groupModal.value = false
     await refreshAll()
   } else {
     showToast(msgOf(res, '保存失败'), 'error')
@@ -926,7 +969,7 @@ const openSettingsModal = async () => {
   settingsModal.value = true
 }
 
-const saveSettings = async () => {
+const saveSettings = async (closeAfter = false) => {
   const f = settingsForm.value
   const payload = {
     healthCheckEnabled: f.healthCheckEnabled,
@@ -945,7 +988,7 @@ const saveSettings = async () => {
   settingsSaving.value = false
   if (isOk(res)) {
     showToast('设置已保存并生效', 'success')
-    settingsModal.value = false
+    if (closeAfter) settingsModal.value = false
   } else {
     showToast(msgOf(res, '保存失败'), 'error')
   }

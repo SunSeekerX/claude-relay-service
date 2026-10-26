@@ -1,6 +1,6 @@
 <template>
   <!-- 不挂 tab-content：MainLayout 已包一层进场动画，重复挂会双重 translateY 致高度连跳 -->
-  <div class="quota-cards-view">
+  <div class="quota-cards-view admin-list-page">
     <!-- 去掉内层 .card：外层 MainLayout 已是卡片，避免卡片套卡片 -->
     <!-- transition-none：盖掉全局 div{transition:all}，否则 height 像素校正会被做成 0.3s 动画（看起来像抖动） -->
     <div
@@ -98,7 +98,7 @@
         </div>
 
         <!-- Tab Navigation -->
-        <SegmentedTabs v-model="activeTab" variant="underline" :tabs="tabs" />
+        <SegmentedTabs v-model="activeTab" :tabs="tabs" variant="underline" />
       </div>
 
       <!-- Cards Tab -->
@@ -109,6 +109,7 @@
             <i class="input-affix-icon input-affix-icon--left i-lucide-search" />
             <input
               v-model="cardSearch"
+              aria-label="搜索额度卡"
               class="toolbar-search-input"
               placeholder="搜索卡号 / 备注 / 核销用户"
               type="text"
@@ -681,7 +682,7 @@
           </div>
 
           <!-- Form -->
-          <div class="space-y-4">
+          <fieldset class="space-y-4" :disabled="createdDraft || creating">
             <div>
               <label class="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300"
                 >卡片类型</label
@@ -781,26 +782,19 @@
                 type="text"
               />
             </div>
-          </div>
+          </fieldset>
+          <p v-if="createdDraft" class="mt-3 text-sm text-green-600 dark:text-green-400">
+            卡片已创建，请在结果弹窗复制或下载卡号。
+          </p>
 
           <!-- Footer -->
           <div class="mt-6 flex gap-3">
-            <button
-              class="toolbar-btn h-10 flex-1 px-4 text-sm font-medium"
-              type="button"
-              @click="showCreateModal = false"
-            >
-              取消
-            </button>
-            <button
-              class="btn btn-primary h-10 flex-1 px-4 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-50"
-              :disabled="creating"
-              type="button"
-              @click="createCard"
-            >
-              <i v-if="creating" class="i-lucide-loader-circle animate-spin mr-2" />
-              {{ creating ? '创建中...' : '创建' }}
-            </button>
+            <DialogSaveActions
+              class="w-full"
+              :loading="creating"
+              @cancel="showCreateModal = false"
+              @save="createCard"
+            />
           </div>
         </div>
       </div>
@@ -881,22 +875,13 @@
 
           <!-- Footer -->
           <div class="mt-6 flex gap-3">
-            <button
-              class="toolbar-btn h-10 flex-1 px-4 text-sm font-medium"
-              type="button"
-              @click="showLimitsModal = false"
-            >
-              取消
-            </button>
-            <button
-              class="btn btn-primary h-10 flex-1 px-4 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-50"
-              :disabled="savingLimits || limitsStatus !== 'loaded'"
-              type="button"
-              @click="saveLimits"
-            >
-              <i v-if="savingLimits" class="i-lucide-loader-circle animate-spin mr-2" />
-              {{ savingLimits ? '保存中...' : '保存' }}
-            </button>
+            <DialogSaveActions
+              class="w-full"
+              :disabled="limitsStatus !== 'loaded'"
+              :loading="savingLimits"
+              @cancel="showLimitsModal = false"
+              @save="saveLimits"
+            />
           </div>
         </div>
       </div>
@@ -1224,6 +1209,10 @@ const loading = ref(false)
 const redemptionLoading = ref(false)
 const creating = ref(false)
 const showCreateModal = ref(false)
+const createdDraft = ref(false)
+watch(showCreateModal, (show) => {
+  if (show) createdDraft.value = false
+})
 const showLimitsModal = ref(false)
 const savingLimits = ref(false)
 const showRedeemLocksModal = ref(false)
@@ -1575,7 +1564,7 @@ const clearAllRedeemLocks = async () => {
   }
 }
 
-const saveLimits = async () => {
+const saveLimits = async (closeAfter = false) => {
   if (limitsStatus.value !== 'loaded') {
     showToast('上限配置尚未加载成功，无法保存', 'error')
     return
@@ -1585,7 +1574,7 @@ const saveLimits = async () => {
     const result = await httpApis.updateQuotaCardLimitsApi(limitsForm.value)
     if (isOk(result)) {
       limitsConfig.value = { ...limitsForm.value }
-      showLimitsModal.value = false
+      if (closeAfter) showLimitsModal.value = false
       showToast('配置已保存', 'success')
     } else {
       showToast(msgOf(result, '配置保存失败'), 'error')
@@ -1666,7 +1655,11 @@ const changeRedemptionPageSize = () => {
   loadRedemptions()
 }
 
-const createCard = async () => {
+const createCard = async (closeAfter = false) => {
+  if (createdDraft.value) {
+    if (closeAfter) showCreateModal.value = false
+    return
+  }
   if (newCard.value.usePrefix && !newCard.value.codePrefix.trim()) {
     showToast('请输入卡号前缀，或关闭"使用前缀"', 'error')
     return
@@ -1679,7 +1672,8 @@ const createCard = async () => {
     }
     const result = await httpApis.createQuotaCardApi(payload)
     if (isOk(result)) {
-      showCreateModal.value = false
+      createdDraft.value = true
+      if (closeAfter) showCreateModal.value = false
 
       // 处理返回的卡片数据
       const data = result.data

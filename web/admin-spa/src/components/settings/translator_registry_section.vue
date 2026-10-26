@@ -1,8 +1,7 @@
 <template>
   <div>
     <p class="mb-3 t-text-secondary text-sm">
-      跨协议转换注册表只读视图。from→to 为转换方向，quality 表示保真度（good / fair /
-      discouraged）。数据来自运行中的转换器注册表。
+      查看协议之间的转换方向、支持能力和兼容程度，此页仅供查看。
     </p>
 
     <div v-if="loading" class="py-12 text-center">
@@ -30,17 +29,17 @@
         <span
           class="rounded-full bg-green-100 px-3 py-1 text-sm font-medium text-green-700 dark:bg-green-900/40 dark:text-green-300"
         >
-          good {{ counts.good }}
+          兼容良好 {{ counts.good }}
         </span>
         <span
           class="rounded-full bg-amber-100 px-3 py-1 text-sm font-medium text-amber-700 dark:bg-amber-900/40 dark:text-amber-300"
         >
-          fair {{ counts.fair }}
+          部分兼容 {{ counts.fair }}
         </span>
         <span
           class="rounded-full bg-red-100 px-3 py-1 text-sm font-medium text-red-700 dark:bg-red-900/40 dark:text-red-300"
         >
-          discouraged {{ counts.discouraged }}
+          不推荐 {{ counts.discouraged }}
         </span>
         <button
           class="ml-auto flex items-center gap-1 rounded-lg border border-gray-200 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-800"
@@ -56,7 +55,7 @@
         <input
           v-model="keyword"
           class="form-input w-full sm:max-w-xs"
-          placeholder="筛选 from / to / key"
+          placeholder="搜索来源协议、目标协议或标识"
           type="text"
         />
         <div class="w-full sm:w-40">
@@ -75,16 +74,16 @@
         <table class="w-full min-w-[640px] text-sm">
           <thead class="bg-gray-50 text-left text-gray-600 dark:bg-gray-800/80 dark:text-gray-300">
             <tr>
-              <th class="px-3 py-2 font-medium">From</th>
-              <th class="px-3 py-2 font-medium">To</th>
-              <th class="px-3 py-2 font-medium">Quality</th>
+              <th class="px-3 py-2 font-medium">来源协议</th>
+              <th class="px-3 py-2 font-medium">目标协议</th>
+              <th class="px-3 py-2 font-medium">兼容程度</th>
               <th class="px-3 py-2 font-medium">能力</th>
-              <th class="px-3 py-2 font-medium">Key</th>
+              <th class="px-3 py-2 font-medium">转换器标识</th>
             </tr>
           </thead>
           <tbody class="divide-y divide-gray-100 dark:divide-gray-800">
             <tr v-if="filteredEntries.length === 0">
-              <td class="px-3 py-6 text-center text-gray-500 dark:text-gray-400" colspan="6">
+              <td class="px-3 py-6 text-center text-gray-500 dark:text-gray-400" colspan="5">
                 无匹配条目
               </td>
             </tr>
@@ -100,14 +99,14 @@
                   class="rounded-full px-2 py-0.5 text-sm font-medium"
                   :class="qualityClass(entry.quality)"
                 >
-                  {{ entry.quality || '-' }}
+                  {{ qualityLabel(entry.quality ?? '-') }}
                 </span>
               </td>
               <td class="px-3 py-2 text-sm text-gray-600 dark:text-gray-300">
-                <span v-if="entry.hasRequest">req</span>
-                <span v-if="entry.hasResponse">{{ entry.hasRequest ? ' · ' : '' }}res</span>
+                <span v-if="entry.hasRequest">请求</span>
+                <span v-if="entry.hasResponse">{{ entry.hasRequest ? ' · ' : '' }}响应</span>
                 <span v-if="entry.hasStream"
-                  >{{ entry.hasRequest || entry.hasResponse ? ' · ' : '' }}stream</span
+                  >{{ entry.hasRequest || entry.hasResponse ? ' · ' : '' }}流式</span
                 >
                 <span v-if="!entry.hasRequest && !entry.hasResponse && !entry.hasStream">-</span>
               </td>
@@ -233,9 +232,9 @@ const qualityFilter = ref('')
 
 const qualityFilterOptions = [
   { value: '', label: '全部质量' },
-  { value: 'good', label: 'good' },
-  { value: 'fair', label: 'fair' },
-  { value: 'discouraged', label: 'discouraged' }
+  { value: 'good', label: '兼容良好' },
+  { value: 'fair', label: '部分兼容' },
+  { value: 'discouraged', label: '不推荐' }
 ]
 
 const filteredEntries = computed(() => {
@@ -252,6 +251,9 @@ const filteredEntries = computed(() => {
     return haystack.includes(keywordValue)
   })
 })
+
+const qualityLabel = (quality) =>
+  ({ good: '兼容良好', fair: '部分兼容', discouraged: '不推荐' })[quality] ?? quality
 
 const qualityClass = (quality) => {
   if (quality === 'good') {

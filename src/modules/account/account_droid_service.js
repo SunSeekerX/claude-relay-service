@@ -1,3 +1,5 @@
+import { normalizeAccountModelRange } from './account_model_policy.js'
+import { badRequest } from '../../common/http_result.js'
 import crypto from 'node:crypto'
 import axios from 'axios'
 import { redis } from '../../infra/redis.js'
@@ -200,6 +202,18 @@ class DroidAccountService {
 
     const entries = this._parseApiKeyEntries(accountData.apiKeys)
     return entries.map((entry) => this._decryptApiKeyEntry(entry)).filter((entry) => entry && entry.key)
+  }
+
+  async getModelDiscoveryApiKey(accountId) {
+    const account = await redis.getDroidAccount(accountId)
+    if (!account?.modelDiscoveryApiKey) {
+      return ''
+    }
+    const key = this._decryptSensitiveData(account.modelDiscoveryApiKey)
+    if (!key) {
+      throw badRequest('模型同步专用 Key 无法解密，请重新配置')
+    }
+    return key
   }
 
   async touchApiKeyUsage(accountId, keyId) {
@@ -752,6 +766,8 @@ class DroidAccountService {
 
     return {
       ...account,
+      modelDiscoveryApiKey: undefined,
+      hasModelDiscoveryApiKey: Boolean(account.modelDiscoveryApiKey),
       id: accountId,
       endpointType: this._sanitizeEndpointType(account.endpointType),
       refreshToken: this._decryptSensitiveData(account.refreshToken),
@@ -768,6 +784,8 @@ class DroidAccountService {
     const accounts = await redis.getAllDroidAccounts()
     return accounts.map((account) => ({
       ...account,
+      modelDiscoveryApiKey: undefined,
+      hasModelDiscoveryApiKey: Boolean(account.modelDiscoveryApiKey),
       endpointType: this._sanitizeEndpointType(account.endpointType),
       // 不解密完整 token，只返回掩码
       refreshToken: account.refreshToken ? '***ENCRYPTED***' : '',
@@ -792,6 +810,9 @@ class DroidAccountService {
    * 更新 Droid 账户
    */
   async updateAccount(accountId, updates) {
+    if (updates.supportedModels !== undefined) {
+      updates.supportedModels = JSON.stringify(normalizeAccountModelRange(updates.supportedModels))
+    }
     const account = await this.getAccount(accountId)
     if (!account) {
       throw new Error(`Droid account not found: ${accountId}`)
@@ -800,6 +821,18 @@ class DroidAccountService {
     const storedAccount = await redis.getDroidAccount(accountId)
     const hasStoredAccount = storedAccount && typeof storedAccount === 'object' && Object.keys(storedAccount).length > 0
     const sanitizedUpdates = { ...updates }
+    if (Object.hasOwn(updates, 'modelDiscoveryApiKey')) {
+      const value = updates.modelDiscoveryApiKey
+      if (value === null) {
+        sanitizedUpdates.modelDiscoveryApiKey = ''
+      } else if (typeof value !== 'string' || value.length > 8192) {
+        throw badRequest('模型同步专用 Key 格式无效')
+      } else if (value.trim() && value !== '***') {
+        sanitizedUpdates.modelDiscoveryApiKey = this._encryptSensitiveData(value.trim())
+      } else {
+        delete sanitizedUpdates.modelDiscoveryApiKey
+      }
+    }
 
     if (typeof sanitizedUpdates.accessToken === 'string') {
       sanitizedUpdates.accessToken = sanitizedUpdates.accessToken.trim()
@@ -1135,7 +1168,14 @@ class DroidAccountService {
       updatedData.proxy = hasStoredAccount ? storedAccount.proxy || '' : account.proxy || ''
     }
 
-    await redis.setDroidAccount(accountId, updatedData)
+    const modelSettings = {}
+    if (Object.hasOwn(sanitizedUpdates, 'supportedModels')) {
+      modelSettings.supportedModels = sanitizedUpdates.supportedModels
+    }
+    if (Object.hasOwn(sanitizedUpdates, 'modelDiscoveryApiKey')) {
+      modelSettings.modelDiscoveryApiKey = sanitizedUpdates.modelDiscoveryApiKey
+    }
+    await redis.setDroidAccount(accountId, updatedData, modelSettings)
 
     if (enablingAutoProtection) {
       await upstreamErrorHelper.clearAutoProtectionCooldowns(accountId, 'droid')
@@ -1338,6 +1378,9 @@ class DroidAccountService {
 
     return allAccounts
       .filter((account) => {
+        if (account.accountType && account.accountType !== 'shared') {
+          return false
+        }
         const isActive = this._isTruthy(account.isActive)
         const isSchedulable = this._isTruthy(account.schedulable)
         const status = typeof account.status === 'string' ? account.status.toLowerCase() : ''

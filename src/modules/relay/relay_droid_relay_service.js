@@ -210,7 +210,7 @@ class DroidRelayService {
       )
 
       // 选择一个可用的 Droid 账户（支持粘性会话和分组调度）
-      account = await droidScheduler.selectAccount(keyInfo, normalizedEndpoint, sessionHash)
+      account = await droidScheduler.selectAccount(keyInfo, normalizedEndpoint, sessionHash, requestBody.model)
 
       if (!account) {
         throw new Error(`No available Droid account for endpoint type: ${normalizedEndpoint}`)

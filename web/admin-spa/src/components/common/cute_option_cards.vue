@@ -1,5 +1,5 @@
 <template>
-  <!-- 可爱选项卡片：替代原生 radio 列表 -->
+  <!-- 单选选项：品牌图标与名称紧凑横排 -->
   <div
     class="grid gap-2"
     :class="[columnsClass, columnsNumber >= 3 ? 'items-stretch' : 'items-start']"
@@ -7,10 +7,13 @@
     <button
       v-for="opt in options"
       :key="optionKey(opt)"
+      :aria-pressed="isActive(opt)"
       class="cute-option-card group text-left"
       :class="[
         sizeClass,
         layoutClass,
+        hasBrandOptions ? 'is-compact' : '',
+        opt.brand ? 'is-brand' : '',
         isActive(opt) ? 'is-active' : '',
         opt.disabled || disabled ? 'is-disabled' : ''
       ]"
@@ -23,7 +26,7 @@
         class="cute-option-card__icon"
         :class="isActive(opt) ? 'is-active' : ''"
       >
-        <i :class="opt.icon" />
+        <i aria-hidden="true" :class="opt.icon" />
       </span>
       <span class="cute-option-card__body min-w-0 flex-1">
         <span class="cute-option-card__label">{{ opt.label }}</span>
@@ -42,7 +45,7 @@ import { computed } from 'vue'
 const props = defineProps({
   // 支持 string/number/boolean/null（批量编辑「不修改」等哨兵）
   modelValue: { type: null, default: undefined },
-  // [{ value, label, description?, icon?, disabled? }]
+  // [{ value, label, description?, icon?, brand?, disabled? }]
   options: { type: Array, default: () => [] },
   disabled: { type: Boolean, default: false },
   // 1 | 2 | 3 | 4
@@ -70,9 +73,12 @@ const columnsClass = computed(() => {
 })
 
 const sizeClass = computed(() => (props.size === 'sm' ? 'size-sm' : 'size-md'))
+const hasBrandOptions = computed(() => props.options.some((option) => option.brand))
 
-// 3 列及以上：窄卡改纵向，避免描述被挤成「使 / 用」孤字折行
-const layoutClass = computed(() => (columnsNumber.value >= 3 ? 'is-stacked' : 'is-inline'))
+// 品牌选项组横排；普通多列描述卡保留纵向布局，避免窄卡描述挤压
+const layoutClass = computed(() =>
+  !hasBrandOptions.value && columnsNumber.value >= 3 ? 'is-stacked' : 'is-inline'
+)
 
 // Object.is：正确区分 null/undefined/true/false/0/''
 const isActive = (opt) => Object.is(props.modelValue, opt.value)
@@ -134,6 +140,47 @@ const onSelect = (opt) => {
 .size-sm .cute-option-card__icon {
   @apply h-7 w-7 text-sm;
 }
+.cute-option-card.is-compact {
+  min-height: 40px;
+  gap: 8px;
+  padding: 8px 10px;
+  border-color: var(--border-color);
+  border-radius: var(--radius-sm);
+  background: var(--surface-color);
+  color: var(--text-primary);
+  box-shadow: none;
+}
+.cute-option-card.is-compact:not(.is-disabled):hover,
+.cute-option-card.is-compact.is-active {
+  border-color: var(--primary-color);
+  background: var(--primary-soft);
+}
+.cute-option-card.is-compact:focus-visible {
+  outline: 2px solid var(--primary-color);
+  outline-offset: 2px;
+}
+.cute-option-card.is-compact .cute-option-card__icon {
+  width: 20px;
+  height: 20px;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  color: var(--text-primary);
+  box-shadow: none;
+  font-size: 16px;
+}
+.cute-option-card.is-brand .cute-option-card__icon {
+  font-size: 20px;
+}
+.cute-option-card.is-compact .cute-option-card__check {
+  width: 16px;
+  height: 16px;
+  border-color: var(--border-color);
+}
+.cute-option-card.is-compact .cute-option-card__check.is-on {
+  background: var(--primary-color);
+  border-color: var(--primary-color);
+}
 .cute-option-card.is-stacked .cute-option-card__body {
   @apply w-full pr-5;
 }
@@ -145,6 +192,8 @@ const onSelect = (opt) => {
 }
 .cute-option-card__desc {
   @apply mt-0.5 block text-sm leading-snug text-gray-500 dark:text-gray-400;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 .cute-option-card.is-stacked .cute-option-card__desc {
   /* 窄卡描述允许自然换行，但不强行撑高 */

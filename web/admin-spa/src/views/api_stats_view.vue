@@ -1,70 +1,110 @@
 <template>
-  <div class="h-full min-h-0 overflow-y-auto" :class="isDarkMode ? 'gradient-bg-dark' : 'gradient-bg'">
+  <div
+    class="api-stats-layout h-full min-h-0 overflow-y-auto"
+    :class="[isDarkMode ? 'gradient-bg-dark' : 'gradient-bg', { 'is-query-page': isQueryContext }]"
+  >
     <!-- 顶栏 + Tab 吸顶：教程等内容较长时保持可切换 -->
     <div class="api-stats-sticky-header sticky top-0 z-40 p-2 sm:p-3 md:p-4">
-      <!-- 顶部导航 -->
-      <div
-        class="glass-strong mb-2 rounded-2xl p-2.5 shadow-xl sm:mb-3 sm:rounded-2xl sm:p-3 md:p-4"
-      >
-        <div class="flex flex-col items-center justify-between gap-2 sm:gap-3 md:flex-row">
-          <LogoTitle
-            :loading="oemLoading"
-            :logo-src="oemSettings.siteIconData || oemSettings.siteIcon"
-            :subtitle="pageSubtitle"
-            :title="oemSettings.siteName"
-          />
-          <div class="flex items-center gap-2">
-            <div class="flex items-center">
-              <ThemeToggle mode="dropdown" />
-            </div>
-
-            <div
-              v-if="oemSettings.ldapEnabled || oemSettings.showAdminButton !== false"
-              class="h-8 w-px bg-gradient-to-b from-transparent via-gray-300 to-transparent opacity-50 dark:via-gray-600"
+      <div class="api-stats-header-inner">
+        <!-- 顶部导航 -->
+        <div
+          class="api-stats-topbar glass-strong mb-2 rounded-2xl p-2.5 shadow-xl sm:mb-3 sm:rounded-2xl sm:p-3 md:p-4"
+        >
+          <div class="flex flex-col items-center justify-between gap-2 sm:gap-3 md:flex-row">
+            <LogoTitle
+              class="api-stats-brand"
+              :loading="oemLoading"
+              :logo-src="oemSettings.siteIconData || oemSettings.siteIcon"
+              preview-title
+              :title="oemSettings.siteName"
             />
+            <div class="api-stats-actions flex items-center gap-2">
+              <div class="flex items-center">
+                <ThemeToggle mode="dropdown" />
+              </div>
 
-            <router-link
-              v-if="oemSettings.ldapEnabled"
-              class="user-login-button flex items-center gap-2 whitespace-nowrap rounded-xl px-3 py-1.5 text-white transition-all duration-300"
-              to="/user-login"
-            >
-              <i class="i-lucide-user text-sm md:text-base" />
-              <span class="text-sm font-semibold tracking-wide md:text-sm">用户登录</span>
-            </router-link>
-            <router-link
-              v-if="oemSettings.showAdminButton !== false"
-              class="admin-button-refined flex items-center gap-2 whitespace-nowrap rounded-xl px-3 py-1.5 transition-all duration-300"
-              to="/dashboard"
-            >
-              <i class="i-lucide-shield text-sm md:text-base" />
-              <span class="text-sm font-semibold tracking-wide md:text-sm">管理后台</span>
-            </router-link>
+              <div
+                v-if="oemSettings.ldapEnabled || oemSettings.showAdminButton !== false"
+                class="h-8 w-px bg-gradient-to-b from-transparent via-gray-300 to-transparent opacity-50 dark:via-gray-600"
+              />
+
+              <router-link
+                v-if="oemSettings.ldapEnabled"
+                class="user-login-button flex items-center gap-2 whitespace-nowrap rounded-xl px-3 py-1.5 text-white transition-all duration-300"
+                to="/user-login"
+              >
+                <i class="i-lucide-user text-sm md:text-base" />
+                <span class="text-sm font-semibold tracking-wide md:text-sm">用户登录</span>
+              </router-link>
+              <router-link
+                v-if="oemSettings.showAdminButton !== false"
+                class="admin-button-refined flex items-center gap-2 whitespace-nowrap rounded-xl px-3 py-1.5 transition-all duration-300"
+                to="/dashboard"
+              >
+                <i class="i-lucide-shield text-sm md:text-base" />
+                <span class="text-sm font-semibold tracking-wide md:text-sm">管理后台</span>
+              </router-link>
+            </div>
           </div>
         </div>
-      </div>
 
-      <!-- Tab 切换（路由） -->
-      <div class="flex justify-center">
-        <div
-          class="inline-flex w-full max-w-2xl flex-wrap justify-center gap-1 rounded-full border border-white/20 bg-white/10 p-1 shadow-lg backdrop-blur-xl sm:w-auto sm:flex-nowrap"
-        >
-          <router-link
-            v-for="tab in tabs"
-            :key="tab.key"
-            :class="['tab-pill-button', { active: currentTab === tab.key }]"
-            :to="{ name: tab.name, query: route.query }"
+        <!-- Tab 切换（路由） -->
+        <div class="api-stats-navigation flex justify-center">
+          <div
+            class="inline-flex w-full max-w-2xl flex-wrap justify-center gap-1 rounded-full border border-white/20 bg-white/10 p-1 shadow-lg backdrop-blur-xl sm:w-auto sm:flex-nowrap"
           >
-            <i :class="[tab.icon, 'mr-1 md:mr-2']" />
-            <span class="text-sm md:text-base">{{ tab.label }}</span>
-          </router-link>
+            <router-link
+              v-for="tab in tabs"
+              :key="tab.key"
+              :aria-haspopup="tab.key === 'quota' || tab.key === 'recharge' ? 'dialog' : undefined"
+              :class="['tab-pill-button', { active: currentTab === tab.key }]"
+              :to="{ name: tab.name, query: route.query }"
+            >
+              <i :class="[tab.icon, 'mr-1 md:mr-2']" />
+              <span class="text-sm md:text-base">{{ tab.label }}</span>
+            </router-link>
+          </div>
         </div>
       </div>
     </div>
 
     <!-- 子路由内容 -->
-    <div class="relative z-[1] px-2 pb-2 sm:px-3 sm:pb-3 md:px-4 md:pb-4">
-      <router-view />
+    <div class="api-stats-page-content relative z-[1] px-2 pb-2 sm:px-3 sm:pb-3 md:px-4 md:pb-4">
+      <StatsTab v-if="isQueryContext" />
+      <router-view v-else />
     </div>
+
+    <AppDialog
+      :closable="!transactionBusy"
+      :close-on-mask="!transactionBusy"
+      :icon="transactionDialog === 'quota' ? 'i-lucide-ticket' : 'i-lucide-wallet'"
+      :model-value="!!transactionDialog"
+      :size="transactionDialog === 'quota' ? 'lg' : 'xl'"
+      :title="transactionDialog === 'quota' ? '额度卡兑换' : '充值'"
+      @update:model-value="onTransactionVisibility"
+    >
+      <div ref="transactionContent" class="transaction-dialog-content">
+        <p v-if="multiKeyMode" class="transaction-key-required">
+          兑换和充值需要先查询单个 API Key，请返回统计切换为单 Key 查询。
+        </p>
+        <router-view v-else v-slot="{ Component }">
+          <component :is="Component" :embedded="true" @busy-change="setTransactionBusy" />
+        </router-view>
+      </div>
+      <template #footer>
+        <span v-if="transactionBusy" aria-live="polite" class="transaction-status"
+          >正在提交，请稍候...</span
+        >
+        <button
+          class="btn btn-secondary ml-auto"
+          :disabled="transactionBusy"
+          type="button"
+          @click="closeTransactionDialog"
+        >
+          返回统计
+        </button>
+      </template>
+    </AppDialog>
 
     <!-- API Stats 通知弹框 -->
     <ModalTransition>
@@ -113,16 +153,19 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted, watch, computed } from 'vue'
-import { useRoute } from 'vue-router'
+import { ref, onMounted, onUnmounted, watch, computed, nextTick } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { storeToRefs } from 'pinia'
 import { useApiStatsStore } from '@/stores/api_stats'
 import { useThemeStore } from '@/stores/theme'
 import LogoTitle from '@/components/common/logo_title.vue'
 import ModalTransition from '@/components/common/modal_transition.vue'
 import ThemeToggle from '@/components/common/theme_toggle.vue'
+import AppDialog from '@/components/common/app_dialog.vue'
+import StatsTab from './api_stats/stats_tab.vue'
 
 const route = useRoute()
+const router = useRouter()
 const apiStatsStore = useApiStatsStore()
 const themeStore = useThemeStore()
 
@@ -135,10 +178,62 @@ const tabs = [
 ]
 
 const currentTab = computed(() => route.meta.tab || 'stats')
-const pageSubtitle = computed(() => route.meta.subtitle || 'API Key 使用统计')
+const transactionDialog = computed(() =>
+  ['quota', 'recharge'].includes(currentTab.value) ? currentTab.value : null
+)
+const isQueryContext = computed(() => currentTab.value === 'stats' || !!transactionDialog.value)
+const transactionBusy = ref(false)
+const transactionContent = ref(null)
+let transactionReturnFocus
+let transactionOriginPosition = null
+const setTransactionBusy = (busy) => {
+  transactionBusy.value = busy
+}
+const closeTransactionDialog = () => {
+  if (transactionBusy.value) return
+  const query = { ...route.query }
+  if (apiId.value) query.apiId = apiId.value
+  const position = window.history.state?.position
+  if (
+    transactionOriginPosition !== null &&
+    Number.isFinite(position) &&
+    position > transactionOriginPosition
+  ) {
+    router.go(transactionOriginPosition - position)
+  } else {
+    router.replace({ name: 'ApiStatsQuery', query })
+  }
+}
+const onTransactionVisibility = (visible) => {
+  if (!visible) closeTransactionDialog()
+}
+watch(
+  transactionDialog,
+  async (dialog, previousDialog) => {
+    transactionBusy.value = false
+    if (dialog) {
+      if (!previousDialog) {
+        const state = window.history.state
+        transactionOriginPosition =
+          typeof state?.back === 'string' &&
+          state.back.startsWith('/api-stats/stats') &&
+          Number.isFinite(state.position)
+            ? state.position - 1
+            : null
+      }
+      transactionReturnFocus = document.activeElement
+      await nextTick()
+      transactionContent.value?.closest('[role="dialog"]').querySelector('button')?.focus()
+    } else {
+      transactionOriginPosition = null
+      transactionReturnFocus?.focus()
+    }
+  },
+  { immediate: true }
+)
 const isDarkMode = computed(() => themeStore.isDarkMode)
 
-const { apiKey, apiId, oemLoading, oemSettings } = storeToRefs(apiStatsStore)
+const { apiKey, apiId, oemLoading, oemSettings, multiKeyMode } = storeToRefs(apiStatsStore)
 const {
   queryStats,
   loadStatsWithApiId,
@@ -167,6 +262,33 @@ const checkNotice = () => {
 }
 
 const handleKeyDown = (event) => {
+  if (event.defaultPrevented || themeStore.settingsOpen) return
+  if (transactionDialog.value) {
+    if (event.key === 'Escape') {
+      event.preventDefault()
+      closeTransactionDialog()
+    }
+    if (event.key === 'Tab' && !event.target.closest('.cute-dropdown__panel')) {
+      const controls = [
+        ...transactionContent.value
+          .closest('[role="dialog"]')
+          .querySelectorAll(
+            'button:not(:disabled), input:not(:disabled), textarea:not(:disabled), select:not(:disabled), a[href], [tabindex="0"]'
+          )
+      ].filter((element) => element.getClientRects().length)
+      const first = controls[0]
+      const last = controls[controls.length - 1]
+      if (event.shiftKey && event.target === first) {
+        event.preventDefault()
+        last.focus()
+      }
+      if (!event.shiftKey && event.target === last) {
+        event.preventDefault()
+        first.focus()
+      }
+    }
+    return
+  }
   if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
     if (apiKey.value.trim()) {
       queryStats()
@@ -223,6 +345,134 @@ watch(apiKey, (newValue) => {
 </script>
 
 <style scoped>
+.transaction-key-required {
+  font-size: 14px;
+  color: var(--text-secondary);
+  padding: 20px 0;
+}
+.transaction-status {
+  font-size: 14px;
+  color: var(--text-secondary);
+}
+.transaction-dialog-content {
+  min-width: 0;
+}
+.api-stats-header-inner {
+  display: contents;
+}
+.api-stats-layout {
+  --query-content-width: 1360px;
+}
+.api-stats-layout .api-stats-sticky-header {
+  padding: 0;
+  border-bottom: 1px solid var(--border-color);
+  background: var(--glass-strong-color);
+}
+.api-stats-layout .api-stats-header-inner {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  grid-template-areas: 'brand nav actions';
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  max-width: var(--query-content-width);
+  margin-inline: auto;
+  padding: 9px 12px;
+}
+.api-stats-layout .api-stats-topbar,
+.api-stats-layout .api-stats-topbar > div {
+  display: contents;
+}
+.api-stats-layout .api-stats-brand {
+  grid-area: brand;
+  min-width: 0;
+  gap: 9px;
+}
+.api-stats-layout .api-stats-brand :deep(> div:first-child) {
+  width: 32px;
+  height: 32px;
+}
+.api-stats-layout .api-stats-brand :deep(> div:first-child img) {
+  width: 26px;
+  height: 26px;
+}
+.api-stats-layout .api-stats-brand :deep(> div:nth-child(2)) {
+  min-height: 32px;
+  flex: 1;
+}
+.api-stats-layout .api-stats-brand :deep(.header-title) {
+  max-width: 100%;
+  font-size: 16px;
+  margin: 0;
+}
+.api-stats-layout .api-stats-brand :deep(.title-preview-trigger) {
+  white-space: nowrap;
+}
+.api-stats-layout .api-stats-actions {
+  grid-area: actions;
+}
+.api-stats-layout .api-stats-navigation {
+  grid-area: nav;
+  min-width: 0;
+}
+.api-stats-layout .api-stats-navigation > div {
+  box-shadow: none;
+  border: 0;
+  padding: 3px;
+}
+.api-stats-layout .tab-pill-button {
+  padding: 6px 9px;
+}
+.api-stats-layout .api-stats-page-content {
+  width: 100%;
+  max-width: var(--query-content-width);
+  margin-inline: auto;
+  padding: 12px;
+}
+@media (max-width: 1099px) {
+  .api-stats-layout .api-stats-header-inner {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas: 'brand actions' 'nav nav';
+    gap: 8px;
+  }
+  .api-stats-layout .api-stats-navigation {
+    justify-content: flex-start;
+  }
+  .api-stats-layout .api-stats-navigation > div {
+    width: 100%;
+    max-width: none;
+    justify-content: flex-start;
+  }
+}
+@media (max-width: 639px) {
+  .api-stats-layout .api-stats-header-inner {
+    padding: 8px;
+  }
+  .api-stats-layout .api-stats-brand :deep(.header-title) {
+    font-size: 14px;
+  }
+  .api-stats-layout .api-stats-brand :deep(> div:first-child) {
+    width: 24px;
+    height: 24px;
+  }
+  .api-stats-layout .api-stats-brand :deep(> div:first-child img) {
+    width: 20px;
+    height: 20px;
+  }
+  .api-stats-layout .api-stats-actions {
+    gap: 5px;
+  }
+  .api-stats-layout .api-stats-actions > div.h-8 {
+    display: none;
+  }
+  .api-stats-layout .api-stats-page-content {
+    padding: 8px;
+  }
+  .api-stats-layout .tab-pill-button {
+    padding: 5px 7px;
+  }
+}
+
 /* 吸顶区域：毛玻璃底，避免正文滚过时透出；与页面渐变同色系 */
 .api-stats-sticky-header {
   background: color-mix(in srgb, var(--bg-gradient-start) 82%, transparent);

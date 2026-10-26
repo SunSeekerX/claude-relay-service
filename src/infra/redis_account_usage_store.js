@@ -11,7 +11,7 @@ export const attach = (redisClient) => {
       RedisKeys.accountUsage.operationDedup(crypto.randomUUID()),
       new Date().toISOString(),
       String(tokens),
-      String(TTL.accountUsageDedup)
+      String(TTL.accountUsageDedup),
     )
   }
 
@@ -25,7 +25,7 @@ export const attach = (redisClient) => {
       this.getDateStringInTimezone(now),
       String(amount),
       now.toISOString(),
-      String(TTL.accountUsageDedup)
+      String(TTL.accountUsageDedup),
     )
   }
 }

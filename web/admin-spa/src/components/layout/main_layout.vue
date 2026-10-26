@@ -1,6 +1,6 @@
 <template>
   <div
-    class="h-full min-h-0 overflow-x-hidden overflow-y-auto p-2 sm:p-3 md:flex md:flex-col md:overflow-hidden md:p-5"
+    class="workspace-shell h-full min-h-0 overflow-x-hidden overflow-y-auto p-2 sm:p-3 md:flex md:flex-col md:overflow-hidden md:p-5"
   >
     <!-- 顶部导航 -->
     <AppHeader />
@@ -14,7 +14,7 @@
       <TabBar :active-tab="activeTab" @tab-change="handleTabChange" />
 
       <!-- 内容区域 -->
-      <div class="tab-content min-h-0 md:flex-1 md:overflow-y-auto">
+      <div class="workspace-content tab-content min-h-0 md:flex-1 md:overflow-y-auto">
         <router-view />
       </div>
     </div>

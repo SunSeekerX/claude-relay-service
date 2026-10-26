@@ -422,10 +422,10 @@
       <div
         v-else
         ref="tableWrapper"
-        class="overflow-y-auto overflow-x-hidden rounded-lg border border-gray-200 dark:border-gray-700"
+        class="overflow-auto rounded-lg border border-gray-200 dark:border-gray-700"
         :style="{ maxHeight: tableMaxHeight }"
       >
-        <table class="w-full table-fixed text-sm">
+        <table class="w-full min-w-[1100px] table-fixed text-sm">
           <colgroup>
             <col class="w-[22%]" />
             <col class="w-[7%]" />
@@ -437,7 +437,7 @@
             <col class="w-[7%]" />
             <col class="w-[7%]" />
             <col class="w-[7%]" />
-            <col class="w-[10%]" />
+            <col class="w-[15rem]" />
             <col class="w-[10%]" />
           </colgroup>
           <thead class="sticky top-0 z-10 bg-gray-50 dark:bg-gray-800">
@@ -456,7 +456,7 @@
                 来源
               </th>
               <th class="px-2 py-3 text-center font-medium text-gray-500 dark:text-gray-400">
-                Mode
+                计费模式
               </th>
               <th
                 class="cursor-pointer px-2 py-3 text-center font-medium text-green-700 hover:text-green-800 dark:text-green-400"
@@ -479,19 +479,19 @@
                 />
               </th>
               <th class="px-2 py-3 text-center font-medium text-amber-700 dark:text-amber-400">
-                写5m
+                缓存写 5m
               </th>
               <th class="px-2 py-3 text-center font-medium text-amber-700 dark:text-amber-400">
-                写1h
+                缓存写 1h
               </th>
               <th class="px-2 py-3 text-center font-medium text-sky-600 dark:text-sky-400">
-                读
+                缓存读
               </th>
               <th class="px-2 py-3 text-center font-medium text-gray-500 dark:text-gray-400">
-                最大入
+                输入上限
               </th>
               <th class="px-2 py-3 text-center font-medium text-gray-500 dark:text-gray-400">
-                最大出
+                输出上限
               </th>
               <th class="px-2 py-3 text-left font-medium text-gray-500 dark:text-gray-400">
                 能力
@@ -613,11 +613,12 @@
                 >
               </td>
               <td class="px-2 py-2 text-left align-middle">
-                <div class="flex flex-wrap gap-0.5">
+                <div class="grid grid-cols-3 gap-0.5">
                   <span
                     v-for="tag in model.capabilityTags"
                     :key="tag"
-                    class="rounded bg-blue-50 px-1.5 py-0.5 text-sm text-blue-700 dark:bg-blue-900/30 dark:text-blue-300"
+                    class="truncate rounded bg-blue-50 px-1.5 py-0.5 text-center text-sm text-blue-700 dark:bg-blue-900/30 dark:text-blue-300"
+                    :title="tag"
                     >{{ tag }}</span
                   >
                   <span v-if="!model.capabilityTags.length" class="text-gray-400">-</span>

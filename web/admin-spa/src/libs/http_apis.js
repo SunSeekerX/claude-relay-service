@@ -2,6 +2,8 @@ import request from '@/libs/request'
 
 // 模型
 export const getModelsApi = () => request({ url: '/apiStats/models', method: 'GET' })
+export const getTestModelDefaultsApi = () =>
+  request({ url: '/apiStats/test-model-defaults', method: 'GET' })
 
 // 模型价格管理
 export const getModelPricingApi = () => request({ url: '/admin/models/pricing', method: 'GET' })
@@ -44,6 +46,22 @@ export const getPublicModelPricingApi = () =>
   request({ url: '/apiStats/model-pricing', method: 'GET' })
 
 // API Stats
+export const getRelayRoutesApi = () => request({ url: '/admin/relay-routes', method: 'GET' })
+export const getTokenizerCatalogApi = () => request({ url: '/admin/tokenizers/catalog', method: 'GET' })
+export const getTokenizerSettingsApi = () => request({ url: '/admin/tokenizers/settings', method: 'GET' })
+export const saveTokenizerSettingsApi = (data) => request({ url: '/admin/tokenizers/settings', method: 'PUT', data })
+export const getTokenizerTasksApi = () => request({ url: '/admin/tokenizers/tasks', method: 'GET' })
+export const startTokenizerTaskApi = (data) => request({ url: '/admin/tokenizers/tasks', method: 'POST', data })
+export const cancelTokenizerTaskApi = (id) => request({ url: `/admin/tokenizers/tasks/${encodeURIComponent(id)}/cancel`, method: 'POST' })
+export const countTokenizerTextApi = (data) => request({ url: '/admin/tokenizers/count', method: 'POST', data })
+export const getRelayRouteTargetsApi = (provider) =>
+  request({ url: `/admin/relay-routes/targets/${encodeURIComponent(provider)}`, method: 'GET' })
+export const createRelayRouteApi = (data) => request({ url: '/admin/relay-routes', method: 'POST', data })
+export const updateRelayRouteApi = (code, data) =>
+  request({ url: `/admin/relay-routes/${encodeURIComponent(code)}`, method: 'PUT', data })
+export const deleteRelayRouteApi = (code) =>
+  request({ url: `/admin/relay-routes/${encodeURIComponent(code)}`, method: 'DELETE' })
+
 export const getKeyIdApi = (apiKey) =>
   request({ url: '/apiStats/api/get-key-id', method: 'POST', data: { apiKey } })
 export const getUserStatsApi = (apiId) =>
@@ -280,6 +298,12 @@ export const updateOpenAIResponsesAccountApi = (id, data) =>
   request({ url: `/admin/openai-responses-accounts/${id}`, method: 'PUT', data })
 export const fetchOpenAIResponsesUpstreamModelsApi = (data) =>
   request({ url: '/admin/openai-responses-accounts/fetch-models', method: 'POST', data })
+export const getAccountModelCatalogApi = (type, id) =>
+  request({ url: `/admin/account-model-catalog/${type}/${id}`, method: 'GET' })
+export const getAccountSupportedModelsApi = (type, id) =>
+  request({ url: `/admin/account-model-catalog/${type}/${id}/supported-models`, method: 'GET' })
+export const syncAccountModelCatalogApi = (type, id) =>
+  request({ url: `/admin/account-model-catalog/${type}/${id}/sync`, method: 'POST' })
 
 // Azure OpenAI 账户
 export const getAzureOpenAIAccountsApi = () =>
@@ -465,6 +489,13 @@ export const getTestModelConfigApi = (config) =>
   request({ url: '/admin/test-model-config', method: 'GET', ...config })
 export const updateTestModelConfigApi = (data, config) =>
   request({ url: '/admin/test-model-config', method: 'PUT', data, ...config })
+
+export const getTestPromptConfigApi = (config) =>
+  request({ url: '/admin/test-prompt-config', method: 'GET', ...config })
+export const updateTestPromptConfigApi = (data, config) =>
+  request({ url: '/admin/test-prompt-config', method: 'PUT', data, ...config })
+export const getPublicTestPromptConfigApi = (config) =>
+  request({ url: '/apiStats/test-prompt-config', method: 'GET', ...config })
 
 // 服务倍率配置（管理端）
 export const getAdminServiceRatesApi = (config) =>

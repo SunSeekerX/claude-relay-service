@@ -96,12 +96,11 @@
 
         <!-- 底部 -->
         <div class="flex justify-end border-t border-gray-200 px-6 py-4 dark:border-gray-700">
-          <button
-            class="rounded-lg bg-gray-100 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600"
-            @click="handleClose"
-          >
-            关闭
-          </button>
+          <DialogSaveActions
+            :loading="creating || processing"
+            @cancel="handleClose"
+            @save="save"
+          />
         </div>
       </div>
     </div>
@@ -137,24 +136,16 @@
             class="form-input w-full"
             placeholder="请输入新标签名称"
             type="text"
-            @keyup.enter="executeRename"
+            @keyup.enter="executeRename(false)"
           />
         </div>
         <div class="flex justify-end gap-3">
-          <button
-            class="rounded-lg bg-gray-100 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600"
-            @click="showRenameModal = false"
-          >
-            取消
-          </button>
-          <button
-            class="rounded-lg bg-blue-500 px-4 py-2 text-sm font-medium text-white hover:bg-blue-600 disabled:opacity-50"
-            :disabled="!newTagName.trim() || processing"
-            @click="executeRename"
-          >
-            <i v-if="processing" class="i-lucide-loader-circle animate-spin mr-1" />
-            确定
-          </button>
+          <DialogSaveActions
+            :disabled="!newTagName.trim()"
+            :loading="processing"
+            @cancel="showRenameModal = false"
+            @save="executeRename"
+          />
         </div>
       </div>
     </div>
@@ -213,9 +204,16 @@ const createTag = async () => {
     newTagInput.value = ''
     loadTags()
     emit('updated')
+    return true
   } else {
     showToast(msgOf(res, '创建失败'), 'error')
   }
+  return false
+}
+
+const save = async (closeAfter = false) => {
+  if (newTagInput.value.trim() && !(await createTag())) return
+  if (closeAfter) handleClose()
 }
 
 const confirmDelete = (tag) => {
@@ -248,18 +246,19 @@ const startRename = (tag) => {
   showRenameModal.value = true
 }
 
-const executeRename = async () => {
+const executeRename = async (closeAfter = false) => {
   if (!renamingTag.value || !newTagName.value.trim()) return
 
   processing.value = true
   const oldName = renamingTag.value.name
-  const res = await renameApiKeyTagApi(oldName, newTagName.value.trim())
+  const submittedName = newTagName.value.trim()
+  const res = await renameApiKeyTagApi(oldName, submittedName)
   processing.value = false
 
   if (isOk(res)) {
     showToast('标签已重命名', 'success')
-    showRenameModal.value = false
-    renamingTag.value = null
+    renamingTag.value = { ...renamingTag.value, name: submittedName }
+    if (closeAfter) showRenameModal.value = false
     loadTags()
     emit('updated')
   } else {

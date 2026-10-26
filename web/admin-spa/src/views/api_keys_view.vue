@@ -1,5 +1,5 @@
 <template>
-  <div class="tab-content">
+  <div class="api-keys-page admin-list-page tab-content">
     <!-- 去掉内层 .card：外层 MainLayout 已是卡片，避免卡片套卡片 -->
     <div class="relative">
       <div class="mb-3 flex flex-col gap-2 sm:gap-3">
@@ -13,12 +13,13 @@
         />
 
         <!-- Tab Content -->
+        <RelayRoutesPanel v-if="activeTab === 'routes'" />
         <!-- 活跃 API Keys Tab Panel -->
         <div v-if="activeTab === 'active'" class="tab-panel">
           <!-- 工具栏区域 - 添加 mb-4 增加与表格的间距 -->
-          <div class="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          <div class="admin-toolbar">
             <!-- 左侧：查询筛选器组 -->
-            <div class="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:gap-3">
+            <div class="admin-filter-group">
               <!-- 时间范围筛选 -->
               <div class="min-w-[140px]">
                 <CustomDropdown
@@ -91,9 +92,12 @@
                       "
                       type="text"
                     />
-                    <i class="input-affix-icon input-affix-icon--left i-lucide-search text-cyan-500" />
+                    <i
+                      class="input-affix-icon input-affix-icon--left i-lucide-search text-cyan-500"
+                    />
                     <button
                       v-if="searchKeyword"
+                      aria-label="清空 Key 搜索"
                       class="absolute right-2 flex h-5 w-5 items-center justify-center rounded-full text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-700 dark:hover:text-gray-300"
                       @click="clearSearch"
                     >
@@ -105,7 +109,7 @@
             </div>
 
             <!-- 右侧：操作按钮组 -->
-            <div class="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:gap-3">
+            <div class="admin-actions">
               <!-- 刷新按钮 -->
               <button
                 class="group relative flex items-center justify-center gap-2 rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm font-medium text-gray-700 shadow-sm transition-all duration-200 hover:border-gray-300 hover:shadow-md disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200 dark:hover:border-gray-500 sm:w-auto"
@@ -124,13 +128,13 @@
                 <span class="relative">刷新</span>
               </button>
 
-              <!-- 选择/取消选择按钮 -->
               <button
                 class="flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm font-medium text-gray-700 shadow-sm transition-all duration-200 hover:border-gray-300 hover:bg-gray-50 hover:shadow-md dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
-                @click="toggleSelectionMode"
+                :disabled="selectedApiKeys.length === 0"
+                @click="clearSelection"
               >
-                <i :class="showCheckboxes ? 'i-lucide-x' : 'i-lucide-square-check'"></i>
-                <span>{{ showCheckboxes ? '取消选择' : '选择' }}</span>
+                <i class="i-lucide-list-x"></i>
+                <span>清空选择</span>
               </button>
 
               <!-- 导出数据按钮 -->
@@ -159,8 +163,8 @@
 
               <!-- 批量编辑按钮 - 移到刷新按钮旁边 -->
               <button
-                v-if="selectedApiKeys.length > 0"
                 class="group relative flex items-center justify-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-4 py-2 text-sm font-medium text-blue-700 shadow-sm transition-all duration-200 hover:border-blue-300 hover:bg-blue-100 hover:shadow-md dark:border-blue-700 dark:bg-blue-900/30 dark:text-blue-300 dark:hover:bg-blue-900/50 sm:w-auto"
+                :disabled="selectedApiKeys.length === 0"
                 @click="openBatchEditModal()"
               >
                 <div
@@ -172,8 +176,8 @@
 
               <!-- 批量删除按钮 - 移到刷新按钮旁边 -->
               <button
-                v-if="selectedApiKeys.length > 0"
                 class="group relative flex items-center justify-center gap-2 rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-sm font-medium text-red-700 shadow-sm transition-all duration-200 hover:border-red-300 hover:bg-red-100 hover:shadow-md dark:border-red-700 dark:bg-red-900/30 dark:text-red-300 dark:hover:bg-red-900/50 sm:w-auto"
+                :disabled="selectedApiKeys.length === 0"
                 @click="batchDeleteApiKeys()"
               >
                 <div
@@ -222,12 +226,12 @@
                 >
                   <tr>
                     <th
-                      v-if="shouldShowCheckboxes"
                       class="checkbox-column sticky left-0 z-20 min-w-[50px] px-3 py-4 text-left"
                     >
                       <div class="flex items-center">
                         <input
                           v-model="selectAllChecked"
+                          aria-label="选择当前页全部 API Key"
                           class="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                           :indeterminate="isIndeterminate"
                           type="checkbox"
@@ -236,8 +240,7 @@
                       </div>
                     </th>
                     <th
-                      class="name-column sticky z-20 min-w-[140px] cursor-pointer px-3 py-4 text-left text-sm font-bold uppercase tracking-wider text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-600"
-                      :class="shouldShowCheckboxes ? 'left-[50px]' : 'left-0'"
+                      class="name-column sticky left-[50px] z-20 min-w-[140px] cursor-pointer px-3 py-4 text-left text-sm font-bold uppercase tracking-wider text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-600"
                       @click="sortApiKeys('name')"
                     >
                       名称
@@ -291,7 +294,10 @@
                           'ml-1'
                         ]"
                       />
-                      <i v-else-if="canSortByCost" class="i-lucide-arrow-up-down ml-1 text-gray-400" />
+                      <i
+                        v-else-if="canSortByCost"
+                        class="i-lucide-arrow-up-down ml-1 text-gray-400"
+                      />
                       <i v-else class="i-lucide-clock ml-1 text-gray-400" title="索引更新中" />
                     </th>
                     <th
@@ -369,12 +375,12 @@
                       ]"
                     >
                       <td
-                        v-if="shouldShowCheckboxes"
                         class="checkbox-column sticky left-0 z-10 px-3 py-3"
                       >
                         <div class="flex items-center">
                           <input
                             v-model="selectedApiKeys"
+                            :aria-label="`选择 ${key.name}`"
                             class="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                             type="checkbox"
                             :value="key.id"
@@ -383,8 +389,7 @@
                         </div>
                       </td>
                       <td
-                        class="name-column sticky z-10 px-3 py-3"
-                        :class="shouldShowCheckboxes ? 'left-[50px]' : 'left-0'"
+                        class="name-column sticky left-[50px] z-10 px-3 py-3"
                       >
                         <div class="min-w-0">
                           <!-- 名称 -->
@@ -426,7 +431,11 @@
                               <span
                                 class="inline-flex items-center rounded bg-indigo-100 px-1.5 py-0.5 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300"
                               >
-                                <i class="i-lucide-brain mr-1 text-sm" />
+                                <i
+                                  aria-hidden="true"
+                                  class="mr-1 text-base shrink-0"
+                                  :class="PLATFORM_ICONS.claude"
+                                />
                                 Claude
                               </span>
                               <span class="truncate text-gray-600 dark:text-gray-400">
@@ -438,7 +447,11 @@
                               <span
                                 class="inline-flex items-center rounded bg-yellow-100 px-1.5 py-0.5 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-300"
                               >
-                                <i class="i-lucide-bot mr-1 text-sm" />
+                                <i
+                                  aria-hidden="true"
+                                  class="mr-1 text-base shrink-0"
+                                  :class="PLATFORM_ICONS.gemini"
+                                />
                                 Gemini
                               </span>
                               <span class="truncate text-gray-600 dark:text-gray-400">
@@ -450,7 +463,11 @@
                               <span
                                 class="inline-flex items-center rounded bg-gray-100 px-1.5 py-0.5 text-gray-700 dark:bg-gray-700 dark:text-gray-300"
                               >
-                                <i class="icon-openai mr-1 text-sm" />
+                                <i
+                                  aria-hidden="true"
+                                  class="mr-1 text-base shrink-0"
+                                  :class="PLATFORM_ICONS.openai"
+                                />
                                 OpenAI
                               </span>
                               <span class="truncate text-gray-600 dark:text-gray-400">
@@ -465,7 +482,11 @@
                               <span
                                 class="inline-flex items-center rounded bg-orange-100 px-1.5 py-0.5 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300"
                               >
-                                <i class="i-lucide-cloud mr-1 text-sm" />
+                                <i
+                                  aria-hidden="true"
+                                  class="mr-1 text-base shrink-0"
+                                  :class="PLATFORM_ICONS.bedrock"
+                                />
                                 Bedrock
                               </span>
                               <span class="truncate text-gray-600 dark:text-gray-400">
@@ -477,7 +498,11 @@
                               <span
                                 class="inline-flex items-center rounded bg-cyan-100 px-1.5 py-0.5 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-300"
                               >
-                                <i class="i-lucide-bot mr-1 text-sm" />
+                                <i
+                                  aria-hidden="true"
+                                  class="mr-1 text-base shrink-0"
+                                  :class="PLATFORM_ICONS.droid"
+                                />
                                 Droid
                               </span>
                               <span class="truncate text-gray-600 dark:text-gray-400">
@@ -872,7 +897,9 @@
                           >
                             <i
                               :class="[
-                                expandedApiKeys[key.id] ? 'i-lucide-chevron-up' : 'i-lucide-chevron-down'
+                                expandedApiKeys[key.id]
+                                  ? 'i-lucide-chevron-up'
+                                  : 'i-lucide-chevron-down'
                               ]"
                             />
                             <span class="ml-1">模型</span>
@@ -1196,8 +1223,8 @@
               <div class="mb-3 flex items-start justify-between">
                 <div class="flex items-center gap-3">
                   <input
-                    v-if="shouldShowCheckboxes"
                     v-model="selectedApiKeys"
+                    :aria-label="`选择 ${key.name}`"
                     class="mt-1 h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                     type="checkbox"
                     :value="key.id"
@@ -1244,7 +1271,11 @@
                   <span
                     class="inline-flex items-center rounded bg-indigo-100 px-2 py-0.5 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300"
                   >
-                    <i class="i-lucide-brain mr-1" />
+                    <i
+                      aria-hidden="true"
+                      class="mr-1 text-base shrink-0"
+                      :class="PLATFORM_ICONS.claude"
+                    />
                     Claude
                   </span>
                   <span class="text-gray-600 dark:text-gray-400">
@@ -1256,7 +1287,11 @@
                   <span
                     class="inline-flex items-center rounded bg-yellow-100 px-2 py-0.5 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-300"
                   >
-                    <i class="i-lucide-bot mr-1" />
+                    <i
+                      aria-hidden="true"
+                      class="mr-1 text-base shrink-0"
+                      :class="PLATFORM_ICONS.gemini"
+                    />
                     Gemini
                   </span>
                   <span class="text-gray-600 dark:text-gray-400">
@@ -1268,7 +1303,11 @@
                   <span
                     class="inline-flex items-center rounded bg-gray-100 px-2 py-0.5 text-gray-700 dark:bg-gray-700 dark:text-gray-300"
                   >
-                    <i class="icon-openai mr-1" />
+                    <i
+                      aria-hidden="true"
+                      class="mr-1 text-base shrink-0"
+                      :class="PLATFORM_ICONS.openai"
+                    />
                     OpenAI
                   </span>
                   <span class="text-gray-600 dark:text-gray-400">
@@ -1280,7 +1319,11 @@
                   <span
                     class="inline-flex items-center rounded bg-orange-100 px-2 py-0.5 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300"
                   >
-                    <i class="i-lucide-cloud mr-1" />
+                    <i
+                      aria-hidden="true"
+                      class="mr-1 text-base shrink-0"
+                      :class="PLATFORM_ICONS.bedrock"
+                    />
                     Bedrock
                   </span>
                   <span class="text-gray-600 dark:text-gray-400">
@@ -1292,7 +1335,11 @@
                   <span
                     class="inline-flex items-center rounded bg-cyan-100 px-2 py-0.5 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-300"
                   >
-                    <i class="i-lucide-bot mr-1" />
+                    <i
+                      aria-hidden="true"
+                      class="mr-1 text-base shrink-0"
+                      :class="PLATFORM_ICONS.droid"
+                    />
                     Droid
                   </span>
                   <span class="text-gray-600 dark:text-gray-400">
@@ -1526,14 +1573,7 @@
                       title="编辑过期时间"
                       @click.stop="startEditExpiry(key)"
                     >
-                      <svg class="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path
-                          d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"
-                          stroke-linecap="round"
-                          stroke-linejoin="round"
-                          stroke-width="2"
-                        ></path>
-                      </svg>
+                      <i aria-hidden="true" class="i-lucide-pencil h-3 w-3" />
                     </button>
                   </div>
                 </div>
@@ -1731,7 +1771,9 @@
                     type="text"
                     @keyup.enter="applyDeletedSearch"
                   />
-                  <i class="input-affix-icon input-affix-icon--left i-lucide-search text-cyan-500" />
+                  <i
+                    class="input-affix-icon input-affix-icon--left i-lucide-search text-cyan-500"
+                  />
                   <button
                     v-if="deletedSearchKeyword"
                     class="absolute right-2 flex h-5 w-5 items-center justify-center rounded-full text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-700 dark:hover:text-gray-300"
@@ -1929,7 +1971,11 @@
                             <span
                               class="inline-flex items-center rounded bg-blue-100 px-1.5 py-0.5 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300"
                             >
-                              <i class="i-lucide-bot mr-1 text-sm" />
+                              <i
+                                aria-hidden="true"
+                                class="mr-1 text-base shrink-0"
+                                :class="PLATFORM_ICONS.claude"
+                              />
                               Claude OAuth
                             </span>
                           </div>
@@ -1941,7 +1987,11 @@
                             <span
                               class="inline-flex items-center rounded bg-green-100 px-1.5 py-0.5 text-green-700 dark:bg-green-900/30 dark:text-green-300"
                             >
-                              <i class="i-lucide-terminal mr-1 text-sm" />
+                              <i
+                                aria-hidden="true"
+                                class="mr-1 text-base shrink-0"
+                                :class="PLATFORM_ICONS.claude"
+                              />
                               Claude Console
                             </span>
                           </div>
@@ -1953,7 +2003,11 @@
                             <span
                               class="inline-flex items-center rounded bg-purple-100 px-1.5 py-0.5 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300"
                             >
-                              <i class="i-logos-google-icon mr-1 text-sm" />
+                              <i
+                                aria-hidden="true"
+                                class="mr-1 text-base shrink-0"
+                                :class="PLATFORM_ICONS.gemini"
+                              />
                               Gemini
                             </span>
                           </div>
@@ -2166,6 +2220,7 @@
       @batch-success="handleBatchCreateSuccess"
       @close="showCreateApiKeyModal = false"
       @success="handleCreateSuccess"
+      @updated="loadApiKeys"
     />
 
     <EditApiKeyModal
@@ -2272,6 +2327,8 @@ import {
 } from '@/libs/tools'
 import { formatLocalDate, formatLocalDateTime, toLocalDateString } from '@/libs/time'
 import { isOk, msgOf } from '@/libs/http_envelope'
+import { PLATFORM_ICONS } from '@/libs/platform_icons'
+import RelayRoutesPanel from '@/components/api_keys/relay_routes_panel.vue'
 
 import * as httpApis from '@/libs/http_apis'
 import { useAuthStore } from '@/stores/auth'
@@ -2308,7 +2365,8 @@ const apiKeySectionTabs = computed(() => [
     key: 'deleted',
     label: '已删除 API Keys',
     badge: deletedPagination.value.total > 0 ? deletedPagination.value.total : null
-  }
+  },
+  { key: 'routes', label: '调用入口' }
 ])
 
 const onApiKeyTabChange = (key) => {
@@ -2319,7 +2377,6 @@ const onApiKeyTabChange = (key) => {
   activeTab.value = key
 }
 
-
 // 获取 LDAP 启用状态
 const isLdapEnabled = computed(() => authStore.oemSettings?.ldapEnabled || false)
 
@@ -2327,7 +2384,6 @@ const isLdapEnabled = computed(() => authStore.oemSettings?.ldapEnabled || false
 const selectedApiKeys = ref([])
 const selectAllChecked = ref(false)
 const isIndeterminate = ref(false)
-const showCheckboxes = ref(false)
 const apiKeysLoading = ref(false)
 const apiKeyStatsTimeRange = ref('today')
 
@@ -2340,20 +2396,10 @@ const globalDateFilter = reactive({
   customRange: null
 })
 
-// 是否应该显示多选框
-const shouldShowCheckboxes = computed(() => {
-  return showCheckboxes.value
-})
-
-// 切换选择模式
-const toggleSelectionMode = () => {
-  showCheckboxes.value = !showCheckboxes.value
-  // 关闭选择模式时清空已选项
-  if (!showCheckboxes.value) {
-    selectedApiKeys.value = []
-    selectAllChecked.value = false
-    isIndeterminate.value = false
-  }
+const clearSelection = () => {
+  selectedApiKeys.value = []
+  selectAllChecked.value = false
+  isIndeterminate.value = false
 }
 
 // 时间范围下拉选项
@@ -4195,10 +4241,10 @@ const openBatchEditModal = () => {
 }
 
 // 处理批量编辑成功
-const handleBatchEditSuccess = () => {
+const handleBatchEditSuccess = (closeAfter) => {
   // 关闭由子组件退出动画驱动（requestClose → after-leave → emit('close')）
   // 清空选中状态
-  selectedApiKeys.value = []
+  if (closeAfter) selectedApiKeys.value = []
   updateSelectAllState()
   loadApiKeys()
 }
@@ -4461,7 +4507,7 @@ const closeExpiryEdit = () => {
 }
 
 // 保存过期时间
-const handleSaveExpiry = async ({ keyId, expiresAt, activateNow }) => {
+const handleSaveExpiry = async ({ keyId, expiresAt, activateNow, closeAfter }) => {
   try {
     // 使用新的PATCH端点来修改过期时间
     const data = await httpApis.updateApiKeyExpirationApi(keyId, {
@@ -4502,7 +4548,8 @@ const handleSaveExpiry = async ({ keyId, expiresAt, activateNow }) => {
         }
         reorderCurrentPageApiKeys(changedFields)
       }
-      closeExpiryEdit()
+      if (closeAfter) closeExpiryEdit()
+      else expiryEditModalRef.value?.resetSaving()
     } else {
       showToast(msgOf(data, '更新失败'), 'error')
       // 重置保存状态
@@ -5156,6 +5203,7 @@ watch([activeTab, sortedApiKeys, () => selectedApiKeys.value.length], () => {
 
 // 监听API Keys数据变化，清理无效的选中状态
 watch(apiKeys, () => {
+  if (showBatchEditModal.value) return
   const validIds = new Set(apiKeys.value.map((key) => key.id))
 
   // 过滤出仍然有效的选中项
@@ -5378,8 +5426,6 @@ onUnmounted(() => {
     transform: rotate(360deg);
   }
 }
-
-
 
 /* 自定义日期范围选择器高度对齐 */
 

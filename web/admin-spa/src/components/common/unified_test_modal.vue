@@ -1,280 +1,225 @@
 <template>
   <ModalTransition>
-    <div
-      v-if="show"
-      class="fixed inset-0 z-[1050] flex items-center justify-center bg-gray-900/40 backdrop-blur-sm"
-    >
-      <div class="absolute inset-0" @click="handleClose" />
-      <div
-        class="modal-panel relative z-10 mx-3 flex w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-gray-200/70 bg-white/95 shadow-2xl ring-1 ring-black/5 transition-all dark:border-gray-700/60 dark:bg-gray-900/95 dark:ring-white/10 sm:mx-4"
+    <div v-if="show" class="test-overlay" @keydown.esc.prevent="handleClose">
+      <div class="test-mask" @click="handleClose" />
+      <section
+        aria-labelledby="endpoint-test-title"
+        aria-modal="true"
+        class="modal-panel test-dialog"
+        role="dialog"
+        tabindex="-1"
       >
-        <!-- 顶部栏 -->
-        <div
-          class="flex items-center justify-between border-b border-gray-100 bg-white/80 px-5 py-4 backdrop-blur dark:border-gray-800 dark:bg-gray-900/80"
-        >
-          <div class="flex items-center gap-3">
-            <div
-              :class="[
-                'flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl text-white shadow-lg',
-                headerIconBgClass
-              ]"
-            >
-              <i
-                :class="[
-                  state.testStatus.value === 'idle'
-                    ? 'i-lucide-flask-conical'
-                    : state.testStatus.value === 'testing'
-                      ? 'i-lucide-loader-circle animate-spin'
-                      : state.testStatus.value === 'success'
-                        ? 'i-lucide-check'
-                        : 'i-lucide-x'
-                ]"
-              />
-            </div>
-            <div>
-              <h3 class="text-lg font-semibold text-gray-900 dark:text-gray-100">
-                {{ modalTitle }}
-              </h3>
-              <p class="text-sm text-gray-500 dark:text-gray-400">
-                {{ modalSubtitle }}
-              </p>
-            </div>
+        <header class="test-header">
+          <div>
+            <h3 id="endpoint-test-title">{{ modalTitle }}</h3>
+            <p>{{ modalSubtitle }}</p>
           </div>
           <button
-            class="flex h-9 w-9 items-center justify-center rounded-full bg-gray-100 text-gray-500 transition hover:bg-gray-200 hover:text-gray-700 dark:bg-gray-800 dark:text-gray-400 dark:hover:bg-gray-700 dark:hover:text-gray-200"
+            aria-label="关闭测试弹窗"
+            class="test-icon-button"
             :disabled="state.testStatus.value === 'testing'"
+            type="button"
             @click="handleClose"
           >
-            <i class="i-lucide-x text-sm" />
+            <i class="i-lucide-x" />
           </button>
-        </div>
-
-        <!-- 内容区域 -->
-        <div class="max-h-[70vh] overflow-y-auto px-5 py-4">
-          <!-- [apikey] API Key 显示 -->
-          <div v-if="mode === 'apikey'" class="mb-4">
-            <label class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
-              API Key
-            </label>
-            <div class="relative">
-              <input
-                class="form-input w-full"
-                readonly
-                type="text"
-                :value="maskedApiKey"
-              />
-              <div class="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400">
-                <i class="i-lucide-lock text-sm" />
-              </div>
-            </div>
-          </div>
-
-          <!-- 测试信息 -->
-          <div class="mb-4 space-y-2">
-            <!-- [account] 平台类型 -->
-            <div v-if="mode === 'account'" class="flex items-center justify-between text-sm">
-              <span class="text-gray-500 dark:text-gray-400">平台类型</span>
-              <span
-                :class="[
-                  'inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-sm font-medium',
-                  platformBadgeClass
-                ]"
-              >
-                <i :class="platformIcon" />
-                {{ platformLabel }}
-              </span>
-            </div>
-            <!-- [account+bedrock] 凭证类型 -->
-            <div
+        </header>
+        <div class="test-body">
+          <div class="test-identity">
+            <span v-if="mode === 'apikey'" class="test-protocol">{{
+              apikeyServiceConfig.name
+            }}</span
+            ><span v-else class="test-platform" :class="platformBadgeClass"
+              ><i :class="platformIcon" />{{ platformLabel }}</span
+            ><span v-if="mode === 'apikey'" class="test-key"
+              ><i class="i-lucide-key" />{{ maskedApiKey }}</span
+            ><span
               v-if="mode === 'account' && account?.platform === 'bedrock'"
-              class="flex items-center justify-between text-sm"
+              class="test-platform"
+              :class="credentialTypeBadgeClass"
+              ><i :class="credentialTypeIcon" />{{ credentialTypeLabel }}</span
             >
-              <span class="text-gray-500 dark:text-gray-400">账号类型</span>
-              <span
-                :class="[
-                  'inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-sm font-medium',
-                  credentialTypeBadgeClass
-                ]"
+          </div>
+          <div v-if="mode === 'apikey'" class="test-endpoint">
+            <span>请求地址</span>
+            <div>
+              <code>{{ testDisplayEndpoint }}</code
+              ><button
+                class="test-text-button"
+                title="复制测试地址"
+                type="button"
+                @click="copyText(testDisplayEndpoint)"
               >
-                <i :class="credentialTypeIcon" />
-                {{ credentialTypeLabel }}
-              </span>
-            </div>
-            <!-- [apikey] 测试端点 -->
-            <div v-if="mode === 'apikey'" class="flex items-center justify-between text-sm">
-              <span class="text-gray-500 dark:text-gray-400">测试端点</span>
-              <span
-                class="inline-flex items-center gap-1.5 rounded-full bg-blue-100 px-2.5 py-0.5 text-sm font-medium text-blue-700 dark:bg-blue-500/20 dark:text-blue-300"
-              >
-                <i class="i-lucide-link" />
-                {{ apikeyServiceConfig.displayEndpoint }}
-              </span>
-            </div>
-            <!-- 测试模型（两种模式都有） -->
-            <div class="text-sm">
-              <div class="mb-1 flex items-center justify-between">
-                <span class="text-gray-500 dark:text-gray-400">测试模型</span>
-                <ModelSelector
-                  v-model="selectedModel"
-                  :disabled="state.testStatus.value === 'testing'"
-                  :models="availableModels"
-                />
-              </div>
-              <div class="text-right text-sm text-gray-400 dark:text-gray-500">
-                {{ selectedModel }}
-              </div>
-            </div>
-            <!-- [apikey] 最大输出 Token -->
-            <div v-if="mode === 'apikey'" class="text-sm">
-              <div class="mb-1 flex items-center justify-between gap-3">
-                <span class="text-gray-500 dark:text-gray-400">最大输出 Token</span>
-                <div class="w-28">
-                  <CustomDropdown
-                    v-model="maxTokens"
-                    accent="blue"
-                    :options="maxTokensOptions"
-                    placeholder="Token"
-                    size="sm"
-                  />
-                </div>
-              </div>
-            </div>
-            <!-- [apikey] 测试服务 -->
-            <div v-if="mode === 'apikey'" class="flex items-center justify-between text-sm">
-              <span class="text-gray-500 dark:text-gray-400">测试服务</span>
-              <span class="font-medium text-gray-700 dark:text-gray-300">
-                {{ apikeyServiceConfig.name }}
-              </span>
+                <i class="i-lucide-copy" />复制
+              </button>
             </div>
           </div>
-
-          <!-- [apikey] 提示词输入 -->
-          <div v-if="mode === 'apikey'" class="mb-4">
-            <label class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
-              提示词
-            </label>
-            <textarea
-              v-model="testPrompt"
-              class="form-input w-full"
-              placeholder="输入测试提示词..."
-              rows="2"
-            />
-          </div>
-
-          <!-- 状态指示 -->
-          <div
-            :class="[
-              'mb-4 rounded-xl border p-4 transition-all duration-300',
-              state.statusCardClass.value
-            ]"
-          >
-            <div class="flex items-center gap-3">
-              <div
-                :class="[
-                  'flex h-8 w-8 items-center justify-center rounded-lg',
-                  state.statusIconBgClass.value
-                ]"
-              >
-                <i :class="['text-sm', state.statusIcon.value, state.statusIconClass.value]" />
-              </div>
-              <div>
-                <p :class="['font-medium', state.statusTextClass.value]">
-                  {{ state.statusTitle.value }}
-                </p>
-                <p class="text-sm text-gray-500 dark:text-gray-400">{{ statusDescription }}</p>
-              </div>
+          <div class="test-fields">
+            <div class="test-model-field">
+              <label>测试模型</label
+              ><ModelSelector
+                v-model="selectedModel"
+                :disabled="state.testStatus.value === 'testing'"
+                :models="availableModels"
+              />
+            </div>
+            <div v-if="mode === 'apikey'" class="test-tokens-field">
+              <label>最大输出 Token</label
+              ><CustomDropdown
+                v-model="maxTokens"
+                :disabled="state.testStatus.value === 'testing'"
+                :options="maxTokensOptions"
+              />
             </div>
           </div>
-
-          <!-- 响应内容区域 -->
-          <div
-            v-if="state.testStatus.value !== 'idle'"
-            class="mb-4 overflow-hidden rounded-xl border border-gray-200 bg-gray-50 dark:border-gray-700 dark:bg-gray-800/50"
-          >
-            <div
-              class="flex items-center justify-between border-b border-gray-200 bg-gray-100 px-3 py-2 dark:border-gray-700 dark:bg-gray-800"
+          <p v-if="selectedModelDetail" class="test-note">
+            {{ modelSourceLabel(selectedModelDetail.source) }} ·
+            {{ modelAvailabilityLabel(selectedModelDetail.availability) }}
+            <span v-if="selectedModelDetail.interfaceSupport === 'unknown'"> · 接口能力未确认</span>
+          </p>
+          <p v-if="mode === 'apikey' && routeModels && !routeModels.length" class="test-note">
+            此入口暂无候选模型，请联系管理员确认。
+          </p>
+          <div v-if="modelLoadError" class="test-error">
+            <span>{{ modelLoadError }}</span
+            ><button
+              class="test-text-button"
+              :disabled="state.testStatus.value === 'testing'"
+              type="button"
+              @click="loadModels"
             >
-              <span class="text-sm font-medium text-gray-600 dark:text-gray-400">AI 响应</span>
-              <span
-                v-if="state.responseText.value"
-                class="text-sm text-gray-500 dark:text-gray-500"
+              重试
+            </button>
+          </div>
+          <div class="test-prompt-heading">
+            <label for="endpoint-test-prompt">测试问题</label>
+            <div>
+              <CustomDropdown
+                :disabled="
+                  prompts.loading.value ||
+                  prompts.failed.value ||
+                  state.testStatus.value === 'testing'
+                "
+                :model-value="prompts.selectedId.value"
+                :options="prompts.options.value"
+                placeholder="从题库选择"
+                searchable
+                @update:model-value="prompts.select"
+              /><button
+                class="test-text-button"
+                :disabled="!prompts.canRandomize.value || state.testStatus.value === 'testing'"
+                type="button"
+                @click="prompts.randomize"
               >
-                {{ state.responseText.value.length }} 字符
-              </span>
-            </div>
-            <div class="max-h-40 overflow-y-auto p-3">
-              <p
-                v-if="state.responseText.value"
-                class="whitespace-pre-wrap text-sm text-gray-700 dark:text-gray-300"
-              >
-                {{ state.responseText.value }}
-                <span
-                  v-if="state.testStatus.value === 'testing'"
-                  class="inline-block h-4 w-1 animate-pulse bg-blue-500"
-                />
-              </p>
-              <p
-                v-else-if="state.testStatus.value === 'testing'"
-                class="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400"
-              >
-                <i class="i-lucide-loader-circle animate-spin" />
-                等待响应中...
-              </p>
-              <p
-                v-else-if="state.testStatus.value === 'error' && state.errorMessage.value"
-                class="text-sm text-red-600 dark:text-red-400"
-              >
-                {{ state.errorMessage.value }}
-              </p>
+                <i class="i-lucide-shuffle" />换一题
+              </button>
             </div>
           </div>
-
-          <!-- 测试时间 -->
-          <div
-            v-if="state.testDuration.value > 0"
-            class="mb-4 flex items-center justify-center gap-2 text-sm text-gray-500 dark:text-gray-400"
-          >
-            <i class="i-lucide-clock" />
-            <span>耗时 {{ (state.testDuration.value / 1000).toFixed(2) }} 秒</span>
-          </div>
-        </div>
-
-        <!-- 底部操作栏 -->
-        <div
-          class="flex items-center justify-end gap-3 border-t border-gray-100 bg-gray-50/80 px-5 py-3 dark:border-gray-800 dark:bg-gray-900/50"
-        >
-          <button
-            class="rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm font-medium text-gray-700 shadow-sm transition hover:bg-gray-50 hover:shadow dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
+          <textarea
+            id="endpoint-test-prompt"
+            v-model="testPrompt"
+            class="form-input test-prompt"
             :disabled="state.testStatus.value === 'testing'"
-            @click="handleClose"
+            placeholder="输入要发送的测试问题"
+            rows="3"
+          />
+          <p v-if="prompts.loading.value" class="test-note">正在加载题库…</p>
+          <div v-else-if="prompts.failed.value" class="test-error">
+            <span>{{ prompts.errorMessage.value }}，可手动输入。</span
+            ><button
+              class="test-text-button"
+              :disabled="state.testStatus.value === 'testing'"
+              type="button"
+              @click="prompts.reload"
+            >
+              重试题库</button
+            ><button
+              v-if="prompts.errorRequestId.value"
+              class="test-text-button"
+              type="button"
+              @click="copyText(prompts.errorRequestId.value, '请求 ID 已复制')"
+            >
+              复制请求 ID
+            </button>
+          </div>
+          <p v-else-if="prompts.hint.value" class="test-note">{{ prompts.hint.value }}</p>
+          <section
+            aria-label="测试结果"
+            aria-live="polite"
+            class="test-result"
+            :class="`result-${state.testStatus.value}`"
           >
-            关闭
-          </button>
-          <button
-            :class="[
-              'flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium shadow-sm transition',
-              state.testStatus.value === 'testing' || disableTest
-                ? 'cursor-not-allowed bg-gray-200 text-gray-400 dark:bg-gray-700 dark:text-gray-500'
-                : 'bg-gradient-to-r from-blue-500 to-indigo-500 text-white hover:from-blue-600 hover:to-indigo-600 hover:shadow-md'
-            ]"
-            :disabled="state.testStatus.value === 'testing' || disableTest"
-            @click="startTest"
-          >
-            <i
-              :class="[
-                state.testStatus.value === 'testing' ? 'i-lucide-loader-circle animate-spin' : 'i-lucide-play'
-              ]"
-            />
-            {{
-              state.testStatus.value === 'testing'
-                ? '测试中...'
-                : state.testStatus.value === 'idle'
-                  ? '开始测试'
-                  : '重新测试'
-            }}
-          </button>
+            <header>
+              <span><i :class="state.statusIcon.value" />{{ state.statusTitle.value }}</span>
+              <div>
+                <span v-if="state.testDuration.value"
+                  >{{ (state.testDuration.value / 1000).toFixed(2) }} 秒</span
+                ><button
+                  class="test-text-button"
+                  :disabled="!state.responseText.value"
+                  title="复制响应内容"
+                  type="button"
+                  @click="copyText(state.responseText.value)"
+                >
+                  <i class="i-lucide-copy" />复制
+                </button>
+              </div>
+            </header>
+            <p v-if="state.testStatus.value === 'error'" class="test-result-error" role="alert">
+              {{ state.errorMessage.value || '测试失败' }}
+            </p>
+            <pre v-if="state.responseText.value">{{ state.responseText.value }}</pre>
+            <p v-else class="test-result-empty">
+              {{
+                state.testStatus.value === 'testing'
+                  ? '等待模型响应…'
+                  : state.testStatus.value === 'cancelled'
+                    ? '测试已停止，可调整后重新测试。'
+                    : state.testStatus.value === 'success'
+                      ? '请求已完成，未返回文本。'
+                      : state.testStatus.value === 'error'
+                        ? '未收到模型输出。'
+                        : '开始测试后，响应会显示在这里。'
+              }}
+            </p>
+            <p v-if="state.testStatus.value === 'success'" class="test-result-success">
+              {{ statusDescription }}
+            </p>
+          </section>
         </div>
-      </div>
+        <footer class="test-footer">
+          <span>{{
+            mode === 'apikey' ? '测试会计入当前 Key 用量' : '测试会发起实际模型请求'
+          }}</span>
+          <div>
+            <button
+              class="btn btn-secondary"
+              :disabled="state.testStatus.value === 'testing'"
+              type="button"
+              @click="handleClose"
+            >
+              关闭</button
+            ><button
+              v-if="state.testStatus.value === 'testing'"
+              class="btn btn-secondary"
+              type="button"
+              @click="state.stopTest"
+            >
+              <i class="i-lucide-square" />停止测试</button
+            ><button
+              v-else
+              class="btn btn-primary"
+              :disabled="disableTest"
+              type="button"
+              @click="startTest"
+            >
+              <i class="i-lucide-play" />{{
+                state.testStatus.value === 'idle' ? '开始测试' : '重新测试'
+              }}
+            </button>
+          </div>
+        </footer>
+      </section>
     </div>
   </ModalTransition>
 </template>
@@ -283,11 +228,19 @@
 import { ref, computed, watch, onMounted } from 'vue'
 import ModalTransition from '@/components/common/modal_transition.vue'
 import CustomDropdown from '@/components/common/custom_dropdown.vue'
-import { APP_CONFIG } from '@/libs/tools'
-import { getModelsApi } from '@/libs/http_apis'
+import { APP_CONFIG, copyText } from '@/libs/tools'
+import { PLATFORM_ICONS } from '@/libs/platform_icons'
+import {
+  getModelsApi,
+  getTestModelDefaultsApi,
+  getPublicTestPromptConfigApi,
+  getAccountSupportedModelsApi
+} from '@/libs/http_apis'
+import { useTestPrompts } from '@/libs/use_test_prompts'
 import { isOk } from '@/libs/http_envelope'
 import { useTestState } from '@/libs/use_test_state'
 import ModelSelector from '@/components/common/model_selector.vue'
+import { modelSourceLabel, modelAvailabilityLabel, routeAddress } from '@/libs/relay_routing'
 
 const props = defineProps({
   show: { type: Boolean, default: false },
@@ -297,6 +250,14 @@ const props = defineProps({
   // apikey 模式
   apiKeyValue: { type: String, default: '' },
   apiKeyName: { type: String, default: '' },
+  routeCode: { type: String, default: '' },
+  basePath: { type: String, default: '' },
+  expectedApiKeyId: { type: String, default: '' },
+  legacyProvider: { type: String, default: '' },
+  interfaceFormat: { type: String, default: '' },
+  routeModels: { type: Array, default: null },
+  modelDetails: { type: Array, default: () => [] },
+  preferredModel: { type: String, default: '' },
   serviceType: { type: String, default: 'claude' }
 })
 
@@ -325,16 +286,55 @@ const configuredDefault = computed(() => {
 
 // 标记模型配置是否已成功加载（弹窗常驻挂载、onMounted 只跑一次，失败需在打开时重试）
 const modelsLoaded = ref(false)
+const accountModelDetails = ref([])
+const modelLoadError = ref('')
+let modelLoadSequence = 0
 
 const loadModels = async () => {
-  const result = await getModelsApi()
-  if (isOk(result) && result.data) {
-    modelsFromApi.value = result.data
-    modelsLoaded.value = true
+  const sequence = ++modelLoadSequence
+  modelLoadError.value = ''
+  if (props.mode === 'account' && !props.account) return
+  try {
+    if (props.mode === 'account' || props.routeModels !== null) {
+      const defaults = await getTestModelDefaultsApi()
+      if (sequence !== modelLoadSequence) return
+      if (!isOk(defaults)) throw new Error('加载测试默认模型失败')
+      modelsFromApi.value.defaultModels = defaults.data
+    }
+    if (
+      props.mode === 'account' &&
+      props.account &&
+      !['azure-openai', 'azure_openai'].includes(props.account.platform)
+    ) {
+      accountModelDetails.value = []
+      const type =
+        props.account.platform === 'gemini-antigravity' ? 'gemini' : props.account.platform
+      const result = await getAccountSupportedModelsApi(type, props.account.id)
+      if (sequence !== modelLoadSequence) return
+      if (isOk(result)) {
+        accountModelDetails.value = result.data.models
+        modelsLoaded.value = true
+      } else modelLoadError.value = '加载此账号支持的模型失败，请重新打开后重试'
+      return
+    }
+    if (props.mode === 'apikey' && props.routeModels !== null) {
+      modelsLoaded.value = true
+      return
+    }
+    const result = await getModelsApi()
+    if (sequence !== modelLoadSequence) return
+    if (isOk(result) && result.data) {
+      modelsFromApi.value = result.data
+      modelsLoaded.value = true
+    }
+  } catch {
+    if (sequence === modelLoadSequence) modelLoadError.value = '加载模型失败，请重新打开后重试'
   }
 }
 
-onMounted(loadModels)
+onMounted(() => {
+  if (!props.show) loadModels()
+})
 
 // 把默认模型钉在列表首位（保证可选中、是默认值、"返回列表"也回到它）
 const pinDefaultModel = (list, defaultModel, defaultLabel) => {
@@ -348,6 +348,14 @@ const pinDefaultModel = (list, defaultModel, defaultLabel) => {
 }
 
 const availableModels = computed(() => {
+  if (props.mode === 'apikey' && props.routeModels)
+    return props.routeModels.map((model) => {
+      const detail = props.modelDetails.find((entry) => entry.id === model)
+      return {
+        value: model,
+        label: detail?.source === 'unconfirmed' ? `${model}（未向上游确认）` : model
+      }
+    })
   if (props.mode === 'account') {
     const platform = props.account?.platform
     if (!platform) return []
@@ -355,14 +363,25 @@ const availableModels = computed(() => {
     if (platform === 'azure-openai' || platform === 'azure_openai') {
       return [{ value: props.account.deploymentName, label: props.account.deploymentName }]
     }
-    const list = modelsFromApi.value.platforms?.[platform] || []
+    const list = accountModelDetails.value.map((model) => ({
+      value: model.id,
+      label: model.source === 'unconfirmed' ? `${model.id}（未向上游确认）` : model.id
+    }))
     // 后台配置了默认模型则钉到首位（defaultModel 取 models[0] 即用它）
-    return pinDefaultModel(list, configuredDefault.value)
+    return pinDefaultModel(
+      list,
+      list.some((model) => model.value === configuredDefault.value) ? configuredDefault.value : null
+    )
   }
   // apikey 模式: 仅用后台配置的默认置顶（未加载时无默认、列表为空，由 watch 在加载后回填）
   const list = modelsFromApi.value[props.serviceType] || []
   return pinDefaultModel(list, configuredDefault.value)
 })
+const selectedModelDetail = computed(() =>
+  (props.mode === 'account' ? accountModelDetails.value : props.modelDetails).find(
+    (model) => model.id === selectedModel.value
+  )
+)
 
 const defaultModel = computed(() => {
   // azure 用账户的 deploymentName（不在测试模型配置内）
@@ -375,11 +394,21 @@ const defaultModel = computed(() => {
   }
   // 其余取已加载列表首项（后台配置默认已置顶）；未加载时为空，由 watch 在加载后回填
   // 不保留任何前端硬编码 fallback：避免在 /apiStats/models 返回前把旧默认绕过后端发出
+  if (!modelsLoaded.value) return ''
+  for (const model of [props.preferredModel, configuredDefault.value]) {
+    if (availableModels.value.some((entry) => entry.value === model)) return model
+  }
   return availableModels.value[0]?.value || ''
 })
 
 // ========== apikey 模式专用 ==========
-const testPrompt = ref('hi')
+const testPrompt = ref('')
+const prompts = useTestPrompts(
+  getPublicTestPromptConfigApi,
+  computed(() => props.show),
+  testPrompt,
+  () => state.testStatus.value !== 'testing'
+)
 const maxTokens = ref(1000)
 const maxTokensOptions = [
   { value: 100, label: '100' },
@@ -408,9 +437,40 @@ const apikeyServiceConfigs = {
   }
 }
 
-const apikeyServiceConfig = computed(
-  () => apikeyServiceConfigs[props.serviceType] || apikeyServiceConfigs.claude
+const apikeyServiceConfig = computed(() =>
+  props.interfaceFormat === 'openai-chat'
+    ? {
+        name: 'Chat Completions',
+        endpoint: '/api-key/test-openai-chat',
+        displayEndpoint: '/v1/chat/completions'
+      }
+    : apikeyServiceConfigs[props.serviceType] || apikeyServiceConfigs.claude
 )
+const testDisplayEndpoint = computed(() => {
+  const format =
+    props.interfaceFormat ||
+    { claude: 'claude-messages', gemini: 'gemini-generate', openai: 'openai-responses' }[
+      props.serviceType
+    ]
+  const base = props.routeCode
+    ? `/r/${props.routeCode}`
+    : props.basePath ||
+      {
+        'claude-messages': '/api',
+        'gemini-generate': '/gemini',
+        'openai-chat': '/openai/native',
+        'openai-responses': '/openai'
+      }[format]
+  const path =
+    format === 'gemini-generate'
+      ? `/v1beta/models/${encodeURIComponent(selectedModel.value || 'MODEL')}:streamGenerateContent`
+      : {
+          'claude-messages': '/v1/messages',
+          'openai-chat': '/v1/chat/completions',
+          'openai-responses': '/v1/responses'
+        }[format]
+  return routeAddress(`${base}${path}`)
+})
 
 const maskedApiKey = computed(() => {
   const key = props.apiKeyValue
@@ -421,54 +481,58 @@ const maskedApiKey = computed(() => {
 
 // selectedModel 为空 = 后台测试模型配置尚未加载完；此时禁用测试，避免发出未经后台解析的请求
 const disableTest = computed(
-  () => !selectedModel.value || (props.mode === 'apikey' && !props.apiKeyValue)
+  () =>
+    !selectedModel.value ||
+    !testPrompt.value.trim() ||
+    prompts.loading.value ||
+    (props.mode === 'apikey' && !props.apiKeyValue)
 )
 
 // ========== account 模式 - 平台信息 ==========
 const platformConfigs = {
   claude: {
     label: 'Claude OAuth',
-    icon: 'i-lucide-brain',
+    icon: PLATFORM_ICONS.claude,
     badge: 'bg-indigo-100 text-indigo-700 dark:bg-indigo-500/20 dark:text-indigo-300'
   },
   'claude-console': {
     label: 'Claude Console',
-    icon: 'i-lucide-brain',
+    icon: PLATFORM_ICONS.claude,
     badge: 'bg-purple-100 text-purple-700 dark:bg-purple-500/20 dark:text-purple-300'
   },
   bedrock: {
     label: 'AWS Bedrock',
-    icon: 'i-logos-aws',
+    icon: PLATFORM_ICONS.bedrock,
     badge: 'bg-orange-100 text-orange-700 dark:bg-orange-500/20 dark:text-orange-300'
   },
   gemini: {
     label: 'Gemini',
-    icon: 'i-lucide-gem',
+    icon: PLATFORM_ICONS.gemini,
     badge: 'bg-blue-100 text-blue-700 dark:bg-blue-500/20 dark:text-blue-300'
   },
   'gemini-api': {
     label: 'Gemini API',
-    icon: 'i-lucide-gem',
+    icon: PLATFORM_ICONS.gemini,
     badge: 'bg-blue-100 text-blue-700 dark:bg-blue-500/20 dark:text-blue-300'
   },
   'openai-responses': {
     label: 'OpenAI Responses',
-    icon: 'i-lucide-code',
+    icon: PLATFORM_ICONS.openai,
     badge: 'bg-green-100 text-green-700 dark:bg-green-500/20 dark:text-green-300'
   },
   'azure-openai': {
     label: 'Azure OpenAI',
-    icon: 'i-logos-microsoft-icon',
+    icon: PLATFORM_ICONS.azure_openai,
     badge: 'bg-cyan-100 text-cyan-700 dark:bg-cyan-500/20 dark:text-cyan-300'
   },
   droid: {
     label: 'Droid',
-    icon: 'i-lucide-bot',
+    icon: PLATFORM_ICONS.droid,
     badge: 'bg-pink-100 text-pink-700 dark:bg-pink-500/20 dark:text-pink-300'
   },
   ccr: {
     label: 'CCR',
-    icon: 'i-lucide-key',
+    icon: PLATFORM_ICONS.ccr,
     badge: 'bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300'
   }
 }
@@ -514,13 +578,6 @@ const modalSubtitle = computed(() => {
   return props.apiKeyName || '当前 API Key'
 })
 
-const headerIconBgClass = computed(() => {
-  const s = state.testStatus.value
-  if (s === 'success') return 'bg-gradient-to-br from-green-500 to-emerald-500'
-  if (s === 'error') return 'bg-gradient-to-br from-red-500 to-pink-500'
-  return 'bg-gradient-to-br from-blue-500 to-indigo-500'
-})
-
 const statusDescription = computed(() => {
   const s = state.testStatus.value
   const apiName = props.mode === 'account' ? platformLabel.value : apikeyServiceConfig.value.name
@@ -555,6 +612,7 @@ const getAccountEndpoint = () => {
 }
 
 const startTest = () => {
+  if (disableTest.value || state.testStatus.value === 'testing') return
   if (props.mode === 'account') {
     const endpoint = getAccountEndpoint()
     if (!endpoint) return
@@ -564,7 +622,7 @@ const startTest = () => {
     )
     state.sendTestRequest(
       endpoint,
-      { model: selectedModel.value },
+      { model: selectedModel.value, prompt: testPrompt.value },
       {
         useSSE,
         headers: authToken ? { Authorization: `Bearer ${authToken}` } : {}
@@ -576,6 +634,9 @@ const startTest = () => {
       endpoint,
       {
         apiKey: props.apiKeyValue,
+        apiId: props.expectedApiKeyId ? props.expectedApiKeyId : undefined,
+        routeCode: props.routeCode || undefined,
+        legacyProvider: props.legacyProvider || undefined,
         model: selectedModel.value,
         prompt: testPrompt.value,
         maxTokens: maxTokens.value
@@ -599,19 +660,21 @@ watch(
     if (newVal) {
       state.resetState()
       // 首轮加载失败时每次打开重试拉取（成功后由 watch(defaultModel) 回填 selectedModel、解除按钮禁用）
-      if (!modelsLoaded.value) loadModels()
+      if (props.mode === 'account' || !modelsLoaded.value) loadModels()
       selectedModel.value = defaultModel.value
       if (props.mode === 'apikey') {
-        testPrompt.value = 'hi'
         maxTokens.value = 1000
       }
     }
-  }
+  },
+  { immediate: true }
 )
 
 watch(
   () => [props.account, props.serviceType],
   () => {
+    modelsLoaded.value = false
+    loadModels()
     selectedModel.value = defaultModel.value
   },
   { deep: true }
@@ -624,4 +687,313 @@ watch(defaultModel, (newVal) => {
     selectedModel.value = newVal
   }
 })
+watch(
+  () => props.routeModels,
+  (models) => {
+    if (models && !models.includes(selectedModel.value)) selectedModel.value = defaultModel.value
+  }
+)
 </script>
+
+<style scoped>
+.test-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1050;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 12px;
+  background: rgb(15 23 42 / 0.4);
+  backdrop-filter: blur(3px);
+  font-size: 14px;
+}
+.test-mask {
+  position: absolute;
+  inset: 0;
+}
+.test-dialog {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 640px;
+  max-height: 92dvh;
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--border-color);
+  border-radius: 14px;
+  background: var(--surface-color, #fff);
+  color: var(--text-primary);
+  box-shadow: var(--shadow-lg);
+}
+.test-header {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 18px 12px;
+  border-bottom: 1px solid var(--border-color);
+}
+.test-header h3 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+}
+.test-header p {
+  margin-top: 4px;
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+}
+.test-icon-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  border-radius: 6px;
+}
+.test-icon-button:hover {
+  background: var(--surface-muted);
+}
+.test-body {
+  min-height: 0;
+  overflow: auto;
+  padding: 14px 18px;
+}
+.test-identity {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.test-protocol {
+  color: var(--primary-color);
+  font-weight: 600;
+}
+.test-key {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--text-secondary);
+}
+.test-platform {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+.test-endpoint {
+  margin-bottom: 12px;
+}
+.test-endpoint > span {
+  display: block;
+  color: var(--text-secondary);
+  margin-bottom: 4px;
+}
+.test-endpoint > div {
+  display: flex;
+  align-items: start;
+  gap: 8px;
+}
+.test-endpoint code {
+  min-width: 0;
+  flex: 1;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.test-text-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--primary-color);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.test-fields {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 144px;
+  gap: 12px;
+}
+.test-fields label {
+  display: block;
+  margin-bottom: 5px;
+  font-weight: 500;
+}
+.test-model-field {
+  min-width: 0;
+}
+.test-model-field :deep(.cute-dropdown),
+.test-model-field :deep(.form-input) {
+  min-width: 0;
+}
+.test-note {
+  margin-top: 6px;
+  color: var(--text-secondary);
+}
+.test-prompt-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 14px 0 7px;
+}
+.test-prompt-heading > div {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.test-prompt-heading .cute-dropdown {
+  width: 190px;
+  min-width: 0;
+}
+.test-prompt-heading label {
+  font-weight: 500;
+  flex-shrink: 0;
+}
+.test-prompt {
+  width: 100%;
+  min-height: 76px;
+  resize: vertical;
+}
+.test-error {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 6px;
+  color: var(--danger-color, #dc2626);
+}
+.test-result {
+  margin-top: 14px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--surface-muted);
+}
+.test-result header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border-color);
+}
+.test-result header > span,
+.test-result header > div {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.test-result header > span {
+  font-weight: 500;
+}
+.test-result header > div {
+  color: var(--text-secondary);
+}
+.test-result pre {
+  max-height: 220px;
+  min-height: 70px;
+  margin: 0;
+  padding: 10px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 14px;
+  line-height: 1.55;
+  font-family: inherit;
+}
+.test-result-empty {
+  min-height: 70px;
+  margin: 0;
+  padding: 12px;
+  color: var(--text-secondary);
+}
+.test-result-error {
+  margin: 10px;
+  color: var(--danger-color, #dc2626);
+  overflow-wrap: anywhere;
+}
+.test-result-success {
+  color: var(--success-color, #047857);
+  padding: 0 10px 10px;
+}
+.result-success header > span {
+  color: var(--success-color, #047857);
+}
+.result-error header > span {
+  color: var(--danger-color, #dc2626);
+}
+.result-testing header > span {
+  color: var(--primary-color);
+}
+.test-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 12px 18px;
+  border-top: 1px solid var(--border-color);
+}
+.test-footer > span {
+  color: var(--text-secondary);
+}
+.test-footer > div {
+  display: flex;
+  gap: 8px;
+  margin-left: auto;
+}
+.test-footer .btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.test-dialog button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.test-dialog button:focus-visible {
+  outline: 2px solid var(--primary-color);
+  outline-offset: 2px;
+}
+@media (max-width: 480px) {
+  .test-header,
+  .test-body,
+  .test-footer {
+    padding: 12px;
+  }
+  .test-fields {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 10px;
+  }
+  .test-tokens-field {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+  }
+  .test-tokens-field .cute-dropdown {
+    width: 140px;
+  }
+  .test-prompt-heading {
+    align-items: start;
+    flex-wrap: wrap;
+  }
+  .test-prompt-heading > div {
+    flex: 1;
+    justify-content: flex-end;
+  }
+  .test-prompt-heading .cute-dropdown {
+    width: 150px;
+  }
+  .test-result pre {
+    max-height: 170px;
+  }
+}
+</style>

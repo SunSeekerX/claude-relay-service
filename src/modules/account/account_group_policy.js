@@ -110,8 +110,8 @@ export const assertGroupRequestAllowed = async (group, context = {}) => {
   }
 
   if (context.deferAdmission === true) {
-                return
-              }
+    return
+  }
   const client = redis.getClientSafe()
   const parts = getBusinessParts()
   const dailyLimit = parseNonNegativeNumber(group.dailyLimitUsd, 0)
@@ -192,6 +192,34 @@ export const assertGroupRequestAllowed = async (group, context = {}) => {
       throw createPolicyError(429, `Group ${group.name} RPM limit exceeded (${rpmLimit}/min)`)
     }
   }
+}
+
+export const getGroupSchedulingSnapshot = async (group) => {
+  const client = redis.getClientSafe()
+  const parts = getBusinessParts()
+  const keys = axisCostKeys(group.id, parts)
+  const axes = [
+    ['daily', group.dailyLimitUsd],
+    ['weekly', group.weeklyLimitUsd],
+    ['monthly', group.monthlyLimitUsd],
+  ]
+  if (
+    axes.some(([, limit]) => parseNonNegativeNumber(limit, 0) > 0) &&
+    (await client.get(RedisKeys.accountGroup.costHold(group.id)))
+  ) {
+    return { state: 'blocked', reason: '分组限额请求正在处理中' }
+  }
+  for (const [axis, rawLimit] of axes) {
+    const limit = parseNonNegativeNumber(rawLimit, 0)
+    if (limit > 0 && Number(await client.get(keys[axis])) >= limit) {
+      return { state: 'blocked', reason: '分组额度不足' }
+    }
+  }
+  const rpmLimit = Math.floor(parseNonNegativeNumber(group.rpmLimit, 0))
+  if (rpmLimit > 0 && Number(await client.get(RedisKeys.accountGroup.rpm(group.id, parts.minuteKey))) >= rpmLimit) {
+    return { state: 'blocked', reason: '分组请求频率已满' }
+  }
+  return null
 }
 
 // 失败/结束兜底：原子 GETDEL hold + 按 payload 周期退回预扣

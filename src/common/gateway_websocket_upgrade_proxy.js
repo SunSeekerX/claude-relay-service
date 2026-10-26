@@ -38,8 +38,8 @@ export const proxyWebSocketUpgrade = (
     beforeClientText = null,
     validateClientFrames = false,
     onClose = null,
-    onUpgrade = null
-  } = {}
+    onUpgrade = null,
+  } = {},
 ) => {
   let settled = false
   const settle = (err = null) => {
@@ -189,7 +189,7 @@ export const proxyWebSocketUpgrade = (
         ? createWsFrameSniffer({
             onTextMessage: onUpstreamTextMessage,
             onParseError: (error) => queueMicrotask(() => closeBoth(error)),
-            label: 'upstream'
+            label: 'upstream',
           })
         : null
 
@@ -224,7 +224,7 @@ export const proxyWebSocketUpgrade = (
             label: 'client-to-upstream',
             rewriteText: onClientToUpstreamText,
             beforeText: beforeClientText,
-            failClosed: validateClientFrames
+            failClosed: validateClientFrames,
           })
         : null
 
@@ -274,8 +274,8 @@ export const proxyWebSocketUpgrade = (
           throw error
         }
         if (!output || !output.length || upSocket.destroyed) {
-            continue
-          }
+          continue
+        }
         const ok = upSocket.write(output)
         if (!ok) {
           socket.pause()
@@ -293,8 +293,8 @@ export const proxyWebSocketUpgrade = (
           try {
             await writeClientChunkToUpstream(chunk)
             if (!socket.destroyed && !upSocket.writableNeedDrain) {
-                                             socket.resume()
-                                           }
+              socket.resume()
+            }
           } finally {
             writingClient = false
           }
@@ -311,8 +311,8 @@ export const proxyWebSocketUpgrade = (
     socket.on('data', enqueueClientChunk)
     upSocket.on('drain', () => {
       if (!socket.destroyed && !writingClient) {
-                          socket.resume()
-                        }
+        socket.resume()
+      }
     })
 
     const closeBoth = (err = null) => {

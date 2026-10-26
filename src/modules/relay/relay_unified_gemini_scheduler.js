@@ -1,4 +1,5 @@
 import * as geminiAccountService from '../account/account_gemini_service.js'
+import { getRouteAccount } from './relay_routing_service.js'
 import { assertModelAccess } from './relay_model_access.js'
 import { geminiApiAccountService } from '../account/account_gemini_api_service.js'
 import { accountGroupService } from '../account/account_group_service.js'
@@ -84,6 +85,35 @@ class UnifiedGeminiScheduler {
     const normalizedOauthProvider = oauthProvider ? normalizeOauthProvider(oauthProvider) : null
 
     try {
+      const route = apiKeyData._relayRoute
+      if (route) {
+        if (!['gemini', 'antigravity'].includes(route.provider)) {
+          throw new Error('入口与 Gemini 调度器不匹配')
+        }
+        if (route.binding.startsWith('group:')) {
+          return await this.selectAccountFromGroup(route.binding.slice(6), sessionHash, requestedModel, apiKeyData, {
+            allowApiAccounts,
+            oauthProvider: normalizedOauthProvider ?? normalizeOauthProvider(route.provider)
+          })
+        }
+        const target = await getRouteAccount(route.provider, route.binding)
+        if (
+          !target ||
+          (target.accountType === 'gemini-api' && !allowApiAccounts) ||
+          !(await this._isAccountAvailable(target.accountId, target.accountType)) ||
+          !this._isGeminiModelSupported(target.account, requestedModel)
+        ) {
+          const error = new Error('入口绑定账号当前不可用或不支持此接口')
+          error.statusCode = 503
+          throw error
+        }
+        if (target.accountType === 'gemini-api') {
+          await geminiApiAccountService.markAccountUsed(target.accountId)
+        } else {
+          await geminiAccountService.markAccountUsed(target.accountId)
+        }
+        return { accountId: target.accountId, accountType: target.accountType }
+      }
       // 如果API Key绑定了专属账户或分组，优先使用
       if (apiKeyData.geminiAccountId) {
         // 检查是否是 Gemini API 账户（api: 前缀）
@@ -653,7 +683,13 @@ class UnifiedGeminiScheduler {
   }
 
   // 从分组中选择账户（支持 Gemini OAuth 和 Gemini API 两种账户类型）
-  async selectAccountFromGroup(groupId, sessionHash = null, requestedModel = null, holdTarget = null) {
+  async selectAccountFromGroup(groupId, sessionHash = null, requestedModel = null, holdTarget = null, routeOptions = {}) {
+    const routeMemberAllowed = (account, accountType) => {
+      if (!holdTarget?._relayRoute) {return true}
+      if (!account) {return false}
+      if (accountType === 'gemini-api') {return routeOptions.allowApiAccounts === true && routeOptions.oauthProvider !== OAUTH_PROVIDER_ANTIGRAVITY}
+      return normalizeOauthProvider(account.oauthProvider) === routeOptions.oauthProvider
+    }
     let releaseGroupCostHoldOnce = null
     try {
       // 获取分组信息
@@ -695,7 +731,14 @@ class UnifiedGeminiScheduler {
           // 验证映射的账户是否属于这个分组
           const memberIds = await accountGroupService.getGroupMembers(groupId)
           if (memberIds.includes(mappedAccount.accountId)) {
-            const isAvailable = await this._isAccountAvailable(mappedAccount.accountId, mappedAccount.accountType)
+            let routeEligible = true
+            if (holdTarget?._relayRoute) {
+              const mapped = mappedAccount.accountType === 'gemini-api'
+                ? await geminiApiAccountService.getAccount(mappedAccount.accountId)
+                : await geminiAccountService.getAccount(mappedAccount.accountId)
+              routeEligible = routeMemberAllowed(mapped, mappedAccount.accountType) && this._isGeminiModelSupported(mapped, requestedModel)
+            }
+            const isAvailable = routeEligible && await this._isAccountAvailable(mappedAccount.accountId, mappedAccount.accountType)
             if (isAvailable) {
               // 智能会话续期（续期 unified 映射键，按配置）
               await this._extendSessionMappingTTL(sessionHash)
@@ -740,6 +783,7 @@ class UnifiedGeminiScheduler {
           logger.warn(`Gemini account ${memberId} not found in group ${group.name}`)
           continue
         }
+        if (!routeMemberAllowed(account, accountType)) {continue}
 
         // [人工决策-2026-06-03 14:51:27] 分组成员统一委托 _isAccountAvailable(硬门+开关绕过上游错误,含 token 失效硬门) + 模型,
         // 与共享/复检同一判定,不再内联手抄

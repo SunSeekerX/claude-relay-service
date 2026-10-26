@@ -1,0 +1,76 @@
+:root {
+  --control-height: 36px;
+  --control-line: color-mix(in srgb, var(--text-primary) 14%, transparent);
+  --control-hover-line: color-mix(in srgb, var(--primary-color) 24%, transparent);
+  --control-accent-text: color-mix(in srgb, var(--primary-color) 60%, var(--text-primary));
+}
+html .btn {
+  min-height: var(--control-height);
+  padding-block: 0;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  font-size: 14px;
+  line-height: 1.4;
+  transition: background-color 150ms, color 150ms, border-color 150ms, box-shadow 150ms, translate 150ms;
+  transform: none;
+}
+html .btn:is(.h-8, .\!h-8) { min-height: 32px; height: 32px; }
+html .btn.h-10 { height: var(--control-height); }
+html .btn.btn-primary,
+html .tab-btn.active {
+  background: linear-gradient(135deg, var(--action-primary, #4e60b4), var(--action-secondary, #764ba2));
+  color: #fff;
+  box-shadow: 0 2px 7px color-mix(in srgb, var(--primary-color) 15%, transparent);
+}
+html .btn:is(.btn-primary, .btn-secondary):hover { transform: none; }
+html .btn.btn-secondary { background: var(--surface-muted); color: var(--text-primary); border-color: var(--control-line); box-shadow: 0 1px 4px rgb(0 0 0 / .05); }
+html .btn.btn-success { background: #047857; color: #fff; }
+html .btn.btn-danger { background: #b91c1c; color: #fff; }
+html .btn:is(.btn-success, .btn-danger):hover { transform: none; box-shadow: 0 2px 7px rgb(0 0 0 / .1); }
+html .btn:disabled { cursor: not-allowed; opacity: .5; translate: none; }
+html:root :is(input, select, button).form-input {
+  height: var(--control-height);
+  padding-block: 0;
+  border-color: var(--control-line);
+  border-radius: 10px;
+  font-size: 14px;
+}
+html:root textarea.form-input { border-color: var(--control-line); font-size: 14px; }
+html:root .form-input:hover { border-color: var(--control-hover-line); }
+html:root .form-input:focus { border-color: var(--control-accent-text); box-shadow: none; }
+html .form-input::placeholder { color: var(--text-muted); opacity: 1; }
+html body .cute-dropdown .cute-dropdown__trigger {
+  height: var(--control-height);
+  min-height: var(--control-height);
+  max-height: var(--control-height);
+  border-color: var(--control-line);
+  color: var(--text-primary);
+  background: var(--input-bg);
+  border-radius: 10px;
+  box-shadow: 0 1px 4px rgb(0 0 0 / .04);
+  transform: none;
+}
+html .cute-dropdown.cd-md { --cute-trigger-h: var(--control-height); }
+html body .cute-dropdown.cd-sm .cute-dropdown__trigger { height: 32px; min-height: 32px; max-height: 32px; }
+html body .cute-dropdown .cute-dropdown__trigger:hover { border-color: var(--control-hover-line); box-shadow: 0 2px 7px rgb(0 0 0 / .06); }
+html body .cute-dropdown .cute-dropdown__trigger.is-open { border-color: var(--control-accent-text); box-shadow: none; }
+html body .cute-dropdown__panel.cute-dropdown__panel { border-color: var(--control-line); }
+html body .cute-dropdown__option.cute-dropdown__option.is-selected { color: color-mix(in srgb, var(--cute-accent, var(--primary-color)) 60%, var(--text-primary)); }
+html .seg-tabs .seg-tabs__item.is-active { color: var(--control-accent-text); }
+html .seg-tabs .seg-tabs__item { transform: none; }
+html :is(.btn, .form-input, .tab-btn, .seg-tabs__item):focus-visible,
+html body .cute-dropdown .cute-dropdown__trigger:focus-visible {
+  outline: 2px solid var(--control-accent-text);
+  outline-offset: 2px;
+  box-shadow: none;
+}
+html :is(.table-row, .stat-card):hover { transform: none; }
+html .tab-btn.active { transform: none; }
+@media (hover: hover) and (pointer: fine) {
+  html .btn:where(:hover:not(:disabled)) { translate: var(--action-translate, 0 -1px); }
+  html :is(table, [role='tablist'], .seg-tabs) .btn { --action-translate: 0px; transform: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; scroll-behavior: auto !important; }
+  html .btn { translate: none; }
+}

@@ -2,13 +2,7 @@ import { getRequestTimings } from '../../common/request_timing.js'
 import { logger } from '../../common/logger.js'
 import { requestDetailService } from './relay_request_detail_service.js'
 
-export const createClaudeStreamFinalizer = ({
-  state,
-  usageCallback,
-  clientRequest,
-  accountId,
-  accountType
-}) => {
+export const createClaudeStreamFinalizer = ({ state, usageCallback, clientRequest, accountId, accountType }) => {
   let finalized = null
   return (transportError = null) => {
     if (finalized) {
@@ -30,7 +24,7 @@ export const createClaudeStreamFinalizer = ({
             apiKeyId: clientRequest.apiKey?.id,
             accountId,
             accountType,
-            result: { ...result, model: state.usage.model, stream: true }
+            result: { ...result, model: state.usage.model, stream: true },
           })
         }
       } catch (error) {
@@ -43,7 +37,7 @@ export const createClaudeStreamFinalizer = ({
         terminalType: state.terminalType,
         statusCode: result.statusCode,
         hasUsage: Boolean(usage),
-        timings: getRequestTimings(clientRequest)
+        timings: getRequestTimings(clientRequest),
       })
       return result
     })

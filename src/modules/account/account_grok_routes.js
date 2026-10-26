@@ -1,8 +1,10 @@
 import express from 'express'
+import { markAccountModelIdentityUpdate } from './account_model_identity.js'
 import axios from 'axios'
 
 import { grokAccountService } from './account_grok_service.js'
 import { testModelConfigService } from '../relay/relay_test_model_config_service.js'
+import { testPromptConfigService } from '../relay/relay_test_prompt_config_service.js'
 import { apiKeyService } from '../apikey/apikey_service.js'
 import { accountGroupService } from './account_group_service.js'
 import { redis } from '../../infra/redis.js'
@@ -207,7 +209,7 @@ router.put(
           delete updates[field]
         }
       }
-      await grokAccountService.updateAccount(req.params.id, updates)
+      await grokAccountService.updateAccount(req.params.id, markAccountModelIdentityUpdate(updates))
       return ok()
     } catch (error) {
       throw badRequest(error.message)
@@ -365,6 +367,7 @@ router.post(
 
     const body = parseObjectBody(req.body, '测试Grok账户')
     const model = body.model || (await testModelConfigService.resolveAccountModel?.('grok', body.model)) || 'grok-4.6'
+    const prompt = await testPromptConfigService.resolvePrompt(body.prompt)
     const mappedModel = xaiHelper.mapModel(model)
     const token = account.authType === 'apikey' ? account.apiKey : account.accessToken
     if (!token) {
@@ -378,8 +381,8 @@ router.post(
       url,
       {
         model: mappedModel,
-        messages: [{ role: 'user', content: 'ping' }],
-        max_tokens: 8,
+        messages: [{ role: 'user', content: prompt }],
+        max_tokens: 256,
         stream: false,
       },
       {

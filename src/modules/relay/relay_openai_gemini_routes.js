@@ -1,4 +1,6 @@
+import { mapGeminiUsageToOpenAI } from './relay_gemini_to_openai.js'
 import express from 'express'
+import { StringDecoder } from 'node:string_decoder'
 import { logger } from '../../common/logger.js'
 import { onClientDisconnect } from '../../common/client_disconnect.js'
 import { authenticateApiKey } from '../../infra/middleware_auth.js'
@@ -7,7 +9,7 @@ import { unifiedGeminiScheduler } from './relay_unified_gemini_scheduler.js'
 import { getAvailableModels } from './relay_gemini_relay_service.js'
 import crypto from 'node:crypto'
 import { apiKeyService } from '../apikey/apikey_service.js'
-import { buildTokenUsagePayload, createRequestDetailMeta } from './relay_request_detail_helper.js'
+import { buildGeminiTokenUsagePayload, createRequestDetailMeta } from './relay_request_detail_helper.js'
 import { openAIContentToGeminiParts } from './translator/relay_translator_gemini_parts.js'
 import { ensureAntigravityProjectId } from './relay_antigravity_client.js'
 export const router = express.Router()
@@ -168,11 +170,7 @@ const convertGeminiResponseToOpenAI = (geminiResponse, model, stream = false) =>
             finish_reason: finishReason,
           },
         ],
-        usage: {
-          prompt_tokens: usage.promptTokenCount,
-          completion_tokens: usage.candidatesTokenCount,
-          total_tokens: usage.totalTokenCount,
-        },
+        usage: mapGeminiUsageToOpenAI(usage),
       }
     } else {
       throw new Error('No response from Gemini')
@@ -389,6 +387,7 @@ router.post('/v1/chat/completions', authenticateApiKey, async (req, res) => {
 
       // 处理流式响应，转换为 OpenAI 格式
       let buffer = ''
+      const decoder = new StringDecoder('utf8')
 
       // 发送初始的空消息，符合 OpenAI 流式格式
       const initialChunk = {
@@ -416,7 +415,7 @@ router.post('/v1/chat/completions', authenticateApiKey, async (req, res) => {
 
       streamResponse.on('data', (chunk) => {
         try {
-          const chunkStr = chunk.toString()
+          const chunkStr = decoder.write(chunk)
 
           if (!chunkStr.trim()) {
             return
@@ -490,11 +489,7 @@ router.post('/v1/chat/completions', authenticateApiKey, async (req, res) => {
                             finish_reason: 'stop',
                           },
                         ],
-                        usage: {
-                          prompt_tokens: data.response.usageMetadata.promptTokenCount || 0,
-                          completion_tokens: data.response.usageMetadata.candidatesTokenCount || 0,
-                          total_tokens: data.response.usageMetadata.totalTokenCount || 0,
-                        },
+                        usage: mapGeminiUsageToOpenAI(data.response.usageMetadata),
                       }
                       res.write(`data: ${JSON.stringify(usageChunk)}\n\n`)
                     }
@@ -527,11 +522,7 @@ router.post('/v1/chat/completions', authenticateApiKey, async (req, res) => {
           try {
             await apiKeyService.recordUsage(
               apiKeyData.id,
-              buildTokenUsagePayload({
-                inputTokens: totalUsage.promptTokenCount || 0,
-                outputTokens: totalUsage.candidatesTokenCount || 0,
-                rawUsage: totalUsage,
-              }),
+              buildGeminiTokenUsagePayload(totalUsage),
               model,
               account.id,
               'gemini',
@@ -636,14 +627,7 @@ router.post('/v1/chat/completions', authenticateApiKey, async (req, res) => {
         try {
           await apiKeyService.recordUsage(
             apiKeyData.id,
-            buildTokenUsagePayload({
-              inputTokens: openaiResponse.usage.prompt_tokens || 0,
-              outputTokens: openaiResponse.usage.completion_tokens || 0,
-              rawUsage: {
-                ...openaiResponse.usage,
-                thoughtsTokenCount: openaiResponse.usage.completion_tokens_details?.reasoning_tokens || 0,
-              },
-            }),
+            buildGeminiTokenUsagePayload((response.response ?? response).usageMetadata),
             model,
             account.id,
             'gemini',

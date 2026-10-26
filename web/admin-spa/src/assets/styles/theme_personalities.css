@@ -1,0 +1,652 @@
+/* 主题的构图与材质；颜色、字号和密度仍由统一 token 提供。 */
+html[data-theme]:root body :is(.card, .stat-card, .appearance-example) {
+  background: var(--card-face);
+  box-shadow: var(--card-shadow);
+}
+html[data-theme]:root
+  body
+  :is(.header-title, .app-dialog__title, .appearance-example__heading, .dashboard-page h3) {
+  font-family: var(--heading-font);
+}
+html[data-theme]:root body .tab-scroll {
+  background: var(--navigation-face);
+  backdrop-filter: none;
+}
+html[data-theme]:root body :is(.tab-btn.active, .tab-pill-button.active) {
+  background: var(--navigation-active-bg);
+  color: var(--navigation-active-color) !important;
+}
+html[data-theme]:root body .stat-icon {
+  background: var(--metric-icon-bg);
+  color: var(--metric-icon-color);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  box-shadow: none;
+}
+html[data-theme]:root body .stat-icon i {
+  color: inherit;
+}
+html[data-theme]:root body :is(.form-input, .cute-dropdown__trigger, .wide-card-input) {
+  background: var(--control-face);
+}
+html[data-theme]:root body .appearance-example {
+  position: relative;
+  border-radius: var(--radius-md);
+}
+.theme-window-controls {
+  display: none;
+}
+html[data-theme]:root .app-header-brand > div:first-child {
+  background: var(--metric-icon-bg);
+  border-color: var(--border-color);
+  border-radius: var(--radius-sm);
+}
+
+/* 默认紫：轻盈浮层，主导航悬在内容之上。 */
+html[data-theme='purple'] .app-header {
+  border-top: 3px solid var(--primary-color);
+}
+html[data-theme='purple'] .tab-scroll {
+  box-shadow: 0 5px 14px rgba(var(--primary-rgb), 0.12);
+}
+html[data-theme='purple'] .stat-card {
+  border-top: 2px solid var(--primary-soft-strong);
+}
+html[data-theme='purple'] .stat-icon {
+  border: 0;
+  border-radius: 12px;
+}
+
+/* 青瓷：釉面大留白、含蓄的短底线和无底图标。 */
+html[data-theme='celadon'] .app-header {
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+}
+html[data-theme='celadon'] .main-panel {
+  border-color: transparent;
+}
+html[data-theme='celadon']:root body .tab-scroll {
+  border: 0;
+  border-bottom: 1px solid var(--divider-color);
+  border-radius: 0;
+  padding-bottom: 8px;
+  box-shadow: none;
+}
+html[data-theme='celadon']:root body .tab-btn.active {
+  box-shadow: none;
+}
+html[data-theme='celadon'] .tab-btn.active::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 30%;
+  right: 30%;
+  height: 3px;
+  border-radius: 3px;
+  background: var(--primary-color);
+}
+html[data-theme='celadon'] :is(.stat-card, .appearance-example) {
+  border-color: transparent;
+}
+html[data-theme='celadon'] .stat-card {
+  padding: calc(var(--card-padding) + 7px);
+}
+html[data-theme='celadon'] .dashboard-summary-grid {
+  gap: 18px;
+}
+html[data-theme='celadon']:root body .stat-icon {
+  border: 0;
+  width: 44px;
+  height: 44px;
+}
+html[data-theme='celadon']:root body .stat-icon i {
+  width: 25px !important;
+  height: 25px !important;
+}
+html[data-theme='celadon'] :is(.btn, .toolbar-btn) {
+  border-radius: 12px;
+}
+html[data-theme='celadon'] .modal-content {
+  border: 0;
+}
+
+/* 朱砂：漆器边框与方印，金线只用于表面的接缝。 */
+html[data-theme='cinnabar'] .app-header {
+  border-bottom: 3px solid var(--primary-color);
+}
+html[data-theme='cinnabar'] :is(.main-panel, .modal-content) {
+  border-top: 2px solid var(--primary-color);
+}
+html[data-theme='cinnabar']:root body :is(.stat-card, .appearance-example) {
+  border-left: 3px solid var(--primary-color);
+  border-top-color: color-mix(in srgb, var(--warning-color) 55%, var(--border-color));
+}
+html[data-theme='cinnabar']:root body .tab-scroll {
+  border-bottom: 2px solid var(--primary-color);
+  padding: 5px 5px 0;
+  border-radius: 0;
+}
+html[data-theme='cinnabar']:root body .tab-btn {
+  border-radius: 2px 2px 0 0;
+}
+html[data-theme='cinnabar']:root body :is(.btn, .toolbar-btn) {
+  box-shadow: inset 0 0 0 1px var(--surface-highlight);
+}
+html[data-theme='cinnabar'] .btn-primary {
+  border: 1px solid var(--warning-color);
+}
+html[data-theme='cinnabar']:root body .stat-icon {
+  border: 0;
+  border-radius: 2px;
+}
+html[data-theme='cinnabar'] .app-dialog__header {
+  border-bottom: 1px solid var(--warning-color);
+}
+html[data-theme='cinnabar']:root .table-container table th {
+  border-bottom: 2px solid var(--primary-color);
+}
+
+/* 墨玉：磨砂石面与窄侧栏，弱化卡片投影。 */
+html[data-theme='jade'] .app-header {
+  border-radius: 0;
+  border-width: 0 0 1px;
+  box-shadow: none;
+  background: var(--surface-muted);
+}
+html[data-theme='jade'] .main-panel {
+  border-width: 0;
+  background: transparent;
+  box-shadow: none;
+}
+html[data-theme='jade'] :is(.stat-card, .appearance-example) {
+  border-color: var(--input-border);
+}
+html[data-theme='jade']:root body .stat-icon {
+  border: 1px solid var(--primary-color);
+  border-radius: 50%;
+  width: 32px;
+  min-width: 32px;
+  height: 32px;
+  min-height: 32px;
+}
+html[data-theme='jade'] .tab-btn.active {
+  box-shadow: inset 3px 0 0 var(--primary-color);
+}
+html[data-theme='jade'] .stat-card p.text-xl {
+  font-weight: 500;
+  letter-spacing: -0.04em;
+}
+html[data-theme='jade']:root body .btn-primary {
+  box-shadow: inset 0 0 0 1px var(--surface-highlight);
+}
+
+/* 藏蓝：蓝图细网格、书卷标题、索引式导航。 */
+html[data-theme='indigo'] body {
+  background:
+    linear-gradient(rgba(var(--primary-rgb), 0.045) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(var(--primary-rgb), 0.045) 1px, transparent 1px), var(--page-bg);
+  background-size: 24px 24px;
+}
+html[data-theme='indigo'] .app-header {
+  border-width: 0 0 2px;
+  border-color: var(--primary-color);
+  background: transparent;
+  box-shadow: none;
+}
+html[data-theme='indigo'] .main-panel {
+  border: 1px solid var(--primary-color);
+  box-shadow: 4px 4px 0 var(--border-color);
+}
+html[data-theme='indigo']:root body .tab-scroll {
+  border-width: 0 0 1px;
+  border-color: var(--primary-color);
+  border-radius: 0;
+  padding-bottom: 0;
+}
+html[data-theme='indigo']:root body .tab-btn {
+  border-radius: 0;
+  border-right: 1px dashed var(--border-color);
+}
+html[data-theme='indigo']:root body .tab-btn.active {
+  box-shadow: inset 0 -3px 0 var(--primary-color);
+}
+html[data-theme='indigo'] :is(.card, .stat-card, .appearance-example) {
+  border-style: dashed;
+}
+html[data-theme='indigo']:root body .stat-icon {
+  border: 0;
+}
+html[data-theme='indigo'] .stat-card {
+  border-bottom: 2px solid var(--primary-color);
+}
+html[data-theme='indigo']:root .table-container table :is(th, td) {
+  border-right: 1px solid var(--divider-color);
+}
+html[data-theme='indigo']:root .table-container table th {
+  border-bottom: 2px solid var(--primary-color);
+}
+html[data-theme='indigo'] .modal-content {
+  box-shadow: 6px 6px 0 var(--border-color);
+  border: 1px solid var(--primary-color);
+}
+
+/* 琥珀：黄铜细边和文件夹页签。 */
+html[data-theme='amber'] .app-header {
+  border-bottom: 2px solid var(--primary-color);
+}
+html[data-theme='amber']:root body .tab-scroll {
+  border: 0;
+  border-bottom: 1px solid var(--primary-color);
+  border-radius: 0;
+  padding: 4px 4px 0;
+  gap: 4px;
+}
+html[data-theme='amber']:root body .tab-btn {
+  border: 1px solid transparent;
+  border-bottom: 0;
+  border-radius: 9px 9px 0 0;
+}
+html[data-theme='amber']:root body .tab-btn.active {
+  border-color: var(--primary-color);
+  box-shadow: inset 0 3px 0 var(--primary-color);
+}
+html[data-theme='amber'] :is(.stat-card, .appearance-example) {
+  border-top: 3px solid var(--primary-color);
+}
+html[data-theme='amber']:root body .stat-icon {
+  border-radius: 50%;
+  border: 1px solid var(--primary-color);
+}
+html[data-theme='amber']:root body .btn-primary {
+  border: 1px solid var(--warning-color);
+  box-shadow:
+    inset 0 1px 0 var(--surface-highlight),
+    0 2px 0 var(--secondary-color);
+}
+html[data-theme='amber'] .app-dialog__header {
+  border-bottom: 2px solid var(--primary-color);
+}
+
+/* 胭脂：软纸卡片、圆形图标和大胶囊。 */
+html[data-theme='rouge'] .app-header {
+  border: 0;
+  border-radius: 32px;
+}
+html[data-theme='rouge'] .main-panel {
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+html[data-theme='rouge']:root body .tab-scroll {
+  border: 0;
+  border-radius: 999px;
+  padding: 7px;
+}
+html[data-theme='rouge']:root body .tab-btn {
+  border-radius: 999px;
+}
+html[data-theme='rouge']:root body .tab-btn.active {
+  box-shadow: 0 3px 9px rgba(var(--primary-rgb), 0.13);
+}
+html[data-theme='rouge']:root body :is(.stat-card, .appearance-example) {
+  border: 0;
+  border-radius: 26px;
+}
+html[data-theme='rouge']:root body .stat-icon {
+  border: 0;
+  border-radius: 50%;
+  width: 48px;
+  min-width: 48px;
+  height: 48px;
+  min-height: 48px;
+}
+html[data-theme='rouge']:root body :is(.btn, .toolbar-btn, .form-input, .cute-dropdown__trigger) {
+  border-radius: 999px;
+}
+html[data-theme='rouge']:root body textarea.form-input {
+  border-radius: 18px;
+}
+html[data-theme='rouge'] .stat-card {
+  padding: calc(var(--card-padding) + 5px);
+}
+
+/* 极简灰：直角、实线、无投影，统计信息合并为一组。 */
+html[data-theme='zinc'] .app-header {
+  border-width: 0 0 1px;
+  border-radius: 0;
+  box-shadow: none;
+  background: var(--surface-color);
+}
+html[data-theme='zinc'] .main-panel {
+  border: 0;
+  border-radius: 0;
+  padding: 0;
+  box-shadow: none;
+}
+html[data-theme='zinc']:root
+  body
+  :is(
+    .stat-card,
+    .card,
+    .appearance-example,
+    .modal-content,
+    .cute-dropdown__panel,
+    .user-menu-dropdown,
+    .btn,
+    .toolbar-btn,
+    .form-input,
+    .cute-dropdown__trigger
+  ) {
+  border-radius: 0;
+  box-shadow: none;
+}
+html[data-theme='zinc'] .dashboard-summary-grid {
+  gap: 0;
+  border: 1px solid var(--border-color);
+}
+html[data-theme='zinc'] .dashboard-summary-grid .stat-card {
+  border: 0;
+  border-right: 1px solid var(--border-color);
+}
+html[data-theme='zinc'] .dashboard-summary-grid .stat-card:last-child {
+  border-right: 0;
+}
+html[data-theme='zinc']:root body .stat-icon {
+  border: 0;
+  width: 28px;
+  min-width: 28px;
+  height: 28px;
+  min-height: 28px;
+}
+html[data-theme='zinc']:root body .tab-scroll {
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+html[data-theme='zinc']:root body .tab-btn {
+  border-radius: 0;
+}
+html[data-theme='zinc']:root body .tab-btn.active {
+  box-shadow: inset 2px 0 0 var(--text-primary);
+}
+html[data-theme='zinc'] .app-dialog__header {
+  border-bottom-color: var(--text-primary);
+}
+
+/* macOS：窗口工具栏、彩色窗口标记与分组式侧栏。 */
+html[data-theme='macos'] .theme-window-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-right: 6px;
+}
+html[data-theme='macos'] .theme-window-controls span {
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: #fa6158;
+  border: 1px solid rgb(0 0 0 / 0.12);
+}
+html[data-theme='macos'] .theme-window-controls span:nth-child(2) {
+  background: #fdbc40;
+}
+html[data-theme='macos'] .theme-window-controls span:nth-child(3) {
+  background: #34c84a;
+}
+html[data-theme='macos'] .app-header {
+  margin-bottom: 0;
+  border-radius: 14px 14px 0 0;
+  border-bottom: 1px solid var(--border-color);
+  background: linear-gradient(var(--surface-color), var(--surface-muted));
+  box-shadow: none;
+}
+html[data-theme='macos'] .header-title {
+  font-size: 20px;
+}
+html[data-theme='macos']:root body .user-menu-button {
+  background: var(--surface-color);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  box-shadow: var(--shadow-sm);
+}
+html[data-theme='macos'] .main-panel {
+  border-top: 0;
+  border-radius: 0 0 14px 14px;
+  box-shadow: 0 14px 36px rgb(0 0 0 / 0.1);
+}
+html[data-theme='macos']:root body .stat-icon {
+  width: 32px;
+  min-width: 32px;
+  height: 32px;
+  min-height: 32px;
+  border: 0;
+  border-radius: 8px;
+}
+html[data-theme='macos']:root body .tab-scroll {
+  border: 0;
+  box-shadow: none;
+}
+html[data-theme='macos']:root body .tab-btn {
+  border-radius: 6px;
+}
+html[data-theme='macos']:root body .btn-primary {
+  background: var(--action-primary);
+  border-radius: 6px;
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.2),
+    0 1px 2px rgb(0 0 0 / 0.12);
+}
+html[data-theme='macos'] .app-dialog__header {
+  background: var(--surface-muted);
+}
+
+/* 流光玻璃：独立浮层、透景卡片和稳定的折射边缘。 */
+html[data-theme='liquid_glass'] body {
+  background:
+    radial-gradient(ellipse at 5% 8%, rgba(var(--primary-rgb), 0.32), transparent 48%),
+    radial-gradient(ellipse at 95% 65%, rgba(var(--accent-rgb), 0.28), transparent 46%),
+    radial-gradient(ellipse at 45% 95%, rgba(var(--secondary-rgb), 0.22), transparent 45%),
+    var(--page-bg);
+  background-attachment: fixed;
+}
+html[data-theme='liquid_glass'] .main-panel {
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  backdrop-filter: none;
+  padding-inline: 0;
+}
+html[data-theme='liquid_glass'] .tab-bar-sticky {
+  background: transparent;
+}
+html[data-theme='liquid_glass']
+  :is(.app-header, .card, .stat-card, .appearance-example, .modal-content) {
+  background: var(--card-face);
+  border-color: var(--surface-highlight);
+  box-shadow: var(--card-shadow);
+  backdrop-filter: blur(24px) saturate(1.25);
+}
+html[data-theme='liquid_glass']:root body .tab-scroll {
+  border-color: var(--surface-highlight);
+  border-radius: 999px;
+  padding: 7px;
+  box-shadow: var(--card-shadow);
+  backdrop-filter: blur(24px);
+}
+html[data-theme='liquid_glass']:root body .tab-btn {
+  border-radius: 999px;
+}
+html[data-theme='liquid_glass']:root body .tab-btn.active {
+  box-shadow:
+    inset 0 1px 0 var(--surface-highlight),
+    0 3px 12px rgba(var(--primary-rgb), 0.18);
+}
+html[data-theme='liquid_glass']:root body .stat-icon {
+  border-radius: 15px;
+  border-color: var(--surface-highlight);
+  box-shadow: inset 0 1px 0 var(--surface-highlight);
+}
+html[data-theme='liquid_glass']:root body :is(.btn, .form-input, .cute-dropdown__trigger) {
+  box-shadow: inset 0 1px 0 var(--surface-highlight);
+}
+html[data-theme='liquid_glass'] .app-dialog__header {
+  background: transparent;
+}
+
+/* 锤子：实体面板、压低的导航槽和有行程的按键。 */
+html[data-theme='smartisan'] body {
+  background:
+    repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 2px,
+      rgba(var(--secondary-rgb), 0.035) 3px
+    ),
+    var(--page-bg);
+}
+html[data-theme='smartisan'] .app-header {
+  background: linear-gradient(var(--surface-color), var(--surface-muted));
+  box-shadow: var(--relief-shadow);
+  border-bottom: 2px solid var(--input-border);
+}
+html[data-theme='smartisan'] .main-panel {
+  box-shadow:
+    inset 0 1px 0 var(--surface-highlight),
+    0 3px 8px rgb(0 0 0 / 0.12);
+}
+html[data-theme='smartisan']:root body .tab-scroll {
+  padding: 5px;
+  border-color: var(--input-border);
+  box-shadow:
+    inset 0 2px 5px rgb(0 0 0 / 0.16),
+    0 1px 0 var(--surface-highlight);
+}
+html[data-theme='smartisan']:root body .tab-btn {
+  border-radius: 4px;
+}
+html[data-theme='smartisan']:root body .tab-btn.active {
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.25),
+    0 2px 3px rgb(0 0 0 / 0.25);
+}
+html[data-theme='smartisan']:root body :is(.btn, .toolbar-btn) {
+  box-shadow: var(--relief-shadow);
+  border: 1px solid var(--input-border);
+  translate: none;
+}
+html[data-theme='smartisan']:root body :is(.btn, .toolbar-btn):active:not(:disabled) {
+  translate: 0 1px;
+  box-shadow: inset 0 2px 4px rgb(0 0 0 / 0.18);
+}
+html[data-theme='smartisan']:root body :is(.form-input, .cute-dropdown__trigger) {
+  box-shadow:
+    inset 0 2px 4px rgb(0 0 0 / 0.12),
+    0 1px 0 var(--surface-highlight);
+}
+html[data-theme='smartisan']:root body .stat-icon {
+  box-shadow: var(--relief-shadow);
+}
+html[data-theme='smartisan'] .app-dialog__header {
+  background: linear-gradient(var(--surface-color), var(--surface-muted));
+  border-bottom: 2px solid var(--input-border);
+}
+html[data-theme='smartisan']:root .table-container table th {
+  background: linear-gradient(var(--surface-color), var(--surface-muted));
+  box-shadow:
+    inset 0 1px 0 var(--surface-highlight),
+    0 1px 2px rgb(0 0 0 / 0.12);
+}
+
+/* 侧栏改变页面构图；窄屏完整保留横向导航。 */
+@media (min-width: 1100px) {
+  html[data-theme-layout='sidebar'] .main-panel {
+    display: grid;
+    grid-template-columns: 174px minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr);
+    padding: 0;
+  }
+  html[data-theme-layout='sidebar'] .tab-bar-sticky {
+    position: static;
+    margin: 0;
+    padding: 14px 10px;
+    background: var(--surface-muted);
+    border-right: 1px solid var(--border-color);
+    overflow-y: auto;
+  }
+  html[data-theme-layout='sidebar']:root body .tab-scroll {
+    flex-direction: column;
+    flex-wrap: nowrap;
+    gap: 5px;
+    padding: 0;
+    background: transparent;
+    overflow: visible;
+    border-radius: 0;
+    box-shadow: none;
+  }
+  html[data-theme-layout='sidebar']:root body .tab-btn {
+    display: flex;
+    align-items: center;
+    flex: none;
+    justify-content: flex-start;
+    min-height: 40px;
+    padding: 10px 12px;
+    text-align: left;
+  }
+  html[data-theme-layout='sidebar'] .workspace-content {
+    min-width: 0;
+    padding: 20px;
+    overflow: auto;
+  }
+  html[data-theme='jade'] .tab-bar-sticky {
+    background: var(--surface-muted);
+  }
+  html[data-theme='jade'] .workspace-content {
+    background: var(--page-bg);
+  }
+  html[data-theme='zinc'] .tab-bar-sticky {
+    background: var(--surface-color);
+  }
+  html[data-theme='macos'] .tab-bar-sticky {
+    background: var(--surface-muted);
+  }
+  html[data-theme='macos'] .workspace-content {
+    background: var(--page-bg);
+  }
+  html[data-density='compact'][data-theme-layout='sidebar'] .workspace-content {
+    padding: 12px;
+  }
+}
+@media (min-width: 1100px) {
+  html[data-theme='rouge'] .dashboard-summary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 18px;
+  }
+  html[data-theme='rouge'] .dashboard-summary-grid .stat-card {
+    padding: 22px;
+  }
+}
+@media (max-width: 639px) {
+  html[data-theme='zinc'] .dashboard-summary-grid .stat-card {
+    border-right: 0;
+    border-bottom: 1px solid var(--border-color);
+  }
+  html[data-theme='zinc'] .dashboard-summary-grid .stat-card:last-child {
+    border-bottom: 0;
+  }
+  html[data-theme='macos'] .theme-window-controls {
+    gap: 4px;
+    margin-right: 0;
+  }
+  html[data-theme='macos'] .theme-window-controls span {
+    width: 7px;
+    height: 7px;
+  }
+  html[data-theme='macos'] .header-title {
+    font-size: 16px;
+  }
+  html[data-theme='celadon'] .stat-card {
+    padding: var(--card-padding);
+  }
+}

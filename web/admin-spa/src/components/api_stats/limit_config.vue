@@ -1,5 +1,5 @@
 <template>
-  <div class="flex h-full flex-col gap-2 sm:gap-3">
+  <div class="query-limits flex flex-col gap-2">
     <!-- 限制配置 / 聚合模式提示 -->
     <div class="card flex h-full flex-col p-3">
       <h3
@@ -102,7 +102,7 @@
       </div>
 
       <!-- 仅在单 Key 模式下显示限制配置 -->
-      <div v-if="!multiKeyMode && statsData?.limits" class="space-y-4 md:space-y-5">
+      <div v-if="!multiKeyMode && statsData?.limits" class="query-limit-items">
         <!-- 每日费用限制 -->
         <div>
           <div class="mb-2 flex items-center justify-between">
@@ -116,7 +116,8 @@
                 }}
               </span>
               <span v-else class="flex items-center gap-1">
-                ${{ statsData.limits.currentDailyCost.toFixed(4) }} / <i class="i-lucide-infinity" />
+                ${{ statsData.limits.currentDailyCost.toFixed(4) }} /
+                <i class="i-lucide-infinity" />
               </span>
             </span>
           </div>
@@ -148,7 +149,8 @@
                 }}
               </span>
               <span v-else class="flex items-center gap-1">
-                ${{ statsData.limits.currentTotalCost.toFixed(4) }} / <i class="i-lucide-infinity" />
+                ${{ statsData.limits.currentTotalCost.toFixed(4) }} /
+                <i class="i-lucide-infinity" />
               </span>
             </span>
           </div>
@@ -237,7 +239,7 @@
         </div>
 
         <!-- 其他限制信息 -->
-        <div class="space-y-4 border-t border-gray-100 pt-3 dark:border-gray-700">
+        <div class="query-limit-extras">
           <div class="flex items-center justify-between">
             <span class="text-sm text-gray-600 dark:text-gray-400 md:text-base">并发限制</span>
             <span class="text-sm font-medium text-gray-900 md:text-base">
@@ -306,9 +308,7 @@
       <div
         class="rounded-lg border border-amber-200 bg-amber-50 p-3 dark:border-amber-800 dark:bg-amber-900/20"
       >
-        <h4
-          class="mb-2 flex items-center text-sm font-bold text-amber-800 dark:text-amber-300"
-        >
+        <h4 class="mb-2 flex items-center text-sm font-bold text-amber-800 dark:text-amber-300">
           <i class="i-lucide-bot mr-1 text-sm md:mr-2 md:text-sm" />
           受限模型列表
         </h4>
@@ -419,6 +419,26 @@ const getOpusWeeklyCostProgressColor = () => {
 </script>
 
 <style scoped>
+.query-limit-items {
+  display: grid;
+  gap: 11px;
+}
+.query-limit-extras {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px 20px;
+  flex-wrap: wrap;
+  padding-top: 9px;
+  border-top: 1px solid var(--divider-color);
+}
+.query-limit-extras > div {
+  flex: 1 1 190px;
+  gap: 8px;
+}
+.query-limits :deep([class*='text-base']) {
+  font-size: 14px;
+}
+
 /* 卡片样式 - 使用CSS变量 */
 .card {
   background: var(--surface-color);

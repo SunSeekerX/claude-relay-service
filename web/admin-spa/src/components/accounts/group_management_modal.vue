@@ -303,22 +303,13 @@
           </div>
 
           <div class="flex shrink-0 items-center gap-2 border-t border-gray-200 pt-3 dark:border-gray-700">
-            <button
-              class="btn btn-primary inline-flex h-10 flex-1 items-center justify-center px-4 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-60"
-              type="button"
-              :disabled="!editForm.name || updating"
-              @click="updateGroup"
-            >
-              <div v-if="updating" class="loading-spinner mr-2" />
-              {{ updating ? '更新中...' : '更新' }}
-            </button>
-            <button
-              class="inline-flex h-10 flex-1 items-center justify-center rounded-lg bg-gray-100 px-4 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600"
-              type="button"
-              @click="cancelEdit"
-            >
-              取消
-            </button>
+            <DialogSaveActions
+              class="w-full"
+              :disabled="!editForm.name"
+              :loading="updating"
+              @cancel="cancelEdit"
+              @save="updateGroup"
+            />
           </div>
         </div>
       </div>
@@ -362,6 +353,7 @@
             <CuteOptionCards
               v-model="createForm.platform"
               :columns="3"
+              :disabled="creating || !!createdGroupId"
               :options="groupPlatformOptions"
               size="sm"
             />
@@ -469,22 +461,13 @@
           </div>
 
           <div class="flex shrink-0 items-center gap-2 border-t border-gray-200 pt-3 dark:border-gray-700">
-            <button
-              class="btn btn-primary inline-flex h-10 flex-1 items-center justify-center px-4 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-60"
-              type="button"
-              :disabled="!createForm.name || !createForm.platform || creating"
-              @click="createGroup"
-            >
-              <div v-if="creating" class="loading-spinner mr-2" />
-              {{ creating ? '创建中...' : '创建' }}
-            </button>
-            <button
-              class="inline-flex h-10 flex-1 items-center justify-center rounded-lg bg-gray-100 px-4 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600"
-              type="button"
-              @click="cancelCreate"
-            >
-              取消
-            </button>
+            <DialogSaveActions
+              class="w-full"
+              :disabled="!createForm.name || !createForm.platform"
+              :loading="creating"
+              @cancel="cancelCreate"
+              @save="createGroup"
+            />
           </div>
         </div>
       </div>
@@ -509,6 +492,7 @@ import { ref, computed, onMounted } from 'vue'
 
 import ModalTransition from '@/components/common/modal_transition.vue'
 import CuteOptionCards from '@/components/common/cute_option_cards.vue'
+import { PLATFORM_ICONS } from '@/libs/platform_icons'
 import { showToast, formatDate } from '@/libs/tools'
 import { isOk, msgOf } from '@/libs/http_envelope'
 
@@ -636,16 +620,17 @@ const deletingGroup = ref(null)
 
 // 创建表单
 const showCreateForm = ref(false)
+const createdGroupId = ref(null)
 const creating = ref(false)
 const createForm = ref(emptyGroupForm())
 
 const groupPlatformOptions = [
-  { value: 'claude', label: 'Claude', icon: 'i-lucide-brain' },
-  { value: 'openai', label: 'OpenAI', icon: 'i-lucide-bot' },
-  { value: 'gemini', label: 'Gemini', icon: 'i-lucide-gem' },
-  { value: 'antigravity', label: 'Antigravity', icon: 'i-lucide-orbit' },
-  { value: 'droid', label: 'Droid', icon: 'i-lucide-bot' },
-  { value: 'grok', label: 'Grok', icon: 'i-lucide-zap' }
+  { value: 'claude', label: 'Claude', icon: PLATFORM_ICONS.claude, brand: true },
+  { value: 'openai', label: 'OpenAI', icon: PLATFORM_ICONS.openai, brand: true },
+  { value: 'gemini', label: 'Gemini', icon: PLATFORM_ICONS.gemini, brand: true },
+  { value: 'antigravity', label: 'Antigravity', icon: PLATFORM_ICONS.antigravity, brand: true },
+  { value: 'droid', label: 'Droid', icon: PLATFORM_ICONS.droid, brand: true },
+  { value: 'grok', label: 'Grok', icon: PLATFORM_ICONS.grok, brand: true }
 ]
 
 // 编辑表单
@@ -706,14 +691,17 @@ const loadGroups = async () => {
 }
 
 // 创建分组
-const createGroup = async () => {
+const createGroup = async (closeAfter = false) => {
   if (!createForm.value.name || !createForm.value.platform) {
     showToast('请填写必填项', 'error')
     return
   }
 
   creating.value = true
-  const response = await httpApis.createAccountGroupApi(buildGroupPayload(createForm.value))
+  const payload = buildGroupPayload(createForm.value)
+  const response = createdGroupId.value
+    ? await httpApis.updateAccountGroupApi(createdGroupId.value, payload)
+    : await httpApis.createAccountGroupApi(payload)
   creating.value = false
   if (!isOk(response)) {
     showToast(msgOf(response, '创建分组失败'), 'error')
@@ -721,13 +709,15 @@ const createGroup = async () => {
   }
 
   showToast('分组创建成功', 'success')
-  cancelCreate()
+  if (!createdGroupId.value) createdGroupId.value = response.data.id
+  if (closeAfter) cancelCreate()
   await loadGroups()
   emit('refresh')
 }
 
 // 打开创建表单（根据当前 Tab 预选平台）
 const openCreateForm = () => {
+  createdGroupId.value = null
   createForm.value = emptyGroupForm()
   createForm.value.platform = activeTab.value !== 'all' ? activeTab.value : 'claude'
   showCreateForm.value = true
@@ -747,7 +737,7 @@ const editGroup = (group) => {
 }
 
 // 更新分组
-const updateGroup = async () => {
+const updateGroup = async (closeAfter = false) => {
   if (!editForm.value.name) {
     showToast('请填写分组名称', 'error')
     return
@@ -764,7 +754,7 @@ const updateGroup = async () => {
   }
 
   showToast('分组更新成功', 'success')
-  cancelEdit()
+  if (closeAfter) cancelEdit()
   await loadGroups()
   emit('refresh')
 }

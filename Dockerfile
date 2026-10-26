@@ -1,5 +1,5 @@
 # 后端依赖阶段 (与前端构建并行)
-FROM node:24-alpine AS backend-deps
+FROM node:24-bookworm-slim AS backend-deps
 
 WORKDIR /app
 
@@ -15,6 +15,10 @@ COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 RUN --mount=type=cache,target=/root/.local/share/pnpm/store \
     pnpm config set package-import-method copy \
     && pnpm install --frozen-lockfile --prod
+
+COPY config/droid_runtime.js ./config/droid_runtime.js
+COPY scripts/install_droid_cli.js ./scripts/install_droid_cli.js
+RUN node scripts/install_droid_cli.js
 
 # 前端构建阶段 (与后端依赖并行)
 FROM node:24-alpine AS frontend-builder
@@ -39,16 +43,18 @@ RUN --mount=type=cache,target=/root/.local/share/pnpm/store \
     && pnpm run build
 
 # 主应用阶段
-FROM node:24-alpine
+FROM node:24-bookworm-slim
 
 LABEL org.opencontainers.image.source="https://github.com/SunSeekerX/claude-relay-service"
 LABEL org.opencontainers.image.description="Claude Code API Relay Service (SunSeekerX maintained fork)"
 
-RUN apk add --no-cache \
+RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     dumb-init \
     sed \
-    && rm -rf /var/cache/apk/*
+    ca-certificates \
+    git \
+    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 

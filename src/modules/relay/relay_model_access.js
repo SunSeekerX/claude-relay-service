@@ -1,6 +1,7 @@
 import { getEffectiveModel } from './relay_model_helper.js'
 import { normalizeKnownOpenAICodexModel } from './relay_openai_model_alias.js'
 import { parseThinkingModelSuffix } from './translator/relay_translator_thinking.js'
+import { isModelAllowedByGroup } from '../account/account_group_constants.js'
 
 const canonicalModel = (model) => {
   if (typeof model !== 'string') {
@@ -14,17 +15,40 @@ const canonicalModel = (model) => {
   return alias ? alias : baseModel
 }
 
-export const assertModelAccess = (apiKey, model) => {
+export const isModelAllowed = (apiKey, model) => {
   if (apiKey?.enableModelRestriction !== true && apiKey?.enableModelRestriction !== 'true') {
-    return
+    return true
   }
   const restricted = Array.isArray(apiKey.restrictedModels) ? apiKey.restrictedModels : []
   const requested = canonicalModel(model)
-  if (requested && restricted.some((entry) => canonicalModel(entry) === requested)) {
+  return !requested || !restricted.some((entry) => canonicalModel(entry) === requested)
+}
+
+export const assertModelAccess = (apiKey, model) => {
+  if (!isModelAllowed(apiKey, model)) {
     throw Object.assign(new Error('This model is not allowed for this API key'), {
       statusCode: 403,
       code: 'model_not_allowed',
     })
+  }
+}
+
+export const assertOutboundModelAccess = async (apiKey, model, accountType) => {
+  assertModelAccess(apiKey, model)
+  const { extractBoundGroupIdForAccountType } = await import('../account/account_group_policy.js')
+  const route = apiKey?._relayRoute
+  const groupId = route
+    ? route.binding.startsWith('group:')
+      ? route.binding.slice(6)
+      : null
+    : extractBoundGroupIdForAccountType(apiKey, accountType)
+  if (!groupId) {
+    return
+  }
+  const { accountGroupService } = await import('../account/account_group_service.js')
+  const group = await accountGroupService.getGroup(groupId)
+  if (!group || !isModelAllowedByGroup(group, model)) {
+    throw Object.assign(new Error('最终模型不在此分组允许范围内'), { statusCode: 403, code: 'model_not_allowed' })
   }
 }
 
@@ -53,8 +77,7 @@ export const createWsModelAccessGuard = (apiKey, initialModel = null) => {
     }
     if (['response.create', 'response.append'].includes(message.type)) {
       const streamId = message.stream_id ?? message.response?.stream_id ?? null
-      const model =
-        message.response?.model ?? message.model ?? currentModels.get(streamId) ?? initialModel
+      const model = message.response?.model ?? message.model ?? currentModels.get(streamId) ?? initialModel
       assertModelAccess(apiKey, model)
       currentModels.set(streamId, model)
     }

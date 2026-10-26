@@ -8,7 +8,7 @@
         使用占比
       </span>
       <span class="text-sm font-normal text-gray-600 dark:text-gray-400 sm:ml-2 md:text-sm"
-        >({{ statsPeriod === 'daily' ? '今日' : '本月' }})</span
+        >({{ periodLabel }})</span
       >
     </h3>
 
@@ -83,10 +83,22 @@ const getStatUsage = (stat) => {
 
   if (statsPeriod.value === 'daily') {
     return stat.dailyUsage || stat.usage
-  } else {
+  } else if (statsPeriod.value === 'monthly') {
     return stat.monthlyUsage || stat.usage
   }
+  return stat.alltimeUsage ?? stat.usage
 }
+
+const periodLabel = computed(
+  () => ({ daily: '今日', monthly: '本月', alltime: '全部' })[statsPeriod.value]
+)
+const aggregatePeriodUsage = computed(() =>
+  statsPeriod.value === 'daily'
+    ? aggregatedStats.value?.dailyUsage
+    : statsPeriod.value === 'monthly'
+      ? aggregatedStats.value?.monthlyUsage
+      : (aggregatedStats.value?.alltimeUsage ?? aggregatedStats.value?.usage)
+)
 
 // 获取TOP Keys（最多显示5个）
 const topKeys = computed(() => {
@@ -115,10 +127,7 @@ const otherPercentage = computed(() => {
     const usage = getStatUsage(stat)
     return sum + (usage?.cost || 0)
   }, 0)
-  const totalCost =
-    statsPeriod.value === 'daily'
-      ? aggregatedStats.value.dailyUsage?.cost || 0
-      : aggregatedStats.value.monthlyUsage?.cost || 0
+  const totalCost = aggregatePeriodUsage.value?.cost ?? 0
 
   if (totalCost === 0) return 0
   const otherCost = totalCost - topKeysCost
@@ -129,10 +138,7 @@ const otherPercentage = computed(() => {
 const calculatePercentage = (stat) => {
   if (!aggregatedStats.value) return 0
 
-  const totalCost =
-    statsPeriod.value === 'daily'
-      ? aggregatedStats.value.dailyUsage?.cost || 0
-      : aggregatedStats.value.monthlyUsage?.cost || 0
+  const totalCost = aggregatePeriodUsage.value?.cost ?? 0
 
   if (totalCost === 0) return 0
   const usage = getStatUsage(stat)

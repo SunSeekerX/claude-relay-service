@@ -92,28 +92,19 @@ const schemaError = (path, keyword) => {
   return Object.assign(new Error(message), {
     statusCode: 400,
     code: 'unsupported_tool_schema',
-    response: { status: 400, data: { error: { code: 'unsupported_tool_schema', message } } }
+    response: { status: 400, data: { error: { code: 'unsupported_tool_schema', message } } },
   })
 }
 
 // DEC_20261013_165233 Antigravity Claude 工具 Schema 仅作语义等价转换，无法表达的约束返回 400。
 export const convertAntigravityToolSchema = (schema) => {
-  const annotations = new Set([
-    '$schema',
-    '$id',
-    '$anchor',
-    '$comment',
-    '$defs',
-    'definitions',
-    'default',
-    'examples'
-  ])
+  const annotations = new Set(['$schema', '$id', '$anchor', '$comment', '$defs', 'definitions', 'default', 'examples'])
   const merge = (left, right, path) => {
     const result = { ...left }
     for (const [key, value] of Object.entries(right)) {
       if (key === 'description' || key === 'title') {
-result[key] = value
-} else if (key === 'properties') {
+        result[key] = value
+      } else if (key === 'properties') {
         result.properties = { ...result.properties }
         for (const [name, property] of Object.entries(value)) {
           const merged = Object.hasOwn(result.properties, name)
@@ -127,19 +118,13 @@ result[key] = value
         result.items = merge(result.items, value, `${path}/items`)
       } else if (key === 'nullable' && Object.hasOwn(result, key)) {
         result.nullable = result.nullable && value
-      } else if (
-        key === 'type' &&
-        [result.type, value].every((type) => ['number', 'integer'].includes(type))
-      ) {
+      } else if (key === 'type' && [result.type, value].every((type) => ['number', 'integer'].includes(type))) {
         result.type = result.type === 'integer' || value === 'integer' ? 'integer' : 'number'
-      } else if (
-        Object.hasOwn(result, key) &&
-        JSON.stringify(result[key]) !== JSON.stringify(value)
-      ) {
+      } else if (Object.hasOwn(result, key) && JSON.stringify(result[key]) !== JSON.stringify(value)) {
         throw schemaError(path, key)
       } else {
-result[key] = value
-}
+        result[key] = value
+      }
     }
     return result
   }
@@ -172,8 +157,8 @@ result[key] = value
     }
     for (const [key, value] of Object.entries(node)) {
       if (annotations.has(key) || key === '$ref') {
-continue
-}
+        continue
+      }
       if (key === 'allOf') {
         if (!Array.isArray(value) || !value.length) {
           throw schemaError(path, key)
@@ -192,13 +177,9 @@ continue
             !(
               branch?.type === 'null' &&
               Object.keys(branch).every(
-                (name) =>
-                  name === 'type' ||
-                  annotations.has(name) ||
-                  name === 'description' ||
-                  name === 'title'
+                (name) => name === 'type' || annotations.has(name) || name === 'description' || name === 'title',
               )
-            )
+            ),
         )
         if (branches.length !== 1 || value.length - branches.length > 1) {
           throw schemaError(path, key)
@@ -230,10 +211,7 @@ continue
           throw schemaError(path, key)
         }
         field = Object.fromEntries(
-          Object.entries(value).map(([name, child]) => [
-            name,
-            convert(child, `${path}/properties/${name}`, refs)
-          ])
+          Object.entries(value).map(([name, child]) => [name, convert(child, `${path}/properties/${name}`, refs)]),
         )
       } else if (key === 'items') {
         field = convert(value, `${path}/items`, refs)
@@ -243,8 +221,8 @@ continue
         }
         field = [...new Set(value)]
       } else if (key === 'additionalProperties' && value === true) {
-continue
-} else if (key === 'nullable' && typeof value !== 'boolean') {
+        continue
+      } else if (key === 'nullable' && typeof value !== 'boolean') {
         throw schemaError(path, key)
       } else if (!['description', 'title', 'nullable'].includes(key)) {
         throw schemaError(path, key)

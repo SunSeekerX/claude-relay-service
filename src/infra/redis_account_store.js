@@ -7,9 +7,10 @@ import { RedisKeys } from './redis_key.js'
 
 export const attach = (redisClient) => {
   // Claude 账户管理
-  redisClient.setClaudeAccount = async function (accountId, accountData) {
+  redisClient.setClaudeAccount = async function (accountId, accountData, modelSettings = {}) {
     const key = RedisKeys.accounts.claude(accountId)
-    await this.client.hset(key, accountData)
+    const { modelCatalog: _catalog, supportedModels: _models, modelIdentityVersion: _identity, ...data } = accountData
+    await this.client.hset(key, { ...data, ...modelSettings })
     await this.client.sadd(RedisKeys.accounts.claudeIndex, accountId)
     await this.client.del(RedisKeys.emptyMarker(RedisKeys.accounts.claudeIndex))
   }
@@ -50,9 +51,15 @@ export const attach = (redisClient) => {
   }
 
   // Droid 账户相关操作
-  redisClient.setDroidAccount = async function (accountId, accountData) {
+  redisClient.setDroidAccount = async function (accountId, accountData, modelSettings = {}) {
     const key = RedisKeys.accounts.droid(accountId)
-    await this.client.hset(key, accountData)
+    const {
+      modelCatalog: _catalog,
+      supportedModels: _models,
+      modelDiscoveryApiKey: _discoveryKey,
+      ...data
+    } = accountData
+    await this.client.hset(key, { ...data, ...modelSettings })
     await this.client.sadd(RedisKeys.accounts.droidIndex, accountId)
     await this.client.del(RedisKeys.emptyMarker(RedisKeys.accounts.droidIndex))
   }

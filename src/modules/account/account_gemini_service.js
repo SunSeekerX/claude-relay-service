@@ -1,3 +1,5 @@
+import { normalizeAccountModelRange } from './account_model_policy.js'
+import { parseStoredAccountModels } from '../../common/compat_account_models.js'
 import { redis as redisClient } from '../../infra/redis.js'
 import crypto from 'node:crypto'
 import https from 'node:https'
@@ -437,7 +439,7 @@ export const createAccount = async (accountData) => {
     tempProjectId: accountData.tempProjectId || '',
 
     // 支持的模型列表（可选）
-    supportedModels: accountData.supportedModels || [], // 空数组表示支持所有模型
+    supportedModels: JSON.stringify(normalizeAccountModelRange(accountData.supportedModels ?? [])),
 
     // 自动防护开关
     disableAutoProtection:
@@ -507,6 +509,10 @@ export const getAccount = async (accountId) => {
 
   // 转换 schedulable 字符串为布尔值（与 claudeConsoleAccountService 保持一致）
   accountData.schedulable = accountData.schedulable !== 'false' // 默认为true，只有明确设置为'false'才为false
+
+  if (typeof accountData.supportedModels === 'string') {
+    accountData.supportedModels = parseStoredAccountModels(accountData.supportedModels)
+  }
 
   return accountData
 }
@@ -632,6 +638,9 @@ export const updateAccount = async (accountId, updates) => {
     }
   }
 
+  if (updates.supportedModels !== undefined) {
+    updates.supportedModels = JSON.stringify(normalizeAccountModelRange(updates.supportedModels))
+  }
   await client.hset(RedisKeys.accounts.gemini(accountId), updates)
 
   if (enablingAutoProtection) {
@@ -1175,7 +1184,7 @@ const buildGeminiCliUserAgent = (model = DEFAULT_GEMINI_CLI_UA_MODEL) => {
 
 // 通用的 Code Assist API 转发函数（用于简单的请求/响应端点）
 // 适用于：loadCodeAssist, onboardUser, countTokens, listExperiments 等不需要特殊处理的端点
-export const forwardToCodeAssist = async (client, apiMethod, requestBody, proxyConfig = null) => {
+export const forwardToCodeAssist = async (client, apiMethod, requestBody, proxyConfig = null, options = {}) => {
   const CODE_ASSIST_ENDPOINT = 'https://cloudcode-pa.googleapis.com'
   const CODE_ASSIST_API_VERSION = 'v1internal'
 
@@ -1185,14 +1194,17 @@ export const forwardToCodeAssist = async (client, apiMethod, requestBody, proxyC
   logger.info(`${apiMethod} API调用开始`)
 
   const axiosConfig = {
-    url: `${CODE_ASSIST_ENDPOINT}/${CODE_ASSIST_API_VERSION}:${apiMethod}`,
-    method: 'POST',
+    url: options.operationName
+      ? `${CODE_ASSIST_ENDPOINT}/${CODE_ASSIST_API_VERSION}/${options.operationName}`
+      : `${CODE_ASSIST_ENDPOINT}/${CODE_ASSIST_API_VERSION}:${apiMethod}`,
+    method: options.method ?? 'POST',
     headers: {
       Authorization: `Bearer ${token}`,
       'Content-Type': 'application/json',
       'User-Agent': buildGeminiCliUserAgent(),
     },
-    data: requestBody,
+    data: options.method === 'GET' ? undefined : requestBody,
+    signal: options.signal,
     timeout: 30000,
   }
 

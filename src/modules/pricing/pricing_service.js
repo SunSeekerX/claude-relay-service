@@ -4,7 +4,7 @@ import { GPT56_SERIES_FALLBACK_PRICING } from './pricing_gpt56_series_pricing.js
 import { resolveModelFallbackPricing } from './pricing_model_fallback_pricing.js'
 import https from 'node:https'
 import http from 'node:http'
-import dns from 'node:dns'
+import { createPricingDnsLookup, privateIpReason } from './pricing_source_dns.js'
 import crypto from 'node:crypto'
 import { pricingSource } from '../../../config/pricingSource.js'
 import { pricingOverrides } from '../../../config/pricingOverrides.js'
@@ -67,73 +67,6 @@ const joinUrlFromStorage = (base, pathEncrypted, label) => {
     return ''
   }
   return `${base}${decrypted}`
-}
-
-// 判定一个 IP 字面量是否属于禁止访问的网段。纯函数,字面量校验与 DNS 解析后校验共用,
-// 保证"填 IP"和"填域名解析出 IP"两条路的口径完全一致(不一致就等于留后门)。
-// 返回被命中的原因字符串,未命中返回 null。
-const privateIpReason = (ip) => {
-  const addr = String(ip || '')
-    .toLowerCase()
-    .replace(/^\[|\]$/g, '')
-
-  const ipv4 = addr.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/)
-  if (ipv4) {
-    const [a, b, c] = ipv4.slice(1).map(Number)
-    if (a === 127) {
-      return '回环地址'
-    }
-    if (a === 10 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168)) {
-      return '私有网段'
-    }
-    if (a === 169 && b === 254) {
-      return '链路本地/云元数据地址'
-    }
-    if (a === 100 && b >= 64 && b <= 127) {
-      return 'CGNAT 网段'
-    }
-    // 非公网可路由的 IANA 特殊用途段(RFC 6890)。定价源不可能合法落在这些段里,
-    // 而 DNS 劫持/内网解析常把域名指到这里(本机 WSL 的 DNS 就把 example.com 指到 198.18.2.42)
-    if (a === 192 && b === 0 && (c === 0 || c === 2)) {
-      return 'IETF 协议保留段'
-    }
-    if (a === 192 && b === 88 && c === 99) {
-      return '6to4 中继任播段'
-    }
-    if (a === 198 && (b === 18 || b === 19)) {
-      return '网络设备基准测试段'
-    }
-    if (a === 198 && b === 51 && c === 100) {
-      return '文档示例段'
-    }
-    if (a === 203 && b === 0 && c === 113) {
-      return '文档示例段'
-    }
-    if (a === 0 || a >= 224) {
-      return '保留网段'
-    }
-    return null
-  }
-
-  if (addr.includes(':')) {
-    if (addr === '::' || addr === '::1') {
-      return '回环/未指定地址'
-    }
-    // new URL() 会把 ::ffff:127.0.0.1 规范化为 ::ffff:7f00:1,故按 "::" 前缀整段拒绝;
-    // dns.lookup 返回的 IPv4-mapped 仍是点分形态,上面的 ipv4 分支已覆盖
-    if (addr.startsWith('::')) {
-      return 'IPv4-mapped/compatible 地址'
-    }
-    if (/^(fc|fd)/.test(addr)) {
-      return '唯一本地地址'
-    }
-    if (/^fe[89ab]/.test(addr)) {
-      return '链路本地地址'
-    }
-    return null
-  }
-
-  return null
 }
 
 // 定价源地址进日志/回显前只保留 origin,丢掉 pathname、query 与 userinfo。
@@ -437,31 +370,7 @@ class PricingService {
   // all:true 拿全部记录逐个判(只判第一个会被多 A 记录绕过)；
   // 校验通过后【只把已校验地址交给连接】,不让底层再解析,消除 TOCTOU 窗口。
   _guardedLookup(label) {
-    return (hostname, options, callback) => {
-      dns.lookup(hostname, { ...options, all: true }, (error, addresses) => {
-        if (error) {
-          callback(error)
-          return
-        }
-        const list = Array.isArray(addresses) ? addresses : [addresses]
-        for (const entry of list) {
-          const ip = entry?.address || entry
-          const reason = privateIpReason(ip)
-          if (reason) {
-            logger.warn(` ${label} 的域名 ${hostname} 解析到${reason}(${ip})，已阻止请求`)
-            callback(new Error(`${label}的域名解析到${reason}，已阻止访问内网`))
-            return
-          }
-        }
-        // 回传已校验过的地址,不让底层重新解析(否则校验结果与实际连接目标可能不同)
-        if (options?.all) {
-          callback(null, list)
-          return
-        }
-        const first = list[0]
-        callback(null, first?.address || first, first?.family)
-      })
-    }
+    return createPricingDnsLookup({ label, log: (message, metadata) => logger.info(message, metadata) })
   }
 
   // 校验管理端提交的定价源地址(第一道:字面量)。定价源由服务端主动请求(定时轮询 + 手动拉取),
@@ -730,7 +639,13 @@ class PricingService {
         await this.downloadPricingData()
       }
     } catch (error) {
-      logger.warn(` 哈希校验失败：${error.message}`)
+      logger.warn('定价哈希检查失败，继续使用当前价格缓存', {
+        event: 'pricing_hash_check_failed',
+        error,
+        cachedModels: Object.keys(this.pricingData ?? {}).length,
+        nextCheckMs: this.hashCheckInterval,
+        nextStep: '检查定价源和 HTTPS DNS 连通性；不会关闭公网地址安全校验',
+      })
     } finally {
       this.hashSyncInProgress = false
     }
@@ -804,7 +719,7 @@ class PricingService {
       })
 
       request.on('error', (error) => {
-        reject(new Error(`网络错误：${error.message}`))
+        reject(new Error(`网络错误：${error.message}`, { cause: error }))
       })
 
       request.setTimeout(30000, () => {

@@ -10,6 +10,7 @@ import * as openaiAccountService from '../account/account_openai_service.js'
 import { serviceRatesService } from '../payment/payment_service_rates_service.js'
 import { modelsConfig } from '../../../config/models.js'
 import { testModelConfigService } from '../relay/relay_test_model_config_service.js'
+import { testPromptConfigService } from '../relay/relay_test_prompt_config_service.js'
 import { CODEX_USER_AGENT } from '../relay/relay_codex_responses_ws.js'
 import { getSafeMessage } from '../../common/error_sanitizer.js'
 import { parseDateTimeQuery } from '../../common/date_time.js'
@@ -19,17 +20,25 @@ import {
   createGeminiTestPayload,
   createOpenAITestPayload,
   createClaudeTestPayload,
-  extractErrorMessage,
-  sanitizeErrorMsg,
+  createChatCompletionsTestPayload,
 } from '../../common/test_payload_helper.js'
 import { pricingService } from '../pricing/pricing_service.js'
 import { toPublicPricingMap } from '../pricing/pricing_model_pricing_convert.js'
 import { parseObjectBody } from '../../common/parse_body.js'
 import { quotaCardService } from '../payment/payment_quota_card_service.js'
+import { getPublicKeyRouting, resolveKeyModelTestTarget } from '../relay/relay_routing_service.js'
+import { pipeModelTestStream, rejectModelTestResponse, modelTestSignal } from '../relay/relay_model_test_stream.js'
 import { asyncRoute, SEND_RAW } from '../../common/route_handler.js'
 import { badRequest, notFound, unauthorized, forbidden, tooManyRequests } from '../../common/http_result.js'
 
 export const router = express.Router()
+
+router.get(
+  '/test-prompt-config',
+  asyncRoute('Failed to get test prompts', async () => ({
+    config: await testPromptConfigService.getConfig()
+  }))
+)
 
 const accountTypeNames = {
   claude: 'Claude官方',
@@ -47,6 +56,11 @@ const accountTypeNames = {
   bedrock: 'AWS Bedrock',
   unknown: '未知渠道',
 }
+
+router.get(
+  '/test-model-defaults',
+  asyncRoute('Failed to get test model defaults', () => testModelConfigService.getModelDefaults()),
+)
 
 // 获取可用模型列表（公开接口）
 router.get(
@@ -464,6 +478,7 @@ router.post(
       activationDays: parseInt(fullKeyData.activationDays || 0),
       activatedAt: fullKeyData.activatedAt || null,
       permissions: fullKeyData.permissions,
+      routing: await getPublicKeyRouting(fullKeyData),
 
       // 使用统计（使用验证结果中的完整数据）
       usage: {
@@ -991,7 +1006,9 @@ router.post(
         const pattern =
           period === 'daily'
             ? `usage:${apiId}:model:daily:*:${today}`
-            : `usage:${apiId}:model:monthly:*:${currentMonth}`
+            : period === 'alltime'
+              ? RedisKeys.usage.keyAlltimePattern(apiId)
+              : `usage:${apiId}:model:monthly:*:${currentMonth}`
 
         const results = await redis.scanAndGetAllChunked(pattern)
 
@@ -999,7 +1016,9 @@ router.post(
           const match = key.match(
             period === 'daily'
               ? /usage:.+:model:daily:(.+):\d{4}-\d{2}-\d{2}$/
-              : /usage:.+:model:monthly:(.+):\d{4}-\d{2}$/,
+              : period === 'alltime'
+                ? /usage:.+:model:alltime:(.+)$/
+                : /usage:.+:model:monthly:(.+):\d{4}-\d{2}$/,
           )
 
           if (!match) {
@@ -1041,7 +1060,14 @@ router.post(
             modelUsage.thinkingTokens += parseInt(data.thinkingTokens) || 0
             modelUsage.ephemeral5mTokens += parseInt(data.ephemeral5mTokens) || 0
             modelUsage.ephemeral1hTokens += parseInt(data.ephemeral1hTokens) || 0
-            modelUsage.allTokens += parseInt(data.allTokens) || 0
+            modelUsage.allTokens +=
+              period === 'alltime'
+                ? (parseInt(data.inputTokens) || 0) +
+                  (parseInt(data.outputTokens) || 0) +
+                  (parseInt(data.cacheCreateTokens) || 0) +
+                  (parseInt(data.cacheReadTokens) || 0) +
+                  (parseInt(data.thinkingInAllTokens) || 0)
+                : parseInt(data.allTokens) || 0
             modelUsage.realCostMicro += parseInt(data.realCostMicro) || 0
             modelUsage.ratedCostMicro += parseInt(data.ratedCostMicro) || 0
             modelUsage.costedRequests += parseInt(data.costedRequests) || 0
@@ -1095,7 +1121,8 @@ router.post(
   '/api-key/test',
   asyncRoute('API Key test failed', async (req, res) => {
     const body = parseObjectBody(req.body, 'Claude 连通测试')
-    const { apiKey, prompt = 'hi' } = body
+    const { apiKey } = body
+    const prompt = await testPromptConfigService.resolvePrompt(body.prompt)
     const model = await testModelConfigService.resolveApikeyModel('claude', body.model)
     const maxTokens = sanitizeMaxTokens(body.maxTokens)
 
@@ -1115,7 +1142,8 @@ router.post(
     logger.api(`API Key test started for: ${validation.keyData.name} (${validation.keyData.id})`)
 
     const port = config.server.port || 3000
-    const apiUrl = `http://127.0.0.1:${port}/api/v1/messages?beta=true`
+    const target = await resolveKeyModelTestTarget(validation.keyData, 'claude-messages', body, model)
+    const apiUrl = `http://127.0.0.1:${port}${target.path}?beta=true`
 
     try {
       await sendStreamTestRequest({
@@ -1124,6 +1152,12 @@ router.post(
         responseStream: res,
         payload: createClaudeTestPayload(model, { stream: true, prompt, maxTokens }),
         timeout: 60000,
+        proxy: false,
+        signal: modelTestSignal(res),
+        consumeResponse: (response) =>
+          response.status === 200
+            ? pipeModelTestStream(response.data, res, 'claude-messages')
+            : rejectModelTestResponse(response.data, res, response.status),
         extraHeaders: {
           'x-api-key': apiKey,
           'x-app': 'claude-code',
@@ -1151,7 +1185,8 @@ router.post(
   '/api-key/test-gemini',
   asyncRoute('Gemini API Key test failed', async (req, res) => {
     const body = parseObjectBody(req.body, 'Gemini 连通测试')
-    const { apiKey, prompt = 'hi' } = body
+    const { apiKey } = body
+    const prompt = await testPromptConfigService.resolvePrompt(body.prompt)
     const model = await testModelConfigService.resolveApikeyModel('gemini', body.model)
     const maxTokens = sanitizeMaxTokens(body.maxTokens)
 
@@ -1169,14 +1204,12 @@ router.post(
     }
 
     // 检查 Gemini 权限
-    if (!apiKeyService.hasPermission(validation.keyData.permissions, 'gemini')) {
-      throw forbidden('This API key does not have Gemini permission')
-    }
+    const target = await resolveKeyModelTestTarget(validation.keyData, 'gemini-generate', body, model)
 
     logger.api(`Gemini API Key test started for: ${validation.keyData.name} (${validation.keyData.id})`)
 
     const port = config.server.port || 3000
-    const apiUrl = `http://127.0.0.1:${port}/gemini/v1/models/${model}:streamGenerateContent?alt=sse`
+    const apiUrl = `http://127.0.0.1:${port}${target.path}?alt=sse`
 
     // 设置 SSE 响应头
     res.writeHead(200, {
@@ -1199,67 +1232,15 @@ router.post(
         timeout: 60000,
         responseType: 'stream',
         validateStatus: () => true,
+        proxy: false,
+        signal: modelTestSignal(res),
       })
 
       if (response.status !== 200) {
-        const chunks = []
-        response.data.on('data', (chunk) => chunks.push(chunk))
-        response.data.on('end', () => {
-          const errorData = Buffer.concat(chunks).toString()
-          let errorMsg = `API Error: ${response.status}`
-          try {
-            const json = JSON.parse(errorData)
-            errorMsg = extractErrorMessage(json, errorMsg)
-          } catch {
-            if (errorData.length < 200) {
-              errorMsg = errorData || errorMsg
-            }
-          }
-          res.write(
-            `data: ${JSON.stringify({ type: 'test_complete', success: false, error: sanitizeErrorMsg(errorMsg) })}\n\n`,
-          )
-          res.end()
-        })
+        await rejectModelTestResponse(response.data, res, response.status)
         return SEND_RAW
       }
-
-      let buffer = ''
-      response.data.on('data', (chunk) => {
-        buffer += chunk.toString()
-        const lines = buffer.split('\n')
-        buffer = lines.pop() || ''
-
-        for (const line of lines) {
-          if (!line.startsWith('data:')) {
-            continue
-          }
-          const jsonStr = line.substring(5).trim()
-          if (!jsonStr || jsonStr === '[DONE]') {
-            continue
-          }
-
-          try {
-            const data = JSON.parse(jsonStr)
-            // Gemini 格式: candidates[0].content.parts[0].text
-            const text = data.candidates?.[0]?.content?.parts?.[0]?.text
-            if (text) {
-              res.write(`data: ${JSON.stringify({ type: 'content', text })}\n\n`)
-            }
-          } catch {
-            // ignore
-          }
-        }
-      })
-
-      response.data.on('end', () => {
-        res.write(`data: ${JSON.stringify({ type: 'test_complete', success: true })}\n\n`)
-        res.end()
-      })
-
-      response.data.on('error', (err) => {
-        res.write(`data: ${JSON.stringify({ type: 'test_complete', success: false, error: getSafeMessage(err) })}\n\n`)
-        res.end()
-      })
+      await pipeModelTestStream(response.data, res, 'gemini-generate')
     } catch (axiosError) {
       res.write(
         `data: ${JSON.stringify({ type: 'test_complete', success: false, error: getSafeMessage(axiosError) })}\n\n`,
@@ -1273,10 +1254,11 @@ router.post(
 
 // OpenAI/Codex API Key 端点测试接口
 router.post(
-  '/api-key/test-openai',
+  ['/api-key/test-openai', '/api-key/test-openai-chat'],
   asyncRoute('OpenAI API Key test failed', async (req, res) => {
     const body = parseObjectBody(req.body, 'OpenAI 连通测试')
-    const { apiKey, prompt = 'hi' } = body
+    const { apiKey } = body
+    const prompt = await testPromptConfigService.resolvePrompt(body.prompt)
     const model = await testModelConfigService.resolveApikeyModel('openai', body.model)
     const maxTokens = sanitizeMaxTokens(body.maxTokens)
 
@@ -1294,14 +1276,13 @@ router.post(
     }
 
     // 检查 OpenAI 权限
-    if (!apiKeyService.hasPermission(validation.keyData.permissions, 'openai')) {
-      throw forbidden('This API key does not have OpenAI permission')
-    }
+    const format = req.path.endsWith('test-openai-chat') ? 'openai-chat' : 'openai-responses'
+    const target = await resolveKeyModelTestTarget(validation.keyData, format, body, model)
 
     logger.api(`OpenAI API Key test started for: ${validation.keyData.name} (${validation.keyData.id})`)
 
     const port = config.server.port || 3000
-    const apiUrl = `http://127.0.0.1:${port}/openai/responses`
+    const apiUrl = `http://127.0.0.1:${port}${target.path}`
 
     // 设置 SSE 响应头
     res.writeHead(200, {
@@ -1313,7 +1294,10 @@ router.post(
 
     res.write(`data: ${JSON.stringify({ type: 'test_start', message: 'Test started' })}\n\n`)
 
-    const payload = createOpenAITestPayload(model, { prompt, maxTokens })
+    const payload =
+      format === 'openai-chat'
+        ? { ...createChatCompletionsTestPayload(model, { prompt, maxTokens }), stream: true }
+        : createOpenAITestPayload(model, { prompt, maxTokens })
 
     try {
       const response = await axios.post(apiUrl, payload, {
@@ -1325,68 +1309,15 @@ router.post(
         timeout: 60000,
         responseType: 'stream',
         validateStatus: () => true,
+        proxy: false,
+        signal: modelTestSignal(res),
       })
 
       if (response.status !== 200) {
-        const chunks = []
-        response.data.on('data', (chunk) => chunks.push(chunk))
-        response.data.on('end', () => {
-          const errorData = Buffer.concat(chunks).toString()
-          let errorMsg = `API Error: ${response.status}`
-          try {
-            const json = JSON.parse(errorData)
-            errorMsg = extractErrorMessage(json, errorMsg)
-          } catch {
-            if (errorData.length < 200) {
-              errorMsg = errorData || errorMsg
-            }
-          }
-          res.write(
-            `data: ${JSON.stringify({ type: 'test_complete', success: false, error: sanitizeErrorMsg(errorMsg) })}\n\n`,
-          )
-          res.end()
-        })
+        await rejectModelTestResponse(response.data, res, response.status)
         return SEND_RAW
       }
-
-      let buffer = ''
-      response.data.on('data', (chunk) => {
-        buffer += chunk.toString()
-        const lines = buffer.split('\n')
-        buffer = lines.pop() || ''
-
-        for (const line of lines) {
-          if (!line.startsWith('data:')) {
-            continue
-          }
-          const jsonStr = line.substring(5).trim()
-          if (!jsonStr || jsonStr === '[DONE]') {
-            continue
-          }
-
-          try {
-            const data = JSON.parse(jsonStr)
-            // OpenAI Responses 格式: output[].content[].text 或 delta
-            if (data.type === 'response.output_text.delta' && data.delta) {
-              res.write(`data: ${JSON.stringify({ type: 'content', text: data.delta })}\n\n`)
-            } else if (data.type === 'response.content_part.delta' && data.delta?.text) {
-              res.write(`data: ${JSON.stringify({ type: 'content', text: data.delta.text })}\n\n`)
-            }
-          } catch {
-            // ignore
-          }
-        }
-      })
-
-      response.data.on('end', () => {
-        res.write(`data: ${JSON.stringify({ type: 'test_complete', success: true })}\n\n`)
-        res.end()
-      })
-
-      response.data.on('error', (err) => {
-        res.write(`data: ${JSON.stringify({ type: 'test_complete', success: false, error: getSafeMessage(err) })}\n\n`)
-        res.end()
-      })
+      await pipeModelTestStream(response.data, res, format)
     } catch (axiosError) {
       res.write(
         `data: ${JSON.stringify({ type: 'test_complete', success: false, error: getSafeMessage(axiosError) })}\n\n`,

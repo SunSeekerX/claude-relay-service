@@ -1,5 +1,7 @@
 import { trackRequestTiming } from '../../common/request_timing.js'
 import express from 'express'
+import { getLegacyProviderModels } from './relay_routing_service.js'
+import { modelAccessErrorBody } from './relay_model_access.js'
 import { logger } from '../../common/logger.js'
 import { authenticateApiKey } from '../../infra/middleware_auth.js'
 import { claudeRelayService } from './relay_claude_relay_service.js'
@@ -72,21 +74,7 @@ openaiClaudeRoutes.get('/v1/models', authenticateApiKey, async (req, res) => {
       })
     }
 
-    // Claude 模型列表 - 只返回 opus-4 和 sonnet-4
-    let models = [
-      {
-        id: 'claude-opus-4-20250514',
-        object: 'model',
-        created: 1736726400, // 2025-01-13
-        owned_by: 'anthropic',
-      },
-      {
-        id: 'claude-sonnet-4-20250514',
-        object: 'model',
-        created: 1736726400, // 2025-01-13
-        owned_by: 'anthropic',
-      },
-    ]
+    let models = await getLegacyProviderModels(apiKeyData, 'claude', 'openai-chat')
 
     // 如果启用了模型限制，视为黑名单：过滤掉受限模型
     if (apiKeyData.enableModelRestriction && apiKeyData.restrictedModels?.length > 0) {
@@ -237,11 +225,11 @@ export const handleChatCompletion = async (req, res, apiKeyData) => {
           {
             ...apiKeyData,
             // OpenAI 兼容入口不是 Claude Code 客户端
-            _isClaudeCode: false
+            _isClaudeCode: false,
           },
           sessionHash,
-          claudeRequest.model
-        )
+          claudeRequest.model,
+        ),
       )
     } catch (error) {
       if (error.code === 'CLAUDE_DEDICATED_RATE_LIMITED') {
@@ -541,6 +529,9 @@ export const handleChatCompletion = async (req, res, apiKeyData) => {
 
     // 检查响应是否已发送（流式响应场景），避免 ERR_HTTP_HEADERS_SENT
     if (!res.headersSent) {
+      if (error.code === 'model_not_allowed') {
+        return res.status(403).json(modelAccessErrorBody(req, error))
+      }
       // 客户端断开使用 499 状态码 (Client Closed Request)
       if (error.message === 'Client disconnected') {
         res.status(499).end()

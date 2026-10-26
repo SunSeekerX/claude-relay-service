@@ -1,3 +1,4 @@
+import { assertOutboundModelAccess } from './relay_model_access.js'
 import axios from 'axios'
 import { ccrAccountService } from '../account/account_ccr_service.js'
 import { logger } from '../../common/logger.js'
@@ -147,6 +148,7 @@ class CcrRelayService {
         ...requestBody,
         model: mappedModel,
       }
+      await assertOutboundModelAccess(apiKeyData, mappedModel, 'ccr')
       sanitizeClaudeBodyFallbacks(modifiedRequestBody, { vendor: 'ccr' })
 
       // 创建代理agent（保留 proxyId/contextKey 供被动健康检查上报）
@@ -370,7 +372,7 @@ class CcrRelayService {
       }
     } catch (error) {
       // 被动健康检查：上报连接级故障（classifyBusinessTraffic 内会区分传输错误 vs 上游响应）
-      proxyResolver.report(proxyResolution.proxyId, proxyResolution.contextKey, error)
+      proxyResolver.report(proxyResolution?.proxyId, proxyResolution?.contextKey, error)
       // 处理特定错误
       if (error.name === 'AbortError' || error.code === 'ECONNABORTED') {
         logger.info('Request aborted due to client disconnect')
@@ -380,7 +382,7 @@ class CcrRelayService {
       logger.error(`CCR relay request failed (Account: ${account?.name || accountId}):`, error.message)
 
       // 网络错误标记临时不可用
-      if (accountId && !error.response) {
+      if (accountId && !error.response && error.code !== 'model_not_allowed') {
         const errorContext = upstreamErrorHelper.buildErrorContext({
           url: error.config?.url,
           method: error.config?.method,
@@ -522,6 +524,7 @@ class CcrRelayService {
         ...requestBody,
         model: mappedModel,
       }
+      await assertOutboundModelAccess(apiKeyData, mappedModel, 'ccr')
       sanitizeClaudeBodyFallbacks(modifiedRequestBody, { vendor: 'ccr' })
 
       // 创建代理agent
@@ -568,7 +571,7 @@ class CcrRelayService {
       } else {
         logger.error(`CCR stream relay failed (Account: ${account?.name || accountId}):`, error)
         // 网络错误标记临时不可用
-        if (accountId && !error.response) {
+        if (accountId && !error.response && error.code !== 'model_not_allowed') {
           const errorContext = upstreamErrorHelper.buildErrorContext({
             url: error.config?.url,
             method: error.config?.method,

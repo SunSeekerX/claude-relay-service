@@ -1,15 +1,10 @@
 import {
   buildAnthropicClientErrorBody,
   extractSafeMessage,
-  extractUpstreamErrorCode
+  extractUpstreamErrorCode,
 } from '../../common/client_error_builder.js'
 
-const TOKEN_FIELDS = [
-  'input_tokens',
-  'output_tokens',
-  'cache_creation_input_tokens',
-  'cache_read_input_tokens'
-]
+const TOKEN_FIELDS = ['input_tokens', 'output_tokens', 'cache_creation_input_tokens', 'cache_read_input_tokens']
 const CACHE_FIELDS = ['ephemeral_5m_input_tokens', 'ephemeral_1h_input_tokens']
 const isTokenCount = (value) => Number.isSafeInteger(value) && value >= 0
 
@@ -17,15 +12,13 @@ const mergeUsage = (previous, reported, includeOutput) => {
   if (!reported || typeof reported !== 'object' || Array.isArray(reported)) {
     return previous
   }
-  const fields = includeOutput
-    ? TOKEN_FIELDS
-    : TOKEN_FIELDS.filter((field) => field !== 'output_tokens')
+  const fields = includeOutput ? TOKEN_FIELDS : TOKEN_FIELDS.filter((field) => field !== 'output_tokens')
   if (
     fields.some(
       (field) =>
         reported[field] !== undefined &&
         !(reported[field] === null && field !== 'output_tokens') &&
-        !isTokenCount(reported[field])
+        !isTokenCount(reported[field]),
     )
   ) {
     return previous
@@ -99,7 +92,7 @@ export class ClaudeStreamState {
     }
     return {
       ...this.usage,
-      ...(this.usage.cache_creation ? { cache_creation: { ...this.usage.cache_creation } } : {})
+      ...(this.usage.cache_creation ? { cache_creation: { ...this.usage.cache_creation } } : {}),
     }
   }
 
@@ -116,7 +109,7 @@ export class ClaudeStreamState {
               : 'upstream_stream_incomplete',
         message: transportError
           ? 'Upstream stream ended with a transport error'
-          : 'Upstream stream ended before message_stop'
+          : 'Upstream stream ended before message_stop',
       }
     }
     return this.result()
@@ -134,7 +127,7 @@ export class ClaudeStreamState {
       request_too_large: 413,
       rate_limit_error: 429,
       overloaded_error: 529,
-      timeout_error: 504
+      timeout_error: 504,
     }
     const statusCode = statusByType[this.error?.type] ?? 502
     const body = { error: this.error }
@@ -142,7 +135,7 @@ export class ClaudeStreamState {
     return {
       statusCode,
       errorCode: extractUpstreamErrorCode(body) ?? clientError.error.type,
-      errorMessage: extractSafeMessage(body) ?? clientError.error.message
+      errorMessage: extractSafeMessage(body) ?? clientError.error.message,
     }
   }
 }

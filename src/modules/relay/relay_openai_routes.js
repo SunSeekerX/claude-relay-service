@@ -19,7 +19,6 @@ import { requestDetailService } from './relay_request_detail_service.js'
 import { getSafeMessage } from '../../common/error_sanitizer.js'
 import { onClientDisconnect } from '../../common/client_disconnect.js'
 import * as requestBodyRuleService from './relay_request_body_rule_service.js'
-import { modelService } from '../pricing/pricing_model_service.js'
 import { CodexCliValidator } from '../../common/validator_client_codex_cli_validator.js'
 import * as upstreamErrorHelper from './relay_upstream_error_helper.js'
 import { isAutoProtectionDisabled } from '../../common/common_helper.js'
@@ -55,6 +54,7 @@ import { buildClientError, extractSafeMessage, summarizeErrorForLog } from '../.
 import { CodexToOpenAIConverter } from './relay_codex_to_openai.js'
 import { attachResponsesToChatBridge } from './relay_openai_chat_bridge.js'
 import * as groupPolicy from '../account/account_group_policy.js'
+import { getLegacyProviderModels } from './relay_routing_service.js'
 
 export const openaiRoutes = express.Router()
 // Codex CLI 系统提示词（非 Codex CLI 客户端请求时注入，统一端点也使用）
@@ -220,23 +220,14 @@ const applyRateLimitTracking = async (
 }
 
 // 使用统一调度器选择 OpenAI 账户
-const getOpenAIAuthToken = async (
-  apiKeyData,
-  sessionId = null,
-  requestedModel = null,
-  clientRequest = null
-) => {
+const getOpenAIAuthToken = async (apiKeyData, sessionId = null, requestedModel = null, clientRequest = null) => {
   try {
     // 生成会话哈希（如果有会话ID）
     const sessionHash = sessionId ? crypto.createHash('sha256').update(sessionId).digest('hex') : null
 
     // 使用统一调度器选择账户
     const result = await trackRequestTiming(clientRequest, 'scheduling', () =>
-      unifiedOpenAIScheduler.selectAccountForApiKey(
-        apiKeyData,
-        sessionHash,
-        requestedModel
-      )
+      unifiedOpenAIScheduler.selectAccountForApiKey(apiKeyData, sessionHash, requestedModel),
     )
 
     if (!result || !result.accountId) {
@@ -706,8 +697,8 @@ export const handleResponses = async (req, res) => {
       upstream = await timedUpstreamRequest(req, () =>
         axios.post(codexEndpoint, outboundBody, {
           ...axiosConfig,
-          responseType: 'stream'
-        })
+          responseType: 'stream',
+        }),
       )
     } else {
       upstream = await timedUpstreamRequest(req, () =>
@@ -715,8 +706,8 @@ export const handleResponses = async (req, res) => {
           ...axiosConfig,
           responseType: realtimeRoute ? 'arraybuffer' : 'json',
           // realtime 需要原始状态码/头（含 Location）
-          maxRedirects: 0
-        })
+          maxRedirects: 0,
+        }),
       )
     }
 
@@ -1515,11 +1506,7 @@ const handleImages = async (req, res) => {
     }
 
     const upstream = await timedUpstreamRequest(req, () =>
-      axios.post(
-        'https://chatgpt.com/backend-api/codex/responses',
-        payload,
-        axiosConfig
-      )
+      axios.post('https://chatgpt.com/backend-api/codex/responses', payload, axiosConfig),
     )
     if (upstream.status < 200 || upstream.status >= 300) {
       // 先收集完整的错误响应体（上游以流返回）
@@ -1827,7 +1814,7 @@ openaiRoutes.post('/v1/responses/compact', authenticateApiKey, handleResponses)
 
 // Codex CLI / VS Code 插件会请求 GET /models?client_version=...
 // 带 client_version 时返回 Codex ModelsResponse（{ models: ModelInfo[] }）
-// 不带时返回 OpenAI 兼容列表，数据源走 modelService 权威 OpenAI 支持集
+// 不带时返回同一账号范围下的 OpenAI 兼容模型列表
 const applyModelBlacklist = (modelIds, apiKeyData) => {
   if (!apiKeyData?.enableModelRestriction || !Array.isArray(apiKeyData.restrictedModels)) {
     return modelIds
@@ -1858,9 +1845,12 @@ export const handleModels = async (req, res) => {
     }
 
     const clientVersion = typeof req.query?.client_version === 'string' ? req.query.client_version.trim() : ''
+    const accountModelIds = (await getLegacyProviderModels(apiKeyData, 'openai', 'openai-responses')).map(
+      (model) => model.id,
+    )
 
     if (clientVersion) {
-      const codexModelIds = applyModelBlacklist(codexModelsManifest.getDefaultCodexModelIds(), apiKeyData)
+      const codexModelIds = applyModelBlacklist(accountModelIds, apiKeyData)
       const manifest = codexModelsManifest.buildCodexModelsManifest(codexModelIds)
       const etag = codexModelsManifest.codexManifestEtag(manifest)
       res.setHeader('ETag', etag)
@@ -1871,11 +1861,8 @@ export const handleModels = async (req, res) => {
       return res.json(manifest)
     }
 
-    // 无 client_version：OpenAI 兼容列表，用 modelService 权威目录
-    const openAIModelIds = applyModelBlacklist(
-      modelService.getModelsByProvider('openai').map((model) => model.id),
-      apiKeyData,
-    )
+    // 无 client_version：保持相同的账号、分组和共享池范围
+    const openAIModelIds = applyModelBlacklist(accountModelIds, apiKeyData)
     return res.json(codexModelsManifest.buildOpenAIModelsList(openAIModelIds))
   } catch (error) {
     logger.error('Failed to get OpenAI/Codex models:', summarizeErrorForLog(error))
@@ -1908,7 +1895,9 @@ const handleEmbeddings = async (req, res) => {
     const { accountType, account, accessToken } = await getOpenAIAuthToken(
       apiKeyData,
       sessionId,
-      req.body?.model || 'text-embedding-3-small', req)
+      req.body?.model || 'text-embedding-3-small',
+      req,
+    )
 
     if (accountType !== 'openai-responses' && accountType !== 'openai') {
       return res.status(501).json({
@@ -1968,7 +1957,9 @@ const handleOpenAIAudioPassthrough = async (req, res) => {
     const { accountType, account, accessToken } = await getOpenAIAuthToken(
       apiKeyData,
       sessionId,
-      req.body?.model || 'whisper-1', req)
+      req.body?.model || 'whisper-1',
+      req,
+    )
     if (accountType !== 'openai-responses') {
       return res.status(501).json({
         error: {
@@ -2022,7 +2013,9 @@ openaiRoutes.post(['/moderations', '/v1/moderations'], authenticateApiKey, async
     const { accountType, account, accessToken } = await getOpenAIAuthToken(
       apiKeyData,
       null,
-      req.body?.model || 'omni-moderation-latest', req)
+      req.body?.model || 'omni-moderation-latest',
+      req,
+    )
     if (accountType !== 'openai-responses') {
       return res.status(501).json({
         error: { message: 'Moderations require openai-responses API account', type: 'not_implemented' },

@@ -74,14 +74,12 @@ const service = createHttp({
       if (json.error && !json.aborted) {
         console.error('Request failed:', config?.method, config?.url, json.error)
       }
-      return normalizeEnvelope(
-        { code: 0, msg: json.message || json.msg || '请求失败' },
-        0
-      )
+      return normalizeEnvelope({ code: 0, msg: json.message || json.msg || '请求失败' }, 0)
     }
     // 真 401（鉴权）跳登录；业务体也可能 code=401
     if (res.status === 401) handleUnauthorized()
     const body = normalizeEnvelope(json ?? {}, res.status)
+    body.requestId ??= res.headers.get('X-Request-ID') ?? undefined
     if (body.code === 401) handleUnauthorized()
     if (!res.ok && res.status >= 500) {
       console.error('Request failed:', config?.method, config?.url, res.status)

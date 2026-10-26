@@ -1,5 +1,6 @@
 import { logger } from '../common/logger.js'
 import { RedisKeys, TTL, LIMITS } from './redis_key.js'
+import { RedisLua } from './redis_lua.js'
 // ===
 // 账户测试历史相关操作（从 src/models/redis.js 按域抽出）
 // 经 attach(redisClient) 挂到同一个 RedisClient 单例上，this 绑定与原文件一致。
@@ -122,17 +123,33 @@ export const attach = (redisClient) => {
     const key = RedisKeys.account.testConfig(platform, accountId)
     try {
       const client = this.getClientSafe()
-      await client.hset(key, {
-        enabled: testConfig.enabled ? 'true' : 'false',
-        cronExpression: testConfig.cronExpression || '0 8 * * *', // 默认每天早上8点
-        // 数据层不注入业务默认模型；缺省由消费方经 testModelConfigService 解析（单一事实源）
-        model: testConfig.model || '',
-        updatedAt: new Date().toISOString(),
-      })
-      // 设置过期时间（1年）
-      await client.expire(key, ACCOUNT_TEST_CONFIG_TTL)
+      const transaction = client
+        .multi()
+        .hset(key, {
+          enabled: testConfig.enabled ? 'true' : 'false',
+          cronExpression: testConfig.cronExpression || '0 8 * * *', // 默认每天早上8点
+          // 数据层不注入业务默认模型；缺省由消费方经 testModelConfigService 解析（单一事实源）
+          model: testConfig.model || '',
+          updatedAt: new Date().toISOString(),
+        })
+        .expire(key, ACCOUNT_TEST_CONFIG_TTL)
+      transaction.eval(
+        RedisLua.accountTest.refreshIndex,
+        2,
+        key,
+        RedisKeys.account.testConfigIndex(platform),
+        accountId,
+        Date.now(),
+      )
+      const results = await transaction.exec()
+      for (const [error] of results) {
+        if (error) {
+          throw error
+        }
+      }
     } catch (error) {
       logger.error(`Failed to save test config for ${accountId}:`, error)
+      throw error
     }
   }
 
@@ -174,43 +191,78 @@ export const attach = (redisClient) => {
    * @param {string} platform - 平台类型
    * @returns {Promise<Array>} 账户ID列表及 cron 配置
    */
-  redisClient.getEnabledTestAccounts = async function (platform) {
-    const accountIds = []
+  redisClient.rebuildAccountTestConfigIndex = async function (platform) {
+    const client = this.getClientSafe()
+    const indexKey = RedisKeys.account.testConfigIndex(platform)
     let cursor = '0'
+    do {
+      const [next, keys] = await client.scan(
+        cursor,
+        'MATCH',
+        RedisKeys.account.testConfigPattern(platform),
+        'COUNT',
+        200,
+      )
+      cursor = next
+      for (let offset = 0; offset < keys.length; offset += 100) {
+        const pipeline = client.pipeline()
+        for (const key of keys.slice(offset, offset + 100)) {
+          const accountId = key.slice(RedisKeys.account.testConfig(platform, '').length)
+          pipeline.eval(RedisLua.accountTest.refreshIndex, 2, key, indexKey, accountId, Date.now())
+        }
+        const results = await pipeline.exec()
+        for (const [error] of results) {
+          if (error) {
+            throw error
+          }
+        }
+      }
+    } while (cursor !== '0')
+  }
 
+  redisClient.getEnabledTestAccounts = async function (platform) {
+    const accountIds = new Map()
     try {
       const client = this.getClientSafe()
+      const indexKey = RedisKeys.account.testConfigIndex(platform)
+      await client.zremrangebyscore(indexKey, '-inf', Date.now())
+      let cursor = '0'
       do {
-        const [newCursor, keys] = await client.scan(
-          cursor,
-          'MATCH',
-          RedisKeys.account.testConfigPattern(platform),
-          'COUNT',
-          100,
-        )
+        const [newCursor, members] = await client.zscan(indexKey, cursor, 'COUNT', 100)
         cursor = newCursor
-
-        for (const key of keys) {
-          const testConfig = await client.hgetall(key)
-          if (testConfig && testConfig.enabled === 'true') {
-            const accountId = key.replace(`account:test_config:${platform}:`, '')
-            // 向后兼容：如果存在旧的 testHour 字段，转换为 cron 表达式
-            let { cronExpression } = testConfig
-            if (!cronExpression && testConfig.testHour) {
-              const hour = parseInt(testConfig.testHour, 10)
-              cronExpression = `0 ${hour} * * *`
+        const ids = members.filter((_, index) => index % 2 === 0)
+        for (let offset = 0; offset < ids.length; offset += 100) {
+          const batch = ids.slice(offset, offset + 100)
+          const pipeline = client.pipeline()
+          for (const accountId of batch) {
+            pipeline.hgetall(RedisKeys.account.testConfig(platform, accountId))
+          }
+          const results = await pipeline.exec()
+          for (let index = 0; index < batch.length; index++) {
+            const [error, testConfig] = results[index]
+            if (error) {
+              throw error
             }
-            accountIds.push({
-              accountId,
-              cronExpression: cronExpression || '0 8 * * *',
-              // 数据层不注入业务默认模型；缺省返回 null，由调度器经 testModelConfigService 解析
-              model: testConfig.model || null,
-            })
+            if (testConfig && testConfig.enabled === 'true') {
+              const accountId = batch[index]
+              // 向后兼容：如果存在旧的 testHour 字段，转换为 cron 表达式
+              let { cronExpression } = testConfig
+              if (!cronExpression && testConfig.testHour) {
+                const hour = parseInt(testConfig.testHour, 10)
+                cronExpression = `0 ${hour} * * *`
+              }
+              accountIds.set(accountId, {
+                accountId,
+                cronExpression: cronExpression || '0 8 * * *',
+                // 数据层不注入业务默认模型；缺省返回 null，由调度器经 testModelConfigService 解析
+                model: testConfig.model || null,
+              })
+            }
           }
         }
       } while (cursor !== '0')
 
-      return accountIds
+      return [...accountIds.values()]
     } catch (error) {
       logger.error(`Failed to get enabled test accounts for ${platform}:`, error)
       return []

@@ -3,7 +3,7 @@
     <!-- Logo区域：仅图片加载成功时可点击放大 -->
     <div
       :class="[
-        'flex h-12 w-12 flex-shrink-0 items-center justify-center overflow-hidden rounded-xl border border-gray-300/30 bg-gradient-to-br from-blue-500/20 to-purple-500/20 backdrop-blur-sm dark:border-gray-600/30 dark:from-blue-600/20 dark:to-purple-600/20',
+        'flex h-12 w-12 flex-shrink-0 items-center justify-center overflow-hidden rounded-xl border border-[var(--border-color)] bg-[var(--primary-soft)]',
         canPreview ? 'cursor-pointer transition-opacity hover:opacity-80' : ''
       ]"
       :title="canPreview ? '点击查看大图' : undefined"

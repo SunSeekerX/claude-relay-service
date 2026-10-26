@@ -13,14 +13,7 @@
           :disabled="activeApiKeysCount >= maxApiKeys"
           @click="showCreateModal = true"
         >
-          <svg class="-ml-1 mr-2 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path
-              d="M12 6v6m0 0v6m0-6h6m-6 0H6"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              stroke-width="2"
-            />
-          </svg>
+          <i aria-hidden="true" class="i-lucide-plus -ml-1 mr-2 h-4 w-4" />
           Create API Key
         </button>
       </div>
@@ -33,13 +26,7 @@
     >
       <div class="flex">
         <div class="flex-shrink-0">
-          <svg class="h-5 w-5 text-yellow-400" fill="currentColor" viewBox="0 0 20 20">
-            <path
-              clip-rule="evenodd"
-              d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z"
-              fill-rule="evenodd"
-            />
-          </svg>
+          <i aria-hidden="true" class="i-lucide-triangle-alert h-5 w-5 text-yellow-400" />
         </div>
         <div class="ml-3">
           <p class="text-sm text-yellow-700 dark:text-yellow-300">
@@ -52,26 +39,10 @@
 
     <!-- Loading State -->
     <div v-if="loading" class="py-12 text-center">
-      <svg
-        class="mx-auto h-8 w-8 animate-spin text-blue-600"
-        fill="none"
-        viewBox="0 0 24 24"
-        xmlns="http://www.w3.org/2000/svg"
-      >
-        <circle
-          class="opacity-25"
-          cx="12"
-          cy="12"
-          r="10"
-          stroke="currentColor"
-          stroke-width="4"
-        ></circle>
-        <path
-          class="opacity-75"
-          d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-          fill="currentColor"
-        ></path>
-      </svg>
+      <i
+        aria-hidden="true"
+        class="i-lucide-loader-circle mx-auto h-8 w-8 animate-spin text-blue-600"
+      />
       <p class="mt-2 text-sm text-gray-500 dark:text-gray-400">Loading API keys...</p>
     </div>
 
@@ -151,20 +122,7 @@
                   title="View API Key"
                   @click="showApiKey(apiKey)"
                 >
-                  <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path
-                      d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                      stroke-width="2"
-                    />
-                    <path
-                      d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                      stroke-width="2"
-                    />
-                  </svg>
+                  <i aria-hidden="true" class="i-lucide-eye h-4 w-4" />
                 </button>
 
                 <button
@@ -177,14 +135,7 @@
                   title="Delete API Key"
                   @click="deleteApiKey(apiKey)"
                 >
-                  <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path
-                      d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                      stroke-width="2"
-                    />
-                  </svg>
+                  <i aria-hidden="true" class="i-lucide-trash-2 h-4 w-4" />
                 </button>
               </div>
             </div>
@@ -195,19 +146,10 @@
 
     <!-- Empty State -->
     <div v-else class="py-12 text-center">
-      <svg
-        class="mx-auto h-12 w-12 text-gray-400 dark:text-gray-500"
-        fill="none"
-        stroke="currentColor"
-        viewBox="0 0 24 24"
-      >
-        <path
-          d="M15 7a2 2 0 012 2m0 0a2 2 0 012 2m-2-2h-6m6 0v6a2 2 0 01-2 2H9a2 2 0 01-2-2V9a2 2 0 012-2h6z"
-          stroke-linecap="round"
-          stroke-linejoin="round"
-          stroke-width="2"
-        />
-      </svg>
+      <i
+        aria-hidden="true"
+        class="i-lucide-key mx-auto h-12 w-12 text-gray-400 dark:text-gray-500"
+      />
       <h3 class="mt-2 text-sm font-medium text-gray-900 dark:text-gray-100">No API keys</h3>
       <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
         Get started by creating your first API key.
@@ -217,14 +159,7 @@
           class="inline-flex items-center rounded-md border border-transparent bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:focus:ring-offset-gray-800"
           @click="showCreateModal = true"
         >
-          <svg class="-ml-1 mr-2 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path
-              d="M12 6v6m0 0v6m0-6h6m-6 0H6"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              stroke-width="2"
-            />
-          </svg>
+          <i aria-hidden="true" class="i-lucide-plus -ml-1 mr-2 h-4 w-4" />
           Create API Key
         </button>
       </div>
@@ -331,8 +266,12 @@ const handleDeleteConfirm = async () => {
   }
 }
 
-const handleApiKeyCreated = async () => {
-  showCreateModal.value = false
+const handleApiKeyCreated = async (apiKey, closeAfter) => {
+  if (closeAfter) {
+    showCreateModal.value = false
+    selectedApiKey.value = apiKey
+    showViewModal.value = true
+  }
   await loadApiKeys()
 }
 

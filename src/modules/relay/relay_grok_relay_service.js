@@ -1,8 +1,4 @@
-import {
-  trackRequestTiming,
-  timedUpstreamRequest,
-  getRequestTimings
-} from '../../common/request_timing.js'
+import { trackRequestTiming, timedUpstreamRequest, getRequestTimings } from '../../common/request_timing.js'
 import axios from 'axios'
 import crypto from 'node:crypto'
 import { logger } from '../../common/logger.js'
@@ -45,15 +41,7 @@ import * as claudeResponses from './translator/relay_translator_claude_responses
  */
 
 class GrokRelayService {
-  async _createVideoTask({
-    apiKeyId,
-    requestId,
-    accountId,
-    model,
-    body,
-    reservationId = null,
-    reservedCost = null
-  }) {
+  async _createVideoTask({ apiKeyId, requestId, accountId, model, body, reservationId = null, reservedCost = null }) {
     if (!apiKeyId || !requestId) {
       return null
     }
@@ -69,15 +57,13 @@ class GrokRelayService {
       requestId,
       accountId,
       model,
-      billingUsage: JSON.stringify(
-        this._buildMediaBillingUsage(null, { body }, 'videos_generations')
-      ),
+      billingUsage: JSON.stringify(this._buildMediaBillingUsage(null, { body }, 'videos_generations')),
       reservedCost: reservedCost ?? Number(pricing.totalCost),
       reservedDuration: reservedUsage.video_output_seconds,
       reservationId: reservationId || '',
       status: 'processing',
       settled: false,
-      createdAt: new Date().toISOString()
+      createdAt: new Date().toISOString(),
     }
     const client = redis.getClientSafe()
     await client.hset(key, Object.fromEntries(Object.entries(task).map(([k, v]) => [k, String(v)])))
@@ -92,13 +78,11 @@ class GrokRelayService {
     }
     const status = String(data?.status ?? '').toLowerCase()
     if (
-      !['completed', 'succeeded', 'done', 'failed', 'expired', 'cancelled', 'canceled'].includes(
-        status
-      ) &&
+      !['completed', 'succeeded', 'done', 'failed', 'expired', 'cancelled', 'canceled'].includes(status) &&
       !data?.video?.url
     ) {
-return null
-}
+      return null
+    }
     const key = RedisKeys.session.grokVideoTask(apiKeyId, requestId)
     const client = redis.getClientSafe()
     const task = await client.hgetall(key)
@@ -106,8 +90,8 @@ return null
       return null
     }
     if (task.settled === 'true') {
-                return null
-              }
+      return null
+    }
     const settlementOwner = crypto.randomUUID()
     const claimed = await client.eval(
       RedisLua.grokVideo.claimSettlement,
@@ -115,7 +99,7 @@ return null
       key,
       Date.now(),
       settlementOwner,
-      TTL.grokVideoSettlementLease * 1000
+      TTL.grokVideoSettlementLease * 1000,
     )
     if (claimed !== 1) {
       return null
@@ -125,7 +109,7 @@ return null
       ...task,
       settlementOwner,
       actualDuration: Number.isFinite(duration) && duration > 0 ? duration : null,
-      key
+      key,
     }
   }
 
@@ -142,7 +126,7 @@ return null
       settled ? 'completed' : 'failed',
       String(task.actualDuration ?? ''),
       String(actualCost),
-      new Date().toISOString()
+      new Date().toISOString(),
     )
     if (applied !== 1) {
       return
@@ -159,7 +143,7 @@ return null
     const usage = {
       ...this._buildMediaBillingUsage(null, { body }, 'videos_generations'),
       video_output_seconds: Number.isFinite(duration) && duration > 0 ? duration : 6,
-      video_resolution: body?.resolution ?? body?.video_resolution ?? body?.size
+      video_resolution: body?.resolution ?? body?.video_resolution ?? body?.size,
     }
     const estimate = pricingService.calculateCost(usage, model)
     const baseCost = Number(estimate.totalCost)
@@ -167,7 +151,7 @@ return null
       apiKeyData.id,
       serviceRatesService.getService('grok', model),
       baseCost,
-      'grok'
+      'grok',
     )
     const reservationId = crypto.randomUUID()
     if (typeof redis.reserveCost !== 'function') {
@@ -286,8 +270,8 @@ return null
       if (!account) {
         account = await trackRequestTiming(req, 'scheduling', () =>
           grokScheduler.selectAccount(apiKeyData, requestedModel, sessionHash, {
-            mediaGeneration
-          })
+            mediaGeneration,
+          }),
         )
       }
       if (!account) {
@@ -451,9 +435,7 @@ return null
         `[GrokRelay] forward account=${account.id} url=${targetUrl} stream=${isStream} model=${body?.model || requestedModel || '-'} endpoint=${effectiveEndpointKind} reverseChat=${reverseBridgeToChat}`,
       )
 
-      let response = await timedUpstreamRequest(req, () =>
-        axios(applyProxy(buildRequestOptions(body)))
-      )
+      let response = await timedUpstreamRequest(req, () => axios(applyProxy(buildRequestOptions(body))))
       proxyResolver.report?.(proxyResolution?.proxyId, proxyResolution?.contextKey, null)
 
       // encrypted_content 400：剥离后同号重试一次
@@ -465,9 +447,7 @@ return null
         if (stripped.changed) {
           logger.warn(`[GrokRelay] invalid encrypted_content retry account=${account.id}`)
           ;({ body } = stripped)
-          response = await timedUpstreamRequest(req, () =>
-            axios(applyProxy(buildRequestOptions(body)))
-          )
+          response = await timedUpstreamRequest(req, () => axios(applyProxy(buildRequestOptions(body))))
         }
       }
 
@@ -538,8 +518,8 @@ return null
         try {
           const next = await trackRequestTiming(req, 'scheduling', () =>
             grokScheduler.selectAccount(apiKeyData, requestedModel, sessionHash, {
-              mediaGeneration
-            })
+              mediaGeneration,
+            }),
           )
           if (next && next.id !== account.id) {
             logger.warn(`[GrokRelay] failover ${response.status} ${account.id} -> ${next.id}`)
@@ -559,9 +539,7 @@ return null
               req,
             )
             proxyResolution = proxyResolver.resolveAgent(account, 'grok')
-            response = await timedUpstreamRequest(req, () =>
-              axios(applyProxy(buildRequestOptions(body)))
-            )
+            response = await timedUpstreamRequest(req, () => axios(applyProxy(buildRequestOptions(body))))
           }
         } catch (failoverError) {
           console.error(failoverError)
@@ -726,7 +704,7 @@ return null
               model: body?.model || requestedModel || this._defaultMediaModel(endpointKind),
               body,
               reservationId: videoReservation?.reservationId || null,
-              reservedCost: videoReservation?.amount ?? null
+              reservedCost: videoReservation?.amount ?? null,
             })
             req._crsVideoTaskId = requestId
             if (videoReservation) {
@@ -905,8 +883,7 @@ return null
         next.model = fallback
       }
     }
-    return endpointKind === 'images_generations' ||
-           endpointKind === 'images_edits'
+    return endpointKind === 'images_generations' || endpointKind === 'images_edits'
       ? grokProtocol.normalizeGrokImageBody(next)
       : next
   }
@@ -945,26 +922,24 @@ return null
   _buildMediaBillingUsage(data, req, endpointKind) {
     const kind = String(endpointKind || '')
     const body = req?.body || {}
-    const usage = req?._crsVideoSettlement?.billingUsage
-      ? JSON.parse(req._crsVideoSettlement.billingUsage)
-      : {}
+    const usage = req?._crsVideoSettlement?.billingUsage ? JSON.parse(req._crsVideoSettlement.billingUsage) : {}
 
     // 分辨率/质量：供 Grok 分档选价（pricingService.resolveGrokMediaUnitPrices）
     if (body.size !== undefined && body.size !== null) {
-                                 usage.size = body.size
-                               }
+      usage.size = body.size
+    }
     if (body.resolution !== undefined && body.resolution !== null) {
-                                       usage.resolution = body.resolution
-                                     }
+      usage.resolution = body.resolution
+    }
     if (body.quality !== undefined && body.quality !== null) {
-                                    usage.quality = body.quality
-                                  }
+      usage.quality = body.quality
+    }
     if (body.image_size !== undefined && body.image_size !== null) {
-                                       usage.image_size = body.image_size
-                                     }
+      usage.image_size = body.image_size
+    }
     if (body.video_resolution !== undefined && body.video_resolution !== null) {
-                                             usage.video_resolution = body.video_resolution
-                                           }
+      usage.video_resolution = body.video_resolution
+    }
     // 响应回显优先
     if (data?.size) {
       usage.size = data.size
@@ -1062,15 +1037,7 @@ return null
     return Object.keys(usage).length ? usage : null
   }
 
-  async _handleNormalResponse(
-    response,
-    res,
-    account,
-    apiKeyData,
-    requestedModel,
-    req,
-    options = {}
-  ) {
+  async _handleNormalResponse(response, res, account, apiKeyData, requestedModel, req, options = {}) {
     let { data } = response
     let conversionFailed = false
     // compact 响应改写
@@ -1116,9 +1083,7 @@ return null
     const videoSubmission =
       ['videos_generations', 'videos_edits', 'videos_extensions'].includes(options.endpointKind) &&
       Boolean(req._crsVideoTaskId)
-    const billMedia =
-      !videoSubmission &&
-      (options.endpointKind !== 'video_status' || Boolean(req._crsVideoSettlement))
+    const billMedia = !videoSubmission && (options.endpointKind !== 'video_status' || Boolean(req._crsVideoSettlement))
     if (videoSubmission) {
       req._crsUsageDetailHandled = true
       await requestDetailService.captureRequestDetail({
@@ -1126,7 +1091,7 @@ return null
         apiKeyId: apiKeyData.id,
         accountId: account.id,
         accountType: 'grok',
-        model: requestedModel
+        model: requestedModel,
       })
     }
     // 媒体：即使上游不回 usage，也要按张数/秒落账
@@ -1162,8 +1127,8 @@ return null
                   .createHash('sha256')
                   .update([apiKeyData.id, account.id, req._crsVideoSettlement.requestId].join(':'))
                   .digest('hex')
-              : null
-          })
+              : null,
+          }),
         )
         .then(async (costs) => {
           if (req._crsVideoSettlement) {
@@ -1172,12 +1137,13 @@ return null
         })
         .catch(async (e) => {
           if (req._crsVideoSettlement) {
-            await redis.getClientSafe()
+            await redis
+              .getClientSafe()
               .eval(
                 RedisLua.grokVideo.releaseSettlement,
                 1,
                 req._crsVideoSettlement.key,
-                req._crsVideoSettlement.settlementOwner
+                req._crsVideoSettlement.settlementOwner,
               )
           }
           console.error(e)
@@ -1390,7 +1356,7 @@ return null
         terminalType: upstreamState.terminalType,
         hasUsage: Boolean(upstreamState.usage),
         statusCode: result.statusCode,
-        timings: getRequestTimings(req)
+        timings: getRequestTimings(req),
       })
     }
   }

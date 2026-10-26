@@ -1,7 +1,9 @@
+import { readMappedAccountModelRange } from '../../common/compat_account_models.js'
+import { normalizeAccountModelRange } from './account_model_policy.js'
 import { ProxyHelper } from '../proxy/proxy_helper.js'
 import { redis } from '../../infra/redis.js'
 import { logger } from '../../common/logger.js'
-import { createEncryptor, isModelInMapping, getMappedModelName } from '../../common/common_helper.js'
+import { createEncryptor, getMappedModelName } from '../../common/common_helper.js'
 import * as upstreamErrorHelper from '../relay/relay_upstream_error_helper.js'
 import { RedisKeys } from '../../infra/redis_key.js'
 import { webhookNotifier } from '../webhook/webhook_notifier.js'
@@ -30,6 +32,7 @@ class CcrAccountService {
       apiUrl = '',
       apiKey = '',
       priority = 50, // 默认优先级50（1-100）
+      allowedModels = [],
       supportedModels = [], // 支持的模型列表或映射表，空数组/对象表示支持所有
       userAgent = 'claude-relay-service/1.0.0',
       rateLimitDuration = 60, // 限流时间（分钟）
@@ -61,6 +64,7 @@ class CcrAccountService {
       apiKey: this._encryptSensitiveData(apiKey),
       priority: priority.toString(),
       supportedModels: JSON.stringify(processedModels),
+      allowedModels: JSON.stringify(normalizeAccountModelRange(allowedModels)),
       userAgent,
       rateLimitDuration: rateLimitDuration.toString(),
       proxy: proxy ? JSON.stringify(proxy) : '',
@@ -111,6 +115,7 @@ class CcrAccountService {
       apiUrl,
       priority,
       supportedModels,
+      allowedModels: normalizeAccountModelRange(allowedModels),
       userAgent,
       rateLimitDuration,
       isActive,
@@ -152,6 +157,7 @@ class CcrAccountService {
             apiUrl: accountData.apiUrl,
             priority: parseInt(accountData.priority) || 50,
             supportedModels: JSON.parse(accountData.supportedModels || '[]'),
+            allowedModels: readMappedAccountModelRange(accountData),
             userAgent: accountData.userAgent,
             rateLimitDuration: Number.isNaN(parseInt(accountData.rateLimitDuration))
               ? 60
@@ -214,6 +220,7 @@ class CcrAccountService {
     logger.debug(`[DEBUG] Parsed supportedModels: ${JSON.stringify(parsedModels)}`)
 
     accountData.supportedModels = parsedModels
+    accountData.allowedModels = readMappedAccountModelRange(accountData)
     accountData.priority = parseInt(accountData.priority) || 50
     {
       const _parsedDuration = parseInt(accountData.rateLimitDuration)
@@ -263,6 +270,9 @@ class CcrAccountService {
       }
       if (updates.priority !== undefined) {
         updatedData.priority = updates.priority.toString()
+      }
+      if (updates.allowedModels !== undefined) {
+        updatedData.allowedModels = JSON.stringify(normalizeAccountModelRange(updates.allowedModels))
       }
       if (updates.supportedModels !== undefined) {
         logger.debug(`[DEBUG] Updating supportedModels: ${JSON.stringify(updates.supportedModels)}`)
@@ -592,11 +602,6 @@ class CcrAccountService {
     }
 
     return {}
-  }
-
-  // 检查模型是否被支持 — 委托公共 helper，含 prefix* 通配
-  isModelSupported(modelMapping, requestedModel) {
-    return isModelInMapping(modelMapping, requestedModel)
   }
 
   // 获取映射后的模型名称 — 委托公共 helper，含 prefix* 通配

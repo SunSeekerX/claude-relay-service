@@ -1,6 +1,7 @@
 import express from 'express'
 import { authenticateAdmin } from '../../infra/middleware_auth.js'
 import { testModelConfigService } from './relay_test_model_config_service.js'
+import { testPromptConfigService } from './relay_test_prompt_config_service.js'
 import { asyncRoute } from '../../common/route_handler.js'
 import { ok, badRequest } from '../../common/http_result.js'
 import { parseObjectBody } from '../../common/parse_body.js'
@@ -10,6 +11,23 @@ import { isPlainObject } from '../../common/common_helper.js'
  */
 
 export const router = express.Router()
+
+router.get(
+  '/test-prompt-config',
+  authenticateAdmin,
+  asyncRoute('Failed to get test prompts', async () => ({
+    config: await testPromptConfigService.getConfig()
+  }))
+)
+
+router.put(
+  '/test-prompt-config',
+  authenticateAdmin,
+  asyncRoute('Failed to save test prompts', async (req) => {
+    const config = await testPromptConfigService.saveConfig(req.body, req.admin?.username ?? 'unknown')
+    return ok({ config }, '测试题库已保存')
+  })
+)
 
 router.get(
   '/test-model-config',

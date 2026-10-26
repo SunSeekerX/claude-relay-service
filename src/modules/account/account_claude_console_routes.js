@@ -119,6 +119,7 @@ router.post(
       apiKey,
       priority,
       supportedModels,
+      allowedModels,
       userAgent,
       rateLimitDuration,
       proxy,
@@ -168,6 +169,7 @@ router.post(
       apiKey,
       priority: priority || 50,
       supportedModels: supportedModels || [],
+      allowedModels,
       userAgent,
       rateLimitDuration: rateLimitDuration !== undefined && rateLimitDuration !== null ? rateLimitDuration : 60,
       proxy,
@@ -429,7 +431,7 @@ router.post(
     }
 
     // 直接调用服务层的测试方法
-    await claudeConsoleRelayService.testAccountConnection(accountId, res, model)
+    await claudeConsoleRelayService.testAccountConnection(accountId, res, model, body.prompt)
     return SEND_RAW
   }),
 )

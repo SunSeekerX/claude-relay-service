@@ -32,7 +32,7 @@ export const buildWebSocketClientError = (error) => {
   const result = buildClientError({
     statusCode: error.statusCode ?? error.response?.status ?? 502,
     protocol: 'openai',
-    upstreamBody: { error: { code: error.code, message: error.message } }
+    upstreamBody: { error: { code: error.code, message: error.message } },
   })
   if (Number.isInteger(error.statusCode) && !error.response && !error.upstream) {
     result.statusCode = error.statusCode

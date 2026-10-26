@@ -1,8 +1,8 @@
 <template>
-  <div>
+  <div class="dashboard-page">
     <!-- 主要统计 -->
     <div
-      class="mb-3 grid grid-cols-1 gap-2 sm:mb-4 sm:grid-cols-2 sm:gap-3 md:mb-5 md:gap-4 lg:grid-cols-4"
+      class="dashboard-summary-grid mb-3 grid grid-cols-1 gap-2 sm:mb-4 sm:grid-cols-2 sm:gap-3 md:mb-5 md:gap-4 lg:grid-cols-4"
     >
       <div class="stat-card">
         <div class="flex items-center justify-between">
@@ -34,7 +34,7 @@
                 {{ dashboardData.totalAccounts }}
               </p>
               <!-- 各平台账户数量展示 -->
-              <div v-if="dashboardData.accountsByPlatform" class="flex items-center gap-2">
+              <div v-if="dashboardData.accountsByPlatform" class="flex flex-wrap items-center gap-x-2 gap-y-1">
                 <!-- Claude账户 -->
                 <div
                   v-if="
@@ -44,7 +44,7 @@
                   class="inline-flex items-center gap-0.5"
                   :title="`Claude: ${dashboardData.accountsByPlatform.claude.total} 个 (正常: ${dashboardData.accountsByPlatform.claude.normal})`"
                 >
-                  <i class="i-lucide-brain text-sm text-indigo-600" />
+                  <i aria-hidden="true" class="text-base shrink-0" :class="PLATFORM_ICONS.claude" />
                   <span class="text-sm font-medium text-gray-700 dark:text-gray-300">{{
                     dashboardData.accountsByPlatform.claude.total
                   }}</span>
@@ -58,7 +58,7 @@
                   class="inline-flex items-center gap-0.5"
                   :title="`Console: ${dashboardData.accountsByPlatform['claude-console'].total} 个 (正常: ${dashboardData.accountsByPlatform['claude-console'].normal})`"
                 >
-                  <i class="i-lucide-terminal text-sm text-purple-600" />
+                  <i aria-hidden="true" class="text-base shrink-0" :class="PLATFORM_ICONS.claude" />
                   <span class="text-sm font-medium text-gray-700 dark:text-gray-300">{{
                     dashboardData.accountsByPlatform['claude-console'].total
                   }}</span>
@@ -72,7 +72,7 @@
                   class="inline-flex items-center gap-0.5"
                   :title="`Gemini: ${dashboardData.accountsByPlatform.gemini.total} 个 (正常: ${dashboardData.accountsByPlatform.gemini.normal})`"
                 >
-                  <i class="i-lucide-bot text-sm text-yellow-600" />
+                  <i aria-hidden="true" class="text-base shrink-0" :class="PLATFORM_ICONS.gemini" />
                   <span class="text-sm font-medium text-gray-700 dark:text-gray-300">{{
                     dashboardData.accountsByPlatform.gemini.total
                   }}</span>
@@ -86,7 +86,11 @@
                   class="inline-flex items-center gap-0.5"
                   :title="`Bedrock: ${dashboardData.accountsByPlatform.bedrock.total} 个 (正常: ${dashboardData.accountsByPlatform.bedrock.normal})`"
                 >
-                  <i class="i-logos-aws text-sm text-orange-600" />
+                  <i
+                    aria-hidden="true"
+                    class="text-base shrink-0"
+                    :class="PLATFORM_ICONS.bedrock"
+                  />
                   <span class="text-sm font-medium text-gray-700 dark:text-gray-300">{{
                     dashboardData.accountsByPlatform.bedrock.total
                   }}</span>
@@ -100,7 +104,11 @@
                   class="inline-flex items-center gap-0.5"
                   :title="`OpenAI: ${dashboardData.accountsByPlatform.openai.total} 个 (正常: ${dashboardData.accountsByPlatform.openai.normal})`"
                 >
-                  <i class="icon-openai text-sm text-gray-100" />
+                  <i
+                    aria-hidden="true"
+                    class="text-base text-gray-700 dark:text-gray-300 shrink-0"
+                    :class="PLATFORM_ICONS.openai"
+                  />
                   <span class="text-sm font-medium text-gray-700 dark:text-gray-300">{{
                     dashboardData.accountsByPlatform.openai.total
                   }}</span>
@@ -114,7 +122,11 @@
                   class="inline-flex items-center gap-0.5"
                   :title="`Azure OpenAI: ${dashboardData.accountsByPlatform.azure_openai.total} 个 (正常: ${dashboardData.accountsByPlatform.azure_openai.normal})`"
                 >
-                  <i class="i-logos-microsoft-icon text-sm text-blue-600" />
+                  <i
+                    aria-hidden="true"
+                    class="text-base shrink-0"
+                    :class="PLATFORM_ICONS.azure_openai"
+                  />
                   <span class="text-sm font-medium text-gray-700 dark:text-gray-300">{{
                     dashboardData.accountsByPlatform.azure_openai.total
                   }}</span>
@@ -128,7 +140,11 @@
                   class="inline-flex items-center gap-0.5"
                   :title="`OpenAI Responses: ${dashboardData.accountsByPlatform['openai-responses'].total} 个 (正常: ${dashboardData.accountsByPlatform['openai-responses'].normal})`"
                 >
-                  <i class="i-lucide-server text-sm text-cyan-600" />
+                  <i
+                    aria-hidden="true"
+                    class="text-base text-gray-700 dark:text-gray-300 shrink-0"
+                    :class="PLATFORM_ICONS.openai"
+                  />
                   <span class="text-sm font-medium text-gray-700 dark:text-gray-300">{{
                     dashboardData.accountsByPlatform['openai-responses'].total
                   }}</span>
@@ -142,7 +158,11 @@
                   class="inline-flex items-center gap-0.5"
                   :title="`Grok: ${dashboardData.accountsByPlatform.grok.total} 个 (正常: ${dashboardData.accountsByPlatform.grok.normal})`"
                 >
-                  <i class="i-lucide-zap text-sm text-violet-600" />
+                  <i
+                    aria-hidden="true"
+                    class="text-base text-gray-700 dark:text-gray-300 shrink-0"
+                    :class="PLATFORM_ICONS.grok"
+                  />
                   <span class="text-sm font-medium text-gray-700 dark:text-gray-300">{{
                     dashboardData.accountsByPlatform.grok.total
                   }}</span>
@@ -211,7 +231,7 @@
     </div>
 
     <!-- 账户余额/配额汇总 -->
-    <div class="mb-3 grid grid-cols-1 gap-2 sm:mb-4 sm:grid-cols-2 sm:gap-3 md:mb-5 md:gap-4">
+    <div class="dashboard-balance-grid mb-3 grid grid-cols-1 gap-2 sm:mb-4 sm:grid-cols-2 sm:gap-3 md:mb-5 md:gap-4">
       <div class="stat-card">
         <div class="flex items-center justify-between">
           <div>
@@ -311,7 +331,7 @@
 
     <!-- Token统计和性能指标 -->
     <div
-      class="mb-3 grid grid-cols-1 gap-2 sm:mb-4 sm:grid-cols-2 sm:gap-3 md:mb-5 md:gap-4 lg:grid-cols-4"
+      class="dashboard-metrics-grid mb-3 grid grid-cols-1 gap-2 sm:mb-4 sm:grid-cols-2 sm:gap-3 md:mb-5 md:gap-4 lg:grid-cols-4"
     >
       <div class="stat-card">
         <div class="flex items-center justify-between">
@@ -481,16 +501,16 @@
         <div class="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-end">
           <!-- 快捷日期选择 -->
           <SegmentedTabs
-            size="sm"
             :model-value="dateFilter.type === 'preset' ? dateFilter.preset : ''"
+            size="sm"
             :tabs="dateFilter.presetOptions"
             @update:model-value="setDateFilterPreset"
           />
 
           <!-- 粒度切换按钮 -->
           <SegmentedTabs
-            size="sm"
             :model-value="trendGranularity"
+            size="sm"
             :tabs="[
               { key: 'day', label: '按天', icon: 'i-lucide-calendar-days' },
               { key: 'hour', label: '按小时', icon: 'i-lucide-clock' }
@@ -661,8 +681,8 @@
           </h3>
           <!-- 维度切换按钮 -->
           <SegmentedTabs
-            size="sm"
             :model-value="apiKeysTrendMetric"
+            size="sm"
             :tabs="[
               { key: 'requests', label: '请求次数', icon: 'i-lucide-arrow-left-right' },
               { key: 'tokens', label: 'Token 数量', icon: 'i-lucide-coins' }
@@ -696,8 +716,8 @@
           </div>
           <div class="flex flex-wrap items-center gap-2">
             <SegmentedTabs
-              size="sm"
               :model-value="accountUsageGroup"
+              size="sm"
               :tabs="accountGroupOptions"
               @update:model-value="handleAccountUsageGroupChange"
             />
@@ -735,6 +755,7 @@ import Chart from 'chart.js/auto'
 
 import { useDashboardStore } from '@/stores/dashboard'
 import { useThemeStore } from '@/stores/theme'
+import { PLATFORM_ICONS } from '@/libs/platform_icons'
 import { formatNumber, showToast } from '@/libs/tools'
 import { isOk, msgOf } from '@/libs/http_envelope'
 import { getBalanceSummaryApi } from '@/libs/http_apis'
@@ -742,7 +763,6 @@ import AppDateRangePicker from '@/components/common/app_date_range_picker.vue'
 
 const dashboardStore = useDashboardStore()
 const themeStore = useThemeStore()
-const { isDarkMode } = storeToRefs(themeStore)
 
 const {
   dashboardData,
@@ -893,9 +913,9 @@ const isRefreshing = ref(false)
 
 // 图表颜色配置（根据主题动态调整）
 const chartColors = computed(() => ({
-  text: isDarkMode.value ? '#e5e7eb' : '#374151',
-  grid: isDarkMode.value ? 'rgba(75, 85, 99, 0.3)' : 'rgba(0, 0, 0, 0.1)',
-  legend: isDarkMode.value ? '#e5e7eb' : '#374151'
+  text: themeStore.currentColors.textSecondary,
+  grid: `${themeStore.currentColors.border}80`,
+  legend: themeStore.currentColors.textSecondary
 }))
 
 function formatCostValue(cost) {
@@ -934,9 +954,9 @@ function createModelUsageChart() {
       {
         data: data.map((d) => d.allTokens),
         backgroundColor: [
-          '#3B82F6',
-          '#10B981',
-          '#F59E0B',
+          themeStore.currentColors.primary,
+          themeStore.currentColors.secondary,
+          themeStore.currentColors.accent,
           '#EF4444',
           '#8B5CF6',
           '#EC4899',
@@ -954,6 +974,8 @@ function createModelUsageChart() {
     type: 'doughnut',
     data: chartData,
     options: {
+      animation: themeStore.reducedMotion ? false : { duration: 200 },
+      font: { family: 'Inter', size: themeStore.fontSize },
       responsive: true,
       maintainAspectRatio: false,
       plugins: {
@@ -963,7 +985,7 @@ function createModelUsageChart() {
             padding: 15,
             usePointStyle: true,
             font: {
-              size: 12
+              size: themeStore.fontSize
             },
             color: chartColors.value.legend
           }
@@ -1034,15 +1056,15 @@ function createUsageTrendChart() {
       {
         label: '输入Token',
         data: inputData,
-        borderColor: themeStore.currentColorScheme.primary,
-        backgroundColor: `${themeStore.currentColorScheme.primary}1a`,
+        borderColor: themeStore.currentColors.primary,
+        backgroundColor: `${themeStore.currentColors.primary}1a`,
         tension: 0.3
       },
       {
         label: '输出Token',
         data: outputData,
-        borderColor: themeStore.currentColorScheme.accent,
-        backgroundColor: `${themeStore.currentColorScheme.accent}1a`,
+        borderColor: themeStore.currentColors.accent,
+        backgroundColor: `${themeStore.currentColors.accent}1a`,
         tension: 0.3
       },
       {
@@ -1055,8 +1077,8 @@ function createUsageTrendChart() {
       {
         label: '缓存读取Token',
         data: cacheReadData,
-        borderColor: themeStore.currentColorScheme.secondary,
-        backgroundColor: `${themeStore.currentColorScheme.secondary}1a`,
+        borderColor: themeStore.currentColors.secondary,
+        backgroundColor: `${themeStore.currentColors.secondary}1a`,
         tension: 0.3
       },
       {
@@ -1082,6 +1104,8 @@ function createUsageTrendChart() {
     type: 'line',
     data: chartData,
     options: {
+      animation: themeStore.reducedMotion ? false : { duration: 200 },
+      font: { family: 'Inter', size: themeStore.fontSize },
       responsive: true,
       maintainAspectRatio: false,
       interaction: {
@@ -1304,6 +1328,8 @@ function createApiKeysUsageTrendChart() {
     type: 'line',
     data: chartData,
     options: {
+      animation: themeStore.reducedMotion ? false : { duration: 200 },
+      font: { family: 'Inter', size: themeStore.fontSize },
       responsive: true,
       maintainAspectRatio: false,
       plugins: {
@@ -1313,7 +1339,7 @@ function createApiKeysUsageTrendChart() {
             padding: 20,
             usePointStyle: true,
             font: {
-              size: 12
+              size: themeStore.fontSize
             },
             color: chartColors.value.legend
           }
@@ -1502,6 +1528,8 @@ function createAccountUsageTrendChart() {
     type: 'line',
     data: chartData,
     options: {
+      animation: themeStore.reducedMotion ? false : { duration: 200 },
+      font: { family: 'Inter', size: themeStore.fontSize },
       responsive: true,
       maintainAspectRatio: false,
       interaction: {
@@ -1515,7 +1543,7 @@ function createAccountUsageTrendChart() {
             padding: 20,
             usePointStyle: true,
             font: {
-              size: 12
+              size: themeStore.fontSize
             },
             color: chartColors.value.legend
           }
@@ -1703,19 +1731,9 @@ watch(autoRefreshEnabled, (newVal) => {
   }
 })
 
-// 监听主题变化，重新创建图表
-watch(isDarkMode, () => {
-  nextTick(() => {
-    createModelUsageChart()
-    createUsageTrendChart()
-    createApiKeysUsageTrendChart()
-    createAccountUsageTrendChart()
-  })
-})
-
-// 监听色系变化，重新创建图表
+// 颜色、字号和动效偏好都同步到 canvas。
 watch(
-  () => themeStore.colorScheme,
+  [() => themeStore.currentColors, () => themeStore.fontSize, () => themeStore.reducedMotion],
   () => {
     nextTick(() => {
       createModelUsageChart()

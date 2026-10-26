@@ -1,4 +1,11 @@
 import { createRequire } from 'node:module'
+import { readFileSync } from 'node:fs'
+import {
+  PLATFORM_ICONS,
+  CLIENT_ICONS,
+  SYSTEM_ICONS,
+  NOTIFICATION_ICONS
+} from './src/libs/platform_icons.js'
 
 import {
   defineConfig,
@@ -11,6 +18,10 @@ import {
 // Node ESM 直接 import *.json 要 import attribute；Uno 在构建期同步读集合时更稳妥走 createRequire
 const require = createRequire(import.meta.url)
 const loadIconifyJson = (pkg) => () => require(`${pkg}/icons.json`)
+const loadLobeSvg = (icon, fill) => () => {
+  const svg = readFileSync(require.resolve(`@lobehub/icons-static-svg/icons/${icon}.svg`), 'utf8')
+  return fill ? svg.replaceAll('currentColor', fill) : svg
+}
 
 export default defineConfig({
   presets: [
@@ -30,17 +41,61 @@ export default defineConfig({
       collections: {
         lucide: loadIconifyJson('@iconify-json/lucide'),
         logos: loadIconifyJson('@iconify-json/logos'),
-        si: loadIconifyJson('@iconify-json/simple-icons')
+        si: loadIconifyJson('@iconify-json/simple-icons'),
+        lobe: {
+          'claude-color': loadLobeSvg('claude-color'),
+          'claudecode-color': loadLobeSvg('claudecode-color'),
+          openai: loadLobeSvg('openai'),
+          codex: loadLobeSvg('codex'),
+          'gemini-color': loadLobeSvg('gemini-color'),
+          'antigravity-color': loadLobeSvg('antigravity-color'),
+          grok: loadLobeSvg('grok'),
+          'aws-color': loadLobeSvg('aws-color', '#232f3e'),
+          'aws-color-dark': loadLobeSvg('aws-color', '#ffffff'),
+          'azure-color': loadLobeSvg('azure-color'),
+          apple: loadLobeSvg('apple')
+        },
+        brand: {
+          feishu: () =>
+            readFileSync(new URL('./src/assets/icons/feishu.svg', import.meta.url), 'utf8'),
+          dingtalk: () =>
+            readFileSync(new URL('./src/assets/icons/dingtalk.svg', import.meta.url), 'utf8'),
+          wecom: () =>
+            readFileSync(new URL('./src/assets/icons/wecom.svg', import.meta.url), 'utf8'),
+          bark: () => readFileSync(new URL('./src/assets/icons/bark.svg', import.meta.url), 'utf8'),
+          factory: () =>
+            readFileSync(new URL('./src/assets/icons/factory.svg', import.meta.url), 'utf8')
+        }
       }
     })
   ],
   transformers: [transformerDirectives(), transformerVariantGroup()],
   theme: {
+    fontSize: {
+      xs: ['var(--base-font-size, 14px)', '1.4'],
+      sm: ['var(--base-font-size, 14px)', '1.5'],
+      base: ['max(16px, var(--base-font-size, 14px))', '1.5']
+    },
+    borderRadius: {
+      sm: 'max(3px, calc(var(--radius-sm) - 2px))',
+      DEFAULT: 'var(--radius-sm)',
+      md: 'var(--radius-sm)',
+      lg: 'var(--radius-sm)',
+      xl: 'var(--radius-md)',
+      '2xl': 'var(--radius-lg)',
+      '3xl': 'calc(var(--radius-lg) + 4px)'
+    },
     fontFamily: {
       sans: 'var(--font-family)',
       mono: 'var(--font-mono)'
     },
     colors: {
+      gray: Object.fromEntries(
+        [50, 100, 200, 300, 400, 500, 600, 700, 800, 900, 950].map((shade) => [
+          shade,
+          `rgb(var(--neutral-${shade}))`
+        ])
+      ),
       primary: {
         DEFAULT: 'var(--primary-color)',
         rgb: 'rgb(var(--primary-rgb))'
@@ -97,6 +152,12 @@ export default defineConfig({
   ],
   // JS 动态拼接的图标类静态扫描不到，集中 safelist
   safelist: [
+    ...[
+      ...Object.values(PLATFORM_ICONS),
+      ...Object.values(CLIENT_ICONS),
+      ...Object.values(SYSTEM_ICONS),
+      ...Object.values(NOTIFICATION_ICONS)
+    ].flatMap((classes) => classes.split(' ')),
     // 通用状态
     'i-lucide-loader-circle',
     'i-lucide-check',
@@ -131,16 +192,11 @@ export default defineConfig({
     'i-logos-aws',
     'i-logos-microsoft-icon',
     'i-logos-google-icon',
-    'i-logos-android-icon',
-    'i-logos-apple',
     'i-logos-linux-tux',
-    'i-logos-microsoft-windows',
-    'i-logos-openai-icon',
     'i-logos-discord-icon',
     'i-logos-slack-icon',
     'i-logos-telegram',
     'i-si-wechat',
-    'icon-openai',
     // 业务常用
     'i-lucide-palette',
     'i-lucide-bell',

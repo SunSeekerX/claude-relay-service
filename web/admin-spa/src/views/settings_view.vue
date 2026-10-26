@@ -1,9 +1,10 @@
 <template>
   <div class="settings-container">
-    <!-- 设置中心：PC 左固定 + 右区域内滚动；移动端整页自然滚 -->
+    <!-- 安全事件由表格内部滚动；其他移动端设置页自然滚动 -->
     <div
       ref="shellRef"
       class="settings-shell flex flex-col transition-none md:flex-row md:overflow-hidden md:gap-0"
+      :class="{ 'overflow-hidden': activeSection === 'securityEvents' }"
       :style="shellStyle"
     >
       <!-- 设置侧栏：PC 竖栏固定 / 移动端顶栏横滑；样式走主题工具类 -->
@@ -46,14 +47,19 @@
       </div>
 
       <div
-        class="settings-main custom-scrollbar min-h-0 min-w-0 flex-1 px-3 sm:px-4 md:overflow-y-auto md:px-6"
+        class="settings-main custom-scrollbar min-h-0 min-w-0 flex-1 px-3 sm:px-4 md:px-6"
+        :class="activeSection === 'securityEvents' ? 'flex flex-col overflow-hidden' : 'md:overflow-y-auto'"
       >
         <div v-if="bootLoading" class="py-12 text-center">
           <div class="loading-spinner mx-auto mb-4"></div>
           <p class="t-text-secondary text-sm">正在加载设置...</p>
         </div>
 
-        <div v-else class="settings-panel py-1">
+        <div
+          v-else
+          class="settings-panel py-1"
+          :class="{ 'min-h-0 flex-1 overflow-hidden': activeSection === 'securityEvents' }"
+        >
           <!-- 首次进入某分区才挂载；之后 v-show 保活，避免切 tab 丢草稿，也避免一进设置就全量打接口 -->
           <BrandingSettingsSection
             v-if="visitedSections.branding"
@@ -83,10 +89,15 @@
             v-if="visitedSections.testModels"
             v-show="activeSection === 'testModels'"
           />
+          <TestPromptSettingsSection
+            v-if="visitedSections.testPrompts"
+            v-show="activeSection === 'testPrompts'"
+          />
           <TranslatorRegistrySection
             v-if="visitedSections.protocol"
             v-show="activeSection === 'protocol'"
           />
+          <TokenizerManagementSection v-if="visitedSections.tokenizers" v-show="activeSection === 'tokenizers'" :active="activeSection === 'tokenizers'" />
           <SecurityEventsView
             v-if="visitedSections.securityEvents"
             v-show="activeSection === 'securityEvents'"
@@ -109,8 +120,10 @@ import ClaudeSettingsSection from '@/components/settings/claude_settings_section
 import ServiceRatesSettingsSection from '@/components/settings/service_rates_settings_section.vue'
 import GrokMediaPricingSection from '@/components/settings/grok_media_pricing_section.vue'
 import TestModelsSettingsSection from '@/components/settings/test_models_settings_section.vue'
+import TestPromptSettingsSection from '@/components/settings/test_prompt_settings_section.vue'
 import ModelPricingSection from '@/components/settings/model_pricing_section.vue'
 import TranslatorRegistrySection from '@/components/settings/translator_registry_section.vue'
+import TokenizerManagementSection from '@/components/settings/tokenizer_management_section.vue'
 import SecurityEventsView from '@/views/security_events_view.vue'
 
 defineOptions({
@@ -135,7 +148,8 @@ const sectionGroups = [
     label: '转发与协议',
     tabs: [
       { key: 'claude', label: '转发配置', icon: 'i-lucide-bot', hint: '客户端限制、会话绑定、请求明细与错误收集' },
-      { key: 'protocol', label: '协议转换', icon: 'i-lucide-git-branch', hint: '跨协议转换注册表与桥接说明' }
+      { key: 'protocol', label: '协议转换', icon: 'i-lucide-git-branch', hint: '跨协议转换注册表与桥接说明' },
+      { key: 'tokenizers', label: '词表管理', icon: 'i-lucide-book-open', hint: '词表下载、更新应用、启停与模型规则' }
     ]
   },
   {
@@ -152,6 +166,7 @@ const sectionGroups = [
     label: '安全与运维',
     tabs: [
       { key: 'testModels', label: '测试模型', icon: 'i-lucide-flask-conical', hint: '连通性测试默认模型' },
+      { key: 'testPrompts', label: '访问测试题库', icon: 'i-lucide-list-checks', hint: '测试题目与选题方式' },
       { key: 'securityEvents', label: '安全事件', icon: 'i-lucide-shield-alert', hint: '管理员登录尝试和限速结果' }
     ]
   }
@@ -190,7 +205,7 @@ watch(
 const bootLoading = ref(true)
 
 // 页面加载时获取设置
-// PC：锁 shell 高度，左栏固定、右栏 overflow 滚动；移动端不锁高，整页自然滚
+// PC 与安全事件页锁定可用高度；其他移动端设置页不锁高
 const shellRef = ref(null)
 const shellHeight = ref(null)
 const MOBILE_BREAKPOINT = 768
@@ -219,7 +234,7 @@ const getStableTop = (el) => {
 }
 
 const shellStyle = computed(() => {
-  if (isMobileLayout.value) {
+  if (isMobileLayout.value && activeSection.value !== 'securityEvents') {
     return {}
   }
   if (shellHeight.value != null) {
@@ -237,7 +252,7 @@ const updateShellHeight = () => {
     return
   }
   isMobileLayout.value = window.innerWidth < MOBILE_BREAKPOINT
-  if (isMobileLayout.value) {
+  if (isMobileLayout.value && activeSection.value !== 'securityEvents') {
     shellHeight.value = null
     return
   }

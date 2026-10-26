@@ -3,6 +3,7 @@ import axios from 'axios'
 
 import { ccrAccountService } from './account_ccr_service.js'
 import { testModelConfigService } from '../relay/relay_test_model_config_service.js'
+import { testPromptConfigService } from '../relay/relay_test_prompt_config_service.js'
 import { accountGroupService } from './account_group_service.js'
 import { apiKeyService } from '../apikey/apikey_service.js'
 import { redis } from '../../infra/redis.js'
@@ -121,6 +122,7 @@ router.post(
       apiKey,
       priority,
       supportedModels,
+      allowedModels,
       userAgent,
       rateLimitDuration,
       proxy,
@@ -156,6 +158,7 @@ router.post(
       apiKey,
       priority: priority || 50,
       supportedModels: supportedModels || [],
+      allowedModels,
       userAgent,
       rateLimitDuration: rateLimitDuration !== undefined && rateLimitDuration !== null ? rateLimitDuration : 60,
       proxy,
@@ -395,6 +398,7 @@ router.post(
       // 请求显式指定优先，否则用后台配置的默认测试模型（单一事实源）
       const body = parseObjectBody(req.body, '测试CCR账户')
       const model = await testModelConfigService.resolveAccountModel('ccr', body.model)
+      const prompt = await testPromptConfigService.resolvePrompt(body.prompt)
       // 获取账户信息
       const account = await ccrAccountService.getAccount(accountId)
       if (!account) {
@@ -414,7 +418,7 @@ router.post(
       const payload = {
         model,
         max_tokens: 100,
-        messages: [{ role: 'user', content: 'Say "Hello" in one word.' }],
+        messages: [{ role: 'user', content: prompt }],
       }
 
       const requestConfig = {

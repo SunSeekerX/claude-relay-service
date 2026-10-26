@@ -16,11 +16,7 @@ const ALLOWED_FLAT_FIELDS = [
   'input_cost_per_query',
 ]
 
-const ALLOWED_TIER_FIELDS = [
-  'xai_image_output_tiers',
-  'xai_video_output_tiers',
-  'xai_tool_costs_per_unit'
-]
+const ALLOWED_TIER_FIELDS = ['xai_image_output_tiers', 'xai_video_output_tiers', 'xai_tool_costs_per_unit']
 const BUILTIN_PRICING = { ...GROK_MEDIA_FALLBACK_PRICING, ...GROK_TOOL_FALLBACK_PRICING }
 const MAX_SAVE_ATTEMPTS = 5
 
@@ -155,8 +151,8 @@ class GrokMediaPricingOverlayService {
 
   async getEffectiveModelPricing(modelName) {
     if (!modelName || !BUILTIN_PRICING[modelName]) {
-return null
-}
+      return null
+    }
     const overlay = await this.getOverlay()
     const builtin = BUILTIN_PRICING[modelName]
     const override = overlay.models?.[modelName]
@@ -167,8 +163,8 @@ return null
   // DEC_20260913_153908 过期不回落内置价：继续用 lastKnown/cached，并后台刷新
   getEffectiveModelPricingSync(modelName) {
     if (!modelName || !BUILTIN_PRICING[modelName]) {
-return null
-}
+      return null
+    }
     const builtin = BUILTIN_PRICING[modelName]
     const overlay = this.cached || this.lastKnown
     if (overlay) {
@@ -409,7 +405,7 @@ return null
         for (const [tierKey, tierValue] of Object.entries(raw[field])) {
           if (field === 'xai_tool_costs_per_unit' && !Object.hasOwn(GROK_TOOL_UNIT_PRICES, tierKey)) {
             throw Object.assign(new Error(`unknown Grok tool billing unit: ${tierKey}`), {
-              code: 'BAD_REQUEST'
+              code: 'BAD_REQUEST',
             })
           }
           if (tierValue === undefined || tierValue === null || tierValue === '') {

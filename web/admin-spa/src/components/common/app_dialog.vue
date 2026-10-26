@@ -7,10 +7,11 @@
       @mousedown.self="onMask"
     >
       <div
+        :aria-label="title"
+        aria-modal="true"
         class="modal-content app-dialog mx-auto flex w-full flex-col overflow-hidden"
         :class="sizeClass"
         role="dialog"
-        aria-modal="true"
       >
         <!-- 头 -->
         <div v-if="showHeader" class="app-dialog__header">
@@ -36,8 +37,8 @@
           <button
             v-if="closable"
             class="app-dialog__close"
-            type="button"
             title="关闭"
+            type="button"
             @click="close"
           >
             <i class="i-lucide-x" />
@@ -210,6 +211,7 @@ const onMask = () => {
 
 .app-dialog__footer {
   display: flex;
+  flex-wrap: wrap;
   flex-shrink: 0;
   align-items: center;
   gap: 0.5rem;

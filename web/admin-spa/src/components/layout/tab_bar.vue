@@ -27,6 +27,7 @@
 <script setup>
 import { ref, computed, watch, nextTick, onMounted } from 'vue'
 import { useAuthStore } from '@/stores/auth'
+import { useThemeStore } from '@/stores/theme'
 
 const props = defineProps({
   activeTab: {
@@ -38,6 +39,7 @@ const props = defineProps({
 defineEmits(['tab-change'])
 
 const authStore = useAuthStore()
+const themeStore = useThemeStore()
 const scrollContainer = ref(null)
 
 // 根据 LDAP 配置动态生成 tabs
@@ -70,13 +72,33 @@ const scrollActiveIntoView = () => {
     if (!container) return
     const active = container.querySelector('.tab-btn.active')
     if (!active) return
-    const current = active.getBoundingClientRect().left - container.getBoundingClientRect().left
-    const target = (container.clientWidth - active.offsetWidth) / 2
-    container.scrollTo({ left: container.scrollLeft + current - target, behavior: 'smooth' })
+    const vertical = getComputedStyle(container).flexDirection === 'column'
+    const current = vertical
+      ? active.getBoundingClientRect().top - container.getBoundingClientRect().top
+      : active.getBoundingClientRect().left - container.getBoundingClientRect().left
+    const target = vertical ? 0 : (container.clientWidth - active.offsetWidth) / 2
+    container.scrollTo({
+      ...(vertical
+        ? { top: container.scrollTop + current - target }
+        : { left: container.scrollLeft + current - target }),
+      behavior:
+        document.documentElement.dataset.motion === 'reduced' ||
+        window.matchMedia('(prefers-reduced-motion: reduce)').matches
+          ? 'auto'
+          : 'smooth'
+    })
   })
 }
 
-watch(() => props.activeTab, scrollActiveIntoView)
+watch(
+  [
+    () => props.activeTab,
+    () => themeStore.colorScheme,
+    () => themeStore.currentNavigationLayout,
+    () => themeStore.workspaceWidth
+  ],
+  scrollActiveIntoView
+)
 onMounted(scrollActiveIntoView)
 </script>
 

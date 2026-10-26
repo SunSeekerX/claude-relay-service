@@ -1,3 +1,4 @@
+import { readMappedAccountModelRange } from '../../common/compat_account_models.js'
 import { claudeAccountService } from '../account/account_claude_service.js'
 import { claudeConsoleAccountService } from '../account/account_claude_console_service.js'
 import { bedrockAccountService } from '../account/account_bedrock_service.js'
@@ -5,6 +6,7 @@ import { ccrAccountService } from '../account/account_ccr_service.js'
 import { accountGroupService } from '../account/account_group_service.js'
 import * as groupPolicy from '../account/account_group_policy.js'
 import { redis } from '../../infra/redis.js'
+import { getRouteAccount } from './relay_routing_service.js'
 import { logger } from '../../common/logger.js'
 import * as upstreamErrorHelper from './relay_upstream_error_helper.js'
 import { RedisKeys, TTL } from '../../infra/redis_key.js'
@@ -17,11 +19,18 @@ import {
   getRateLimitModelFamily,
 } from './relay_model_helper.js'
 import { isSchedulable, isAutoProtectionDisabled, sortAccountsByPriority } from '../../common/common_helper.js'
+import { isAccountModelInRange } from '../account/account_model_policy.js'
 class UnifiedClaudeScheduler {
   // 检查账户是否支持请求的模型
   _isModelSupportedByAccount(account, accountType, requestedModel, context = '') {
     if (!requestedModel) {
       return true // 没有指定模型时，默认支持
+    }
+    if (
+      ['claude-official', 'bedrock'].includes(accountType) &&
+      !isAccountModelInRange(account.supportedModels, requestedModel)
+    ) {
+      return false
     }
 
     // Claude OAuth 账户的模型检查
@@ -90,54 +99,8 @@ class UnifiedClaudeScheduler {
       }
     }
 
-    // Claude Console 账户的模型支持检查
-    if (accountType === 'claude-console' && account.supportedModels) {
-      // 兼容旧格式（数组）和新格式（对象）
-      if (Array.isArray(account.supportedModels)) {
-        // 旧格式：数组
-        if (account.supportedModels.length > 0 && !account.supportedModels.includes(requestedModel)) {
-          logger.info(
-            `Claude Console account ${account.name} does not support model ${requestedModel}${context ? ` ${context}` : ''}`,
-          )
-          return false
-        }
-      } else if (typeof account.supportedModels === 'object') {
-        // 新格式：映射表
-        if (
-          Object.keys(account.supportedModels).length > 0 &&
-          !claudeConsoleAccountService.isModelSupported(account.supportedModels, requestedModel)
-        ) {
-          logger.info(
-            `Claude Console account ${account.name} does not support model ${requestedModel}${context ? ` ${context}` : ''}`,
-          )
-          return false
-        }
-      }
-    }
-
-    // CCR 账户的模型支持检查
-    if (accountType === 'ccr' && account.supportedModels) {
-      // 兼容旧格式（数组）和新格式（对象）
-      if (Array.isArray(account.supportedModels)) {
-        // 旧格式：数组
-        if (account.supportedModels.length > 0 && !account.supportedModels.includes(requestedModel)) {
-          logger.info(
-            `CCR account ${account.name} does not support model ${requestedModel}${context ? ` ${context}` : ''}`,
-          )
-          return false
-        }
-      } else if (typeof account.supportedModels === 'object') {
-        // 新格式：映射表
-        if (
-          Object.keys(account.supportedModels).length > 0 &&
-          !ccrAccountService.isModelSupported(account.supportedModels, requestedModel)
-        ) {
-          logger.info(
-            `CCR account ${account.name} does not support model ${requestedModel}${context ? ` ${context}` : ''}`,
-          )
-          return false
-        }
-      }
+    if (['claude-console', 'ccr'].includes(accountType)) {
+      return isAccountModelInRange(readMappedAccountModelRange(account), requestedModel)
     }
 
     return true
@@ -146,6 +109,24 @@ class UnifiedClaudeScheduler {
   // 统一调度Claude账号（官方和Console）
   async selectAccountForApiKey(apiKeyData, sessionHash = null, requestedModel = null, forcedAccount = null) {
     try {
+      const route = apiKeyData._relayRoute
+      if (route) {
+        if (route.provider !== 'claude') {
+          throw new Error('入口与 Claude 调度器不匹配')
+        }
+        if (route.binding.startsWith('group:')) {
+          return await this.selectAccountFromGroup(route.binding.slice(6), sessionHash, requestedModel, {
+            allowCcr: true, isClaudeCode: apiKeyData._isClaudeCode === true, holdTarget: apiKeyData
+          })
+        }
+        const target = await getRouteAccount(route.provider, route.binding)
+        if (!target || !(await this._isAccountAvailable(target.accountId, target.accountType, requestedModel))) {
+          const error = new Error('入口绑定账号当前不可用')
+          error.statusCode = 503
+          throw error
+        }
+        return { accountId: target.accountId, accountType: target.accountType }
+      }
       // 如果有强制绑定的账户（全局会话绑定），仅 claude-official 类型受影响
       if (forcedAccount && forcedAccount.accountId && forcedAccount.accountType) {
         // 只有 claude-official 类型账户受全局会话绑定限制
@@ -314,7 +295,7 @@ class UnifiedClaudeScheduler {
         // [人工决策-2026-06-02 23:30:05] 专属绑定统一委托 _isAccountAvailable（isActive/schedulable + 开关绕过 temp），避免重抄漂移
         if (
           boundBedrockAccountResult.success &&
-          (await this._isAccountAvailable(apiKeyData.bedrockAccountId, 'bedrock'))
+          (await this._isAccountAvailable(apiKeyData.bedrockAccountId, 'bedrock', effectiveModel))
         ) {
           logger.info(
             `Using bound dedicated Bedrock account: ${boundBedrockAccountResult.data.name} (${apiKeyData.bedrockAccountId}) for API key ${apiKeyData.name}`,
@@ -491,7 +472,7 @@ class UnifiedClaudeScheduler {
       // [人工决策-2026-06-02 23:30:05] 专属绑定统一委托 _isAccountAvailable（isActive/schedulable + 开关绕过 temp），避免重抄漂移
       if (
         boundBedrockAccountResult.success &&
-        (await this._isAccountAvailable(apiKeyData.bedrockAccountId, 'bedrock'))
+        (await this._isAccountAvailable(apiKeyData.bedrockAccountId, 'bedrock', requestedModel))
       ) {
         logger.info(
           `Using bound dedicated Bedrock account: ${boundBedrockAccountResult.data.name} (${apiKeyData.bedrockAccountId})`,
@@ -753,7 +734,12 @@ class UnifiedClaudeScheduler {
         )
 
         const autoOff = isAutoProtectionDisabled(account)
-        if (account.isActive === true && account.accountType === 'shared' && isSchedulable(account.schedulable)) {
+        if (
+          account.isActive === true &&
+          account.accountType === 'shared' &&
+          isSchedulable(account.schedulable) &&
+          this._isModelSupportedByAccount(account, 'bedrock', requestedModel)
+        ) {
           // [人工决策-2026-06-02 23:30:05] apikey 开关 ON：暴力打，跳过 temp_unavailable / schedulable
           if (!autoOff) {
             // 检查是否临时不可用
@@ -1011,6 +997,9 @@ class UnifiedClaudeScheduler {
         const autoProtectionOff = isAutoProtectionDisabled(accountResult.data)
         if (!isSchedulable(accountResult.data.schedulable)) {
           logger.info(`Bedrock account ${accountId} is not schedulable`)
+          return false
+        }
+        if (!this._isModelSupportedByAccount(accountResult.data, 'bedrock', requestedModel)) {
           return false
         }
         if (!autoProtectionOff) {
@@ -1436,7 +1425,8 @@ class UnifiedClaudeScheduler {
               accountType = 'claude-console'
             } else {
               // Bedrock 与 Claude 同组
-              account = await bedrockAccountService.getAccount(memberId)
+              const bedrock = await bedrockAccountService.getAccount(memberId)
+              account = bedrock?.success ? bedrock.data : null
               if (account) {
                 accountType = 'bedrock'
               } else if (allowCcr) {
@@ -1658,10 +1648,10 @@ class UnifiedClaudeScheduler {
    * 注意：此方法仅用于 claude-official 类型账户，其他类型不受会话绑定限制
    * @param {string} accountId - 账户ID
    * @param {string} accountType - 账户类型（应为 'claude-official'）
-   * @param {string} _requestedModel - 请求的模型（保留参数，当前未使用）
+   * @param {string} requestedModel - 请求的模型，用于复检账号支持范围
    * @returns {Promise<boolean>}
    */
-  async _isAccountAvailableForSessionBinding(accountId, accountType, _requestedModel = null) {
+  async _isAccountAvailableForSessionBinding(accountId, accountType, requestedModel = null) {
     try {
       // 此方法仅处理 claude-official 类型
       if (accountType !== 'claude-official') {
@@ -1678,6 +1668,9 @@ class UnifiedClaudeScheduler {
       }
 
       const isActive = account.isActive === 'true' || account.isActive === true
+      if (!this._isModelSupportedByAccount(account, accountType, requestedModel)) {
+        return false
+      }
       const { status } = account
 
       if (!isActive) {

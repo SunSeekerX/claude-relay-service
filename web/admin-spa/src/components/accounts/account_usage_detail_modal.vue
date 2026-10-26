@@ -334,7 +334,6 @@
 <script setup>
 import { computed, nextTick, onUnmounted, ref, watch } from 'vue'
 import ModalTransition from '@/components/common/modal_transition.vue'
-import { storeToRefs } from 'pinia'
 import Chart from 'chart.js/auto'
 import { useThemeStore } from '@/stores/theme'
 
@@ -354,7 +353,6 @@ const props = defineProps({
 const emit = defineEmits(['close', 'open-timeline'])
 
 const themeStore = useThemeStore()
-const { isDarkMode } = storeToRefs(themeStore)
 
 const chartCanvas = ref(null)
 let chartInstance = null
@@ -380,11 +378,11 @@ const accountTypeLabel = computed(() => {
 })
 
 const chartColors = computed(() => ({
-  text: isDarkMode.value ? '#e5e7eb' : '#374151',
-  grid: isDarkMode.value ? 'rgba(75, 85, 99, 0.25)' : 'rgba(209, 213, 219, 0.4)',
-  cost: '#3b82f6',
-  costFill: 'rgba(59, 130, 246, 0.15)',
-  requests: '#f97316'
+  text: themeStore.currentColors.textSecondary,
+  grid: `${themeStore.currentColors.border}80`,
+  cost: themeStore.currentColors.primary,
+  costFill: `${themeStore.currentColors.primary}26`,
+  requests: themeStore.currentColors.accent
 }))
 
 const totalTokens = computed(() => props.summary?.totalTokens || 0)
@@ -510,6 +508,8 @@ const renderChart = async () => {
       ]
     },
     options: {
+      animation: themeStore.reducedMotion ? false : { duration: 200 },
+      font: { family: 'Inter', size: themeStore.fontSize },
       responsive: true,
       maintainAspectRatio: false,
       interaction: {
@@ -615,11 +615,12 @@ watch(
   { deep: true }
 )
 
-watch(isDarkMode, () => {
-  if (props.show && !props.loading) {
-    renderChart()
+watch(
+  [() => themeStore.currentColors, () => themeStore.fontSize, () => themeStore.reducedMotion],
+  () => {
+    if (props.show && !props.loading) renderChart()
   }
-})
+)
 
 onUnmounted(() => {
   cleanupChart()

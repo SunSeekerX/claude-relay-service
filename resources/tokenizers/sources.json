@@ -1,0 +1,375 @@
+{
+  "schemaVersion": 1,
+  "description": "本项目近期模型的公开词表资源。固定来源 revision，不下载权重，不自动认定别名或跨代词表精确匹配。",
+  "huggingFaceFiles": [
+    "tokenizer.json",
+    "tokenizer.tok.json",
+    "tokenizer.model",
+    "tokenizer_config.json",
+    "special_tokens_map.json",
+    "added_tokens.json",
+    "chat_template.jinja",
+    "processor_config.json",
+    "README.md",
+    "LICENSE",
+    "LICENSE.txt",
+    "LICENSE-CODE",
+    "LICENSE-MODEL",
+    "NOTICE"
+  ],
+  "bundles": [
+    {
+      "id": "claude_ctok_data",
+      "family": "Claude",
+      "format": "ctok",
+      "repository": "sanderland/ctok",
+      "revision": "8c43ffd3c7be467622a540f025516e49ef78d8b1",
+      "models": [
+        "claude-opus-4-6",
+        "claude-opus-4-7",
+        "claude-opus-4-8",
+        "claude-sonnet-5",
+        "claude-fable-5"
+      ],
+      "precision": "reconstructed",
+      "notes": "非官方逆向词表。下载校验后可应用到内置 ctok 1.3.0 算法；算法升级仍须同步发布，不承诺新型号或完整请求准确性。",
+      "files": [
+        {
+          "name": "pieces_v3.json",
+          "path": "ctok/data/pieces_v3.json"
+        },
+        {
+          "name": "pieces_v4_7.json",
+          "path": "ctok/data/pieces_v4_7.json"
+        },
+        {
+          "name": "LICENSE",
+          "path": "LICENSE"
+        }
+      ]
+    },
+    {
+      "id": "deepseek_v3",
+      "family": "DeepSeek",
+      "format": "huggingface",
+      "repository": "deepseek-ai/DeepSeek-V3",
+      "revision": "e815299b0bcbac849fa540c768ef21845365c9eb",
+      "models": [
+        "deepseek-v3"
+      ],
+      "precision": "official-text",
+      "existingFiles": [
+        "deepseek_v3/tokenizer.json",
+        "deepseek_v3/tokenizer_config.json"
+      ]
+    },
+    {
+      "id": "deepseek_v4_pro",
+      "family": "DeepSeek",
+      "format": "huggingface",
+      "repository": "deepseek-ai/DeepSeek-V4-Pro",
+      "revision": "b5968e9190ef611bbf34a7229255be88a0e937c1",
+      "models": [
+        "deepseek-v4-pro"
+      ],
+      "precision": "official-text"
+    },
+    {
+      "id": "deepseek_v4_flash",
+      "family": "DeepSeek",
+      "format": "huggingface",
+      "repository": "deepseek-ai/DeepSeek-V4-Flash",
+      "revision": "60d8d70770c6776ff598c94bb586a859a38244f1",
+      "models": [
+        "deepseek-v4-flash"
+      ],
+      "precision": "official-text"
+    },
+    {
+      "id": "deepseek_v41_flash",
+      "family": "DeepSeek",
+      "format": "huggingface",
+      "repository": "deepseek-ai/DeepSeek-V4.1-Flash",
+      "revision": "314113f8a7dadb388215396ba5fbee2c610a04d6",
+      "models": [
+        "deepseek-v4.1-flash"
+      ],
+      "precision": "official-text"
+    },
+    {
+      "id": "glm_45",
+      "family": "GLM",
+      "format": "huggingface",
+      "repository": "zai-org/GLM-4.5",
+      "revision": "cbb2c7cfb52fa128a9660cb1a7a78e017899e115",
+      "models": [
+        "glm-4.5"
+      ],
+      "precision": "official-text"
+    },
+    {
+      "id": "glm_45_air",
+      "family": "GLM",
+      "format": "huggingface",
+      "repository": "zai-org/GLM-4.5-Air",
+      "revision": "a24ceef6ce4f3536971efe9b778bdaa1bab18daa",
+      "models": [
+        "glm-4.5-air"
+      ],
+      "precision": "official-text"
+    },
+    {
+      "id": "glm_47",
+      "family": "GLM",
+      "format": "huggingface",
+      "repository": "zai-org/GLM-4.7",
+      "revision": "602d01efcdd332c5238ca4bcede555defbe83eb7",
+      "models": [
+        "glm-4.7"
+      ],
+      "precision": "official-text"
+    },
+    {
+      "id": "glm_5",
+      "family": "GLM",
+      "format": "huggingface",
+      "repository": "zai-org/GLM-5",
+      "revision": "c183ef8c61faee82855eca1ed9bb3a9a7ce3b0b2",
+      "models": [
+        "glm-5"
+      ],
+      "precision": "official-text"
+    },
+    {
+      "id": "glm_51",
+      "family": "GLM",
+      "format": "huggingface",
+      "repository": "zai-org/GLM-5.1",
+      "revision": "26e1bd6e011feb778d25ae34b09b07074139d92d",
+      "models": [
+        "glm-5.1"
+      ],
+      "precision": "official-text"
+    },
+    {
+      "id": "glm_52",
+      "family": "GLM",
+      "format": "huggingface",
+      "repository": "zai-org/GLM-5.2",
+      "revision": "cf457fa734ab149ffef225f80893eb38c6ff5cdc",
+      "models": [
+        "glm-5.2"
+      ],
+      "precision": "official-text"
+    },
+    {
+      "id": "glm_53",
+      "family": "GLM",
+      "format": "huggingface",
+      "repository": "zai-org/GLM-5.3",
+      "revision": "ba32f8c19c8738e2c57c71798c601d477a7bf844",
+      "models": [
+        "glm-5.3"
+      ],
+      "precision": "official-text"
+    },
+    {
+      "id": "glm_53_flash",
+      "family": "GLM",
+      "format": "huggingface",
+      "repository": "zai-org/GLM-5.3-Flash",
+      "revision": "46a050bec13002ad29ee795c16e61cf4fa3c4a9c",
+      "models": [
+        "glm-5.3-flash"
+      ],
+      "precision": "official-text"
+    },
+    {
+      "id": "gemma4",
+      "family": "Gemini",
+      "format": "huggingface",
+      "repository": "google/gemma-4-E4B-it",
+      "revision": "ee0ef6023621cff504d758262d4e04895a5af4a2",
+      "models": [
+        "gemini-3.5-flash",
+        "gemini-3.1-flash-lite",
+        "gemini-3.1-pro-preview"
+      ],
+      "precision": "official-sdk-text",
+      "notes": "来自 Google GenAI SDK 显式映射；不自动用于 Gemini 3.8 或其他未列出的型号。"
+    },
+    {
+      "id": "grok2",
+      "family": "Grok",
+      "format": "xai-tok-json",
+      "repository": "xai-org/grok-2",
+      "revision": "daf4395a80ad177386cfe39641b64fc12b1d70ed",
+      "models": [
+        "grok-2"
+      ],
+      "precision": "official-text",
+      "notes": "公开词表使用其原许可证，不宣称与 Grok 4 系列一致。"
+    },
+    {
+      "id": "openai_bpe",
+      "family": "OpenAI",
+      "format": "tiktoken",
+      "repository": "openai/tiktoken",
+      "revision": "4e71bbe0c078468e00fefbf94b39849389f346e5",
+      "models": [
+        "gpt-5*",
+        "gpt-4o*",
+        "gpt-4.1*",
+        "o1*",
+        "o3*",
+        "o4-mini*"
+      ],
+      "precision": "official-text",
+      "notes": "确切型号映射以同 revision 的 model.py 为准，未定义 gpt-6 的精确映射。o200k_harmony 复用 o200k_base ranks，特殊 token 由 openai_public.py 定义。",
+      "files": [
+        {
+          "name": "o200k_base.tiktoken",
+          "url": "https://openaipublic.blob.core.windows.net/encodings/o200k_base.tiktoken",
+          "sha256": "446a9538cb6c348e3516120d7c08b09f57c36495e2acfffe59a5bf8b0cfb1a2d"
+        },
+        {
+          "name": "cl100k_base.tiktoken",
+          "url": "https://openaipublic.blob.core.windows.net/encodings/cl100k_base.tiktoken",
+          "sha256": "223921b76ee99bde995b7ff738513eef100fb51d18c93597a113bcffe865b2a7"
+        },
+        {
+          "name": "openai_public.py",
+          "path": "tiktoken_ext/openai_public.py"
+        },
+        {
+          "name": "model.py",
+          "path": "tiktoken/model.py"
+        },
+        {
+          "name": "LICENSE",
+          "path": "LICENSE"
+        }
+      ]
+    },
+    {
+      "id": "gemma3",
+      "family": "Gemini",
+      "format": "sentencepiece",
+      "repository": "google/gemma_pytorch",
+      "revision": "014acb7ac4563a5f77c76d7ff98f31b568c16508",
+      "models": [
+        "gemini-2.5-pro",
+        "gemini-2.5-flash",
+        "gemini-2.5-flash-lite",
+        "gemini-2.0-flash",
+        "gemini-2.0-flash-lite",
+        "gemini-3-pro-preview",
+        "gemini-3-flash-preview"
+      ],
+      "precision": "official-sdk-text",
+      "notes": "只覆盖 Google SDK 明确映射的文本，其他型号仅可显式选择为近似词表。模型资源许可见来源仓库，不用 SDK 代码许可证代替模型许可。",
+      "files": [
+        {
+          "name": "tokenizer.model",
+          "path": "tokenizer/gemma3_cleaned_262144_v2.spiece.model",
+          "sha256": "1299c11d7cf632ef3b4e11937501358ada021bbdf7c47638d13c0ee982f2e79c"
+        },
+        {
+          "name": "README.md",
+          "path": "README.md"
+        },
+        {
+          "name": "LICENSE",
+          "path": "LICENSE"
+        }
+      ]
+    },
+    {
+      "id": "grok1",
+      "family": "Grok",
+      "format": "sentencepiece",
+      "repository": "xai-org/grok-1",
+      "revision": "7050ed204b8206bb8645c7b7bbef7252f79561b0",
+      "models": [
+        "grok-1"
+      ],
+      "precision": "official-text",
+      "notes": "仅作为旧版及可选近似候选，不映射 Grok 4。",
+      "files": [
+        {
+          "name": "tokenizer.model",
+          "path": "tokenizer.model"
+        },
+        {
+          "name": "README.md",
+          "path": "README.md"
+        },
+        {
+          "name": "LICENSE.txt",
+          "path": "LICENSE.txt"
+        }
+      ]
+    },
+    {
+      "id": "google_local_tokenizer_rules",
+      "family": "Gemini",
+      "format": "source-reference",
+      "repository": "googleapis/python-genai",
+      "revision": "c97ae02ff87b5138bee29100b56c04c649233fed",
+      "models": [],
+      "precision": "reference",
+      "files": [
+        {
+          "name": "local_tokenizer.py",
+          "path": "google/genai/local_tokenizer.py"
+        },
+        {
+          "name": "_local_tokenizer_loader.py",
+          "path": "google/genai/_local_tokenizer_loader.py"
+        },
+        {
+          "name": "LICENSE",
+          "path": "LICENSE"
+        }
+      ]
+    },
+    {
+      "id": "deepseek_recipe_rules",
+      "family": "DeepSeek",
+      "format": "source-reference",
+      "repository": "deepseek-ai/deepseek-recipe",
+      "revision": "935817c66f5d6e64838f419692545f06787e485f",
+      "models": [],
+      "precision": "reference",
+      "files": [
+        {
+          "name": "tokenizer.md",
+          "path": "docs/tokenizer.md"
+        },
+        {
+          "name": "LICENSE",
+          "path": "LICENSE"
+        },
+        {
+          "name": "tokenizer_notices.md",
+          "path": "static/tokenizers/README.md"
+        }
+      ]
+    }
+  ],
+  "embedded": [
+    {
+      "id": "claude_ctok",
+      "family": "Claude",
+      "sourceURL": "https://github.com/sanderland/ctok",
+      "revision": "8c43ffd3c7be467622a540f025516e49ef78d8b1",
+      "version": "1.3.0",
+      "precision": "reconstructed",
+      "repositoryPaths": [
+        "resources/tokenizers/embedded/pieces_v3.json",
+        "resources/tokenizers/embedded/pieces_v4_7.json",
+        "resources/tokenizers/embedded/LICENSE.ctok"
+      ]
+    }
+  ]
+}

@@ -309,7 +309,7 @@ router.post(
     // 请求显式指定优先，否则用后台配置的默认测试模型（单一事实源）
     const body = parseObjectBody(req.body, '测试Bedrock账户')
     const model = await testModelConfigService.resolveAccountModel('bedrock', body.model)
-    await bedrockAccountService.testAccountConnection(accountId, res, model)
+    await bedrockAccountService.testAccountConnection(accountId, res, model, body.prompt)
     return SEND_RAW
   }),
 )

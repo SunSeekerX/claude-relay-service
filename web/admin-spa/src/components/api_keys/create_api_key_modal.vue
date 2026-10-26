@@ -13,11 +13,12 @@
               <i class="i-lucide-key text-sm text-white sm:text-base" />
             </div>
             <h3 class="text-lg font-bold text-gray-900 dark:text-gray-100 sm:text-xl">
-              创建新的 API Key
+              {{ createdKeys.length ? '编辑已创建的 API Key' : '创建新的 API Key' }}
             </h3>
           </div>
           <button
             class="p-1 text-gray-400 transition-colors hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300"
+            :disabled="loading"
             @click="requestClose"
           >
             <i class="i-lucide-x text-lg sm:text-xl" />
@@ -26,9 +27,12 @@
 
         <form
           class="flex min-h-0 flex-1 flex-col overflow-hidden"
-          @submit.prevent="createApiKey"
+          @submit.prevent="createApiKey(false)"
         >
-          <div class="modal-scroll-content custom-scrollbar min-h-0 flex-1 space-y-3 overflow-y-auto sm:space-y-3">
+          <div
+            class="modal-scroll-content custom-scrollbar min-h-0 flex-1 space-y-3 overflow-y-auto sm:space-y-3"
+            :inert="loading"
+          >
           <!-- 创建类型选择 -->
           <div
             class="rounded-lg border border-blue-200 bg-gradient-to-r from-blue-50 to-indigo-50 p-3 dark:border-blue-700 dark:from-blue-900/20 dark:to-indigo-900/20 sm:p-4"
@@ -46,6 +50,7 @@
               <CuteOptionCards
                 v-model="form.createType"
                 :columns="2"
+                :disabled="createdKeys.length > 0"
                 :options="createTypeOptions"
                 size="sm"
               />
@@ -62,6 +67,7 @@
                     <input
                       v-model.number="form.batchCount"
                       class="form-input w-full border-transparent text-sm dark:border-transparent dark:bg-gray-700 dark:text-gray-200 dark:placeholder-gray-400"
+                      :disabled="createdKeys.length > 0"
                       max="500"
                       min="2"
                       placeholder="输入数量 (2-500)"
@@ -463,6 +469,7 @@
             <textarea
               v-model="form.description"
               class="form-input w-full resize-none border-transparent text-sm dark:border-transparent dark:bg-gray-700 dark:text-gray-200 dark:placeholder-gray-400"
+              :disabled="createdKeys.length > 0"
               placeholder="描述此 API Key 的用途..."
               rows="2"
             />
@@ -524,6 +531,7 @@
               <CuteOptionCards
                 v-model="form.expirationMode"
                 :columns="2"
+                :disabled="createdKeys.length > 0"
                 :options="expirationModeOptions"
                 size="sm"
               />
@@ -570,6 +578,7 @@
                 <input
                   v-model.number="form.activationDays"
                   class="form-input flex-1 border-transparent dark:border-transparent dark:bg-gray-700 dark:text-gray-200"
+                  :disabled="createdKeys.length > 0"
                   :max="form.activationUnit === 'hours' ? 8760 : 3650"
                   min="1"
                   :placeholder="form.activationUnit === 'hours' ? '输入小时数' : '输入天数'"
@@ -579,6 +588,7 @@
                   <CustomDropdown
                     v-model="form.activationUnit"
                     accent="blue"
+                    :disabled="createdKeys.length > 0"
                     :options="activationUnitOptions"
                     placeholder="单位"
                     @change="updateActivationValue"
@@ -590,6 +600,7 @@
                   v-for="value in getQuickTimeOptions()"
                   :key="value.value"
                   class="rounded-md border border-gray-300 px-3 py-1 text-sm hover:bg-gray-100 dark:border-gray-600 dark:hover:bg-gray-700"
+                  :disabled="createdKeys.length > 0"
                   type="button"
                   @click="form.activationDays = value.value"
                 >
@@ -774,12 +785,14 @@
               </div>
             </div>
             <p class="mt-2 text-sm text-gray-500 dark:text-gray-400">
-              选择专属账号后，此 API Key 将只使用该账号；不选择则使用共享账号池。
+              未设置默认调用入口时使用这里的账号绑定；不选择则使用共享账号池。
               绑定 OpenAI/Grok 专属后，Claude 客户端
               <code class="font-mono">/v1/messages</code>
               可按 model（gpt/grok）自动跨协议桥接；未绑定则只走 Claude 池。
             </p>
           </div>
+
+          <RouteAuthorizationEditor v-model="form.relayRouting" />
 
           <div>
             <div class="mb-2 flex items-center">
@@ -916,22 +929,12 @@
 
           </div>
           <div class="flex shrink-0 items-center gap-2 border-t border-gray-200 pt-2 dark:border-gray-700">
-            <button
-              class="inline-flex h-10 flex-1 items-center justify-center rounded-lg bg-gray-100 px-4 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600"
-              type="button"
-              @click="requestClose"
-            >
-              取消
-            </button>
-            <button
-              class="btn btn-primary h-10 inline-flex flex-1 items-center justify-center px-4 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-60"
-              :disabled="loading"
-              type="submit"
-            >
-              <div v-if="loading" class="loading-spinner mr-2" />
-              <i v-else class="i-lucide-plus mr-2" />
-              {{ loading ? '创建中...' : '创建' }}
-            </button>
+            <DialogSaveActions
+              class="w-full"
+              :loading="loading"
+              @cancel="requestClose"
+              @save="createApiKey"
+            />
           </div>
         </form>
       </div>
@@ -964,6 +967,7 @@ import { useClientsStore } from '@/stores/clients'
 import { useApiKeysStore } from '@/stores/api_keys'
 import * as httpApis from '@/libs/http_apis'
 import AccountSelector from '@/components/common/account_selector.vue'
+import RouteAuthorizationEditor from './route_authorization_editor.vue'
 import ConfirmModal from '@/components/common/confirm_modal.vue'
 
 const props = defineProps({
@@ -985,7 +989,9 @@ const props = defineProps({
   }
 })
 
-const emit = defineEmits(['close', 'success', 'batch-success'])
+const emit = defineEmits(['close', 'success', 'batch-success', 'updated'])
+const createdKeys = ref([])
+const createdAsBatch = ref(false)
 
 // 弹窗进入/退出动画：挂载后置 visible 触发进入，关闭时先播退出动画再通知父级卸载
 const visible = ref(false)
@@ -1124,6 +1130,7 @@ const activationUnitOptions = [
 
 // 表单数据
 const form = reactive({
+  relayRouting: { allowedRoutes: [], defaults: {} },
   createType: 'single',
   batchCount: 10,
   name: '',
@@ -1529,7 +1536,7 @@ const updateActivationValue = () => {
 }
 
 // 创建 API Key
-const createApiKey = async () => {
+const createApiKey = async (closeAfter = false) => {
   // 验证表单
   errors.value.name = ''
 
@@ -1575,6 +1582,7 @@ const createApiKey = async () => {
     }
 
     const baseData = {
+      relayRouting: form.relayRouting,
       description: form.description || undefined,
       serviceRates: filteredServiceRates,
       tokenLimit: 0, // 设置为0，清除历史token限制
@@ -1656,7 +1664,38 @@ const createApiKey = async () => {
       baseData.grokAccountId = form.grokAccountId
     }
 
-    if (form.createType === 'single') {
+    if (createdKeys.value.length > 0) {
+      const submittedName = form.name
+      const updates = {
+        ...baseData,
+        tags: [...form.tags],
+        claudeAccountId: baseData.claudeAccountId ?? '',
+        claudeConsoleAccountId: baseData.claudeConsoleAccountId ?? '',
+        geminiAccountId: form.geminiAccountId,
+        openaiAccountId: form.openaiAccountId,
+        bedrockAccountId: form.bedrockAccountId,
+        droidAccountId: form.droidAccountId,
+        grokAccountId: form.grokAccountId
+      }
+      delete updates.description
+      delete updates.expirationMode
+      delete updates.activationDays
+      delete updates.activationUnit
+      if (form.expirationMode === 'fixed') updates.expiresAt = form.expiresAt || null
+      for (const [index, key] of createdKeys.value.entries()) {
+        const result = await httpApis.updateApiKeyApi(key.id, {
+          ...updates,
+          name: createdAsBatch.value ? `${submittedName}_${index + 1}` : submittedName
+        })
+        if (!isOk(result)) {
+          showToast(msgOf(result, '保存失败'), 'error')
+          return
+        }
+      }
+      showToast('API Key 已保存', 'success')
+      emit('updated')
+      if (closeAfter) requestClose()
+    } else if (form.createType === 'single') {
       // 单个创建
       const data = {
         ...baseData,
@@ -1667,8 +1706,13 @@ const createApiKey = async () => {
 
       if (isOk(result)) {
         showToast('API Key 创建成功', 'success')
-        pendingResult = { event: 'success', payload: result.data }
-        requestClose()
+        createdKeys.value = [result.data]
+        if (closeAfter) {
+          pendingResult = { event: 'success', payload: result.data }
+          requestClose()
+        } else {
+          emit('success', result.data)
+        }
       } else {
         showToast(msgOf(result, '创建失败'), 'error')
       }
@@ -1685,8 +1729,14 @@ const createApiKey = async () => {
 
       if (isOk(result)) {
         showToast(`成功创建 ${result.data.length} 个 API Key`, 'success')
-        pendingResult = { event: 'batch-success', payload: result.data }
-        requestClose()
+        createdKeys.value = result.data
+        createdAsBatch.value = true
+        if (closeAfter) {
+          pendingResult = { event: 'batch-success', payload: result.data }
+          requestClose()
+        } else {
+          emit('batch-success', result.data)
+        }
       } else {
         showToast(msgOf(result, '批量创建失败'), 'error')
       }

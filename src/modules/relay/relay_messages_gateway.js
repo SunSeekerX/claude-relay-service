@@ -45,7 +45,7 @@ export const tryDedicatedBindingCrossProtocol = async (req, res) => {
   }
 
   // Grok 专属绑定 + grok 模型
-  if (isGrokFamilyModel(model) && hasGrokDedicatedBinding(apiKey)) {
+  if ((apiKey._relayRoute?.provider === 'grok' || isGrokFamilyModel(model)) && hasGrokDedicatedBinding(apiKey)) {
     if (!apiKeyService.hasPermission(apiKey.permissions, 'grok')) {
       res.status(403).json({
         error: {
@@ -76,7 +76,7 @@ export const tryDedicatedBindingCrossProtocol = async (req, res) => {
   }
 
   // OpenAI/Responses 专属绑定 + gpt 族模型
-  if (isOpenaiFamilyModel(model) && hasOpenaiDedicatedBinding(apiKey)) {
+  if ((apiKey._relayRoute?.provider === 'openai' || isOpenaiFamilyModel(model)) && hasOpenaiDedicatedBinding(apiKey)) {
     if (!apiKeyService.hasPermission(apiKey.permissions, 'openai')) {
       res.status(403).json({
         error: {
@@ -101,7 +101,7 @@ const relayClaudeMessagesViaOpenAIResponses = async (req, res, _apiKey) => {
   }
 
   try {
-    const responsesBody = claudeResponses.convertClaudeRequestToResponses(originalBody || {}, {})
+    const responsesBody = claudeResponses.convertClaudeRequestToResponses(originalBody || {}, req.apiKey._relayRoute?.converterOptions?.['claude-messages'] ?? {})
     responsesBody.store = false
     if (!Array.isArray(responsesBody.include)) {
       responsesBody.include = ['reasoning.encrypted_content']

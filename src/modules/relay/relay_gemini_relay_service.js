@@ -1,9 +1,11 @@
+import { mapGeminiUsageToOpenAI } from './relay_gemini_to_openai.js'
 import axios from 'axios'
+import { StringDecoder } from 'node:string_decoder'
 import { ProxyHelper } from '../proxy/proxy_helper.js'
 import { logger } from '../../common/logger.js'
 import { config } from '../../../config/config.js'
 import { apiKeyService } from '../apikey/apikey_service.js'
-import { buildTokenUsagePayload } from './relay_request_detail_helper.js'
+import { buildGeminiTokenUsagePayload } from './relay_request_detail_helper.js'
 // Gemini API 配置
 const GEMINI_API_BASE = 'https://cloudcode.googleapis.com/v1'
 const DEFAULT_MODEL = 'models/gemini-2.5-flash'
@@ -94,11 +96,7 @@ export const convertGeminiResponse = (geminiResponse, model, stream = false) => 
           finish_reason: finishReason,
         },
       ],
-      usage: {
-        prompt_tokens: usage.promptTokenCount,
-        completion_tokens: usage.candidatesTokenCount,
-        total_tokens: usage.totalTokenCount,
-      },
+      usage: mapGeminiUsageToOpenAI(usage),
     }
   }
 }
@@ -106,6 +104,7 @@ export const convertGeminiResponse = (geminiResponse, model, stream = false) => 
 // 处理流式响应
 async function* handleStreamResponse(response, model, apiKeyId, accountId = null, requestMeta = null) {
   let buffer = ''
+  const decoder = new StringDecoder('utf8')
   let totalUsage = {
     promptTokenCount: 0,
     candidatesTokenCount: 0,
@@ -114,7 +113,7 @@ async function* handleStreamResponse(response, model, apiKeyId, accountId = null
 
   try {
     for await (const chunk of response.data) {
-      buffer += chunk.toString()
+      buffer += decoder.write(chunk)
 
       // 处理 SSE 格式的数据
       const lines = buffer.split('\n')
@@ -156,11 +155,7 @@ async function* handleStreamResponse(response, model, apiKeyId, accountId = null
               await apiKeyService
                 .recordUsage(
                   apiKeyId,
-                  buildTokenUsagePayload({
-                    inputTokens: totalUsage.promptTokenCount || 0,
-                    outputTokens: totalUsage.candidatesTokenCount || 0,
-                    rawUsage: totalUsage,
-                  }),
+                  buildGeminiTokenUsagePayload(totalUsage),
                   model,
                   accountId,
                   'gemini',
@@ -181,6 +176,7 @@ async function* handleStreamResponse(response, model, apiKeyId, accountId = null
       }
     }
 
+    buffer += decoder.end()
     // 处理剩余的 buffer
     if (buffer.trim()) {
       try {
@@ -315,18 +311,7 @@ export const sendGeminiRequest = async ({
         await apiKeyService
           .recordUsage(
             apiKeyId,
-            buildTokenUsagePayload({
-              inputTokens: openaiResponse.usage.prompt_tokens || 0,
-              // completion 可能已含 thoughts，rawUsage 仍带 thoughtsTokenCount 供思考单独记账
-              outputTokens: openaiResponse.usage.completion_tokens || 0,
-              rawUsage: {
-                ...openaiResponse.usage,
-                thoughtsTokenCount:
-                  openaiResponse.usage.completion_tokens_details?.reasoning_tokens ||
-                  openaiResponse.usage.thoughtsTokenCount ||
-                  0,
-              },
-            }),
+            buildGeminiTokenUsagePayload(response.data.usageMetadata),
             model,
             accountId,
             'gemini',

@@ -17,6 +17,7 @@
           </div>
           <button
             class="p-1 text-gray-400 transition-colors hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300"
+            :disabled="loading"
             @click="$emit('close')"
           >
             <i class="i-lucide-x text-lg sm:text-xl" />
@@ -179,52 +180,18 @@
             </div>
           </div>
 
-          <!-- 模型映射表（可选） -->
-          <div>
-            <label class="mb-3 block text-sm font-semibold text-gray-700 dark:text-gray-300"
-              >模型映射表 (可选)</label
-            >
-            <div class="mb-3 rounded-lg bg-blue-50 p-3 dark:bg-blue-900/30">
-              <p class="text-sm text-blue-700 dark:text-blue-400">
-                <i class="i-lucide-info mr-1" />
-                留空表示支持所有模型且不修改请求。配置映射后，左侧模型会被识别为支持的模型，右侧是实际发送的模型。
-              </p>
-            </div>
-            <div class="mb-3 space-y-2">
-              <div
-                v-for="(mapping, index) in modelMappings"
-                :key="index"
-                class="flex items-center gap-2"
-              >
-                <input
-                  v-model="mapping.from"
-                  class="form-input flex-1 border-transparent dark:border-transparent dark:bg-gray-700 dark:text-gray-200 dark:placeholder-gray-400"
-                  placeholder="原始模型名称"
-                  type="text"
-                />
-                <i class="i-lucide-arrow-right text-gray-400 dark:text-gray-500" />
-                <input
-                  v-model="mapping.to"
-                  class="form-input flex-1 border-transparent dark:border-transparent dark:bg-gray-700 dark:text-gray-200 dark:placeholder-gray-400"
-                  placeholder="映射后的模型名称"
-                  type="text"
-                />
-                <button
-                  class="rounded-lg p-2 text-red-500 transition-colors hover:bg-red-50 dark:hover:bg-red-900/20"
-                  type="button"
-                  @click="removeModelMapping(index)"
-                >
-                  <i class="i-lucide-trash-2" />
-                </button>
-              </div>
-            </div>
-            <button
-              class="w-full rounded-lg border-2 border-dashed border-gray-300 px-4 py-2 text-gray-600 transition-colors hover:border-gray-400 hover:text-gray-700 dark:border-gray-600 dark:text-gray-400 dark:hover:border-gray-500 dark:hover:text-gray-300"
-              type="button"
-              @click="addModelMapping"
-            >
-              <i class="i-lucide-plus mr-2" /> 添加模型映射
-            </button>
+          <div class="space-y-3">
+            <h4 class="text-sm font-semibold">支持的模型</h4>
+            <AccountModelCatalog
+              v-model:model-mappings="modelMappings"
+              :account-id="account?.id ?? ''"
+              :model-value="allowedModels"
+              platform="ccr"
+              :restricted="modelRangeLimited"
+              @loaded="initializeModelRange"
+              @update:model-value="updateModelRange"
+              @update:restricted="updateModelRangeMode"
+            />
           </div>
 
           <!-- 代理设置 -->
@@ -239,22 +206,12 @@
 
           <!-- 操作区 -->
           <div class="mt-3 flex items-center gap-2 border-t border-gray-200 pt-3 dark:border-gray-700">
-            <button
-              class="inline-flex h-10 flex-1 items-center justify-center rounded-lg bg-gray-100 px-4 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600"
-              type="button"
-              @click="$emit('close')"
-            >
-              取消
-            </button>
-            <button
-              class="btn btn-primary h-10 inline-flex flex-1 items-center justify-center px-4 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-60"
-              :disabled="loading"
-              type="button"
-              @click="submit"
-            >
-              <div v-if="loading" class="loading-spinner mr-2" />
-              {{ loading ? (isEdit ? '保存中...' : '创建中...') : isEdit ? '保存' : '创建' }}
-            </button>
+            <DialogSaveActions
+              class="w-full"
+              :loading="loading"
+              @cancel="emit('close')"
+              @save="submit"
+            />
           </div>
         </div>
       </div>
@@ -269,6 +226,8 @@ import { updateCcrAccountApi, createCcrAccountApi } from '@/libs/http_apis'
 import { isOk, msgOf } from '@/libs/http_envelope'
 import { showToast } from '@/libs/tools'
 import ProxyBinding from '@/components/accounts/proxy_binding.vue'
+import AccountModelCatalog from './account_model_catalog.vue'
+import { getAccountModelConfiguration } from '@/libs/account_model_config'
 
 const props = defineProps({
   account: {
@@ -342,16 +301,24 @@ const buildSupportedModels = () => {
   return map
 }
 
-const addModelMapping = () => {
-  modelMappings.value.push({ from: '', to: '' })
-}
-
-const removeModelMapping = (index) => {
-  modelMappings.value.splice(index, 1)
+const allowedModels = ref([])
+const modelRangeLimited = ref(false)
+const modelRangeEdited = ref(false)
+const updateModelRange = (models) => { allowedModels.value = models; modelRangeEdited.value = true }
+const updateModelRangeMode = (limited) => { modelRangeLimited.value = limited; modelRangeEdited.value = true }
+const initializeModelRange = (models) => {
+  if (!modelRangeEdited.value) {
+    allowedModels.value = [...models]
+    modelRangeLimited.value = models.length > 0
+  }
 }
 
 const validate = () => {
   const e = {}
+  if (modelRangeLimited.value && !allowedModels.value.length) {
+    showToast('请至少选择一个模型，或切换为“不限制”', 'error')
+    return false
+  }
   if (!form.value.name || form.value.name.trim().length === 0) e.name = '名称不能为空'
   if (!form.value.apiUrl || form.value.apiUrl.trim().length === 0) e.apiUrl = 'API URL 不能为空'
   if (!isEdit.value && (!form.value.apiKey || form.value.apiKey.trim().length === 0))
@@ -360,7 +327,7 @@ const validate = () => {
   return Object.keys(e).length === 0
 }
 
-const submit = async () => {
+const submit = async (closeAfter = false) => {
   if (!validate()) return
   loading.value = true
   try {
@@ -378,7 +345,8 @@ const submit = async () => {
         proxy: form.value.proxy || null,
         proxyGroupId: form.value.proxyGroupId || '',
         proxyId: form.value.proxyId || '',
-        supportedModels: buildSupportedModels()
+        supportedModels: buildSupportedModels(),
+        allowedModels: modelRangeLimited.value ? [...allowedModels.value] : []
       }
       if (form.value.apiKey && form.value.apiKey.trim().length > 0) {
         updates.apiKey = form.value.apiKey
@@ -386,7 +354,7 @@ const submit = async () => {
       const res = await updateCcrAccountApi(props.account.id, updates)
       if (isOk(res)) {
         // 不在这里显示 toast，由父组件统一处理
-        emit('success')
+        emit('success', undefined, closeAfter)
       } else {
         showToast(msgOf(res, '保存失败'), 'error')
       }
@@ -399,6 +367,7 @@ const submit = async () => {
         apiKey: form.value.apiKey,
         priority: Number(form.value.priority || 50),
         supportedModels: buildSupportedModels(),
+        allowedModels: modelRangeLimited.value ? [...allowedModels.value] : [],
         userAgent: form.value.userAgent,
         rateLimitDuration: enableRateLimit.value ? Number(form.value.rateLimitDuration || 60) : 0,
         proxy: form.value.proxy,
@@ -409,7 +378,7 @@ const submit = async () => {
       const res = await createCcrAccountApi(payload)
       if (isOk(res)) {
         // 不在这里显示 toast，由父组件统一处理
-        emit('success')
+        emit('success', { ...res, data: { ...res.data, platform: 'ccr' } }, closeAfter)
       } else {
         showToast(msgOf(res, '创建失败'), 'error')
       }
@@ -438,14 +407,12 @@ const populateFromAccount = () => {
   explicitProxyMode.value = deriveProxyMode(a)
   enableRateLimit.value = form.value.rateLimitDuration > 0
 
-  // supportedModels 对象转为数组
-  modelMappings.value = []
-  const mapping = a.supportedModels || {}
-  if (mapping && typeof mapping === 'object') {
-    for (const k of Object.keys(mapping)) {
-      modelMappings.value.push({ from: k, to: mapping[k] })
-    }
-  }
+  const modelConfig = getAccountModelConfiguration({ ...a, platform: 'ccr' })
+  modelMappings.value = modelConfig.mappings
+  allowedModels.value = modelConfig.models
+  modelRangeLimited.value = modelConfig.models.length > 0
+  modelRangeEdited.value = false
+
 }
 
 // 编辑态：setup 期间同步填充，确保 ProxyBinding 挂载时已拿到绑定值（mode 推导正确）

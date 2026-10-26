@@ -1,197 +1,126 @@
 <template>
-  <div class="space-y-2">
-    <div
-      class="grid grid-cols-1 items-stretch gap-2 xl:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)]"
-    >
-      <!-- 基础信息 / 批量概要 -->
-      <div class="card-section">
-        <header class="section-header">
-          <i
-            class="header-icon"
-            :class="
-              multiKeyMode
-                ? 'i-lucide-layers text-purple-500'
-                : 'i-lucide-info text-blue-500'
-            "
-          />
-          <h3 class="header-title">{{ multiKeyMode ? '批量查询概要' : 'API Key 信息' }}</h3>
-        </header>
-
-        <div v-if="multiKeyMode && aggregatedStats" class="info-grid">
-          <div class="info-item">
-            <p class="info-label">查询 Keys 数</p>
-            <p class="info-value">{{ aggregatedStats.totalKeys }} 个</p>
-          </div>
-          <div class="info-item">
-            <p class="info-label">有效 Keys 数</p>
-            <p class="info-value text-green-600 dark:text-emerald-400">
-              <i class="i-lucide-circle-check mr-1" />{{ aggregatedStats.activeKeys }} 个
-            </p>
-          </div>
-          <div v-if="invalidKeys.length > 0" class="info-item">
-            <p class="info-label">无效 Keys 数</p>
-            <p class="info-value text-red-500 dark:text-red-400">
-              <i class="i-lucide-circle-x mr-1" />{{ invalidKeys.length }} 个
-            </p>
-          </div>
-          <div class="info-item">
-            <p class="info-label">总请求数</p>
-            <p class="info-value">{{ formatNumber(aggregatedStats.usage.requests) }}</p>
-          </div>
-          <div class="info-item">
-            <p class="info-label">总 Token 数</p>
-            <p class="info-value">{{ formatNumber(aggregatedStats.usage.allTokens) }}</p>
-          </div>
-          <div class="info-item">
-            <p class="info-label">总费用</p>
-            <p class="info-value text-indigo-600 dark:text-indigo-300">
-              {{ aggregatedStats.usage.formattedCost }}
-            </p>
-          </div>
-          <div v-if="individualStats.length > 1" class="info-item xl:col-span-2">
-            <p class="info-label">Top 3 贡献占比</p>
-            <div class="space-y-2">
-              <div v-for="stat in topContributors" :key="stat.apiId" class="contributor-item">
-                <span class="truncate">{{ stat.name }}</span>
-                <span class="font-semibold">{{ calculateContribution(stat) }}%</span>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div v-else class="info-grid">
-          <div
-            class="info-item cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700/50"
-            title="点击复制"
-            @click="copyText(statsData.name)"
-          >
-            <p class="info-label">名称</p>
-            <p class="info-value flex items-center gap-1 break-all">
-              {{ statsData.name }}
-              <i class="i-lucide-copy text-sm text-gray-400" />
-            </p>
-          </div>
-          <div class="info-item">
-            <p class="info-label">状态</p>
-            <p
-              class="info-value font-semibold"
-              :class="
-                statsData.isActive
-                  ? 'text-green-600 dark:text-emerald-400'
-                  : 'text-red-500 dark:text-red-400'
-              "
+  <div class="stats-overview">
+    <section class="overview-card card">
+      <div class="overview-identity">
+        <div class="overview-name-row">
+          <template v-if="multiKeyMode && aggregatedStats">
+            <h3>多 Key 用量汇总</h3>
+            <span class="overview-status"
+              >{{ aggregatedStats.activeKeys }} / {{ aggregatedStats.totalKeys }} 个有效</span
             >
-              <i
-                class="mr-1"
-                :class="statsData.isActive ? 'i-lucide-circle-check' : 'i-lucide-circle-x'"
-              />
-              {{ statsData.isActive ? '活跃' : '已停用' }}
-            </p>
-          </div>
-          <div class="info-item">
-            <p class="info-label">权限</p>
-            <p class="info-value">{{ formatPermissions(statsData.permissions) }}</p>
-          </div>
-          <div v-if="hasServiceRates" class="info-item xl:col-span-2">
-            <p class="info-label">服务倍率</p>
-            <div class="flex flex-wrap gap-2">
-              <span
-                v-for="(rate, service) in statsData.serviceRates"
-                :key="service"
-                class="inline-flex items-center rounded-full bg-purple-100 px-2.5 py-0.5 text-sm font-medium text-purple-800 dark:bg-purple-900/30 dark:text-purple-300"
-              >
-                {{ service }}: {{ rate }}x
-              </span>
-            </div>
-          </div>
-          <div class="info-item">
-            <p class="info-label">创建时间</p>
-            <p class="info-value break-all">{{ formatDate(statsData.createdAt) }}</p>
-          </div>
-          <div class="info-item xl:col-span-2">
-            <p class="info-label">过期时间</p>
-            <div class="info-value">
-              <template v-if="statsData.expirationMode === 'activation' && !statsData.isActivated">
-                <span class="text-amber-600 dark:text-amber-400">
-                  <i class="i-lucide-circle-pause mr-1" />未激活
-                </span>
-                <span class="ml-2 text-sm text-gray-500 dark:text-gray-400">
-                  首次使用后
-                  {{ statsData.activationDays || (statsData.activationUnit === 'hours' ? 24 : 30) }}
-                  {{ statsData.activationUnit === 'hours' ? '小时' : '天' }}过期
-                </span>
-              </template>
-              <template v-else-if="statsData.expiresAt">
-                <span
-                  v-if="isApiKeyExpired(statsData.expiresAt)"
-                  class="text-red-500 dark:text-red-400"
-                >
-                  <i class="i-lucide-circle-alert mr-1" />已过期
-                </span>
-                <span
-                  v-else-if="isApiKeyExpiringSoon(statsData.expiresAt)"
-                  class="text-orange-500 dark:text-orange-400"
-                >
-                  <i class="i-lucide-clock mr-1" />{{ formatExpireDate(statsData.expiresAt) }}
-                </span>
-                <span v-else>{{ formatExpireDate(statsData.expiresAt) }}</span>
-              </template>
-              <template v-else>
-                <span class="text-gray-400 dark:text-gray-500">
-                  <i class="i-lucide-infinity mr-1" />永不过期
-                </span>
-              </template>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- 使用统计概览 -->
-      <div class="card-section">
-        <header class="section-header">
-          <div class="flex min-w-0 items-center gap-1.5">
-            <i class="header-icon i-lucide-chart-column text-green-500" />
-            <h3 class="header-title">使用统计概览</h3>
-            <span class="header-tag">{{ periodText }}</span>
-          </div>
+            <span v-if="invalidKeys.length" class="overview-warning"
+              >{{ invalidKeys.length }} 个无效</span
+            >
+          </template>
+          <template v-else>
+            <button
+              class="overview-key-name"
+              :title="`点击复制：${statsData.name}`"
+              type="button"
+              @click="copyText(statsData.name)"
+            >
+              {{ statsData.name }}
+            </button>
+            <span class="overview-status" :class="{ 'is-inactive': !statsData.isActive }">{{
+              statsData.isActive ? '活跃' : '已停用'
+            }}</span>
+          </template>
           <button
             v-if="showTimelineButton"
-            class="inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-md bg-gradient-to-r from-blue-500 to-cyan-500 px-2.5 py-1 text-sm font-medium text-white shadow-sm transition-all hover:from-blue-600 hover:to-cyan-600 disabled:cursor-not-allowed disabled:opacity-60"
+            class="btn btn-secondary overview-timeline"
             :disabled="timelineDisabled"
+            type="button"
             @click="emit('open-timeline')"
           >
-            <i class="i-lucide-align-justify" />
-            查看请求时间线
+            <i class="i-lucide-align-justify" />请求时间线
           </button>
-        </header>
-        <div class="metric-grid">
-          <div class="metric-card">
-            <p class="metric-value text-green-600 dark:text-emerald-300">
-              {{ formatNumber(currentPeriodData.requests) }}
-            </p>
-            <p class="metric-label">{{ statsPeriod === 'daily' ? '今日' : '本月' }}请求数</p>
-          </div>
-          <div class="metric-card">
-            <p class="metric-value text-blue-600 dark:text-sky-300">
-              {{ formatNumber(currentPeriodData.allTokens) }}
-            </p>
-            <p class="metric-label">{{ statsPeriod === 'daily' ? '今日' : '本月' }}Token 数</p>
-          </div>
-          <div class="metric-card">
-            <p class="metric-value text-purple-600 dark:text-violet-300">
-              {{ currentPeriodData.formattedCost || '$0.000000' }}
-            </p>
-            <p class="metric-label">{{ statsPeriod === 'daily' ? '今日' : '本月' }}费用</p>
-          </div>
-          <div class="metric-card">
-            <p class="metric-value text-amber-500 dark:text-amber-300">
-              {{ formatNumber(currentPeriodData.inputTokens) }}
-            </p>
-            <p class="metric-label">{{ statsPeriod === 'daily' ? '今日' : '本月' }}输入 Token</p>
-          </div>
         </div>
+        <dl v-if="multiKeyMode && aggregatedStats" class="overview-facts">
+          <div>
+            <dt>累计请求</dt>
+            <dd>{{ formatNumber(aggregatedStats.usage.requests) }}</dd>
+          </div>
+          <div>
+            <dt>累计 Token</dt>
+            <dd>{{ formatNumber(aggregatedStats.usage.allTokens) }}</dd>
+          </div>
+          <div>
+            <dt>累计费用</dt>
+            <dd>{{ aggregatedStats.usage.formattedCost }}</dd>
+          </div>
+          <div v-if="individualStats.length > 1">
+            <dt>主要用量</dt>
+            <dd class="overview-contributors">
+              <span v-for="stat in topContributors" :key="stat.apiId"
+                >{{ stat.name }} {{ calculateContribution(stat) }}%</span
+              >
+            </dd>
+          </div>
+        </dl>
+        <dl v-else class="overview-facts">
+          <div>
+            <dt>权限</dt>
+            <dd>{{ formatPermissions(statsData.permissions) }}</dd>
+          </div>
+          <div>
+            <dt>创建</dt>
+            <dd>{{ formatDate(statsData.createdAt) }}</dd>
+          </div>
+          <div>
+            <dt>到期</dt>
+            <dd>
+              <template v-if="statsData.expirationMode === 'activation' && !statsData.isActivated"
+                ><span class="overview-warning">未激活</span>，首次使用后
+                {{ statsData.activationDays || (statsData.activationUnit === 'hours' ? 24 : 30) }}
+                {{ statsData.activationUnit === 'hours' ? '小时' : '天' }}过期</template
+              >
+              <template v-else-if="statsData.expiresAt"
+                ><span
+                  :class="{
+                    'overview-expired': isApiKeyExpired(statsData.expiresAt),
+                    'overview-warning': isApiKeyExpiringSoon(statsData.expiresAt)
+                  }"
+                  >{{ isApiKeyExpired(statsData.expiresAt) ? '已过期 · ' : ''
+                  }}{{ formatExpireDate(statsData.expiresAt) }}</span
+                ></template
+              >
+              <template v-else>永不过期</template>
+            </dd>
+          </div>
+          <div v-if="hasServiceRates">
+            <dt>服务倍率</dt>
+            <dd class="overview-service-rates">
+              <span v-for="(rate, service) in statsData.serviceRates" :key="service"
+                >{{ service }} {{ rate }}x</span
+              >
+            </dd>
+          </div>
+        </dl>
       </div>
-    </div>
+      <dl :aria-label="`${periodText}使用统计概览`" class="overview-metrics">
+        <div>
+          <dt>{{ periodText }}请求</dt>
+          <dd class="usage-input" :title="Number(currentPeriodData.requests ?? 0).toLocaleString()">
+            {{ formatNumber(currentPeriodData.requests) }}
+          </dd>
+        </div>
+        <div>
+          <dt>{{ periodText }} Token</dt>
+          <dd
+            class="usage-output"
+            :title="Number(currentPeriodData.allTokens ?? 0).toLocaleString()"
+          >
+            {{ formatNumber(currentPeriodData.allTokens) }}
+          </dd>
+        </div>
+        <div>
+          <dt>{{ periodText }}原始费用</dt>
+          <dd class="overview-cost usage-cache">
+            {{ currentPeriodData.formattedCost || '$0.000000' }}
+          </dd>
+        </div>
+      </dl>
+    </section>
 
     <!-- 专属账号运行状态，仅在单 key 且存在绑定时显示 -->
     <div v-if="!multiKeyMode && boundAccountList.length > 0" class="card-section">
@@ -209,11 +138,8 @@
         >
           <div class="flex items-center justify-between gap-3">
             <div class="flex items-center gap-3">
-              <span
-                class="account-icon"
-                :class="account.platform === 'claude' ? 'icon-claude' : 'icon-openai'"
-              >
-                <i :class="account.platform === 'claude' ? 'i-lucide-sparkles' : 'i-lucide-bot'" />
+              <span class="account-icon">
+                <i aria-hidden="true" :class="PLATFORM_ICONS[account.key]" />
               </span>
               <div>
                 <p class="account-name">{{ getAccountLabel(account) }}</p>
@@ -309,10 +235,10 @@
 <script setup>
 import { computed } from 'vue'
 import { storeToRefs } from 'pinia'
-import dayjs from 'dayjs'
 import { useApiStatsStore } from '@/stores/api_stats'
 import { copyText, formatNumber, formatDate } from '@/libs/tools'
 import { formatLocalDateTime } from '@/libs/time'
+import { PLATFORM_ICONS } from '@/libs/platform_icons'
 
 defineProps({
   showTimelineButton: {
@@ -383,6 +309,7 @@ const isApiKeyExpiringSoon = (expiresAt) => {
 const formatPermissions = (permissions) => {
   const map = {
     claude: 'Claude',
+    openai: 'OpenAI',
     gemini: 'Gemini',
     codex: 'Codex',
     droid: 'Droid',
@@ -563,6 +490,144 @@ const getCodexWindowLabel = (type) => (type === 'secondary' ? '周限' : '5h')
 </script>
 
 <style scoped>
+.stats-overview {
+  display: grid;
+  gap: 10px;
+}
+.overview-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 16px;
+  padding: 13px 14px;
+}
+.overview-identity {
+  min-width: 0;
+}
+.overview-name-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.overview-name-row h3 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+.overview-key-name {
+  color: var(--text-primary);
+  font-size: 16px;
+  font-weight: 600;
+  text-align: left;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+.overview-key-name:hover {
+  color: var(--primary-color);
+}
+.overview-status {
+  padding: 2px 7px;
+  background: var(--success-soft);
+  color: var(--success-color);
+  border-radius: var(--radius-sm);
+  font-size: 14px;
+}
+.overview-status.is-inactive,
+.overview-expired {
+  color: var(--error-color);
+}
+.overview-warning {
+  color: var(--warning-color);
+}
+.overview-name-row .overview-timeline {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 30px;
+  padding: 3px 8px;
+  margin-left: auto;
+}
+.overview-facts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px 16px;
+  margin: 9px 0 0;
+  font-size: 14px;
+}
+.overview-facts > div {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+.overview-facts dt {
+  color: var(--text-secondary);
+  flex-shrink: 0;
+}
+.overview-facts dd {
+  color: var(--text-primary);
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.overview-contributors,
+.overview-service-rates {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.overview-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(108px, 1fr));
+  gap: 14px;
+  margin: 0;
+  padding-left: 18px;
+  border-left: 1px solid var(--divider-color);
+}
+.overview-metrics dt {
+  color: var(--text-secondary);
+  font-size: 14px;
+}
+.overview-metrics dd {
+  margin: 4px 0 0;
+  font-size: 22px;
+  line-height: 1.35;
+  font-weight: 600;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+.overview-metrics .overview-cost {
+  color: var(--primary-color);
+  font-size: 20px;
+}
+@media (max-width: 1099px) {
+  .overview-card {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+  .overview-metrics {
+    padding-left: 0;
+    padding-top: 10px;
+    border-left: 0;
+    border-top: 1px solid var(--divider-color);
+  }
+}
+@media (max-width: 479px) {
+  .overview-metrics {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+  }
+  .overview-metrics dd,
+  .overview-metrics .overview-cost {
+    font-size: 17px;
+    overflow-wrap: anywhere;
+  }
+  .overview-facts {
+    gap: 6px 12px;
+  }
+}
+
 .card-section {
   @apply flex h-full flex-col gap-1.5 rounded-lg border border-gray-200 p-2 shadow-sm dark:border-gray-700 sm:p-2.5;
   background: var(--surface-color);
@@ -679,15 +744,9 @@ const getCodexWindowLabel = (type) => (type === 'secondary' ? '周限' : '5h')
 }
 
 .account-icon {
-  @apply inline-flex h-7 w-7 items-center justify-center rounded-full text-white;
-}
-
-.icon-claude {
-  @apply bg-gradient-to-br from-purple-500 to-purple-600;
-}
-
-.icon-openai {
-  @apply bg-gradient-to-br from-sky-500 to-indigo-500;
+  @apply inline-flex h-6 w-6 shrink-0 items-center justify-center;
+  color: var(--text-primary);
+  font-size: 20px;
 }
 
 .account-name {

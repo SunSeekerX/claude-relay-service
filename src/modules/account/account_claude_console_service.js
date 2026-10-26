@@ -1,3 +1,5 @@
+import { readMappedAccountModelRange } from '../../common/compat_account_models.js'
+import { normalizeAccountModelRange } from './account_model_policy.js'
 import crypto from 'node:crypto'
 import { ProxyHelper } from '../proxy/proxy_helper.js'
 import { redis } from '../../infra/redis.js'
@@ -9,7 +11,7 @@ import { RedisKeys } from '../../infra/redis_key.js'
 import { webhookNotifier } from '../webhook/webhook_notifier.js'
 import { getISOStringWithTimezone } from '../../common/date_helper.js'
 import { env } from '../../../config/env.js'
-import { isModelInMapping, getMappedModelName } from '../../common/common_helper.js'
+import { getMappedModelName } from '../../common/common_helper.js'
 import { buildClaudeCliUserAgent } from '../relay/relay_claude_cli_version.js'
 
 class ClaudeConsoleAccountService {
@@ -57,6 +59,7 @@ class ClaudeConsoleAccountService {
       apiUrl = '',
       apiKey = '',
       priority = 50, // 默认优先级50（1-100）
+      allowedModels = [],
       supportedModels = [], // 支持的模型列表或映射表，空数组/对象表示支持所有
       userAgent = buildClaudeCliUserAgent(),
       rateLimitDuration = 60, // 限流时间（分钟）
@@ -90,6 +93,7 @@ class ClaudeConsoleAccountService {
       apiKey: this._encryptSensitiveData(apiKey),
       priority: priority.toString(),
       supportedModels: JSON.stringify(processedModels),
+      allowedModels: JSON.stringify(normalizeAccountModelRange(allowedModels)),
       userAgent,
       rateLimitDuration: rateLimitDuration.toString(),
       proxy: proxy ? JSON.stringify(proxy) : '',
@@ -142,6 +146,7 @@ class ClaudeConsoleAccountService {
       apiUrl,
       priority,
       supportedModels,
+      allowedModels: normalizeAccountModelRange(allowedModels),
       userAgent,
       rateLimitDuration,
       isActive,
@@ -198,6 +203,7 @@ class ClaudeConsoleAccountService {
             apiUrl: accountData.apiUrl,
             priority: parseInt(accountData.priority) || 50,
             supportedModels: JSON.parse(accountData.supportedModels || '[]'),
+            allowedModels: readMappedAccountModelRange(accountData),
             userAgent: accountData.userAgent,
             rateLimitDuration: Number.isNaN(parseInt(accountData.rateLimitDuration))
               ? 60
@@ -266,6 +272,7 @@ class ClaudeConsoleAccountService {
     logger.debug(`[DEBUG] Parsed supportedModels: ${JSON.stringify(parsedModels)}`)
 
     accountData.supportedModels = parsedModels
+    accountData.allowedModels = readMappedAccountModelRange(accountData)
     accountData.priority = parseInt(accountData.priority) || 50
     {
       const _parsedDuration = parseInt(accountData.rateLimitDuration)
@@ -322,6 +329,9 @@ class ClaudeConsoleAccountService {
       }
       if (updates.priority !== undefined) {
         updatedData.priority = updates.priority.toString()
+      }
+      if (updates.allowedModels !== undefined) {
+        updatedData.allowedModels = JSON.stringify(normalizeAccountModelRange(updates.allowedModels))
       }
       if (updates.supportedModels !== undefined) {
         logger.debug(`[DEBUG] Updating supportedModels: ${JSON.stringify(updates.supportedModels)}`)
@@ -1219,11 +1229,6 @@ class ClaudeConsoleAccountService {
 
     // 其他情况返回空对象
     return {}
-  }
-
-  // 检查模型是否支持（用于调度）— 委托公共 helper，含 prefix* 通配
-  isModelSupported(modelMapping, requestedModel) {
-    return isModelInMapping(modelMapping, requestedModel)
   }
 
   // 获取映射后的模型名称 — 委托公共 helper，含 prefix* 通配

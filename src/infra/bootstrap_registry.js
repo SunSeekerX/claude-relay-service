@@ -7,6 +7,20 @@
 
 export const selfHealingActions = [
   {
+    id: 'proxy_stats_index',
+    call: 'proxyPoolService.start() -> _restoreContextStates()',
+    mode: 'blocking',
+    idempotency: '启动 SCAN 补齐短期 stats 索引；ZADD GT 不缩短并发写入的到期时间',
+    dependsOn: 'redis 已连接，代理静态配置已加载',
+  },
+  {
+    id: 'account_test_config_index',
+    call: 'accountTestSchedulerService.start() -> redis.rebuildAccountTestConfigIndex()',
+    mode: 'background',
+    idempotency: '启动扫描配置；Lua 按当前启用状态和 TTL 更新索引',
+    dependsOn: 'redis 已连接，定时测试任务尚未创建',
+  },
+  {
     id: 'ensure_monthly_months_index',
     call: 'redis.ensureMonthlyMonthsIndex()',
     mode: 'background',

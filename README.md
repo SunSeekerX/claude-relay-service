@@ -655,7 +655,53 @@ gpt-5                      # Codex使用固定模型ID
 
 ## 日常维护
 
+### 本地开发数据重建
+
+已有 `dev_tools/prod_dump` 快照时，在仓库根目录或 `dev_tools` 运行：
+
+```bash
+pnpm run rebuild
+```
+
+该命令覆盖本地开发 Redis（`crs_dev_redis`，`127.0.0.1:16380`），并恢复最新 RDB 同一时间戳的定价、模型文件，不连接生产、不需要 SSH 密码。覆盖前检查 RDB 完整性、Redis 版本和配套定价文件；缺少快照时先在 `dev_tools` 运行 `pnpm run pull_prod`。宿主机需要 Docker，未启动时命令会尝试启动 Docker Desktop。
+
+恢复后重启本地后端以重新加载定价文件。完整说明见 [dev_tools/README.md](dev_tools/README.md)。
+
 ### 服务管理
+
+控制台默认按启动阶段显示进度与耗时，就绪后集中列出地址、PID、警告数量和操作命令。运行时每条请求显示一行，保留请求 ID，警告和错误展开详情。日志文件继续保留结构化信息，并增加 UTC `time`、`pid`，方便跨机器关联；现有 `ts/lvl/msg` 字段继续保留。
+
+在 `.env` 设置 `LOG_CONSOLE_FORMAT=compact|detailed|json` 选择默认摘要、详细输出或 NDJSON。`LOG_LEVEL` 继续控制记录级别，轮转大小及保留数量沿用现有配置。开发时修改 `src/`、`config/`、`.env` 会触发后端热重启。
+
+```bash
+pnpm run logs -- --level warn --since 30m
+pnpm run logs -- --request-id 请求ID
+pnpm run logs -- --status 500 --search 定价
+pnpm run logs -- --help
+```
+
+本地默认读取最近 5 个主日志文件，包括 `.gz` 归档；`--limit` 默认显示最后 100 条匹配。`--file` 可指定更早的文件。机器处理时直接运行 `node scripts/logs.js --json`，输出 NDJSON，查询统计写入 stderr。
+
+Agent 短查询可加 `--json --fields ts,lvl,msg,requestId,statusCode`，只返回选定字段；需要详细上下文时去掉 `--fields`。`0`、`false` 和 `null` 会原样保留。
+
+生产日志可通过已有 SSH 别名和密钥只读查询，无需部署本次代码，也不写入服务器：
+
+当前环境也提供 `pnpm run logs:prod -- --level warn --since 30m`，在隔离工具容器中复用 `dev_tools/.env` 的已有 SSH 密码，通过 `sshpass -e` 查询当前 `crs` 实例最近五个生产主日志及归档。输出总行数受 `--tail` 限制，不执行同步或重启。此入口需要 Docker 已运行，密码不回显、不放入命令参数。根目录和 `dev_tools` 都可调用。其他主机或服务通过下面的 `--ssh` 显式指定，不自动混入当前项目日志。
+
+```bash
+# 容器控制台摘要，最多读取 10000 行，默认最近 30 分钟
+pnpm run logs -- --ssh crs-prod --docker crs-claude-relay-1 --level warn --since 1h
+
+# 完整结构化上下文：把主机别名、容器名、日志日期换成实际值
+pnpm run logs -- --ssh crs-prod --file /data/docker_data/crs/logs/claude-relay-2026-10-25.log --request-id 请求ID --json
+
+# 已有 SSH/日志采集命令也可通过管道筛选
+ssh crs-prod 'docker logs --since 30m --tail 10000 crs-claude-relay-1 2>&1' | node scripts/logs.js --stdin --level warn
+```
+
+历史日志的 `ts` 按当前 `config.system.timezoneOffset` 解释；新日志优先使用带时区的 UTC `time`。`--ssh` 使用现有密钥和配置，`logs:prod` 仅在工具容器使用现有密码；失败均返回非零退出码。`--status` 依赖结构化字段，控制台摘要如需精确过滤请读取对应文件。
+
+定价下载遇到系统 DNS 失败或 Fake-IP 时，使用 Cloudflare/Google 的 HTTPS DNS（连接分别固定到 `1.1.1.1`、`8.8.8.8`，保留域名 TLS 证书校验），避免普通 DNS 再被代理劫持。解析结果逐个验证并固定为公网连接地址，内网地址继续拒绝，每跳重定向继续校验；回退仍失败时保留当前缓存，并提示原因及下一次检查间隔。接口依据 [Cloudflare DoH JSON](https://developers.cloudflare.com/1.1.1.1/encryption/dns-over-https/make-api-requests/dns-json/) 和 [Google DoH JSON](https://developers.google.com/speed/public-dns/docs/doh/json)。
 
 ```bash
 # 查看服务状态

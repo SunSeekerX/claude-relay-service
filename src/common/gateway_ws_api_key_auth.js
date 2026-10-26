@@ -6,6 +6,8 @@ import { balanceLedger } from '../modules/payment/payment_balance_ledger.js'
 import * as groupPolicy from '../modules/account/account_group_policy.js'
 import crypto from 'node:crypto'
 import { env } from '../../config/env.js'
+import { getDefaultRouteFormat, ROUTE_PROVIDERS } from '../modules/relay/relay_routing_contract.js'
+import { resolveRequestRoute, applyRouteBinding } from '../modules/relay/relay_routing_service.js'
 // WebSocket / HTTP Upgrade 鉴权：对齐 authenticateApiKey 的硬门（无 Express 排队）
 // - validateApiKey.valid
 // - 客户端限制
@@ -153,7 +155,21 @@ export const validateWsApiKey = async (req, url, requiredPermission = 'openai') 
     return fail(401, (validation && validation.error) || 'Invalid API key')
   }
 
-  const { keyData } = validation
+  let { keyData } = validation
+  const path = url?.pathname ?? req.url?.split('?')[0] ?? ''
+  if (/\/responses$/.test(path)) {
+    const explicitCode = path.match(/^\/r\/([^/]+)\//)?.[1] ?? null
+    try {
+      const route = await resolveRequestRoute(keyData, explicitCode ? 'openai-responses' : getDefaultRouteFormat(req, 'openai-responses'), explicitCode)
+      if (route) {
+        keyData = applyRouteBinding(keyData, route)
+        requiredPermission = ROUTE_PROVIDERS[route.provider].permission
+      }
+    } catch (error) {
+      logger.warn('WebSocket relay route admission rejected', { error, keyId: keyData.id })
+      return fail(error.statusCode ?? 500, error.statusCode ? error.message : '调用入口配置不可用')
+    }
+  }
 
   if (keyData.enableClientRestriction && keyData.allowedClients?.length > 0) {
     const clientResult = ClientValidator.validateRequest(keyData.allowedClients, req)

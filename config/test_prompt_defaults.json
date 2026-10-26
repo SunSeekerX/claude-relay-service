@@ -1,0 +1,286 @@
+{
+  "selectionMode": "random_simple",
+  "defaultId": "simple_translate_notice",
+  "templates": [
+    {
+      "id": "simple_translate_notice",
+      "name": "翻译通知",
+      "prompt": "把这句话翻译成英文:会议改到明天下午三点。",
+      "hint": "",
+      "enabled": true
+    },
+    {
+      "id": "simple_translate_thanks",
+      "name": "翻译感谢",
+      "prompt": "把 Thanks for your patience 翻译成自然的中文。",
+      "hint": "",
+      "enabled": true
+    },
+    {
+      "id": "simple_translate_file",
+      "name": "翻译提醒",
+      "prompt": "帮我用英语表达:附件里是更新后的文件,请查收。",
+      "hint": "",
+      "enabled": true
+    },
+    {
+      "id": "simple_polish_request",
+      "name": "润色请求",
+      "prompt": "把\"有空帮我看看这个文档\"改得礼貌一点,一句话就好。",
+      "hint": "",
+      "enabled": true
+    },
+    {
+      "id": "simple_polish_delay",
+      "name": "润色进度",
+      "prompt": "帮我把\"这个任务还要两天做完\"改成适合工作群的说法。",
+      "hint": "",
+      "enabled": true
+    },
+    {
+      "id": "simple_polish_reply",
+      "name": "简短回复",
+      "prompt": "同事说\"资料已经发给你了\",帮我写一句简短自然的回复。",
+      "hint": "",
+      "enabled": true
+    },
+    {
+      "id": "simple_summarize_notice",
+      "name": "提炼通知",
+      "prompt": "帮我提炼这条通知的重点:周五下午两点开会,地点在二楼会议室,请提前准备一页进度说明。",
+      "hint": "",
+      "enabled": true
+    },
+    {
+      "id": "simple_summarize_progress",
+      "name": "总结进度",
+      "prompt": "把\"页面已经做好,接口还在调试,预计明天联调\"压缩成一句简短的进度说明。",
+      "hint": "",
+      "enabled": true
+    },
+    {
+      "id": "simple_email_subject",
+      "name": "邮件标题",
+      "prompt": "我要发邮件提醒同事提交本周工作总结,帮我想一个简短标题。",
+      "hint": "",
+      "enabled": true
+    },
+    {
+      "id": "simple_meeting_title",
+      "name": "会议标题",
+      "prompt": "帮我给讨论下周工作安排的会议起一个简洁的名字。",
+      "hint": "",
+      "enabled": true
+    },
+    {
+      "id": "simple_water_explain",
+      "name": "生活常识",
+      "prompt": "烧水时壶盖为什么会有水珠?用两句话解释。",
+      "hint": "",
+      "enabled": true
+    },
+    {
+      "id": "simple_rainbow_explain",
+      "name": "彩虹原理",
+      "prompt": "彩虹是怎么形成的?简单解释一下就好。",
+      "hint": "",
+      "enabled": true
+    },
+    {
+      "id": "simple_seasons_explain",
+      "name": "四季变化",
+      "prompt": "为什么一年有四季?用两句话说清楚。",
+      "hint": "",
+      "enabled": true
+    },
+    {
+      "id": "simple_moon_explain",
+      "name": "月亮变化",
+      "prompt": "月亮为什么有时候圆、有时候弯?简短解释。",
+      "hint": "",
+      "enabled": true
+    },
+    {
+      "id": "simple_packing_list",
+      "name": "出行清单",
+      "prompt": "周末去附近城市住一晚,帮我列五样容易忘带的小物品。",
+      "hint": "",
+      "enabled": true
+    },
+    {
+      "id": "simple_desk_tidy",
+      "name": "整理桌面",
+      "prompt": "桌面有点乱,给我三个五分钟内能做完的整理建议。",
+      "hint": "",
+      "enabled": true
+    },
+    {
+      "id": "simple_reading_habit",
+      "name": "阅读习惯",
+      "prompt": "想每天抽十分钟阅读,给我两个容易坚持的小办法。",
+      "hint": "",
+      "enabled": true
+    },
+    {
+      "id": "simple_photo_caption",
+      "name": "照片配文",
+      "prompt": "给一张雨后公园的照片写一句朴素一点的配文。",
+      "hint": "",
+      "enabled": true
+    },
+    {
+      "id": "simple_weekend_message",
+      "name": "周末问候",
+      "prompt": "帮我写一句发给朋友的周末问候,自然一点,别太正式。",
+      "hint": "",
+      "enabled": true
+    },
+    {
+      "id": "simple_word_difference",
+      "name": "词语区别",
+      "prompt": "英文 borrow 和 lend 有什么区别?各给一个很短的例子。",
+      "hint": "",
+      "enabled": true
+    },
+    {
+      "id": "simple_phrase_meaning",
+      "name": "短语解释",
+      "prompt": "英文 keep me posted 是什么意思?给一个日常使用的例子。",
+      "hint": "",
+      "enabled": true
+    },
+    {
+      "id": "simple_time_conversion",
+      "name": "时长换算",
+      "prompt": "一部电影从晚上七点二十分开始,放映九十五分钟,几点结束?",
+      "hint": "",
+      "enabled": true
+    },
+    {
+      "id": "simple_recipe_scale",
+      "name": "份量换算",
+      "prompt": "两人份食谱需要一百五十克面粉,做三人份应该用多少克?",
+      "hint": "",
+      "enabled": true
+    },
+    {
+      "id": "simple_compare_notes",
+      "name": "清单整理",
+      "prompt": "把\"买牛奶、回邮件、买面包、确认会议时间\"按购物和工作分成两组。",
+      "hint": "",
+      "enabled": true
+    },
+    {
+      "id": "simple_http_cache",
+      "name": "浏览器缓存",
+      "prompt": "用两句话解释一下浏览器缓存有什么用。",
+      "hint": "",
+      "enabled": true
+    },
+    {
+      "id": "simple_http_status",
+      "name": "HTTP 状态码",
+      "prompt": "HTTP 404 和 500 有什么区别?简单说一下。",
+      "hint": "",
+      "enabled": true
+    },
+    {
+      "id": "simple_https_explain",
+      "name": "HTTPS 基础",
+      "prompt": "HTTPS 比 HTTP 多解决了什么问题?用两句话解释。",
+      "hint": "",
+      "enabled": true
+    },
+    {
+      "id": "simple_dns_explain",
+      "name": "DNS 基础",
+      "prompt": "DNS 是做什么的?用一个简单的比喻解释。",
+      "hint": "",
+      "enabled": true
+    },
+    {
+      "id": "simple_js_unique",
+      "name": "数组去重",
+      "prompt": "JavaScript 怎么给一个数字数组去重?给一行代码就行。",
+      "hint": "",
+      "enabled": true
+    },
+    {
+      "id": "simple_js_optional",
+      "name": "可选链",
+      "prompt": "JavaScript 的可选链怎么用?给一个很短的例子。",
+      "hint": "",
+      "enabled": true
+    },
+    {
+      "id": "simple_js_nullish",
+      "name": "空值合并",
+      "prompt": "JavaScript 中 ?? 和 || 有什么区别?用一个例子说明。",
+      "hint": "",
+      "enabled": true
+    },
+    {
+      "id": "simple_js_filter",
+      "name": "数组筛选",
+      "prompt": "写一行 JavaScript,从数组 numbers 里筛选出大于十的数字。",
+      "hint": "",
+      "enabled": true
+    },
+    {
+      "id": "simple_js_sum",
+      "name": "数组求和",
+      "prompt": "JavaScript 如何把数字数组里的值相加?给一个简短例子。",
+      "hint": "",
+      "enabled": true
+    },
+    {
+      "id": "simple_ts_optional",
+      "name": "可选属性",
+      "prompt": "TypeScript 接口里怎么声明一个可选的 name 属性?给个最小例子。",
+      "hint": "",
+      "enabled": true
+    },
+    {
+      "id": "simple_json_example",
+      "name": "JSON 示例",
+      "prompt": "给我一个表示书籍的简单 JSON 示例,包含书名、作者和是否读完三个字段。",
+      "hint": "",
+      "enabled": true
+    },
+    {
+      "id": "simple_git_diff",
+      "name": "查看改动",
+      "prompt": "git diff 和 git status 分别用来看什么?简短说明。",
+      "hint": "",
+      "enabled": true
+    },
+    {
+      "id": "simple_css_center",
+      "name": "Flex 居中",
+      "prompt": "用 CSS Flex 让一个元素水平和垂直居中,需要哪几个属性?",
+      "hint": "",
+      "enabled": true
+    },
+    {
+      "id": "simple_css_box",
+      "name": "盒模型",
+      "prompt": "CSS 的 margin 和 padding 有什么区别?用两句话解释。",
+      "hint": "",
+      "enabled": true
+    },
+    {
+      "id": "simple_sql_order",
+      "name": "查询排序",
+      "prompt": "SQL 中 ORDER BY 和 GROUP BY 各有什么作用?简单说明。",
+      "hint": "",
+      "enabled": true
+    },
+    {
+      "id": "simple_async_explain",
+      "name": "异步等待",
+      "prompt": "JavaScript 的 async 和 await 是做什么的?给一个很短的说明。",
+      "hint": "",
+      "enabled": true
+    }
+  ]
+}

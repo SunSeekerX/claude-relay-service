@@ -1,40 +1,14 @@
 <template>
-  <div class="accounts-container">
+  <div class="accounts-container admin-list-page">
     <!-- 去掉内层 .card：外层 MainLayout 已是卡片，避免卡片套卡片 -->
-    <!-- 账户管理页内子 tab：账户列表 / 账户分组 -->
-    <div class="mb-3 flex flex-wrap gap-2">
-      <button
-        :class="[
-          'flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold transition-all duration-200',
-          activeView === 'accounts'
-            ? 'bg-gradient-to-r from-blue-500 to-indigo-500 text-white shadow-md'
-            : 'border border-gray-200 bg-white text-gray-600 hover:border-gray-300 hover:text-gray-900 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:text-gray-100'
-        ]"
-        @click="switchAccountView('accounts')"
-      >
-        <i class="i-lucide-circle-user" />
-        账户列表
-      </button>
-      <button
-        :class="[
-          'flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold transition-all duration-200',
-          activeView === 'groups'
-            ? 'bg-gradient-to-r from-purple-500 to-pink-500 text-white shadow-md'
-            : 'border border-gray-200 bg-white text-gray-600 hover:border-gray-300 hover:text-gray-900 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:text-gray-100'
-        ]"
-        @click="switchAccountView('groups')"
-      >
-        <i class="i-lucide-layers" />
-        账户分组
-      </button>
-    </div>
+    <SegmentedTabs class="mb-3" :model-value="activeView" :tabs="[{key:'accounts',label:'账户列表',icon:'i-lucide-circle-user'},{key:'groups',label:'账户分组',icon:'i-lucide-layers'}]" variant="underline" @update:model-value="switchAccountView" />
 
     <div v-show="activeView === 'accounts'" class="relative">
       <div class="mb-3 flex flex-col gap-2 sm:gap-3">
         <!-- 页面标题与主 Tab「账户管理」重复，已移除 -->
-        <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div class="admin-toolbar">
           <!-- 筛选器组 -->
-          <div class="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:gap-3">
+          <div class="admin-filter-group">
             <!-- 排序选择器 -->
             <div class="min-w-[160px]">
               <CustomDropdown
@@ -100,7 +74,7 @@
                 <input
                   v-model="searchKeyword"
                   class="toolbar-search-input"
-                  placeholder="搜索账户名称..."
+                  placeholder="搜索账户名称或邮箱"
                   type="text"
                 />
                 <i class="input-affix-icon input-affix-icon--left i-lucide-search text-cyan-500" />
@@ -115,7 +89,7 @@
             </div>
           </div>
 
-          <div class="flex w-full flex-col gap-3 sm:w-auto sm:flex-row sm:items-center sm:gap-3">
+          <div class="admin-actions">
             <!-- 账户统计按钮 -->
             <div class="relative">
               <AppTooltip content="查看账户统计汇总" placement="bottom">
@@ -489,7 +463,7 @@
                       <i class="i-lucide-circle-user text-sm text-white" />
                     </div>
                     <div class="min-w-0">
-                      <div class="flex items-center gap-2">
+                      <div class="account-name-line">
                         <div
                           class="cursor-pointer truncate text-sm font-semibold text-gray-900 hover:text-blue-600 dark:text-gray-100 dark:hover:text-blue-400"
                           title="点击复制"
@@ -530,12 +504,7 @@
                           <i class="i-lucide-folder mr-1" />{{ group.name }}
                         </span>
                       </div>
-                      <div
-                        class="truncate text-sm text-gray-500 dark:text-gray-400"
-                        :title="account.id"
-                      >
-                        {{ account.id }}
-                      </div>
+                      <button class="account-id-copy" :title="`复制账户 ID：${account.id}`" type="button" @click.stop="copyText(account.id)">ID {{ account.id }}</button>
                     </div>
                   </div>
                 </td>
@@ -546,9 +515,9 @@
                       v-if="account.platform === 'gemini'"
                       class="flex items-center gap-1.5 rounded-lg border border-yellow-200 bg-gradient-to-r from-yellow-100 to-amber-100 px-2.5 py-1 dark:border-yellow-700/60 dark:from-yellow-900/30 dark:to-amber-900/20"
                     >
-                      <i class="i-lucide-bot text-sm text-yellow-700 dark:text-yellow-400" />
+                      <i aria-hidden="true" class="text-base" :class="getPlatformIcon(account)" />
                       <span class="text-sm font-semibold text-yellow-800 dark:text-yellow-300"
-                        >Gemini</span
+                        >{{ account.oauthProvider === 'antigravity' ? 'Antigravity' : 'Gemini' }}</span
                       >
                       <span class="mx-1 h-4 w-px bg-yellow-300 dark:bg-yellow-600" />
                       <span class="text-sm font-medium text-yellow-700 dark:text-yellow-400">
@@ -559,28 +528,28 @@
                       v-else-if="account.platform === 'claude-console'"
                       class="flex items-center gap-1.5 rounded-lg border border-purple-200 bg-gradient-to-r from-purple-100 to-pink-100 px-2.5 py-1"
                     >
-                      <i class="i-lucide-terminal text-sm text-purple-700" />
+                      <i aria-hidden="true" class="text-base" :class="PLATFORM_ICONS.claude" />
                       <span class="text-sm font-semibold text-purple-800">Console</span>
                       <span class="mx-1 h-4 w-px bg-purple-300" />
                       <span class="text-sm font-medium text-purple-700">API Key</span>
                     </div>
                     <div
                       v-else-if="account.platform === 'bedrock'"
-                      class="flex items-center gap-1.5 rounded-lg border border-orange-200 bg-gradient-to-r from-orange-100 to-red-100 px-2.5 py-1"
+                      class="flex items-center gap-1.5 rounded-lg border border-orange-200 bg-gradient-to-r from-orange-100 to-red-100 px-2.5 py-1 dark:border-orange-700 dark:from-orange-900/30 dark:to-red-900/20"
                     >
-                      <i class="i-logos-aws text-sm text-orange-700" />
-                      <span class="text-sm font-semibold text-orange-800">Bedrock</span>
-                      <span class="mx-1 h-4 w-px bg-orange-300" />
-                      <span class="text-sm font-medium text-orange-700">AWS</span>
+                      <i aria-hidden="true" class="text-base" :class="PLATFORM_ICONS.bedrock" />
+                      <span class="text-sm font-semibold text-orange-800 dark:text-orange-300">Bedrock</span>
+                      <span class="mx-1 h-4 w-px bg-orange-300 dark:bg-orange-600" />
+                      <span class="text-sm font-medium text-orange-700 dark:text-orange-300">AWS</span>
                     </div>
                     <div
                       v-else-if="account.platform === 'openai'"
-                      class="flex items-center gap-1.5 rounded-lg border border-gray-700 bg-gray-100 bg-gradient-to-r from-gray-100 to-gray-100 px-2.5 py-1"
+                      class="flex items-center gap-1.5 rounded-lg border border-gray-300 bg-gray-100 px-2.5 py-1 text-gray-900 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
                     >
-                      <div class="icon-openai" />
-                      <span class="text-sm font-semibold text-gray-950">OpenAi</span>
-                      <span class="mx-1 h-4 w-px bg-gray-400" />
-                      <span class="text-sm font-medium text-gray-950">{{
+                      <i aria-hidden="true" class="text-base" :class="PLATFORM_ICONS.openai" />
+                      <span class="text-sm font-semibold">OpenAI</span>
+                      <span class="mx-1 h-4 w-px bg-gray-400 dark:bg-gray-500" />
+                      <span class="text-sm font-medium">{{
                         getOpenAIAuthType()
                       }}</span>
                     </div>
@@ -588,7 +557,11 @@
                       v-else-if="account.platform === 'azure_openai'"
                       class="flex items-center gap-1.5 rounded-lg border border-blue-200 bg-gradient-to-r from-blue-100 to-cyan-100 px-2.5 py-1 dark:border-blue-700 dark:from-blue-900/20 dark:to-cyan-900/20"
                     >
-                      <i class="i-logos-microsoft-icon text-sm text-blue-700 dark:text-blue-400" />
+                      <i
+                        aria-hidden="true"
+                        class="text-base"
+                        :class="PLATFORM_ICONS.azure_openai"
+                      />
                       <span class="text-sm font-semibold text-blue-800 dark:text-blue-300"
                         >Azure OpenAI</span
                       >
@@ -601,7 +574,7 @@
                       v-else-if="account.platform === 'openai-responses'"
                       class="flex items-center gap-1.5 rounded-lg border border-teal-200 bg-gradient-to-r from-teal-100 to-green-100 px-2.5 py-1 dark:border-teal-700 dark:from-teal-900/20 dark:to-green-900/20"
                     >
-                      <i class="i-lucide-server text-sm text-teal-700 dark:text-teal-400" />
+                      <i aria-hidden="true" class="text-base" :class="PLATFORM_ICONS.openai" />
                       <span class="text-sm font-semibold text-teal-800 dark:text-teal-300"
                         >OpenAI-Api</span
                       >
@@ -616,7 +589,7 @@
                       "
                       class="flex items-center gap-1.5 rounded-lg border border-indigo-200 bg-gradient-to-r from-indigo-100 to-blue-100 px-2.5 py-1"
                     >
-                      <i class="i-lucide-brain text-sm text-indigo-700" />
+                      <i aria-hidden="true" class="text-base" :class="PLATFORM_ICONS.claude" />
                       <span class="text-sm font-semibold text-indigo-800">{{
                         getClaudeAccountType(account)
                       }}</span>
@@ -642,7 +615,7 @@
                       v-else-if="account.platform === 'droid'"
                       class="flex items-center gap-1.5 rounded-lg border border-cyan-200 bg-gradient-to-r from-cyan-100 to-sky-100 px-2.5 py-1 dark:border-cyan-700 dark:from-cyan-900/20 dark:to-sky-900/20"
                     >
-                      <i class="i-lucide-bot text-sm text-cyan-700 dark:text-cyan-400" />
+                      <i aria-hidden="true" class="text-base" :class="PLATFORM_ICONS.droid" />
                       <span class="text-sm font-semibold text-cyan-800 dark:text-cyan-300"
                         >Droid</span
                       >
@@ -662,7 +635,11 @@
                       v-else-if="account.platform === 'gemini-api'"
                       class="flex items-center gap-1.5 rounded-lg border border-amber-200 bg-gradient-to-r from-amber-100 to-yellow-100 px-2.5 py-1 dark:border-amber-700 dark:from-amber-900/20 dark:to-yellow-900/20"
                     >
-                      <i class="i-lucide-bot text-sm text-amber-700 dark:text-amber-400" />
+                      <i
+                        aria-hidden="true"
+                        class="text-base text-blue-500"
+                        :class="PLATFORM_ICONS.gemini"
+                      />
                       <span class="text-sm font-semibold text-amber-800 dark:text-amber-300"
                         >Gemini-API</span
                       >
@@ -670,6 +647,13 @@
                       <span class="text-sm font-medium text-amber-700 dark:text-amber-400"
                         >API Key</span
                       >
+                    </div>
+                    <div
+                      v-else-if="account.platform === 'grok'"
+                      class="flex items-center gap-1.5 rounded-lg border border-[var(--border-color)] bg-[var(--surface-color)] px-2.5 py-1 text-[var(--text-primary)]"
+                    >
+                      <i aria-hidden="true" class="text-base" :class="PLATFORM_ICONS.grok" />
+                      <span class="text-sm font-semibold">Grok</span>
                     </div>
                     <div
                       v-else
@@ -1453,46 +1437,12 @@
                 @change="updateSelectAllState"
               />
               <div
-                :class="[
-                  'flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg',
-                  account.platform === 'claude'
-                    ? 'bg-gradient-to-br from-purple-500 to-purple-600'
-                    : account.platform === 'bedrock'
-                      ? 'bg-gradient-to-br from-orange-500 to-red-600'
-                      : account.platform === 'azure_openai'
-                        ? 'bg-gradient-to-br from-blue-500 to-cyan-600'
-                        : account.platform === 'openai'
-                          ? 'bg-gradient-to-br from-gray-600 to-gray-700'
-                          : account.platform === 'ccr'
-                            ? 'bg-gradient-to-br from-teal-500 to-emerald-600'
-                            : account.platform === 'droid'
-                              ? 'bg-gradient-to-br from-cyan-500 to-sky-600'
-                              : 'bg-gradient-to-br from-blue-500 to-blue-600'
-                ]"
+                class="flex h-8 w-8 shrink-0 items-center justify-center text-[var(--text-primary)]"
               >
                 <i
-                  :class="[
-                    'text-sm text-white',
-                    account.platform === 'claude'
-                      ? 'i-lucide-brain'
-                      : account.platform === 'bedrock'
-                        ? 'i-logos-aws'
-                        : account.platform === 'azure_openai'
-                          ? 'i-logos-microsoft-icon'
-                          : account.platform === 'openai' ||
-                              account.platform === 'openai-responses'
-                            ? 'icon-openai'
-                            : account.platform === 'gemini' ||
-                                account.platform === 'gemini-api'
-                              ? 'i-logos-google-icon'
-                              : account.platform === 'ccr'
-                                ? 'i-lucide-git-branch'
-                                : account.platform === 'droid'
-                                  ? 'i-lucide-bot'
-                                  : account.platform === 'grok'
-                                    ? 'i-lucide-zap'
-                                    : 'i-lucide-server'
-                  ]"
+                  aria-hidden="true"
+                  class="text-xl"
+                  :class="getPlatformIcon(account)"
                 />
               </div>
               <div>
@@ -2093,12 +2043,14 @@
     <!-- 添加账户模态框 -->
     <AccountForm
       v-if="showCreateAccountModal && (!newAccountPlatform || newAccountPlatform !== 'ccr')"
+      :account="createdAccount"
       @close="closeCreateAccountModal"
       @platform-changed="newAccountPlatform = $event"
       @success="handleCreateSuccess"
     />
     <CcrAccountForm
       v-else-if="showCreateAccountModal && newAccountPlatform === 'ccr'"
+      :account="createdAccount"
       @close="closeCreateAccountModal"
       @success="handleCreateSuccess"
     />
@@ -2361,6 +2313,7 @@ import {
   calcViewportBottomReserve
 } from '@/libs/tools'
 import { formatLocalDate } from '@/libs/time'
+import { PLATFORM_ICONS } from '@/libs/platform_icons'
 import { isOk, msgOf, dataOf } from '@/libs/http_envelope'
 
 import * as httpApis from '@/libs/http_apis'
@@ -2589,48 +2542,62 @@ const sortOptions = ref([
 ])
 
 // 平台层级结构定义
+const getPlatformIcon = (account) => {
+  if (account.platform === 'gemini' && account.oauthProvider === 'antigravity') {
+    return PLATFORM_ICONS.antigravity
+  }
+  const icons = {
+    ...PLATFORM_ICONS,
+    'claude-oauth': PLATFORM_ICONS.claude,
+    'claude-console': PLATFORM_ICONS.claude,
+    'openai-responses': PLATFORM_ICONS.openai,
+    'gemini-api': PLATFORM_ICONS.gemini
+  }
+  return icons[account.platform] || 'i-lucide-server'
+}
+
 const platformHierarchy = [
   {
     value: 'group-claude',
     label: 'Claude（全部）',
-    icon: 'i-lucide-brain',
+    icon: PLATFORM_ICONS.claude,
     children: [
-      { value: 'claude', label: 'Claude 官方/OAuth', icon: 'i-lucide-brain' },
-      { value: 'claude-console', label: 'Claude Console', icon: 'i-lucide-terminal' },
-      { value: 'bedrock', label: 'Bedrock', icon: 'i-logos-aws' },
-      { value: 'ccr', label: 'CCR Relay', icon: 'i-lucide-git-branch' }
+      { value: 'claude', label: 'Claude 官方/OAuth', icon: PLATFORM_ICONS.claude },
+      { value: 'claude-console', label: 'Claude Console', icon: PLATFORM_ICONS.claude },
+      { value: 'bedrock', label: 'Bedrock', icon: PLATFORM_ICONS.bedrock },
+      { value: 'ccr', label: 'CCR Relay', icon: PLATFORM_ICONS.ccr }
     ]
   },
   {
     value: 'group-openai',
     label: 'Codex / OpenAI（全部）',
-    icon: 'icon-openai',
+    icon: PLATFORM_ICONS.openai,
     children: [
-      { value: 'openai', label: 'OpenAI 官方', icon: 'icon-openai' },
-      { value: 'openai-responses', label: 'OpenAI-Responses (Codex)', icon: 'i-lucide-server' },
-      { value: 'azure_openai', label: 'Azure OpenAI', icon: 'i-logos-microsoft-icon' }
+      { value: 'openai', label: 'OpenAI 官方', icon: PLATFORM_ICONS.openai },
+      { value: 'openai-responses', label: 'OpenAI-Responses (Codex)', icon: PLATFORM_ICONS.openai },
+      { value: 'azure_openai', label: 'Azure OpenAI', icon: PLATFORM_ICONS.azure_openai }
     ]
   },
   {
     value: 'group-gemini',
     label: 'Gemini（全部）',
-    icon: 'i-logos-google-icon',
+    icon: PLATFORM_ICONS.gemini,
     children: [
-      { value: 'gemini', label: 'Gemini OAuth', icon: 'i-logos-google-icon' },
-      { value: 'gemini-api', label: 'Gemini API', icon: 'i-lucide-key' }
+      { value: 'gemini', label: 'Gemini OAuth', icon: PLATFORM_ICONS.gemini },
+      { value: 'gemini-api', label: 'Gemini API', icon: PLATFORM_ICONS.gemini }
     ]
   },
   {
     value: 'group-droid',
     label: 'Droid（全部）',
-    icon: 'i-lucide-bot',
-    children: [{ value: 'droid', label: 'Droid', icon: 'i-lucide-bot' }]
+    icon: PLATFORM_ICONS.droid,
+    children: [{ value: 'droid', label: 'Droid', icon: PLATFORM_ICONS.droid }]
   },
   {
     value: 'group-grok',
     label: 'Grok / xAI（全部）',
-    icon: 'i-lucide-zap',
-    children: [{ value: 'grok', label: 'Grok', icon: 'i-lucide-zap' }]
+    icon: PLATFORM_ICONS.grok,
+    children: [{ value: 'grok', label: 'Grok', icon: PLATFORM_ICONS.grok }]
   }
 ]
 
@@ -2694,17 +2661,12 @@ const statusOptions = ref([
 const GROUP_PLATFORM_LABELS = {
   claude: 'Claude',
   gemini: 'Gemini',
+  antigravity: 'Antigravity',
   openai: 'OpenAI',
   droid: 'Droid',
   grok: 'Grok'
 }
-const GROUP_PLATFORM_ICONS = {
-  claude: 'i-lucide-brain',
-  gemini: 'i-lucide-bot',
-  openai: 'icon-openai',
-  droid: 'i-lucide-bot',
-  grok: 'i-lucide-zap'
-}
+const GROUP_PLATFORM_ICONS = PLATFORM_ICONS
 
 // 分组类型选项：从现有分组动态去重平台，仅展示实际存在分组的类型
 const groupTypeOptions = computed(() => {
@@ -2746,6 +2708,7 @@ const groupOptions = computed(() => {
 
 // 模态框状态
 const showCreateAccountModal = ref(false)
+const createdAccount = ref(null)
 const newAccountPlatform = ref(null) // 跟踪新建账户选择的平台
 const showEditAccountModal = ref(false)
 const editingAccount = ref(null)
@@ -2951,10 +2914,10 @@ const closeBalanceScriptModal = () => {
   selectedAccountForScript.value = null
 }
 
-const handleBalanceScriptSaved = async () => {
+const handleBalanceScriptSaved = async (closeAfter) => {
   showToast('余额脚本已保存', 'success')
   const account = selectedAccountForScript.value
-  closeBalanceScriptModal()
+  if (closeAfter) closeBalanceScriptModal()
 
   if (!account?.id || !account?.platform) {
     return
@@ -4131,6 +4094,7 @@ const getRateLimitRemainingMinutes = (account) => {
 
 // 打开创建账户模态框
 const openCreateAccountModal = () => {
+  createdAccount.value = null
   newAccountPlatform.value = null // 重置选择的平台
   showCreateAccountModal.value = true
 }
@@ -4429,8 +4393,9 @@ const toggleSchedulable = async (account) => {
 }
 
 // 处理创建成功
-const handleCreateSuccess = () => {
-  showCreateAccountModal.value = false
+const handleCreateSuccess = (result, closeAfter = false) => {
+  if (result) createdAccount.value = result.data
+  if (closeAfter) showCreateAccountModal.value = false
   showToast('账户创建成功', 'success')
   // 清空缓存（分组关系可能已变）
   clearCache()
@@ -4438,8 +4403,8 @@ const handleCreateSuccess = () => {
 }
 
 // 处理编辑成功
-const handleEditSuccess = () => {
-  showEditAccountModal.value = false
+const handleEditSuccess = (_result, closeAfter = false) => {
+  if (closeAfter) showEditAccountModal.value = false
   showToast('账户更新成功', 'success')
   // 清空分组成员缓存（账户类型/分组可能已变）
   groupMembersLoaded.value = false
@@ -5435,7 +5400,7 @@ const closeAccountExpiryEdit = () => {
 }
 
 // 保存账户过期时间
-const handleSaveAccountExpiry = async ({ accountId, expiresAt }) => {
+const handleSaveAccountExpiry = async ({ accountId, expiresAt, closeAfter }) => {
   try {
     // 根据账号平台选择正确的 API 端点
     const account = accounts.value.find((acc) => acc.id === accountId)
@@ -5491,7 +5456,8 @@ const handleSaveAccountExpiry = async ({ accountId, expiresAt }) => {
     if (isOk(data)) {
       showToast('账户到期时间已更新', 'success')
       account.expiresAt = expiresAt || null
-      closeAccountExpiryEdit()
+      if (closeAfter) closeAccountExpiryEdit()
+      else expiryEditModalRef.value?.resetSaving()
     } else {
       showToast(msgOf(data, '更新失败'), 'error')
       if (expiryEditModalRef.value) expiryEditModalRef.value.resetSaving()
@@ -5545,6 +5511,13 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
+.account-name-line { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
+.account-name-line > div { flex: 1 1 150px; min-width: 0; }
+.account-name-line > span { flex-shrink: 0; white-space: nowrap; }
+.account-id-copy { max-width: 100%; overflow: hidden; text-overflow: ellipsis; color: var(--text-secondary); text-align: left; font-size: 14px; }
+.accounts-container .table-container .name-column { min-width: 240px; }
+.accounts-container .table-container .name-column .min-w-0 { width: 100%; }
+
 /* 加载动画 */
 .loading-spinner {
   width: 24px;

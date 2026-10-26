@@ -20,6 +20,7 @@
           </div>
           <button
             class="p-1 text-gray-400 transition-colors hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300"
+            :disabled="loading"
             @click="requestClose"
           >
             <i class="i-lucide-x text-lg sm:text-xl" />
@@ -28,7 +29,7 @@
 
         <form
           class="flex min-h-0 flex-1 flex-col overflow-hidden"
-          @submit.prevent="updateApiKey"
+          @submit.prevent="updateApiKey(false)"
         >
           <div class="modal-scroll-content custom-scrollbar min-h-0 flex-1 space-y-3 overflow-y-auto sm:space-y-3">
           <div>
@@ -870,10 +871,12 @@
                   <code class="font-mono">/v1/messages</code>
                   桥到 Grok。
                 </li>
-                <li>未绑定专属账号时，/v1/messages 只走 Claude 族池，不会跨协议。</li>
+                <li>未设置默认调用入口时沿用这里的账号绑定。</li>
               </ul>
             </div>
           </div>
+
+          <RouteAuthorizationEditor v-model="form.relayRouting" />
 
           <div>
             <div class="mb-3 flex items-center">
@@ -1015,22 +1018,12 @@
 
           </div>
           <div class="flex shrink-0 items-center gap-2 border-t border-gray-200 pt-3 dark:border-gray-700">
-            <button
-              class="inline-flex h-10 flex-1 items-center justify-center rounded-lg bg-gray-100 px-4 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600"
-              type="button"
-              @click="requestClose"
-            >
-              取消
-            </button>
-            <button
-              class="btn btn-primary h-10 inline-flex flex-1 items-center justify-center px-4 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-60"
-              :disabled="loading"
-              type="submit"
-            >
-              <div v-if="loading" class="loading-spinner mr-2" />
-              <i v-else class="i-lucide-save mr-2" />
-              {{ loading ? '保存中...' : '保存修改' }}
-            </button>
+            <DialogSaveActions
+              class="w-full"
+              :loading="loading"
+              @cancel="requestClose"
+              @save="updateApiKey"
+            />
           </div>
         </form>
       </div>
@@ -1060,6 +1053,8 @@ import { useClientsStore } from '@/stores/clients'
 import { useApiKeysStore } from '@/stores/api_keys'
 import * as httpApis from '@/libs/http_apis'
 import AccountSelector from '@/components/common/account_selector.vue'
+import RouteAuthorizationEditor from './route_authorization_editor.vue'
+import { parseKeyRouting } from '@/libs/relay_routing'
 import ConfirmModal from '@/components/common/confirm_modal.vue'
 import AppTooltip from '@/components/common/app_tooltip.vue'
 
@@ -1217,6 +1212,7 @@ const createEmptyPayloadRule = () => ({
 
 // 表单数据
 const form = reactive({
+  relayRouting: { allowedRoutes: [], defaults: {} },
   name: '',
   serviceRates: {}, // API Key 级别服务倍率
   tokenLimit: '', // 保留用于检测历史数据
@@ -1371,7 +1367,7 @@ watch(
 )
 
 // 更新 API Key
-const updateApiKey = async () => {
+const updateApiKey = async (closeAfter = false) => {
   // 检查是否设置了时间窗口但费用限制为0
   if (form.rateLimitWindow && (!form.rateLimitCost || parseFloat(form.rateLimitCost) === 0)) {
     const confirmed = await showConfirm(
@@ -1407,6 +1403,7 @@ const updateApiKey = async () => {
     }
 
     const data = {
+      relayRouting: form.relayRouting,
       name: form.name, // 添加名称字段
       serviceRates: filteredServiceRates,
       tokenLimit: 0, // 清除历史token限制
@@ -1520,8 +1517,8 @@ const updateApiKey = async () => {
     const result = await httpApis.updateApiKeyApi(props.apiKey.id, data)
 
     if (isOk(result)) {
-      emit('success')
-      requestClose()
+      emit('success', closeAfter)
+      if (closeAfter) requestClose()
     } else {
       showToast(msgOf(result, '更新失败'), 'error')
     }
@@ -1766,6 +1763,7 @@ onMounted(async () => {
   // 使用缓存的账号数据，不自动刷新（用户可点击"刷新账号"按钮手动刷新）
 
   form.name = props.apiKey.name
+  form.relayRouting = parseKeyRouting(props.apiKey.relayRouting)
   form.serviceRates = props.apiKey.serviceRates || {}
   enableServiceRates.value = Object.keys(form.serviceRates).length > 0
 

@@ -547,6 +547,15 @@ export const createRequestDetailMeta = (req, overrides = {}) => {
 
   const firstTokenMsOverride = toFiniteNumber(overrides.firstTokenMs)
   const meta = {
+    routeBilling: req?.apiKey?._relayRoute ? {
+      groupId: req.apiKey._relayRoute.binding.startsWith('group:') ? req.apiKey._relayRoute.binding.slice(6) : null
+    } : null,
+    relayRoute: req?.apiKey?._relayRoute ? {
+      code: req.apiKey._relayRoute.code,
+      name: req.apiKey._relayRoute.name,
+      requestedModel: req._relayRouteModel?.requestedModel ?? null,
+      mappedModel: req._relayRouteModel?.mappedModel ?? null
+    } : null,
     requestId: overrides.requestId || req?.requestId || null,
     billingDedupId: overrides.billingDedupId ?? null,
     billingDedupTtl: overrides.billingDedupTtl ?? null,
@@ -562,7 +571,7 @@ export const createRequestDetailMeta = (req, overrides = {}) => {
     responseBody,
     videoTaskId: req?._crsVideoTaskId || null,
     errorCode: overrides.errorCode ?? null,
-    errorMessage: overrides.errorMessage ?? null
+    errorMessage: overrides.errorMessage ?? null,
   }
   const groupCostHoldGroupId = overrides.groupCostHoldGroupId || req?.apiKey?.groupCostHoldGroupId
   if (groupCostHoldGroupId) {
@@ -587,8 +596,7 @@ export const createRequestDetailMeta = (req, overrides = {}) => {
   // DEC_20261014_042905 分段耗时沿用明细开关及保留期，同时写日志并在详情展示。
   Object.defineProperty(meta, 'timings', {
     enumerable: true,
-    get: () => overrides.timings !== undefined
-      ? normalizeRequestTimings(overrides.timings) : getRequestTimings(req)
+    get: () => (overrides.timings !== undefined ? normalizeRequestTimings(overrides.timings) : getRequestTimings(req)),
   })
   if (overrides.billingUsage && typeof overrides.billingUsage === 'object') {
     meta.billingUsage = overrides.billingUsage
@@ -671,7 +679,7 @@ export const finalizeRequestDetailMeta = (requestMeta = null) => {
   requestMetaRequests.get(requestMeta)?._crsRecordRelayResult?.({
     statusCode: requestMeta.statusCode,
     errorCode: requestMeta.errorCode,
-    hasUsage: true
+    hasUsage: true,
   })
 
   return {
@@ -1009,6 +1017,20 @@ export const normalizeOpenAITokenUsage = (usage = {}) => {
   }
 }
 
+// Gemini promptTokenCount 包含缓存命中，candidate 与 thoughts 分开报告。
+export const normalizeGeminiTokenUsage = (usage = {}) => {
+  const tokenCount = (value) => Math.max(0, Math.trunc(toFiniteNumber(value) ?? 0))
+  const cacheReadTokens = tokenCount(usage.cachedContentTokenCount)
+  const totalInputTokens = Math.max(tokenCount(usage.promptTokenCount), cacheReadTokens)
+  return {
+    inputTokens: totalInputTokens - cacheReadTokens,
+    outputTokens: tokenCount(usage.candidatesTokenCount),
+    cacheReadTokens,
+    cacheCreateTokens: 0,
+    totalInputTokens,
+  }
+}
+
 // 提取思考/reasoning tokens（OpenAI/Codex/Gemini/Grok 字段名不一）
 export const extractThinkingTokens = (usage = {}) => {
   if (!usage || typeof usage !== 'object') {
@@ -1134,6 +1156,9 @@ export const buildTokenUsagePayload = ({
   }
   return payload
 }
+
+export const buildGeminiTokenUsagePayload = (usage = {}) =>
+  buildTokenUsagePayload({ ...normalizeGeminiTokenUsage(usage), rawUsage: usage })
 
 export const isOpenAIRelatedEndpoint = (endpoint) => {
   if (typeof endpoint !== 'string') {

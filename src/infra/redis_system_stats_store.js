@@ -115,8 +115,12 @@ export const attach = (redisClient) => {
 
         for (const [error, createdAt] of results) {
           const createdDate = createdAt ? new Date(createdAt) : null
-          if (!error && createdDate && Number.isFinite(createdDate.getTime()) &&
-              getDateStringInTimezone(createdDate, configLocal.system.timezoneOffset) === today) {
+          if (
+            !error &&
+            createdDate &&
+            Number.isFinite(createdDate.getTime()) &&
+            getDateStringInTimezone(createdDate, configLocal.system.timezoneOffset) === today
+          ) {
             apiKeysCreatedToday++
           }
         }

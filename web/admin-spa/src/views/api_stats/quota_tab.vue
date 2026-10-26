@@ -1,5 +1,5 @@
 <template>
-  <div class="tab-content">
+  <div class="tab-content" :class="{ 'is-embedded': embedded }">
     <div class="glass-strong rounded-2xl p-3 shadow-xl sm:rounded-2xl sm:p-4">
       <div class="mb-3 flex gap-1 rounded-lg bg-gray-100 p-1 dark:bg-gray-800">
         <router-link
@@ -159,7 +159,10 @@
             <p class="mt-2 text-gray-500 dark:text-gray-400">暂无兑换记录</p>
           </div>
 
-          <div v-else class="divide-y divide-gray-100 overflow-hidden rounded-lg border border-gray-200 dark:divide-gray-800 dark:border-gray-700">
+          <div
+            v-else
+            class="divide-y divide-gray-100 overflow-hidden rounded-lg border border-gray-200 dark:divide-gray-800 dark:border-gray-700"
+          >
             <div
               v-for="record in redemptionHistory"
               :key="record.id"
@@ -193,11 +196,17 @@
                       已撤销
                     </span>
                   </div>
-                  <p class="flex flex-wrap items-baseline gap-x-2 text-sm leading-tight text-gray-600 dark:text-gray-300">
-                    <span v-if="Number(record.quotaAdded) > 0" class="font-medium text-emerald-600 dark:text-emerald-400"
+                  <p
+                    class="flex flex-wrap items-baseline gap-x-2 text-sm leading-tight text-gray-600 dark:text-gray-300"
+                  >
+                    <span
+                      v-if="Number(record.quotaAdded) > 0"
+                      class="font-medium text-emerald-600 dark:text-emerald-400"
                       >额度 +${{ record.quotaAdded }}</span
                     >
-                    <span v-if="Number(record.timeAdded) > 0" class="font-medium text-purple-600 dark:text-purple-400"
+                    <span
+                      v-if="Number(record.timeAdded) > 0"
+                      class="font-medium text-purple-600 dark:text-purple-400"
                       >有效期 +{{ record.timeAdded
                       }}{{
                         record.timeUnit === 'days'
@@ -219,7 +228,9 @@
                     >
                   </p>
                 </div>
-                <div class="shrink-0 whitespace-nowrap text-right text-sm tabular-nums text-gray-500 dark:text-gray-400">
+                <div
+                  class="shrink-0 whitespace-nowrap text-right text-sm tabular-nums text-gray-500 dark:text-gray-400"
+                >
                   {{ formatDateTime(record.timestamp || record.redeemedAt) }}
                 </div>
               </div>
@@ -240,6 +251,8 @@ import { redeemCardByApiIdApi, getRedemptionHistoryByApiIdApi } from '@/libs/htt
 import { isOk, msgOf } from '@/libs/http_envelope'
 import { formatDateTime, showToast } from '@/libs/tools'
 
+defineProps({ embedded: { type: Boolean, default: false } })
+const emit = defineEmits(['busy-change'])
 const route = useRoute()
 const apiStatsStore = useApiStatsStore()
 const { apiId, statsData } = storeToRefs(apiStatsStore)
@@ -247,6 +260,7 @@ const { loadStatsWithApiId } = apiStatsStore
 
 const redeemCode = ref('')
 const redeemLoading = ref(false)
+watch(redeemLoading, (busy) => emit('busy-change', busy), { immediate: true })
 const redeemResult = ref(null)
 const redemptionHistory = ref([])
 const historyLoading = ref(false)
@@ -320,6 +334,17 @@ watch(
 </script>
 
 <style scoped>
+.is-embedded.tab-content {
+  animation: none;
+}
+.is-embedded > .glass-strong {
+  padding: 0;
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  backdrop-filter: none;
+}
+
 .tab-content {
   animation: tabFadeIn 0.4s ease-out;
 }

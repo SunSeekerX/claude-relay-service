@@ -13,6 +13,7 @@
           </div>
           <button
             class="text-gray-400 transition-colors hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300"
+            :disabled="loading"
             @click="requestClose"
           >
             <i class="i-lucide-x text-xl" />
@@ -72,23 +73,13 @@
         </div>
 
         <div class="flex items-center gap-2 border-t border-gray-200 pt-3 dark:border-gray-700">
-          <button
-            class="inline-flex h-10 flex-1 items-center justify-center rounded-lg bg-gray-100 px-4 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600"
-            type="button"
-            @click="requestClose"
-          >
-            取消
-          </button>
-          <button
-            class="btn btn-primary h-10 inline-flex flex-1 items-center justify-center px-4 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-60"
-            :disabled="loading || !form.renewDuration"
-            type="button"
-            @click="renewApiKey"
-          >
-            <div v-if="loading" class="loading-spinner mr-2" />
-            <i v-else class="i-lucide-clock mr-2" />
-            {{ loading ? '续期中...' : '确认续期' }}
-          </button>
+          <DialogSaveActions
+            class="w-full"
+            :disabled="!form.renewDuration"
+            :loading="loading"
+            @cancel="requestClose"
+            @save="renewApiKey"
+          />
         </div>
       </div>
     </div>
@@ -221,7 +212,7 @@ const updateCustomRenewExpireAt = () => {
 }
 
 // 续期 API Key
-const renewApiKey = async () => {
+const renewApiKey = async (closeAfter = false) => {
   loading.value = true
 
   try {
@@ -233,8 +224,8 @@ const renewApiKey = async () => {
 
     if (isOk(result)) {
       showToast('API Key 续期成功', 'success')
-      emit('success')
-      requestClose()
+      emit('success', closeAfter)
+      if (closeAfter) requestClose()
     } else {
       showToast(msgOf(result, '续期失败'), 'error')
     }

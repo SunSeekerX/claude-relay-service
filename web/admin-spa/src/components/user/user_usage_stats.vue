@@ -22,26 +22,10 @@
 
     <!-- Loading State -->
     <div v-if="loading" class="py-12 text-center">
-      <svg
-        class="mx-auto h-8 w-8 animate-spin text-blue-600"
-        fill="none"
-        viewBox="0 0 24 24"
-        xmlns="http://www.w3.org/2000/svg"
-      >
-        <circle
-          class="opacity-25"
-          cx="12"
-          cy="12"
-          r="10"
-          stroke="currentColor"
-          stroke-width="4"
-        ></circle>
-        <path
-          class="opacity-75"
-          d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-          fill="currentColor"
-        ></path>
-      </svg>
+      <i
+        aria-hidden="true"
+        class="i-lucide-loader-circle mx-auto h-8 w-8 animate-spin text-blue-600"
+      />
       <p class="mt-2 text-sm text-gray-500 dark:text-gray-400">Loading usage statistics...</p>
     </div>
 
@@ -51,19 +35,7 @@
         <div class="p-5">
           <div class="flex items-center">
             <div class="flex-shrink-0">
-              <svg
-                class="h-6 w-6 text-blue-500"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  d="M13 10V3L4 14h7v7l9-11h-7z"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  stroke-width="2"
-                />
-              </svg>
+              <i aria-hidden="true" class="i-lucide-zap h-6 w-6 text-blue-500" />
             </div>
             <div class="ml-5 w-0 flex-1">
               <dl>
@@ -83,19 +55,7 @@
         <div class="p-5">
           <div class="flex items-center">
             <div class="flex-shrink-0">
-              <svg
-                class="h-6 w-6 text-green-500"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  stroke-width="2"
-                />
-              </svg>
+              <i aria-hidden="true" class="i-lucide-tags h-6 w-6 text-green-500" />
             </div>
             <div class="ml-5 w-0 flex-1">
               <dl>
@@ -115,19 +75,7 @@
         <div class="p-5">
           <div class="flex items-center">
             <div class="flex-shrink-0">
-              <svg
-                class="h-6 w-6 text-purple-500"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  stroke-width="2"
-                />
-              </svg>
+              <i aria-hidden="true" class="i-lucide-tags h-6 w-6 text-purple-500" />
             </div>
             <div class="ml-5 w-0 flex-1">
               <dl>
@@ -147,19 +95,7 @@
         <div class="p-5">
           <div class="flex items-center">
             <div class="flex-shrink-0">
-              <svg
-                class="h-6 w-6 text-yellow-500"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  stroke-width="2"
-                />
-              </svg>
+              <i aria-hidden="true" class="i-lucide-dollar-sign h-6 w-6 text-yellow-500" />
             </div>
             <div class="ml-5 w-0 flex-1">
               <dl>
@@ -188,19 +124,10 @@
           class="flex h-64 items-center justify-center rounded-lg border-2 border-dashed border-gray-300 dark:border-gray-600"
         >
           <div class="text-center">
-            <svg
-              class="mx-auto h-12 w-12 text-gray-400 dark:text-gray-500"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                stroke-width="2"
-              />
-            </svg>
+            <i
+              aria-hidden="true"
+              class="i-lucide-chart-column mx-auto h-12 w-12 text-gray-400 dark:text-gray-500"
+            />
             <h3 class="mt-2 text-sm font-medium text-gray-900 dark:text-gray-100">Usage Chart</h3>
             <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
               Daily usage trends would be displayed here
@@ -347,19 +274,10 @@
       v-if="!loading && (!usageStats || usageStats.totalRequests === 0)"
       class="py-12 text-center"
     >
-      <svg
-        class="mx-auto h-12 w-12 text-gray-400 dark:text-gray-500"
-        fill="none"
-        stroke="currentColor"
-        viewBox="0 0 24 24"
-      >
-        <path
-          d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"
-          stroke-linecap="round"
-          stroke-linejoin="round"
-          stroke-width="2"
-        />
-      </svg>
+      <i
+        aria-hidden="true"
+        class="i-lucide-chart-column mx-auto h-12 w-12 text-gray-400 dark:text-gray-500"
+      />
       <h3 class="mt-2 text-sm font-medium text-gray-900 dark:text-gray-100">No usage data</h3>
       <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
         You haven't made any API requests yet. Create an API key and start using the service to see

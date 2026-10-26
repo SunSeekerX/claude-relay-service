@@ -1,8 +1,10 @@
 import express from 'express'
+import { markAccountModelIdentityUpdate } from './account_model_identity.js'
 import axios from 'axios'
 
 import * as geminiAccountService from './account_gemini_service.js'
 import { testModelConfigService } from '../relay/relay_test_model_config_service.js'
+import { testPromptConfigService } from '../relay/relay_test_prompt_config_service.js'
 import { accountGroupService } from './account_group_service.js'
 import { apiKeyService } from '../apikey/apikey_service.js'
 import { redis } from '../../infra/redis.js'
@@ -338,7 +340,10 @@ router.put(
       }
     }
 
-    const updatedAccount = await geminiAccountService.updateAccount(accountId, mappedUpdates)
+    const updatedAccount = await geminiAccountService.updateAccount(
+      accountId,
+      markAccountModelIdentityUpdate(mappedUpdates),
+    )
 
     logger.success(`Admin updated Gemini account: ${accountId}`)
     return updatedAccount
@@ -498,7 +503,8 @@ router.post(
       // 构造测试请求
 
       const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`
-      const payload = createGeminiTestPayload(model)
+      const prompt = await testPromptConfigService.resolvePrompt(body.prompt)
+      const payload = createGeminiTestPayload(model, { prompt })
 
       const requestConfig = {
         headers: {

@@ -6,6 +6,35 @@ import Components from 'unplugin-vue-components/vite'
 import { existsSync } from 'node:fs'
 import { fileURLToPath, URL } from 'node:url'
 import { join } from 'node:path'
+import { ColorSchemes, createThemeTokens } from './src/libs/theme_presets.js'
+import { bootstrapAppearance } from './src/libs/appearance_bootstrap.js'
+
+const startupTokenNames = [
+  'page-bg',
+  'bg-gradient-start',
+  'bg-gradient-mid',
+  'bg-gradient-end',
+  'primary-color',
+  'secondary-color',
+  'accent-color',
+  'primary-rgb',
+  'secondary-rgb',
+  'accent-rgb',
+  'surface-color',
+  'glass-color',
+  'glass-strong-color',
+  'text-primary',
+  'text-secondary'
+]
+const startupThemes = Object.fromEntries(
+  Object.entries(ColorSchemes).map(([name, scheme]) => {
+    const palette = (dark) => {
+      const tokens = createThemeTokens(name, dark)
+      return Object.fromEntries(startupTokenNames.map((key) => [key, tokens[key]]))
+    }
+    return [name, { layout: scheme.layout, light: palette(false), dark: palette(true) }]
+  })
+)
 
 // unplugin 默认 pascalCase 不拆下划线：custom_dropdown → Custom_dropdown
 // 模板写 <CustomDropdown> 对不上。补 resolver：PascalCase → snake_case 文件
@@ -48,6 +77,17 @@ export default defineConfig(({ mode }) => {
   return {
     base: basePath,
     plugins: [
+      {
+        name: 'appearance-before-first-paint',
+        transformIndexHtml: () => [
+          {
+            tag: 'script',
+            attrs: { id: 'appearance-bootstrap' },
+            children: `(${bootstrapAppearance.toString()})(${JSON.stringify(startupThemes)})`,
+            injectTo: 'head'
+          }
+        ]
+      },
       // UnoCSS 放 vue 前，保证原子类与图标在 SFC 中可用
       UnoCSS(),
       vue(),
@@ -80,6 +120,7 @@ export default defineConfig(({ mode }) => {
       host: true,
       open: false,
       proxy: {
+        '/r/': { ...proxyConfig, ws: true },
         '/webapi': {
           ...proxyConfig,
           rewrite: (path) => path.replace(/^\/webapi/, ''),
@@ -132,7 +173,11 @@ export default defineConfig(({ mode }) => {
             ) {
               return 'vue-vendor'
             }
-            if (id.includes('@iconify-json') || id.includes('/unocss/') || id.includes('\\unocss\\')) {
+            if (
+              id.includes('@iconify-json') ||
+              id.includes('/unocss/') ||
+              id.includes('\\unocss\\')
+            ) {
               return 'icons'
             }
             return 'vendor'

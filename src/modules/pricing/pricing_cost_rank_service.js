@@ -176,7 +176,7 @@ class CostRankService {
       const dateRange = this._getDateRange(timeRange)
       const sourcePeriod = JSON.stringify({
         ...dateRange,
-        businessDate: redis.getDateStringInTimezone()
+        businessDate: redis.getDateStringInTimezone(),
       })
       // DEC_20261014_042905 原刷新周期不变，无数据变化跳过重算，业务日切换重建。
       await client.set(RedisRegistry.costRank.sourceRevision, '0', 'NX')
@@ -185,10 +185,15 @@ class CostRankService {
         return null
       })
       const previous = await client.hgetall(metaKey)
-      if (skipUnchanged && revision !== null && /^\d+$/.test(revision) &&
-          previous.status === 'ready' && previous.sourceRevision === revision &&
-          previous.sourcePeriod === sourcePeriod &&
-          (previous.keyCount === '0' || await client.exists(rankKey))) {
+      if (
+        skipUnchanged &&
+        revision !== null &&
+        /^\d+$/.test(revision) &&
+        previous.status === 'ready' &&
+        previous.sourceRevision === revision &&
+        previous.sourcePeriod === sourcePeriod &&
+        (previous.keyCount === '0' || (await client.exists(rankKey)))
+      ) {
         logger.debug(`Skipped unchanged cost rank for ${timeRange}`)
         return
       }

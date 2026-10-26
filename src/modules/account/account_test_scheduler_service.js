@@ -47,6 +47,12 @@ class AccountTestSchedulerService {
     this.isStarted = true
     logger.info('Starting account test scheduler service (node-cron mode)')
 
+    try {
+      await Promise.all(['claude', 'gemini', 'openai'].map((platform) => redis.rebuildAccountTestConfigIndex(platform)))
+    } catch (error) {
+      this.isStarted = false
+      throw error
+    }
     // 初始化所有已配置账户的定时任务
     await this._refreshAllTasks()
 

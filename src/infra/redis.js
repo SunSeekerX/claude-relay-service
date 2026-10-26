@@ -17,6 +17,9 @@ import * as _costStatsStore from './redis_cost_stats_store.js'
 import * as _usageStatsStore from './redis_usage_stats_store.js'
 import * as _apiKeyStore from './redis_api_key_store.js'
 import * as _migrationStore from './redis_migration_store.js'
+import * as _relayRoutesStore from './redis_relay_routes_store.js'
+import * as _accountModelStore from './redis_account_model_store.js'
+import * as _tokenizerStore from './redis_tokenizer_store.js'
 import * as timezone from '../common/timezone.js'
 class RedisClient {
   constructor() {
@@ -421,6 +424,9 @@ _usageStatsStore.attach(redis)
 
 // API Key CRUD/标签/分页 — 已抽出至 ./redis/apiKeyStore.js
 _apiKeyStore.attach(redis)
+_relayRoutesStore.attach(redis)
+_accountModelStore.attach(redis)
+_tokenizerStore.attach(redis)
 
 // 启动期数据迁移 — 已抽出至 ./redis/migrationStore.js
 _migrationStore.attach(redis)

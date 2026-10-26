@@ -4,7 +4,7 @@
       <!-- 背景遮罩 -->
       <div
         class="fixed inset-0 bg-gray-900 bg-opacity-50 backdrop-blur-sm"
-        @click="$emit('close')"
+        @click="!saving && emit('close')"
       />
 
       <!-- 模态框内容 -->
@@ -26,7 +26,7 @@
           </div>
           <button
             class="text-gray-400 transition-colors hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300"
-            @click="$emit('close')"
+            @click="!saving && emit('close')"
           >
             <i class="i-lucide-x text-xl" />
           </button>
@@ -193,22 +193,12 @@
 
           <!-- 操作按钮 -->
                     <div class="flex items-center gap-2 border-t border-gray-200 pt-3 dark:border-gray-700">
-            <button
-              class="inline-flex h-10 flex-1 items-center justify-center rounded-lg bg-gray-100 px-4 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600"
-              type="button"
-              @click="$emit('close')"
-            >
-              取消
-            </button>
-            <button
-              class="btn btn-primary h-10 inline-flex flex-1 items-center justify-center px-4 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-60"
-              :disabled="saving || localForm.expiresAt === apiKey.expiresAt"
-              @click="handleSave"
-            >
-              <div v-if="saving" class="loading-spinner mr-2" />
-              <i v-else class="i-lucide-save mr-2" />
-              {{ saving ? '保存中...' : '保存更改' }}
-            </button>
+            <DialogSaveActions
+              class="w-full"
+              :loading="saving"
+              @cancel="emit('close')"
+              @save="handleSave"
+            />
           </div>
         </div>
       </div>
@@ -438,11 +428,12 @@ const getExpiryStatus = (expiresAt) => {
 }
 
 // 保存
-const handleSave = () => {
+const handleSave = (closeAfter = false) => {
   saving.value = true
   emit('save', {
     keyId: props.apiKey.id,
-    expiresAt: localForm.expiresAt
+    expiresAt: localForm.expiresAt,
+    closeAfter
   })
 }
 
@@ -463,7 +454,8 @@ const handleActivateNow = async () => {
   saving.value = true
   emit('save', {
     keyId: props.apiKey.id,
-    activateNow: true
+    activateNow: true,
+    closeAfter: false
   })
 }
 

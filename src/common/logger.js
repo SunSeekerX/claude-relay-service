@@ -6,10 +6,12 @@ import path from 'node:path'
 import fs from 'node:fs'
 import os from 'node:os'
 import crypto from 'node:crypto'
+import { fileURLToPath } from 'node:url'
 import * as httpAccessLog from './http_access_log.js'
 import { httpRequestStats } from './http_request_stats.js'
-import chalk from 'chalk'
 import { env } from '../../config/env.js'
+import { consoleLogFormat } from '../../config/logging.js'
+import { createStartupProgress, formatConsoleEntry } from './console_output.js'
 
 // 安全的 JSON 序列化函数，处理循环引用和特殊字符
 const safeStringify = (obj, maxDepth = Infinity) => {
@@ -117,24 +119,6 @@ const safeStringify = (obj, maxDepth = Infinity) => {
   }
 }
 
-// 控制台不显示的 metadata 字段（已在 message 中或低价值/仅文件）
-const CONSOLE_SKIP_KEYS = new Set([
-  '_coloredMessage',
-  '_accessMetaLines',
-  'type',
-  'level',
-  'message',
-  'timestamp',
-  'stack',
-  '_file',
-  'ua',
-  'userAgent',
-  'referer',
-  'splat',
-  'Symbol(level)',
-  'Symbol(message)',
-])
-
 // 去掉 emoji / 杂项符号（日志纯文本，避免终端乱码与噪音）
 const stripEmoji = (value) => {
   if (value === null) {
@@ -154,65 +138,27 @@ const stripEmoji = (value) => {
       // 标签字符（旗类）
       .replace(/[\u{E0020}-\u{E007F}]/gu, '')
       // 剥完后残留的多空格收成单空格，去掉行首空白
-      .replace(/[ \t]{2,}/g, '')
+      .replace(/[ \t]{2,}/g, ' ')
       .replace(/^[ \t]+/gm, '')
   )
 }
 
-// 控制台格式: 完整时间 + 树形 metadata（无 emoji）
+const startupProgress = createStartupProgress((message, metadata) => logger.info(message, metadata))
+
+// 仅控制台精简启动；文件 transport 继续接收每一条原始日志。
 const createConsoleFormat = () =>
   winston.format.combine(
     winston.format.timestamp({ format: () => formatDateWithTimezone(new Date(), false) }),
     winston.format.errors({ stack: true }),
-    winston.format.colorize(),
-    winston.format.printf(({ level: _level, message, timestamp, stack, ...rest }) => {
-      const time = timestamp || formatDateWithTimezone(new Date(), false)
-      const timeColored = chalk.gray(time)
-
-      // 访问日志：主行用彩色 status/method/duration
-      const mainText =
-        typeof rest._coloredMessage === 'string' && rest._coloredMessage ? rest._coloredMessage : stripEmoji(message)
-
-      let logMessage = `${timeColored} ${mainText}`
-
-      // 访问日志预渲染的彩色 meta 树
-      if (Array.isArray(rest._accessMetaLines) && rest._accessMetaLines.length > 0) {
-        const indent = ''.repeat(String(time).length + 1)
-        for (const line of rest._accessMetaLines) {
-          logMessage += `\n${indent}${line}`
-        }
-      } else {
-        // 普通日志：树形 metadata（摘要，不上色整包 dump）
-        const entries = Object.entries(rest).filter(
-          ([k]) => !CONSOLE_SKIP_KEYS.has(k) && typeof k === 'string' && !k.startsWith('_'),
-        )
-        if (entries.length > 0) {
-          const indent = ''.repeat(String(time).length + 1)
-          entries.forEach(([key, value], i) => {
-            const isLast = i === entries.length - 1
-            const branch = chalk.gray(isLast ? '└─' : '├─')
-            let displayValue
-            if (value !== null && typeof value === 'object') {
-              displayValue =
-                typeof httpAccessLog?.formatMetaValueForConsole === 'function'
-                  ? httpAccessLog.formatMetaValueForConsole(value)
-                  : safeStringify(value, 4)
-            } else {
-              displayValue = String(value)
-              if (displayValue.length > 300) {
-                displayValue = `${displayValue.slice(0, 300)}…(+${displayValue.length - 300})`
-              }
-            }
-            logMessage += `\n${indent}${branch} ${chalk.cyan(key)}${chalk.gray(':')} ${stripEmoji(displayValue)}`
-          })
-        }
-      }
-
-      if (stack) {
-        logMessage += `\n${chalk.red(stack)}`
-      }
-      return logMessage
-    }),
+    winston.format((info) => (consoleLogFormat === 'compact' && !startupProgress.shouldShow(info) ? false : info))(),
+    winston.format.printf((info) =>
+      formatConsoleEntry(
+        { ...info, message: stripEmoji(info.message) },
+        {
+          detailed: consoleLogFormat === 'detailed',
+        },
+      ),
+    ),
   )
 
 // 文件格式: NDJSON（完整结构化数据，message 同样去 emoji）
@@ -221,7 +167,13 @@ const createFileFormat = () =>
     winston.format.timestamp({ format: () => formatDateWithTimezone(new Date(), false) }),
     winston.format.errors({ stack: true }),
     winston.format.printf(({ level, message, timestamp, stack, ...rest }) => {
-      const entry = { ts: timestamp, lvl: level, msg: stripEmoji(message) }
+      const entry = {
+        ts: timestamp,
+        time: new Date().toISOString(),
+        lvl: level,
+        msg: stripEmoji(message),
+        pid: process.pid,
+      }
       // 合并 metadata；优先展开 _file（访问日志完整摘要），仍避免巨型原始 body
       const restData = { ...rest }
       if (restData._file && typeof restData._file === 'object') {
@@ -240,9 +192,20 @@ const createFileFormat = () =>
           continue
         }
         entry[k] =
-          v !== null && typeof v === 'object' && typeof httpAccessLog?.summarizeForLog === 'function'
-            ? httpAccessLog.summarizeForLog(v, 'file')
-            : v
+          v instanceof Error
+            ? {
+                name: v.name,
+                message: v.message,
+                stack: v.stack,
+                code: v.code,
+                cause:
+                  v.cause instanceof Error
+                    ? { name: v.cause.name, message: v.cause.message, code: v.cause.code, stack: v.cause.stack }
+                    : httpAccessLog.summarizeForLog(v.cause, 'file'),
+              }
+            : v !== null && typeof v === 'object' && typeof httpAccessLog?.summarizeForLog === 'function'
+              ? httpAccessLog.summarizeForLog(v, 'file')
+              : v
       }
       if (stack) {
         entry.stack = stack
@@ -253,7 +216,6 @@ const createFileFormat = () =>
 
 const fileFormat = createFileFormat()
 const consoleFormat = createConsoleFormat()
-const isTestEnv = env.NODE_ENV === 'test' || env.JEST_WORKER_ID
 
 // 确保日志目录存在并设置权限
 if (!fs.existsSync(config.logging.dirname)) {
@@ -462,20 +424,7 @@ const createRotateTransport = (filename, level = null) => {
     transport.level = level
   }
 
-  // 监听轮转事件（测试环境关闭以避免 Jest 退出后输出）
-  if (!isTestEnv) {
-    transport.on('rotate', (oldFilename, newFilename) => {
-      console.log(`Log rotated: ${oldFilename} -> ${newFilename}`)
-    })
-
-    transport.on('new', (newFilename) => {
-      console.log(`New log file created: ${newFilename}`)
-    })
-
-    transport.on('archive', (zipFilename) => {
-      console.log(`Log archived: ${zipFilename}`)
-    })
-  }
+  // 轮转留存在审计文件中，不向自身日志再次写入轮转通知，避免递归轮转和控制台粘行。
 
   return transport
 }
@@ -517,7 +466,7 @@ export const logger = winston.createLogger({
 
     // 控制台输出
     new winston.transports.Console({
-      format: consoleFormat,
+      format: consoleLogFormat === 'json' ? fileFormat : consoleFormat,
       handleExceptions: false,
       handleRejections: false,
     }),
@@ -532,7 +481,7 @@ export const logger = winston.createLogger({
       maxFiles: 5,
     }),
     new winston.transports.Console({
-      format: consoleFormat,
+      format: consoleLogFormat === 'json' ? fileFormat : consoleFormat,
     }),
   ],
 
@@ -545,7 +494,7 @@ export const logger = winston.createLogger({
       maxFiles: 5,
     }),
     new winston.transports.Console({
-      format: consoleFormat,
+      format: consoleLogFormat === 'json' ? fileFormat : consoleFormat,
     }),
   ],
 
@@ -561,6 +510,10 @@ logger.success = (message, metadata = {}) => {
 logger.start = (message, metadata = {}) => {
   logger.info(message, { type: 'startup', ...metadata })
 }
+
+logger.beginStartup = () => startupProgress.begin()
+logger.startupStage = (label) => startupProgress.stage(label)
+logger.finishStartup = () => startupProgress.finish()
 
 logger.request = (method, url, status, duration, metadata = {}) => {
   const level = status >= 400 ? 'error' : status >= 300 ? 'warn' : 'info'
@@ -695,8 +648,11 @@ logger.authDetail = (message, data = {}) => {
 }
 
 // 启动日志记录系统
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(new URL('../app.js', import.meta.url))) {
+  logger.beginStartup()
+}
 logger.start('Logger initialized', {
-  level: env.LOG_LEVEL || config.logging.level,
+  configuredLevel: env.LOG_LEVEL || config.logging.level,
   directory: config.logging.dirname,
   maxSize: config.logging.maxSize,
   maxFiles: config.logging.maxFiles,

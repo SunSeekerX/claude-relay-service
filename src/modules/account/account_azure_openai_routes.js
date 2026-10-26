@@ -14,6 +14,7 @@ import { formatAccountExpiry, mapExpiryField } from './account_expiry_helper.js'
 import { stripReadonlyAccountFields } from '../../common/common_helper.js'
 import { ProxyHelper } from '../proxy/proxy_helper.js'
 import { createChatCompletionsTestPayload, extractErrorMessage } from '../../common/test_payload_helper.js'
+import { testPromptConfigService } from '../relay/relay_test_prompt_config_service.js'
 import { parseObjectBody } from '../../common/parse_body.js'
 
 export const router = express.Router()
@@ -338,7 +339,9 @@ router.post(
       const deploymentName = account.deploymentName || 'gpt-4o-mini'
       const apiVersion = account.apiVersion || '2024-02-15-preview'
       const apiUrl = `${account.endpoint}/openai/deployments/${deploymentName}/chat/completions?api-version=${apiVersion}`
-      const payload = createChatCompletionsTestPayload(deploymentName)
+      const body = parseObjectBody(req.body, '测试Azure OpenAI账户')
+      const prompt = await testPromptConfigService.resolvePrompt(body.prompt)
+      const payload = createChatCompletionsTestPayload(deploymentName, { prompt })
 
       const requestConfig = {
         headers: {

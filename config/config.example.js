@@ -2,11 +2,13 @@ import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 import fs from 'node:fs'
 import { env } from './env.js'
+import { tokenizerDefaults } from './tokenizer_defaults.js'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
 
 export const config = {
+  tokenizers: { ...tokenizerDefaults },
   // 服务器配置
   server: {
     port: parseInt(env.PORT) || 3000,

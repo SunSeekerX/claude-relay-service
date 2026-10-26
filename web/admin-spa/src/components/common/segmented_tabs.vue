@@ -12,11 +12,12 @@
     <button
       v-for="tab in normalizedTabs"
       :key="tab.key"
+      :aria-selected="String(tab.key) === String(modelValue)"
       class="seg-tabs__item"
       :class="{ 'is-active': String(tab.key) === String(modelValue) }"
+      :disabled="disabled"
       role="tab"
       type="button"
-      :aria-selected="String(tab.key) === String(modelValue)"
       @click="onSelect(tab.key)"
     >
       <i v-if="tab.icon" class="seg-tabs__icon" :class="tab.icon" />
@@ -36,6 +37,7 @@ import { computed } from 'vue'
 
 // tabs: [{ key|id|value, label|name, icon?, badge? }] 或 string[]
 const props = defineProps({
+  disabled: { type: Boolean, default: false },
   modelValue: {
     type: [String, Number],
     default: ''
@@ -85,6 +87,10 @@ const onSelect = (key) => {
 </script>
 
 <style scoped>
+.seg-tabs__item:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
 .seg-tabs {
   display: inline-flex;
   width: max-content;
@@ -207,7 +213,6 @@ const onSelect = (key) => {
   height: 2.25rem;
   padding: 0 1rem;
 }
-
 
 .seg-tabs__icon {
   display: block;

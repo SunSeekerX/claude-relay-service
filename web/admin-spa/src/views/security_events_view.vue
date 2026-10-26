@@ -1,6 +1,7 @@
 <template>
   <div class="flex h-full min-h-0 flex-col gap-4 overflow-hidden">
-    <div class="flex justify-end">
+    <div class="admin-section-heading shrink-0">
+      <span class="admin-inline-label">管理员登录尝试与限速记录</span>
       <button
         class="btn btn-primary inline-flex h-9 items-center gap-2 px-3 text-sm"
         :disabled="loading"
@@ -13,10 +14,13 @@
     </div>
 
     <div
-      class="min-h-0 flex-1 overflow-auto rounded-xl border border-gray-200 bg-white shadow-sm dark:border-gray-700 dark:bg-gray-900"
+      aria-label="安全事件列表"
+      class="custom-scrollbar min-h-0 flex-1 overflow-auto rounded-xl border border-gray-200 bg-white shadow-sm dark:border-gray-700 dark:bg-gray-900"
+      role="region"
+      tabindex="0"
     >
       <table class="w-full min-w-[650px] text-left text-sm">
-        <thead class="bg-gray-50 text-gray-600 dark:bg-gray-800/80 dark:text-gray-300">
+        <thead class="sticky top-0 z-10 bg-gray-50 text-gray-600 dark:bg-gray-800 dark:text-gray-300">
           <tr>
             <th class="px-3 py-2 font-medium">时间</th>
             <th class="px-3 py-2 font-medium">来源 IP</th>
@@ -52,6 +56,7 @@
     <AppPagination
       v-model:current-page="pagination.currentPage"
       v-model:page-size="pagination.pageSize"
+      class="shrink-0"
       :page-sizes="[20, 50, 100, 200]"
       :total="pagination.totalRecords"
       @current-change="handlePageChange"
@@ -65,16 +70,16 @@ import { onMounted, reactive, ref } from 'vue'
 import AppPagination from '@/components/common/app_pagination.vue'
 import { getSecurityEventsApi } from '@/libs/http_apis'
 import { isOk, msgOf } from '@/libs/http_envelope'
-import { showToast } from '@/libs/tools'
+import { showToast, formatDateTime } from '@/libs/tools'
 
 const events = ref([])
 const loading = ref(false)
 const pagination = reactive({
   currentPage: 1,
   pageSize: 50,
-  totalRecords: 0,
+  totalRecords: 0
 })
-const formatDate = (value) => (value ? new Date(value).toLocaleString() : '-')
+const formatDate = (value) => (value ? formatDateTime(value) : '-')
 const load = async (page = pagination.currentPage) => {
   loading.value = true
   try {

@@ -18,7 +18,10 @@ export const parseWsClientMessage = (text) => {
     throw Object.assign(new Error('Invalid WebSocket JSON'), { statusCode: 400, code: 'invalid_request_error' })
   }
   if (!message || typeof message !== 'object' || Array.isArray(message)) {
-    throw Object.assign(new Error('WebSocket request must be an object'), { statusCode: 400, code: 'invalid_request_error' })
+    throw Object.assign(new Error('WebSocket request must be an object'), {
+      statusCode: 400,
+      code: 'invalid_request_error',
+    })
   }
   return message
 }
@@ -26,13 +29,7 @@ export const parseWsClientMessage = (text) => {
 const WS_SNIFFER_MAX_MESSAGE = 16 * 1024 * 1024
 const WS_SNIFFER_MAX_FRAGMENTS = 4096
 
-export const createWsFrameSniffer = ({
-  onTextMessage,
-  onCloseFrame,
-  onPing,
-  onParseError,
-  label = 'ws'
-} = {}) => {
+export const createWsFrameSniffer = ({ onTextMessage, onCloseFrame, onPing, onParseError, label = 'ws' } = {}) => {
   let buffer = Buffer.alloc(0)
   let fragmentedOpcode = null
   let fragmentedChunks = []
@@ -166,10 +163,7 @@ export const createWsFrameSniffer = ({
         }
         fragmentedChunks.push(payload)
         fragmentedBytes += payload.length
-        if (
-          fragmentedBytes > WS_SNIFFER_MAX_MESSAGE ||
-          fragmentedChunks.length > WS_SNIFFER_MAX_FRAGMENTS
-        ) {
+        if (fragmentedBytes > WS_SNIFFER_MAX_MESSAGE || fragmentedChunks.length > WS_SNIFFER_MAX_FRAGMENTS) {
           overflow()
           return
         }
@@ -232,7 +226,7 @@ export const createWsClientTextRewriter = ({
   rewriteText,
   beforeText = null,
   label = 'ws-rewrite',
-  failClosed = false
+  failClosed = false,
 } = {}) => {
   let buffer = Buffer.alloc(0)
   let bypass = false

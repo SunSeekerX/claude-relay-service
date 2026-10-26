@@ -55,7 +55,8 @@ export const detectBackendFromModel = (modelName) => {
 
 // 智能后端路由处理器
 export const routeToBackend = async (req, res, requestedModel) => {
-  const backend = detectBackendFromModel(requestedModel)
+  const provider = req.apiKey?._relayRoute?.provider
+  const backend = provider === 'antigravity' ? 'gemini' : (provider ?? detectBackendFromModel(requestedModel))
 
   logger.info(`Routing request - Model: ${requestedModel}, Backend: ${backend}`)
 
@@ -214,7 +215,22 @@ export const routeToBackend = async (req, res, requestedModel) => {
 }
 
 // OpenAI 兼容的 chat/completions 端点（智能后端路由）
-unifiedRoutes.post('/v1/chat/completions', authenticateApiKey, async (req, res) => {
+unifiedRoutes.post('/native/v1/chat/completions', authenticateApiKey, async (req, res) => {
+  const originalUrl = req.url
+  req.url = req.url.replace(/^\/native/, '')
+  try {
+    await handleOpenAIChatRequest(req, res)
+  } finally {
+    req.url = originalUrl
+  }
+})
+unifiedRoutes.get('/native/v1/models', authenticateApiKey, async (req, res) => {
+  const { getLegacyProviderModels } = await import('./relay_routing_service.js')
+  const models = await getLegacyProviderModels(req.apiKey, 'openai', 'openai-chat')
+  return res.json({ object: 'list', data: models })
+})
+
+export const handleUnifiedChatRequest = async (req, res) => {
   try {
     // 验证必需参数
     if (!req.body.messages || !Array.isArray(req.body.messages) || req.body.messages.length === 0) {
@@ -255,7 +271,9 @@ unifiedRoutes.post('/v1/chat/completions', authenticateApiKey, async (req, res) 
       })
     }
   }
-})
+}
+
+unifiedRoutes.post('/v1/chat/completions', authenticateApiKey, handleUnifiedChatRequest)
 
 // OpenAI 兼容的 completions 端点（传统格式，智能后端路由）
 unifiedRoutes.post('/v1/completions', authenticateApiKey, async (req, res) => {
@@ -363,7 +381,7 @@ export const buildGeminiRequestFromOpenAI = (body) => {
               functionCall: { name: tc.function.name, args },
               ...(tc.extra_content?.google?.thought_signature
                 ? { thoughtSignature: tc.extra_content.google.thought_signature }
-                : {})
+                : {}),
             })
           }
         }
@@ -459,9 +477,7 @@ export const buildGeminiRequestFromOpenAI = (body) => {
   if (body.response_format) {
     if (body.response_format.type === 'json_object') {
       generationConfig.responseMimeType = 'application/json'
-    } else if (
-      body.response_format.type === 'json_schema' && body.response_format.json_schema?.schema
-    ) {
+    } else if (body.response_format.type === 'json_schema' && body.response_format.json_schema?.schema) {
       generationConfig.responseMimeType = 'application/json'
       generationConfig.responseJsonSchema = body.response_format.json_schema.schema
     }

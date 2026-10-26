@@ -1,5 +1,5 @@
 <template>
-  <div class="tab-content">
+  <div class="stats-query-page tab-content">
     <ApiKeyInput />
 
     <div v-if="error" class="mb-3 sm:mb-4">
@@ -20,24 +20,18 @@
     </div>
 
     <div v-if="statsData" class="fade-in">
-      <div class="glass-strong rounded-2xl p-3 shadow-xl sm:rounded-2xl sm:p-4">
-        <div
-          class="mb-2 border-b border-gray-200 pb-2 dark:border-gray-700 sm:mb-3 sm:pb-3"
-        >
-          <div
-            class="flex flex-col items-start justify-between gap-2 md:flex-row md:items-center"
-          >
+      <div class="query-results space-y-3">
+        <div class="query-results-toolbar">
+          <div class="flex flex-wrap items-center justify-between gap-2">
             <div class="flex items-center gap-2">
               <i class="i-lucide-clock text-sm text-blue-500" />
-              <span class="text-sm font-medium text-gray-700 dark:text-gray-200"
-                >统计时间范围</span
-              >
+              <span class="text-sm font-medium text-gray-700 dark:text-gray-200">统计时间范围</span>
             </div>
-            <div class="flex w-full items-center gap-2 md:w-auto">
+            <div class="query-period-actions">
               <button
                 class="flex flex-1 items-center justify-center gap-1 whitespace-nowrap px-3 py-1.5 text-sm font-medium md:flex-none"
                 :class="['period-btn', { active: statsPeriod === 'daily' }]"
-                :disabled="loading"
+                :disabled="loading || modelStatsLoading"
                 @click="switchPeriod('daily')"
               >
                 <i class="i-lucide-calendar-days text-sm md:text-sm" />
@@ -46,7 +40,7 @@
               <button
                 class="flex flex-1 items-center justify-center gap-1 whitespace-nowrap px-3 py-1.5 text-sm font-medium md:flex-none"
                 :class="['period-btn', { active: statsPeriod === 'monthly' }]"
-                :disabled="loading"
+                :disabled="loading || modelStatsLoading"
                 @click="switchPeriod('monthly')"
               >
                 <i class="i-lucide-calendar-days text-sm md:text-sm" />
@@ -55,7 +49,7 @@
               <button
                 class="flex flex-1 items-center justify-center gap-1 whitespace-nowrap px-3 py-1.5 text-sm font-medium md:flex-none"
                 :class="['period-btn', { active: statsPeriod === 'alltime' }]"
-                :disabled="loading"
+                :disabled="loading || modelStatsLoading"
                 @click="switchPeriod('alltime')"
               >
                 <i class="i-lucide-infinity text-sm md:text-sm" />
@@ -88,7 +82,11 @@
                     class="flex w-full items-center gap-2 px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-700"
                     @click="openTestModal('claude')"
                   >
-                    <i class="i-lucide-bot text-orange-500" />
+                    <i
+                      aria-hidden="true"
+                      class="shrink-0 text-base"
+                      :class="PLATFORM_ICONS.claude"
+                    />
                     Claude
                   </button>
                   <button
@@ -96,7 +94,11 @@
                     class="flex w-full items-center gap-2 px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-700"
                     @click="openTestModal('gemini')"
                   >
-                    <i class="i-lucide-gem text-blue-500" />
+                    <i
+                      aria-hidden="true"
+                      class="shrink-0 text-base"
+                      :class="PLATFORM_ICONS.gemini"
+                    />
                     Gemini
                   </button>
                   <button
@@ -104,7 +106,11 @@
                     class="flex w-full items-center gap-2 px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-700"
                     @click="openTestModal('openai')"
                   >
-                    <i class="i-lucide-code text-green-500" />
+                    <i
+                      aria-hidden="true"
+                      class="shrink-0 text-base"
+                      :class="PLATFORM_ICONS.openai"
+                    />
                     Codex
                   </button>
                 </div>
@@ -119,9 +125,7 @@
           @open-timeline="openUsageTimeline"
         />
 
-        <div
-          class="mb-3 mt-3 grid grid-cols-1 gap-2 sm:mb-4 sm:mt-4 sm:gap-3 xl:grid-cols-2 xl:items-stretch"
-        >
+        <div class="query-breakdown-grid">
           <TokenDistribution class="h-full" />
           <template v-if="multiKeyMode">
             <AggregatedStatsCard class="h-full" />
@@ -133,19 +137,21 @@
 
         <ServiceCostCards class="mb-3 sm:mb-4" />
 
-        <!-- 模型使用统计 - 三个时间段同屏展示 -->
-        <div class="space-y-3">
-          <ModelUsageStats period="daily" />
-          <ModelUsageStats period="monthly" />
-          <ModelUsageStats period="alltime" />
-        </div>
+        <ModelUsageStats />
+
+        <AvailableRoutesPanel v-if="!multiKeyMode" :key="statsData.id" :api-id="statsData.id" :api-key="testApiKey" :routing="statsData.routing" />
       </div>
     </div>
 
     <UnifiedTestModal
       :api-key-name="statsData?.name || ''"
-      :api-key-value="apiKey"
+      :api-key-value="testApiKey"
+      :base-path="defaultTestRoute?.basePath ?? ''"
+      :expected-api-key-id="statsData?.id ?? ''"
       mode="apikey"
+      :model-details="defaultTestModelDetails"
+      :route-code="defaultTestRoute?.code ?? ''"
+      :route-models="defaultTestModels"
       :service-type="testServiceType"
       :show="showTestModal"
       @close="closeTestModal"
@@ -166,6 +172,7 @@
 </template>
 
 <script setup>
+import { PLATFORM_ICONS } from '@/libs/platform_icons'
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useApiStatsStore } from '@/stores/api_stats'
@@ -173,6 +180,7 @@ import { getPublicApiKeyUsageRecordsApi } from '@/libs/http_apis'
 import { copyText } from '@/libs/tools'
 import ApiKeyUsageRecordsDialog from '@/components/api_keys/api_key_usage_records_dialog.vue'
 import ApiKeyInput from '@/components/api_stats/api_key_input.vue'
+import AvailableRoutesPanel from '@/components/api_stats/available_routes_panel.vue'
 import StatsOverview from '@/components/api_stats/stats_overview.vue'
 import TokenDistribution from '@/components/api_stats/token_distribution.vue'
 import LimitConfig from '@/components/api_stats/limit_config.vue'
@@ -182,7 +190,7 @@ import ServiceCostCards from '@/components/api_stats/service_cost_cards.vue'
 import UnifiedTestModal from '@/components/common/unified_test_modal.vue'
 
 const apiStatsStore = useApiStatsStore()
-const { apiKey, apiId, loading, error, statsPeriod, statsData, multiKeyMode } =
+const { apiId, testApiKey, loading, error, statsPeriod, statsData, multiKeyMode, modelStatsLoading } =
   storeToRefs(apiStatsStore)
 const { switchPeriod } = apiStatsStore
 
@@ -208,6 +216,13 @@ const errorKeyMatch = computed(() => {
 const showTestModal = ref(false)
 const showTestMenu = ref(false)
 const testServiceType = ref('claude')
+const testRouteFormat = computed(() => ({ claude: 'claude-messages', gemini: 'gemini-generate', openai: 'openai-responses' })[testServiceType.value])
+const defaultTestRoute = computed(() => {
+  const code = statsData.value?.routing?.defaults[testRouteFormat.value]
+  return statsData.value?.routing?.routes.find((route) => route.code === code) ?? null
+})
+const defaultTestModelDetails = computed(() => statsData.value?.routing?.defaultModelDetailsByFormat?.[testRouteFormat.value] ?? [])
+const defaultTestModels = computed(() => defaultTestModelDetails.value.map((model) => model.id))
 const showUsageTimelineDialog = ref(false)
 
 const parsePermissions = (permissions) => {
@@ -226,18 +241,21 @@ const parsePermissions = (permissions) => {
 }
 
 const canTestClaude = computed(() => {
+  if (statsData.value?.routing?.defaults['claude-messages']) return true
   const permissions = parsePermissions(statsData.value?.permissions)
   if (permissions.length === 0) return true
   return permissions.includes('claude')
 })
 
 const canTestGemini = computed(() => {
+  if (statsData.value?.routing?.defaults['gemini-generate']) return true
   const permissions = parsePermissions(statsData.value?.permissions)
   if (permissions.length === 0) return true
   return permissions.includes('gemini')
 })
 
 const canTestOpenAI = computed(() => {
+  if (statsData.value?.routing?.defaults['openai-responses']) return true
   const permissions = parsePermissions(statsData.value?.permissions)
   if (permissions.length === 0) return true
   return permissions.includes('openai')
@@ -294,6 +312,88 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
+.stats-query-page {
+  --usage-input: #167047;
+  --usage-output: #1d5faf;
+  --usage-thinking: #5546a8;
+  --usage-cache: #7d3daa;
+  --usage-hit: #0b6d83;
+  --usage-original: #865909;
+  --usage-charge: #14694b;
+  display: grid;
+  min-width: 0;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
+}
+:global(html.dark) .stats-query-page {
+  --usage-input: #86d3a7;
+  --usage-output: #93c5fd;
+  --usage-thinking: #b8b0fb;
+  --usage-cache: #d5b1f5;
+  --usage-hit: #8bdae7;
+  --usage-original: #f0ce83;
+  --usage-charge: #8ddbb8;
+}
+.stats-query-page :deep(.usage-input) {
+  color: var(--usage-input);
+}
+.stats-query-page :deep(.usage-output) {
+  color: var(--usage-output);
+}
+.stats-query-page :deep(.usage-thinking) {
+  color: var(--usage-thinking);
+}
+.stats-query-page :deep(.usage-cache) {
+  color: var(--usage-cache);
+}
+.stats-query-page :deep(.usage-hit) {
+  color: var(--usage-hit);
+}
+.stats-query-page :deep(.usage-original) {
+  color: var(--usage-original);
+}
+.stats-query-page :deep(.usage-charge) {
+  color: var(--usage-charge);
+}
+.query-results-toolbar {
+  display: flex;
+  align-items: center;
+  padding: 0 2px;
+}
+.query-results-toolbar > div {
+  width: 100%;
+}
+.query-period-actions {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex-wrap: wrap;
+}
+.query-period-actions > .period-btn {
+  flex: none;
+  min-width: 76px;
+}
+@media (max-width: 639px) {
+  .query-period-actions {
+    width: 100%;
+  }
+  .query-period-actions > .period-btn {
+    flex: 1;
+  }
+}
+.query-breakdown-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+}
+@media (max-width: 767px) {
+  .query-breakdown-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 .period-btn {
   position: relative;
   overflow: hidden;
@@ -307,18 +407,16 @@ onUnmounted(() => {
 }
 
 .period-btn.active {
-  background: linear-gradient(135deg, var(--primary-color) 0%, var(--secondary-color) 100%);
-  color: white;
-  box-shadow:
-    0 10px 15px -3px rgba(var(--primary-rgb), 0.3),
-    0 4px 6px -2px rgba(var(--primary-rgb), 0.05);
-  transform: translateY(-1px);
+  background: var(--action-bg);
+  color: var(--text-on-primary);
+  box-shadow: var(--shadow-sm);
+  transform: none;
 }
 
 .period-btn:not(.active) {
-  color: #374151;
-  background: rgba(255, 255, 255, 0.6);
-  border: 1px solid rgba(229, 231, 235, 0.5);
+  color: var(--text-secondary);
+  background: var(--surface-color);
+  border: 1px solid var(--border-color);
 }
 
 :global(html.dark) .period-btn:not(.active) {

@@ -1,3 +1,4 @@
+import { assertOutboundModelAccess } from './relay_model_access.js'
 import { startUpstreamTiming, finishUpstreamTiming } from '../../common/request_timing.js'
 import axios from 'axios'
 import { StringDecoder } from 'node:string_decoder'
@@ -23,6 +24,7 @@ import {
   summarizeErrorForLog,
 } from '../../common/client_error_builder.js'
 import { createClaudeTestPayload, sendStreamTestRequest } from '../../common/test_payload_helper.js'
+import { testPromptConfigService } from './relay_test_prompt_config_service.js'
 import crypto from 'node:crypto'
 import { sanitizeClaudeBodyFallbacks } from './translator/relay_translator_body_sanitize.js'
 import { buildClaudeCliUserAgent } from './relay_claude_cli_version.js'
@@ -194,6 +196,7 @@ class ClaudeConsoleRelayService {
         ...requestBody,
         model: mappedModel,
       }
+      await assertOutboundModelAccess(apiKeyData, mappedModel, 'claude-console')
       sanitizeClaudeBodyFallbacks(modifiedRequestBody, { vendor: 'console' })
 
       // 模型兼容性检查已经在调度器中完成，这里不需要再检查
@@ -677,6 +680,7 @@ class ClaudeConsoleRelayService {
         ...requestBody,
         model: mappedModel,
       }
+      await assertOutboundModelAccess(apiKeyData, mappedModel, 'claude-console')
       sanitizeClaudeBodyFallbacks(modifiedRequestBody, { vendor: 'console' })
 
       // 模型兼容性检查已经在调度器中完成，这里不需要再检查
@@ -904,7 +908,9 @@ class ClaudeConsoleRelayService {
           // 错误响应处理
           if (response.status !== 200) {
             clientReq?._crsRecordRelayResult?.({
-              statusCode: response.status, hasUsage: false, final: true
+              statusCode: response.status,
+              hasUsage: false,
+              final: true,
             })
             logger.error(
               `Claude Console API returned error status: ${response.status} | Account: ${account?.name || accountId}`,
@@ -1088,14 +1094,14 @@ class ClaudeConsoleRelayService {
 
           const parser = new IncrementalSSEParser()
           const state = new ClaudeStreamState({
-            model: body.model ?? account?.defaultModel ?? null
+            model: body.model ?? account?.defaultModel ?? null,
           })
           const finalizeUsage = createClaudeStreamFinalizer({
             state,
             usageCallback,
             clientRequest: clientReq,
             accountId,
-            accountType: 'claude-console'
+            accountType: 'claude-console',
           })
           let finishing = false
           let errorForwarded = false
@@ -1123,7 +1129,7 @@ class ClaudeConsoleRelayService {
                 this._writeStreamClientError(responseStream, {
                   statusCode: result.statusCode,
                   rawBody: { error: state.error },
-                  streamTransformer
+                  streamTransformer,
                 })
                 errorForwarded = true
               } else {
@@ -1153,7 +1159,7 @@ class ClaudeConsoleRelayService {
                 this._writeStreamClientError(responseStream, {
                   statusCode: result.statusCode,
                   rawBody: { error: state.error },
-                  streamTransformer
+                  streamTransformer,
                 })
                 errorForwarded = true
               }
@@ -1162,15 +1168,13 @@ class ClaudeConsoleRelayService {
                   claudeConsoleAccountService
                     .isAccountRateLimited(accountId)
                     .then((limited) =>
-                      limited ? claudeConsoleAccountService.removeAccountRateLimit(accountId) : null
+                      limited ? claudeConsoleAccountService.removeAccountRateLimit(accountId) : null,
                     ),
                   claudeConsoleAccountService
                     .isAccountOverloaded(accountId)
                     .then((overloaded) =>
-                      overloaded
-                        ? claudeConsoleAccountService.removeAccountOverload(accountId)
-                        : null
-                    )
+                      overloaded ? claudeConsoleAccountService.removeAccountOverload(accountId) : null,
+                    ),
                 ]).catch((error) => {
                   logger.error('Failed to clear Console stream account errors:', error)
                 })
@@ -1196,7 +1200,7 @@ class ClaudeConsoleRelayService {
                 this._writeStreamClientError(responseStream, {
                   statusCode: 502,
                   streamTransformer,
-                  fallbackMessage: 'Stream processing error'
+                  fallbackMessage: 'Stream processing error',
                 })
               }
               if (isStreamWritable(responseStream)) {
@@ -1413,7 +1417,8 @@ class ClaudeConsoleRelayService {
   }
 
   // 测试账号连接（供Admin API使用）
-  async testAccountConnection(accountId, responseStream, model) {
+  async testAccountConnection(accountId, responseStream, model, requestedPrompt) {
+    const prompt = await testPromptConfigService.resolvePrompt(requestedPrompt)
     try {
       const account = await claudeConsoleAccountService.getAccount(accountId)
       if (!account) {
@@ -1424,7 +1429,7 @@ class ClaudeConsoleRelayService {
 
       const cleanUrl = account.apiUrl.replace(/\/$/, '')
       const apiUrl = cleanUrl.endsWith('/v1/messages') ? cleanUrl : `${cleanUrl}/v1/messages?beta=true`
-      const payload = createClaudeTestPayload(model, { stream: true })
+      const payload = createClaudeTestPayload(model, { stream: true, prompt })
       // 测试链路与正式转发一致：注入 billing + 对齐 UA
       const userAgent = account.userAgent || this.defaultUserAgent
       ensureAlignedBillingHeader(payload, { userAgent })

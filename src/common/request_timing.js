@@ -4,7 +4,7 @@ const DURATION_FIELDS = [
   'localPreparationMs',
   'upstreamHeadersMs',
   'upstreamResponseMs',
-  'firstContentWaitMs'
+  'firstContentWaitMs',
 ]
 
 const stateFor = (req) => {
@@ -84,15 +84,11 @@ export const normalizeRequestTimings = (value) => {
   const timings = Object.fromEntries(
     DURATION_FIELDS.map((field) => [
       field,
-      typeof value[field] === 'number' && Number.isFinite(value[field]) && value[field] >= 0
-        ? value[field]
-        : null
-    ])
+      typeof value[field] === 'number' && Number.isFinite(value[field]) && value[field] >= 0 ? value[field] : null,
+    ]),
   )
   timings.upstreamAttempts =
-    Number.isSafeInteger(value.upstreamAttempts) && value.upstreamAttempts >= 0
-      ? value.upstreamAttempts
-      : null
+    Number.isSafeInteger(value.upstreamAttempts) && value.upstreamAttempts >= 0 ? value.upstreamAttempts : null
   return timings
 }
 
@@ -118,6 +114,6 @@ export const getRequestTimings = (req) => {
       req.firstTokenAt >= state.upstreamHeadersAt
         ? Math.max(0, req.firstTokenAt - state.upstreamHeadersAt)
         : null,
-    upstreamAttempts: state.upstreamAttempts
+    upstreamAttempts: state.upstreamAttempts,
   })
 }

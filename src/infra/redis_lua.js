@@ -8,6 +8,67 @@
 // ===
 
 export const RedisLua = {
+  accountModels: {
+    record: `
+if redis.call('EXISTS', KEYS[1]) == 0 then return false end
+local incoming = cjson.decode(ARGV[1])
+local raw = redis.call('HGET', KEYS[1], 'modelCatalog')
+local current = raw and cjson.decode(raw) or {}
+local function encodeCurrent()
+  local encoded = cjson.encode(current)
+  if current.models and next(current.models) == nil then
+    encoded = string.gsub(encoded, '"models":{}', '"models":[]', 1)
+  end
+  return encoded
+end
+if current.attemptedAt and current.attemptedAt > incoming.attemptedAt then
+  return encodeCurrent()
+end
+if incoming.models then
+  current.models = incoming.models
+  current.succeededAt = incoming.attemptedAt
+  current.signature = incoming.signature
+  current.complete = incoming.complete
+end
+current.attemptedAt = incoming.attemptedAt
+current.error = incoming.error
+local encoded = encodeCurrent()
+redis.call('HSET', KEYS[1], 'modelCatalog', encoded)
+return encoded
+`,
+  },
+  relayRoutes: {
+    write: `
+local exists = redis.call('HEXISTS', KEYS[1], ARGV[1])
+if ARGV[3] == 'create' then
+  if exists == 1 then return 'exists' end
+  if redis.call('HLEN', KEYS[1]) >= tonumber(ARGV[4]) then return 'full' end
+elseif exists == 0 then
+  return 'missing'
+end
+redis.call('HSET', KEYS[1], ARGV[1], ARGV[2])
+return 'ok'
+`
+  },
+  tokenizer: {
+    renewLock: `
+if redis.call('GET', KEYS[1]) ~= ARGV[1] then return 0 end
+return redis.call('EXPIRE', KEYS[1], ARGV[2])
+`
+  },
+  accountTest: {
+    refreshIndex: `
+local enabled = redis.call('HGET', KEYS[1], 'enabled')
+local ttl = redis.call('PTTL', KEYS[1])
+if enabled == 'true' and (ttl > 0 or ttl == -1) then
+  local expires = ttl == -1 and '+inf' or tostring(tonumber(ARGV[2]) + ttl)
+  redis.call('ZADD', KEYS[2], expires, ARGV[1])
+else
+  redis.call('ZREM', KEYS[2], ARGV[1])
+end
+return 1
+`,
+  },
   openaiResponsesAccount: {
     recordUsage: `
 if redis.call('HEXISTS', KEYS[1], 'id') == 0 then return 0 end
@@ -51,7 +112,7 @@ end
 local result = {usage, tostring(quota), crossed and '1' or '0', redis.call('HGET', KEYS[1], 'name') or ''}
 redis.call('SET', KEYS[2], cjson.encode(result), 'EX', ARGV[4])
 return result
-`
+`,
   },
   grokVideo: {
     claimSettlement: `
@@ -72,7 +133,7 @@ if redis.call('HGET', KEYS[1], 'settlementInProgress') ~= ARGV[1] then return 0 
 redis.call('HSET', KEYS[1], 'settled', 'true', 'status', ARGV[2], 'actualDuration', ARGV[3], 'actualCost', ARGV[4], 'settledAt', ARGV[5])
 redis.call('HDEL', KEYS[1], 'settlementInProgress', 'settlementStartedAt')
 return 1
-`
+`,
   },
   adminLogin: {
     consumeAttempt: `
@@ -294,7 +355,7 @@ return 1
 redis.call('DEL', KEYS[2])
 redis.call('ZREM', KEYS[1], KEYS[2])
 return 1
-`
+`,
   },
 
   // === 锁 / 用户消息队列 ===
@@ -708,5 +769,5 @@ redis.call('HSET', KEYS[1],
   'errorMessage', '')
 return 1
 `,
-  }
+  },
 }

@@ -1,0 +1,40 @@
+{
+  "source": "https://github.com/openai/tiktoken/blob/4e71bbe0c078468e00fefbf94b39849389f346e5/tiktoken/model.py",
+  "revision": "4e71bbe0c078468e00fefbf94b39849389f346e5",
+  "sourceSha256": "600f26902d1cf6a1a5f54e37be988b3e0d911f1ff17ba7060bb361f9b5295521",
+  "exact": {
+    "o1": "o200k_base",
+    "o3": "o200k_base",
+    "o4-mini": "o200k_base",
+    "gpt-5": "o200k_base",
+    "gpt-4.1": "o200k_base",
+    "gpt-4o": "o200k_base",
+    "gpt-4": "cl100k_base",
+    "gpt-3.5-turbo": "cl100k_base",
+    "gpt-3.5": "cl100k_base",
+    "gpt-35-turbo": "cl100k_base",
+    "davinci-002": "cl100k_base",
+    "babbage-002": "cl100k_base",
+    "text-embedding-ada-002": "cl100k_base",
+    "text-embedding-3-small": "cl100k_base",
+    "text-embedding-3-large": "cl100k_base"
+  },
+  "prefix": {
+    "o1-": "o200k_base",
+    "o3-": "o200k_base",
+    "o4-mini-": "o200k_base",
+    "gpt-5": "o200k_base",
+    "gpt-4.5-": "o200k_base",
+    "gpt-4.1-": "o200k_base",
+    "chatgpt-4o-": "o200k_base",
+    "gpt-4o-": "o200k_base",
+    "gpt-4-": "cl100k_base",
+    "gpt-3.5-turbo-": "cl100k_base",
+    "gpt-35-turbo-": "cl100k_base",
+    "ft:gpt-4o": "o200k_base",
+    "ft:gpt-4": "cl100k_base",
+    "ft:gpt-3.5-turbo": "cl100k_base",
+    "ft:davinci-002": "cl100k_base",
+    "ft:babbage-002": "cl100k_base"
+  }
+}

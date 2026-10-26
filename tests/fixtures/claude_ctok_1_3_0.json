@@ -1,0 +1,877 @@
+{
+  "source": "sanderland/ctok 1.3.0 tests/test_api.py; MIT; 8c43ffd3c7be467622a540f025516e49ef78d8b1",
+  "marks": [
+    {
+      "text": "क्",
+      "stream": "⟨bow⟩क⟨eow⟩्",
+      "content": null
+    },
+    {
+      "text": "क्ष",
+      "stream": "⟨bow⟩क⟨eow⟩्⟨bow⟩ष⟨eow⟩",
+      "content": null
+    },
+    {
+      "text": "क् ष",
+      "stream": "⟨bow⟩क⟨eow⟩्⟨eow⟩⟨bow⟩ष⟨eow⟩",
+      "content": null
+    },
+    {
+      "text": "्",
+      "stream": "⟨bow⟩्",
+      "content": null
+    },
+    {
+      "text": "h́b",
+      "stream": "⟨bow⟩h⟨eow⟩́⟨bow⟩b⟨eow⟩",
+      "content": null
+    },
+    {
+      "text": "h̊b",
+      "stream": "⟨bow⟩h⟨eow⟩̊⟨bow⟩b⟨eow⟩",
+      "content": null
+    },
+    {
+      "text": "hͅb",
+      "stream": "⟨bow⟩hͅb⟨eow⟩",
+      "content": null
+    },
+    {
+      "text": "hͣb",
+      "stream": "⟨bow⟩hͣb⟨eow⟩",
+      "content": null
+    },
+    {
+      "text": "ܒ݁ܒ",
+      "stream": "⟨bow⟩ܒ⟨eow⟩݁⟨bow⟩ܒ⟨eow⟩",
+      "content": 10
+    },
+    {
+      "text": "ܒ݂ ܒ",
+      "stream": "⟨bow⟩ܒ⟨eow⟩݂⟨eow⟩⟨bow⟩ܒ⟨eow⟩",
+      "content": 11
+    },
+    {
+      "text": "ܒ݂ܶܒ",
+      "stream": "⟨bow⟩ܒ⟨eow⟩݂⟨bow⟩ܶܒ⟨eow⟩",
+      "content": 12
+    },
+    {
+      "text": "ܒ݀ܒ",
+      "stream": "⟨bow⟩ܒ⟨eow⟩݀⟨bow⟩ܒ⟨eow⟩",
+      "content": 10
+    },
+    {
+      "text": "ܒ݊ܶܒ",
+      "stream": "⟨bow⟩ܒ⟨eow⟩݊⟨bow⟩ܶܒ⟨eow⟩",
+      "content": 12
+    },
+    {
+      "text": "ܒܰܒ",
+      "stream": "⟨bow⟩ܒܰܒ⟨eow⟩",
+      "content": 8
+    },
+    {
+      "text": "ܒ̱",
+      "stream": "⟨bow⟩ܒ⟨eow⟩̱",
+      "content": 6
+    },
+    {
+      "text": "ܒ̱ܒ",
+      "stream": "⟨bow⟩ܒ⟨eow⟩̱⟨bow⟩ܒ⟨eow⟩",
+      "content": 10
+    },
+    {
+      "text": "ܒ̱ ܒ",
+      "stream": "⟨bow⟩ܒ⟨eow⟩̱⟨eow⟩⟨bow⟩ܒ⟨eow⟩",
+      "content": 11
+    },
+    {
+      "text": "ܒ̱ܶܒ",
+      "stream": "⟨bow⟩ܒ⟨eow⟩̱⟨bow⟩ܶܒ⟨eow⟩",
+      "content": 12
+    },
+    {
+      "text": "ܒ̣ܒ",
+      "stream": "⟨bow⟩ܒ⟨eow⟩̣⟨bow⟩ܒ⟨eow⟩",
+      "content": 10
+    },
+    {
+      "text": "ܒ̣ܶܒ",
+      "stream": "⟨bow⟩ܒ⟨eow⟩̣⟨bow⟩ܶܒ⟨eow⟩",
+      "content": 12
+    },
+    {
+      "text": "ܒͣܒ",
+      "stream": "⟨bow⟩ܒͣܒ⟨eow⟩",
+      "content": 8
+    },
+    {
+      "text": "ͣ",
+      "stream": "⟨bow⟩ͣ⟨eow⟩",
+      "content": 4
+    },
+    {
+      "text": "ͣͣ",
+      "stream": "⟨bow⟩ͣͣ⟨eow⟩",
+      "content": 6
+    },
+    {
+      "text": "x ͣ x",
+      "stream": "⟨bow⟩x⟨eow⟩⟨bow⟩ͣ⟨eow⟩⟨bow⟩x⟨eow⟩",
+      "content": 6
+    },
+    {
+      "text": "x ͣ5 x",
+      "stream": "⟨bow⟩x⟨eow⟩⟨bow⟩ͣ⟨eow⟩5 ⟨bow⟩x⟨eow⟩",
+      "content": 8
+    },
+    {
+      "text": "x ͣ",
+      "stream": "⟨bow⟩x⟨eow⟩⟨bow⟩ͣ⟨eow⟩",
+      "content": 5
+    },
+    {
+      "text": "x ͣx x",
+      "stream": "⟨bow⟩x⟨eow⟩⟨bow⟩ͣx⟨eow⟩⟨bow⟩x⟨eow⟩",
+      "content": 6
+    },
+    {
+      "text": "x ͣabc x",
+      "stream": "⟨bow⟩x⟨eow⟩⟨bow⟩ͣabc⟨eow⟩⟨bow⟩x⟨eow⟩",
+      "content": 7
+    },
+    {
+      "text": "!ͣa",
+      "stream": "⟨bow⟩!⟨bow⟩ͣa⟨eow⟩",
+      "content": 5
+    },
+    {
+      "text": "ͣꝛ",
+      "stream": "⟨bow⟩ͣꝛ⟨eow⟩",
+      "content": 7
+    },
+    {
+      "text": "x ͣก x",
+      "stream": "⟨bow⟩x⟨eow⟩⟨bow⟩ͣก⟨eow⟩⟨bow⟩x⟨eow⟩",
+      "content": 6
+    },
+    {
+      "text": "᯦ꝛ",
+      "stream": "⟨bow⟩᯦⟨bow⟩ꝛ⟨eow⟩",
+      "content": 9
+    },
+    {
+      "text": "̂",
+      "stream": "⟨bow⟩̂",
+      "content": 3
+    },
+    {
+      "text": "̂̂",
+      "stream": "⟨bow⟩̂̂",
+      "content": 5
+    },
+    {
+      "text": "ͣ̂",
+      "stream": "⟨bow⟩ͣ⟨eow⟩̂",
+      "content": 6
+    },
+    {
+      "text": "̂ͣ",
+      "stream": "⟨bow⟩̂⟨bow⟩ͣ⟨eow⟩",
+      "content": 7
+    },
+    {
+      "text": "!̂",
+      "stream": "⟨bow⟩!̂",
+      "content": 3
+    },
+    {
+      "text": "!ͣ",
+      "stream": "⟨bow⟩!⟨bow⟩ͣ⟨eow⟩",
+      "content": 5
+    },
+    {
+      "text": "'ً",
+      "stream": null,
+      "content": 4
+    },
+    {
+      "text": "a 'ً x",
+      "stream": null,
+      "content": 6
+    },
+    {
+      "text": "1 'ً 1",
+      "stream": null,
+      "content": 8
+    },
+    {
+      "text": "a 'ͣ x",
+      "stream": null,
+      "content": 8
+    },
+    {
+      "text": "a 'ܶ x",
+      "stream": null,
+      "content": 8
+    },
+    {
+      "text": "a '́ x",
+      "stream": null,
+      "content": 5
+    },
+    {
+      "text": "  ☀️夏",
+      "stream": null,
+      "content": 7
+    },
+    {
+      "text": "🏻️ 5",
+      "stream": null,
+      "content": 8
+    },
+    {
+      "text": "夏️ 5",
+      "stream": null,
+      "content": 7
+    },
+    {
+      "text": "☀️ 5",
+      "stream": null,
+      "content": 7
+    }
+  ],
+  "costs": [
+    {
+      "version": "4.7",
+      "text": "'",
+      "content": 1
+    },
+    {
+      "version": "4.7",
+      "text": "'.",
+      "content": 2
+    },
+    {
+      "version": "4.7",
+      "text": "', '",
+      "content": 3
+    },
+    {
+      "version": "3.0",
+      "text": "'",
+      "content": 1
+    },
+    {
+      "version": "3.0",
+      "text": "'.",
+      "content": 1
+    },
+    {
+      "version": "4.7",
+      "text": "'d",
+      "content": 3
+    },
+    {
+      "version": "4.7",
+      "text": "'m",
+      "content": 3
+    },
+    {
+      "version": "4.7",
+      "text": "'F",
+      "content": 3
+    },
+    {
+      "version": "4.7",
+      "text": "'First",
+      "content": 3
+    },
+    {
+      "version": "4.7",
+      "text": "a 'b",
+      "content": 4
+    },
+    {
+      "version": "4.7",
+      "text": "a 'x b",
+      "content": 5
+    },
+    {
+      "version": "3.0",
+      "text": "a 'b",
+      "content": 4
+    },
+    {
+      "version": "4.7",
+      "text": "a  'b",
+      "content": 4
+    },
+    {
+      "version": "4.7",
+      "text": "a \"b",
+      "content": 3
+    },
+    {
+      "version": "4.7",
+      "text": "a (b",
+      "content": 3
+    },
+    {
+      "version": "4.7",
+      "text": "a -b",
+      "content": 3
+    },
+    {
+      "version": "3.0",
+      "text": "a \"b",
+      "content": 3
+    },
+    {
+      "version": "4.7",
+      "text": "a ('b",
+      "content": 4
+    },
+    {
+      "version": "4.7",
+      "text": "a '''a",
+      "content": 4
+    },
+    {
+      "version": "4.7",
+      "text": "z '''w",
+      "content": 4
+    },
+    {
+      "version": "3.0",
+      "text": "a '''a",
+      "content": 3
+    },
+    {
+      "version": "3.0",
+      "text": "z '''w",
+      "content": 3
+    },
+    {
+      "version": "4.7",
+      "text": "f's",
+      "content": 2
+    },
+    {
+      "version": "4.7",
+      "text": "x's",
+      "content": 2
+    },
+    {
+      "version": "4.7",
+      "text": "x't",
+      "content": 2
+    },
+    {
+      "version": "4.7",
+      "text": "'s",
+      "content": 2
+    },
+    {
+      "version": "4.7",
+      "text": "'t",
+      "content": 2
+    },
+    {
+      "version": "4.7",
+      "text": "a 's b",
+      "content": 4
+    },
+    {
+      "version": "3.0",
+      "text": "x's",
+      "content": 2
+    },
+    {
+      "version": "3.0",
+      "text": "x't",
+      "content": 2
+    },
+    {
+      "version": "4.7",
+      "text": "}'s",
+      "content": 3
+    },
+    {
+      "version": "4.7",
+      "text": ".'s.",
+      "content": 4
+    },
+    {
+      "version": "4.7",
+      "text": ".'re.",
+      "content": 4
+    },
+    {
+      "version": "4.7",
+      "text": ".'ve.",
+      "content": 5
+    },
+    {
+      "version": "3.0",
+      "text": ".'s.",
+      "content": 4
+    },
+    {
+      "version": "3.0",
+      "text": ".'re.",
+      "content": 4
+    },
+    {
+      "version": "3.0",
+      "text": ".'ve.",
+      "content": 4
+    },
+    {
+      "version": "4.7",
+      "text": "x'll",
+      "content": 3
+    },
+    {
+      "version": "4.7",
+      "text": "we'll",
+      "content": 3
+    },
+    {
+      "version": "4.7",
+      "text": "a'll b",
+      "content": 4
+    },
+    {
+      "version": "4.7",
+      "text": "a 'll b",
+      "content": 5
+    },
+    {
+      "version": "4.7",
+      "text": "'ll",
+      "content": 3
+    },
+    {
+      "version": "4.7",
+      "text": "1'll",
+      "content": 4
+    },
+    {
+      "version": "4.7",
+      "text": "a  'll b",
+      "content": 5
+    },
+    {
+      "version": "4.7",
+      "text": "A'll",
+      "content": 3
+    },
+    {
+      "version": "4.7",
+      "text": ".'ll.",
+      "content": 5
+    },
+    {
+      "version": "4.7",
+      "text": "}'ll",
+      "content": 4
+    },
+    {
+      "version": "4.7",
+      "text": "a)'ll b",
+      "content": 6
+    },
+    {
+      "version": "4.7",
+      "text": "x'llo",
+      "content": 4
+    },
+    {
+      "version": "4.7",
+      "text": "x'lls",
+      "content": 4
+    },
+    {
+      "version": "4.7",
+      "text": "x'S",
+      "content": 3
+    },
+    {
+      "version": "4.7",
+      "text": "x'LL",
+      "content": 4
+    },
+    {
+      "version": "4.7",
+      "text": "x'ji",
+      "content": 4
+    },
+    {
+      "version": "4.7",
+      "text": "x'ka",
+      "content": 4
+    },
+    {
+      "version": "4.7",
+      "text": "x'ing",
+      "content": 4
+    },
+    {
+      "version": "4.7",
+      "text": "a ll b",
+      "content": 4
+    },
+    {
+      "version": "4.7",
+      "text": "ll",
+      "content": 2
+    },
+    {
+      "version": "4.7",
+      "text": "1🐫1",
+      "content": 6
+    },
+    {
+      "version": "4.7",
+      "text": "1 🐫1",
+      "content": 7
+    },
+    {
+      "version": "4.7",
+      "text": "1🐫 1",
+      "content": 7
+    },
+    {
+      "version": "4.7",
+      "text": "1 🐫 1",
+      "content": 8
+    },
+    {
+      "version": "4.7",
+      "text": "1😀1",
+      "content": 5
+    },
+    {
+      "version": "4.7",
+      "text": "1 😀1",
+      "content": 6
+    },
+    {
+      "version": "4.7",
+      "text": "1 😀 1",
+      "content": 7
+    },
+    {
+      "version": "4.7",
+      "text": "1←1",
+      "content": 4
+    },
+    {
+      "version": "4.7",
+      "text": "1 ←1",
+      "content": 6
+    },
+    {
+      "version": "4.7",
+      "text": "1← 1",
+      "content": 5
+    },
+    {
+      "version": "4.7",
+      "text": "1 ← 1",
+      "content": 7
+    },
+    {
+      "version": "4.7",
+      "text": "️",
+      "content": 2
+    },
+    {
+      "version": "4.7",
+      "text": "⚖️",
+      "content": 5
+    },
+    {
+      "version": "4.7",
+      "text": "⚖︎",
+      "content": 6
+    },
+    {
+      "version": "4.7",
+      "text": "a️b",
+      "content": 3
+    },
+    {
+      "version": "4.7",
+      "text": "△",
+      "content": 1
+    },
+    {
+      "version": "4.7",
+      "text": "▽",
+      "content": 3
+    },
+    {
+      "version": "4.7",
+      "text": "◇",
+      "content": 3
+    },
+    {
+      "version": "4.7",
+      "text": "║",
+      "content": 2
+    },
+    {
+      "version": "4.7",
+      "text": "a║b",
+      "content": 3
+    },
+    {
+      "version": "4.7",
+      "text": "╔",
+      "content": 3
+    },
+    {
+      "version": "4.7",
+      "text": "a McN b",
+      "content": 4
+    },
+    {
+      "version": "4.7",
+      "text": "a McQ b",
+      "content": 5
+    },
+    {
+      "version": "4.7",
+      "text": "a MdN b",
+      "content": 5
+    },
+    {
+      "version": "4.7",
+      "text": "a neither b",
+      "content": 4
+    },
+    {
+      "version": "4.7",
+      "text": "a zither b",
+      "content": 4
+    },
+    {
+      "version": "4.7",
+      "text": "a wather b",
+      "content": 4
+    },
+    {
+      "version": "4.7",
+      "text": "'./",
+      "content": 1
+    },
+    {
+      "version": "4.7",
+      "text": "a './b",
+      "content": 3
+    },
+    {
+      "version": "4.7",
+      "text": "'.",
+      "content": 2
+    },
+    {
+      "version": "4.7",
+      "text": "./",
+      "content": 2
+    },
+    {
+      "version": "4.7",
+      "text": "a КИ b",
+      "content": 5
+    },
+    {
+      "version": "4.7",
+      "text": "a КЭ b",
+      "content": 6
+    },
+    {
+      "version": "4.7",
+      "text": "a ЛИ b",
+      "content": 7
+    },
+    {
+      "version": "4.7",
+      "text": "a МИ b",
+      "content": 5
+    },
+    {
+      "version": "4.7",
+      "text": "a СИ b",
+      "content": 5
+    },
+    {
+      "version": "4.7",
+      "text": "a ПИ b",
+      "content": 6
+    },
+    {
+      "version": "4.7",
+      "text": "]                 i",
+      "content": 5
+    },
+    {
+      "version": "4.7",
+      "text": "a                 b",
+      "content": 4
+    },
+    {
+      "version": "3.0",
+      "text": "﷐",
+      "content": 4
+    },
+    {
+      "version": "3.0",
+      "text": "﷐﷐",
+      "content": 7
+    },
+    {
+      "version": "3.0",
+      "text": "a﷐b",
+      "content": 5
+    },
+    {
+      "version": "3.0",
+      "text": "﷑",
+      "content": 4
+    },
+    {
+      "version": "3.0",
+      "text": "﷑﷑",
+      "content": 7
+    },
+    {
+      "version": "3.0",
+      "text": "a﷑b",
+      "content": 5
+    },
+    {
+      "version": "3.0",
+      "text": "﷒",
+      "content": 4
+    },
+    {
+      "version": "3.0",
+      "text": "﷒﷒",
+      "content": 7
+    },
+    {
+      "version": "3.0",
+      "text": "a﷒b",
+      "content": 5
+    },
+    {
+      "version": "3.0",
+      "text": "﷓",
+      "content": 4
+    },
+    {
+      "version": "3.0",
+      "text": "﷓﷓",
+      "content": 7
+    },
+    {
+      "version": "3.0",
+      "text": "a﷓b",
+      "content": 5
+    },
+    {
+      "version": "3.0",
+      "text": "﷔",
+      "content": 4
+    },
+    {
+      "version": "3.0",
+      "text": "﷔﷔",
+      "content": 7
+    },
+    {
+      "version": "3.0",
+      "text": "a﷔b",
+      "content": 5
+    },
+    {
+      "version": "4.7",
+      "text": "﷐",
+      "content": 4
+    },
+    {
+      "version": "4.7",
+      "text": "﷐﷐",
+      "content": 7
+    },
+    {
+      "version": "4.7",
+      "text": "a﷐b",
+      "content": 5
+    },
+    {
+      "version": "4.7",
+      "text": "﷑",
+      "content": 4
+    },
+    {
+      "version": "4.7",
+      "text": "﷑﷑",
+      "content": 7
+    },
+    {
+      "version": "4.7",
+      "text": "a﷑b",
+      "content": 5
+    },
+    {
+      "version": "4.7",
+      "text": "﷒",
+      "content": 4
+    },
+    {
+      "version": "4.7",
+      "text": "﷒﷒",
+      "content": 7
+    },
+    {
+      "version": "4.7",
+      "text": "a﷒b",
+      "content": 5
+    },
+    {
+      "version": "4.7",
+      "text": "﷓",
+      "content": 4
+    },
+    {
+      "version": "4.7",
+      "text": "﷓﷓",
+      "content": 7
+    },
+    {
+      "version": "4.7",
+      "text": "a﷓b",
+      "content": 5
+    },
+    {
+      "version": "4.7",
+      "text": "﷔",
+      "content": 4
+    },
+    {
+      "version": "4.7",
+      "text": "﷔﷔",
+      "content": 7
+    },
+    {
+      "version": "4.7",
+      "text": "a﷔b",
+      "content": 5
+    }
+  ]
+}

@@ -11,7 +11,7 @@
       <div class="mb-4 text-center">
         <!-- 使用自定义布局来保持登录页面的居中大logo样式 -->
         <div
-          class="mx-auto mb-3 flex h-14 w-14 items-center justify-center overflow-hidden rounded-xl border border-gray-300/30 bg-gradient-to-br from-blue-500/20 to-purple-500/20 backdrop-blur-sm"
+          class="mx-auto mb-3 flex h-14 w-14 items-center justify-center overflow-hidden rounded-xl border border-[var(--border-color)] bg-[var(--primary-soft)]"
         >
           <template v-if="!oemLoading">
             <img
@@ -73,10 +73,10 @@
               :type="showPassword ? 'text' : 'password'"
             />
             <button
-              class="password-toggle"
-              type="button"
-              tabindex="-1"
               :aria-label="showPassword ? '隐藏密码' : '显示密码'"
+              class="password-toggle"
+              tabindex="-1"
+              type="button"
               @click="showPassword = !showPassword"
             >
               <i :class="showPassword ? 'i-lucide-eye-off' : 'i-lucide-eye'" />

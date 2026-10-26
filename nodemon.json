@@ -1,5 +1,5 @@
 {
-  "watch": ["src"],
-  "ext": "js,json",
-  "exec": "pnpm run lint && node src/app.js"
+  "watch": ["src", "config", ".env"],
+  "ext": "js,json,env",
+  "exec": "node src/app.js"
 }

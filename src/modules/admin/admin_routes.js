@@ -1,5 +1,7 @@
 import express from 'express'
 import { router as apiKeysRoutes } from '../apikey/apikey_routes.js'
+import { router as relayRoutingRoutes } from '../relay/relay_routing_admin_routes.js'
+import { router as tokenizerRoutes } from '../tokenizer/tokenizer_routes.js'
 import { router as accountGroupsRoutes } from '../account/account_groups_routes.js'
 import { router as claudeAccountsRoutes } from '../account/account_claude_routes.js'
 import { router as claudeConsoleAccountsRoutes } from '../account/account_claude_console_routes.js'
@@ -42,6 +44,8 @@ export const router = express.Router()
 // 挂载所有子路由
 // 使用完整路径的模块（直接挂载到根路径）
 router.use('/', apiKeysRoutes)
+router.use('/', relayRoutingRoutes)
+router.use('/', tokenizerRoutes)
 router.use('/', claudeAccountsRoutes)
 router.use('/', claudeConsoleAccountsRoutes)
 router.use('/', geminiApiAccountsRoutes)

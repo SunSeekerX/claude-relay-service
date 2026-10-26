@@ -1,0 +1,1295 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-10-23T03:35:33.480413+00:00",
+  "bundles": [
+    {
+      "id": "deepseek_v3",
+      "family": "DeepSeek",
+      "format": "huggingface",
+      "repository": "deepseek-ai/DeepSeek-V3",
+      "revision": "e815299b0bcbac849fa540c768ef21845365c9eb",
+      "models": [
+        "deepseek-v3"
+      ],
+      "precision": "official-text",
+      "files": [
+        {
+          "name": "LICENSE-CODE",
+          "sourceURL": "https://huggingface.co/deepseek-ai/DeepSeek-V3/resolve/e815299b0bcbac849fa540c768ef21845365c9eb/LICENSE-CODE",
+          "path": "blobs/1c8f573e830ca9b3ebfeb7ace1823146e22b66f99ee223840e7637c9e745e1c7.txt",
+          "sha256": "1c8f573e830ca9b3ebfeb7ace1823146e22b66f99ee223840e7637c9e745e1c7",
+          "gitBlobSha1": "d42fae903e9fa07f3e8edb0db00a8d905ba49560",
+          "sizeBytes": 1064
+        },
+        {
+          "name": "LICENSE-MODEL",
+          "sourceURL": "https://huggingface.co/deepseek-ai/DeepSeek-V3/resolve/e815299b0bcbac849fa540c768ef21845365c9eb/LICENSE-MODEL",
+          "path": "blobs/ccfee4895df06bcab524151c278e8dde88bbe76165a24ecbcbcf9fafd71fd2b3.txt",
+          "sha256": "ccfee4895df06bcab524151c278e8dde88bbe76165a24ecbcbcf9fafd71fd2b3",
+          "gitBlobSha1": "ac09290cb2947183ab7f19d7477511dad3600a7a",
+          "sizeBytes": 13759
+        },
+        {
+          "name": "README.md",
+          "sourceURL": "https://huggingface.co/deepseek-ai/DeepSeek-V3/resolve/e815299b0bcbac849fa540c768ef21845365c9eb/README.md",
+          "path": "blobs/3739763a851074c810f1565f9823956f3a095231f8c591dd3c254581bdd3cf08.md",
+          "sha256": "3739763a851074c810f1565f9823956f3a095231f8c591dd3c254581bdd3cf08",
+          "gitBlobSha1": "4da76085fc375b722cdc4d505c2cfaa38a733bdb",
+          "sizeBytes": 19626
+        },
+        {
+          "name": "tokenizer.json",
+          "sourceURL": "https://huggingface.co/deepseek-ai/DeepSeek-V3/resolve/e815299b0bcbac849fa540c768ef21845365c9eb/tokenizer.json",
+          "path": "blobs/621ac2e32d0dba658404412318818aaa8ce8cda492e59830109d8da6b517fb41.json",
+          "sha256": "621ac2e32d0dba658404412318818aaa8ce8cda492e59830109d8da6b517fb41",
+          "gitBlobSha1": "51083c600ec00c7f57ae1af7fef7108c52ce7376",
+          "sizeBytes": 7847652
+        },
+        {
+          "name": "tokenizer_config.json",
+          "sourceURL": "https://huggingface.co/deepseek-ai/DeepSeek-V3/resolve/e815299b0bcbac849fa540c768ef21845365c9eb/tokenizer_config.json",
+          "path": "blobs/637bcd1a08cf7c772ce6a383196b22930921c79c3c73223c5afc0c7f41545546.json",
+          "sha256": "637bcd1a08cf7c772ce6a383196b22930921c79c3c73223c5afc0c7f41545546",
+          "gitBlobSha1": "3ef38058ece03201b9af6baf99b28f16a020ad64",
+          "sizeBytes": 3128
+        }
+      ],
+      "errors": [],
+      "sourceURL": "https://huggingface.co/deepseek-ai/DeepSeek-V3/tree/e815299b0bcbac849fa540c768ef21845365c9eb",
+      "license": "见来源模型卡",
+      "status": "complete",
+      "downloadedAt": "2026-10-22T17:36:03.662144+00:00"
+    },
+    {
+      "id": "deepseek_v4_flash",
+      "family": "DeepSeek",
+      "format": "huggingface",
+      "repository": "deepseek-ai/DeepSeek-V4-Flash",
+      "revision": "60d8d70770c6776ff598c94bb586a859a38244f1",
+      "models": [
+        "deepseek-v4-flash"
+      ],
+      "precision": "official-text",
+      "files": [
+        {
+          "name": "LICENSE",
+          "sourceURL": "https://huggingface.co/deepseek-ai/DeepSeek-V4-Flash/resolve/60d8d70770c6776ff598c94bb586a859a38244f1/LICENSE",
+          "path": "blobs/f2c6c602815669d292889e5be8c802f2ed950653b77999b1584e8e6aed25d040.txt",
+          "sha256": "f2c6c602815669d292889e5be8c802f2ed950653b77999b1584e8e6aed25d040",
+          "gitBlobSha1": "d62e3bef9f054f21b7fc616365850fbf879a99ff",
+          "sizeBytes": 1084
+        },
+        {
+          "name": "README.md",
+          "sourceURL": "https://huggingface.co/deepseek-ai/DeepSeek-V4-Flash/resolve/60d8d70770c6776ff598c94bb586a859a38244f1/README.md",
+          "path": "blobs/c4d714818a4d3333542edc7d38ea065825a0cf7aa8fea3605bbd1d1c18e4a610.md",
+          "sha256": "c4d714818a4d3333542edc7d38ea065825a0cf7aa8fea3605bbd1d1c18e4a610",
+          "gitBlobSha1": "f621f4a76916208d0fa261a637d5983ddc6bc0e4",
+          "sizeBytes": 13149
+        },
+        {
+          "name": "tokenizer.json",
+          "sourceURL": "https://huggingface.co/deepseek-ai/DeepSeek-V4-Flash/resolve/60d8d70770c6776ff598c94bb586a859a38244f1/tokenizer.json",
+          "path": "blobs/8f9f37ca37fdc4f5fd36d5cf4d3b0e8392edb4e894fd10cc0d70b4957c8633cf.json",
+          "sha256": "8f9f37ca37fdc4f5fd36d5cf4d3b0e8392edb4e894fd10cc0d70b4957c8633cf",
+          "gitBlobSha1": "628e3364caad11bdf9e67cea06eae7878122811d",
+          "sizeBytes": 6367146
+        },
+        {
+          "name": "tokenizer_config.json",
+          "sourceURL": "https://huggingface.co/deepseek-ai/DeepSeek-V4-Flash/resolve/60d8d70770c6776ff598c94bb586a859a38244f1/tokenizer_config.json",
+          "path": "blobs/6ac8c8dc065ed118161d02dd532749ae3f52c243deac27872134fae2f50d8547.json",
+          "sha256": "6ac8c8dc065ed118161d02dd532749ae3f52c243deac27872134fae2f50d8547",
+          "gitBlobSha1": "f3dad388a2bbfd6a8605bd02754acd86d9ca5112",
+          "sizeBytes": 801
+        }
+      ],
+      "errors": [],
+      "sourceURL": "https://huggingface.co/deepseek-ai/DeepSeek-V4-Flash/tree/60d8d70770c6776ff598c94bb586a859a38244f1",
+      "license": "mit",
+      "status": "complete",
+      "downloadedAt": "2026-10-22T17:36:03.662144+00:00"
+    },
+    {
+      "id": "deepseek_v41_flash",
+      "family": "DeepSeek",
+      "format": "huggingface",
+      "repository": "deepseek-ai/DeepSeek-V4.1-Flash",
+      "revision": "314113f8a7dadb388215396ba5fbee2c610a04d6",
+      "models": [
+        "deepseek-v4.1-flash"
+      ],
+      "precision": "official-text",
+      "files": [
+        {
+          "name": "LICENSE",
+          "sourceURL": "https://huggingface.co/deepseek-ai/DeepSeek-V4.1-Flash/resolve/314113f8a7dadb388215396ba5fbee2c610a04d6/LICENSE",
+          "path": "blobs/f2c6c602815669d292889e5be8c802f2ed950653b77999b1584e8e6aed25d040.txt",
+          "sha256": "f2c6c602815669d292889e5be8c802f2ed950653b77999b1584e8e6aed25d040",
+          "gitBlobSha1": "d62e3bef9f054f21b7fc616365850fbf879a99ff",
+          "sizeBytes": 1084
+        },
+        {
+          "name": "README.md",
+          "sourceURL": "https://huggingface.co/deepseek-ai/DeepSeek-V4.1-Flash/resolve/314113f8a7dadb388215396ba5fbee2c610a04d6/README.md",
+          "path": "blobs/347c9db4e5506acb531cbc3b724407ab88e9af8781679152f0823d7bac16d251.md",
+          "sha256": "347c9db4e5506acb531cbc3b724407ab88e9af8781679152f0823d7bac16d251",
+          "gitBlobSha1": "211b83857abd5e8420df3a4f10db1096294227e6",
+          "sizeBytes": 13110
+        },
+        {
+          "name": "chat_template.jinja",
+          "sourceURL": "https://huggingface.co/deepseek-ai/DeepSeek-V4.1-Flash/resolve/314113f8a7dadb388215396ba5fbee2c610a04d6/chat_template.jinja",
+          "path": "blobs/d959d804d5101b79a49b6ff1bf3c54cd5affa9a5a78c503d925f3090040b31c3.jinja",
+          "sha256": "d959d804d5101b79a49b6ff1bf3c54cd5affa9a5a78c503d925f3090040b31c3",
+          "gitBlobSha1": "eb12dd280d3dc0ef0424827bd40bf3fe7171d528",
+          "sizeBytes": 15348
+        },
+        {
+          "name": "tokenizer.json",
+          "sourceURL": "https://huggingface.co/deepseek-ai/DeepSeek-V4.1-Flash/resolve/314113f8a7dadb388215396ba5fbee2c610a04d6/tokenizer.json",
+          "path": "blobs/c90dfa01249db1be4245780a052ede752e1361c612ac6d08e2bdada7d599476b.json",
+          "sha256": "c90dfa01249db1be4245780a052ede752e1361c612ac6d08e2bdada7d599476b",
+          "gitBlobSha1": "6a15814dd25c934028034531da744c689f87ff21",
+          "sizeBytes": 6367257
+        },
+        {
+          "name": "tokenizer_config.json",
+          "sourceURL": "https://huggingface.co/deepseek-ai/DeepSeek-V4.1-Flash/resolve/314113f8a7dadb388215396ba5fbee2c610a04d6/tokenizer_config.json",
+          "path": "blobs/6ac8c8dc065ed118161d02dd532749ae3f52c243deac27872134fae2f50d8547.json",
+          "sha256": "6ac8c8dc065ed118161d02dd532749ae3f52c243deac27872134fae2f50d8547",
+          "gitBlobSha1": "f3dad388a2bbfd6a8605bd02754acd86d9ca5112",
+          "sizeBytes": 801
+        }
+      ],
+      "errors": [],
+      "sourceURL": "https://huggingface.co/deepseek-ai/DeepSeek-V4.1-Flash/tree/314113f8a7dadb388215396ba5fbee2c610a04d6",
+      "license": "mit",
+      "status": "complete",
+      "downloadedAt": "2026-10-22T17:36:03.662144+00:00"
+    },
+    {
+      "id": "glm_45",
+      "family": "GLM",
+      "format": "huggingface",
+      "repository": "zai-org/GLM-4.5",
+      "revision": "cbb2c7cfb52fa128a9660cb1a7a78e017899e115",
+      "models": [
+        "glm-4.5"
+      ],
+      "precision": "official-text",
+      "files": [
+        {
+          "name": "README.md",
+          "sourceURL": "https://huggingface.co/zai-org/GLM-4.5/resolve/cbb2c7cfb52fa128a9660cb1a7a78e017899e115/README.md",
+          "path": "blobs/b88456f5d679312860924870b8c557e578d18c7e3612b4f9d1ea22be38ea95c3.md",
+          "sha256": "b88456f5d679312860924870b8c557e578d18c7e3612b4f9d1ea22be38ea95c3",
+          "gitBlobSha1": "a49637ed9c654711acf547ab69d363f3e2bdf460",
+          "sizeBytes": 9670
+        },
+        {
+          "name": "chat_template.jinja",
+          "sourceURL": "https://huggingface.co/zai-org/GLM-4.5/resolve/cbb2c7cfb52fa128a9660cb1a7a78e017899e115/chat_template.jinja",
+          "path": "blobs/44f815868bf02fa458dd2f741a338046f4bf45f398eb6d067766726b9d96cce3.jinja",
+          "sha256": "44f815868bf02fa458dd2f741a338046f4bf45f398eb6d067766726b9d96cce3",
+          "gitBlobSha1": "41478957aca7a04b7321022e7d1f73de5badd995",
+          "sizeBytes": 3242
+        },
+        {
+          "name": "tokenizer.json",
+          "sourceURL": "https://huggingface.co/zai-org/GLM-4.5/resolve/cbb2c7cfb52fa128a9660cb1a7a78e017899e115/tokenizer.json",
+          "path": "blobs/9340665016419c825c4bdabbcc9acc43b7ca2c68ce142724afa829abb1be5efd.json",
+          "sha256": "9340665016419c825c4bdabbcc9acc43b7ca2c68ce142724afa829abb1be5efd",
+          "gitBlobSha1": "6d4b344e1097e4eb5eca0cb1852dc067d4e19678",
+          "sizeBytes": 19970699
+        },
+        {
+          "name": "tokenizer_config.json",
+          "sourceURL": "https://huggingface.co/zai-org/GLM-4.5/resolve/cbb2c7cfb52fa128a9660cb1a7a78e017899e115/tokenizer_config.json",
+          "path": "blobs/27d01309c0ae7b5edb6511daabfcbf772b60e21c65cbb74d059acc76796f7897.json",
+          "sha256": "27d01309c0ae7b5edb6511daabfcbf772b60e21c65cbb74d059acc76796f7897",
+          "gitBlobSha1": "053f12c9b03d5acbcc921042ea0c87a6baa5d3f7",
+          "sizeBytes": 7307
+        }
+      ],
+      "errors": [],
+      "sourceURL": "https://huggingface.co/zai-org/GLM-4.5/tree/cbb2c7cfb52fa128a9660cb1a7a78e017899e115",
+      "license": "mit",
+      "status": "complete",
+      "downloadedAt": "2026-10-22T17:36:03.662144+00:00"
+    },
+    {
+      "id": "glm_45_air",
+      "family": "GLM",
+      "format": "huggingface",
+      "repository": "zai-org/GLM-4.5-Air",
+      "revision": "a24ceef6ce4f3536971efe9b778bdaa1bab18daa",
+      "models": [
+        "glm-4.5-air"
+      ],
+      "precision": "official-text",
+      "files": [
+        {
+          "name": "README.md",
+          "sourceURL": "https://huggingface.co/zai-org/GLM-4.5-Air/resolve/a24ceef6ce4f3536971efe9b778bdaa1bab18daa/README.md",
+          "path": "blobs/fdcdf454bbb54db5cf1a1dd83152feb6555c4962678cae5c7658bf9cd0261e8b.md",
+          "sha256": "fdcdf454bbb54db5cf1a1dd83152feb6555c4962678cae5c7658bf9cd0261e8b",
+          "gitBlobSha1": "012e5b83073346bbf5033b787e80ea34eb3f8fb4",
+          "sizeBytes": 3001
+        },
+        {
+          "name": "chat_template.jinja",
+          "sourceURL": "https://huggingface.co/zai-org/GLM-4.5-Air/resolve/a24ceef6ce4f3536971efe9b778bdaa1bab18daa/chat_template.jinja",
+          "path": "blobs/44f815868bf02fa458dd2f741a338046f4bf45f398eb6d067766726b9d96cce3.jinja",
+          "sha256": "44f815868bf02fa458dd2f741a338046f4bf45f398eb6d067766726b9d96cce3",
+          "gitBlobSha1": "41478957aca7a04b7321022e7d1f73de5badd995",
+          "sizeBytes": 3242
+        },
+        {
+          "name": "tokenizer.json",
+          "sourceURL": "https://huggingface.co/zai-org/GLM-4.5-Air/resolve/a24ceef6ce4f3536971efe9b778bdaa1bab18daa/tokenizer.json",
+          "path": "blobs/9340665016419c825c4bdabbcc9acc43b7ca2c68ce142724afa829abb1be5efd.json",
+          "sha256": "9340665016419c825c4bdabbcc9acc43b7ca2c68ce142724afa829abb1be5efd",
+          "gitBlobSha1": "6d4b344e1097e4eb5eca0cb1852dc067d4e19678",
+          "sizeBytes": 19970699
+        },
+        {
+          "name": "tokenizer_config.json",
+          "sourceURL": "https://huggingface.co/zai-org/GLM-4.5-Air/resolve/a24ceef6ce4f3536971efe9b778bdaa1bab18daa/tokenizer_config.json",
+          "path": "blobs/27d01309c0ae7b5edb6511daabfcbf772b60e21c65cbb74d059acc76796f7897.json",
+          "sha256": "27d01309c0ae7b5edb6511daabfcbf772b60e21c65cbb74d059acc76796f7897",
+          "gitBlobSha1": "053f12c9b03d5acbcc921042ea0c87a6baa5d3f7",
+          "sizeBytes": 7307
+        }
+      ],
+      "errors": [],
+      "sourceURL": "https://huggingface.co/zai-org/GLM-4.5-Air/tree/a24ceef6ce4f3536971efe9b778bdaa1bab18daa",
+      "license": "mit",
+      "status": "complete",
+      "downloadedAt": "2026-10-22T17:36:03.662144+00:00"
+    },
+    {
+      "id": "glm_47",
+      "family": "GLM",
+      "format": "huggingface",
+      "repository": "zai-org/GLM-4.7",
+      "revision": "602d01efcdd332c5238ca4bcede555defbe83eb7",
+      "models": [
+        "glm-4.7"
+      ],
+      "precision": "official-text",
+      "files": [
+        {
+          "name": "README.md",
+          "sourceURL": "https://huggingface.co/zai-org/GLM-4.7/resolve/602d01efcdd332c5238ca4bcede555defbe83eb7/README.md",
+          "path": "blobs/ad072cbe81374f18149a107f2e1cbed93f27a6b220409a6bb34ba97a4d36757e.md",
+          "sha256": "ad072cbe81374f18149a107f2e1cbed93f27a6b220409a6bb34ba97a4d36757e",
+          "gitBlobSha1": "80be377ea15441530aeed36120d345bffcb34e68",
+          "sizeBytes": 13605
+        },
+        {
+          "name": "chat_template.jinja",
+          "sourceURL": "https://huggingface.co/zai-org/GLM-4.7/resolve/602d01efcdd332c5238ca4bcede555defbe83eb7/chat_template.jinja",
+          "path": "blobs/d63ad536c3c81880043e22ec7fd08db42b4d8fb7c89c7138bc562bfa25281375.jinja",
+          "sha256": "d63ad536c3c81880043e22ec7fd08db42b4d8fb7c89c7138bc562bfa25281375",
+          "gitBlobSha1": "2ab98ef068d62829d17c5ade1827b9f013fa2bbf",
+          "sizeBytes": 3120
+        },
+        {
+          "name": "tokenizer.json",
+          "sourceURL": "https://huggingface.co/zai-org/GLM-4.7/resolve/602d01efcdd332c5238ca4bcede555defbe83eb7/tokenizer.json",
+          "path": "blobs/9340665016419c825c4bdabbcc9acc43b7ca2c68ce142724afa829abb1be5efd.json",
+          "sha256": "9340665016419c825c4bdabbcc9acc43b7ca2c68ce142724afa829abb1be5efd",
+          "gitBlobSha1": "6d4b344e1097e4eb5eca0cb1852dc067d4e19678",
+          "sizeBytes": 19970699
+        },
+        {
+          "name": "tokenizer_config.json",
+          "sourceURL": "https://huggingface.co/zai-org/GLM-4.7/resolve/602d01efcdd332c5238ca4bcede555defbe83eb7/tokenizer_config.json",
+          "path": "blobs/27d01309c0ae7b5edb6511daabfcbf772b60e21c65cbb74d059acc76796f7897.json",
+          "sha256": "27d01309c0ae7b5edb6511daabfcbf772b60e21c65cbb74d059acc76796f7897",
+          "gitBlobSha1": "053f12c9b03d5acbcc921042ea0c87a6baa5d3f7",
+          "sizeBytes": 7307
+        }
+      ],
+      "errors": [],
+      "sourceURL": "https://huggingface.co/zai-org/GLM-4.7/tree/602d01efcdd332c5238ca4bcede555defbe83eb7",
+      "license": "mit",
+      "status": "complete",
+      "downloadedAt": "2026-10-22T17:36:03.662144+00:00"
+    },
+    {
+      "id": "glm_5",
+      "family": "GLM",
+      "format": "huggingface",
+      "repository": "zai-org/GLM-5",
+      "revision": "c183ef8c61faee82855eca1ed9bb3a9a7ce3b0b2",
+      "models": [
+        "glm-5"
+      ],
+      "precision": "official-text",
+      "files": [
+        {
+          "name": "README.md",
+          "sourceURL": "https://huggingface.co/zai-org/GLM-5/resolve/c183ef8c61faee82855eca1ed9bb3a9a7ce3b0b2/README.md",
+          "path": "blobs/4f8859aa1e0585e25f4fc61b5c17b2c488c767f37f41231818bc065a865ceae7.md",
+          "sha256": "4f8859aa1e0585e25f4fc61b5c17b2c488c767f37f41231818bc065a865ceae7",
+          "gitBlobSha1": "650587ae433f2d841580994a4ab3f86e08d578a4",
+          "sizeBytes": 12732
+        },
+        {
+          "name": "chat_template.jinja",
+          "sourceURL": "https://huggingface.co/zai-org/GLM-5/resolve/c183ef8c61faee82855eca1ed9bb3a9a7ce3b0b2/chat_template.jinja",
+          "path": "blobs/45a1d5635afd3d8e08a28866e72fc8395d2a7ec30989fd0bdaec6dd45a99eff0.jinja",
+          "sha256": "45a1d5635afd3d8e08a28866e72fc8395d2a7ec30989fd0bdaec6dd45a99eff0",
+          "gitBlobSha1": "9b5dc83d6b05c457df6ada80ad0344e48f4b5828",
+          "sizeBytes": 3123
+        },
+        {
+          "name": "tokenizer.json",
+          "sourceURL": "https://huggingface.co/zai-org/GLM-5/resolve/c183ef8c61faee82855eca1ed9bb3a9a7ce3b0b2/tokenizer.json",
+          "path": "blobs/19e773648cb4e65de8660ea6365e10acca112d42a854923df93db4a6f333a82d.json",
+          "sha256": "19e773648cb4e65de8660ea6365e10acca112d42a854923df93db4a6f333a82d",
+          "gitBlobSha1": "32d3bec9f21d17cd2cc753762094ff38fa45a006",
+          "sizeBytes": 20217442
+        },
+        {
+          "name": "tokenizer_config.json",
+          "sourceURL": "https://huggingface.co/zai-org/GLM-5/resolve/c183ef8c61faee82855eca1ed9bb3a9a7ce3b0b2/tokenizer_config.json",
+          "path": "blobs/8b6c9684842d57fb45907d1670835fa6929a4686e4229d4c4684d56a9abf3eb1.json",
+          "sha256": "8b6c9684842d57fb45907d1670835fa6929a4686e4229d4c4684d56a9abf3eb1",
+          "gitBlobSha1": "1723f7d90e3fb497303ec7b18f88cf5d05928f37",
+          "sizeBytes": 760
+        }
+      ],
+      "errors": [],
+      "sourceURL": "https://huggingface.co/zai-org/GLM-5/tree/c183ef8c61faee82855eca1ed9bb3a9a7ce3b0b2",
+      "license": "mit",
+      "status": "complete",
+      "downloadedAt": "2026-10-22T17:36:03.662144+00:00"
+    },
+    {
+      "id": "glm_51",
+      "family": "GLM",
+      "format": "huggingface",
+      "repository": "zai-org/GLM-5.1",
+      "revision": "26e1bd6e011feb778d25ae34b09b07074139d92d",
+      "models": [
+        "glm-5.1"
+      ],
+      "precision": "official-text",
+      "files": [
+        {
+          "name": "LICENSE",
+          "sourceURL": "https://huggingface.co/zai-org/GLM-5.1/resolve/26e1bd6e011feb778d25ae34b09b07074139d92d/LICENSE",
+          "path": "blobs/f4a18c6ae40b0a8e7d2b7667f52f6e1994e54a46430d2e172b73cb8c9b5eb0d7.txt",
+          "sha256": "f4a18c6ae40b0a8e7d2b7667f52f6e1994e54a46430d2e172b73cb8c9b5eb0d7",
+          "gitBlobSha1": "e14ce68b0a559601dc936eba5e7c4d1c3d8ffc84",
+          "sizeBytes": 1065
+        },
+        {
+          "name": "README.md",
+          "sourceURL": "https://huggingface.co/zai-org/GLM-5.1/resolve/26e1bd6e011feb778d25ae34b09b07074139d92d/README.md",
+          "path": "blobs/2cb148b732f596716f8c9366edf072e35746de6d06fe69c92301ddb492557077.md",
+          "sha256": "2cb148b732f596716f8c9366edf072e35746de6d06fe69c92301ddb492557077",
+          "gitBlobSha1": "71e62e5318ac9311efdd131aec2573b2a5070b9e",
+          "sizeBytes": 10751
+        },
+        {
+          "name": "chat_template.jinja",
+          "sourceURL": "https://huggingface.co/zai-org/GLM-5.1/resolve/26e1bd6e011feb778d25ae34b09b07074139d92d/chat_template.jinja",
+          "path": "blobs/03b1bbff20331e54647c68167e8ac7f0b5b7ceb40ead372f44826624a9ad79cd.jinja",
+          "sha256": "03b1bbff20331e54647c68167e8ac7f0b5b7ceb40ead372f44826624a9ad79cd",
+          "gitBlobSha1": "e230020b321d78d161a5cfa505ace4f945e299d5",
+          "sizeBytes": 4672
+        },
+        {
+          "name": "tokenizer.json",
+          "sourceURL": "https://huggingface.co/zai-org/GLM-5.1/resolve/26e1bd6e011feb778d25ae34b09b07074139d92d/tokenizer.json",
+          "path": "blobs/19e773648cb4e65de8660ea6365e10acca112d42a854923df93db4a6f333a82d.json",
+          "sha256": "19e773648cb4e65de8660ea6365e10acca112d42a854923df93db4a6f333a82d",
+          "gitBlobSha1": "32d3bec9f21d17cd2cc753762094ff38fa45a006",
+          "sizeBytes": 20217442
+        },
+        {
+          "name": "tokenizer_config.json",
+          "sourceURL": "https://huggingface.co/zai-org/GLM-5.1/resolve/26e1bd6e011feb778d25ae34b09b07074139d92d/tokenizer_config.json",
+          "path": "blobs/8b6c9684842d57fb45907d1670835fa6929a4686e4229d4c4684d56a9abf3eb1.json",
+          "sha256": "8b6c9684842d57fb45907d1670835fa6929a4686e4229d4c4684d56a9abf3eb1",
+          "gitBlobSha1": "1723f7d90e3fb497303ec7b18f88cf5d05928f37",
+          "sizeBytes": 760
+        }
+      ],
+      "errors": [],
+      "sourceURL": "https://huggingface.co/zai-org/GLM-5.1/tree/26e1bd6e011feb778d25ae34b09b07074139d92d",
+      "license": "mit",
+      "status": "complete",
+      "downloadedAt": "2026-10-22T17:36:03.662144+00:00"
+    },
+    {
+      "id": "glm_52",
+      "family": "GLM",
+      "format": "huggingface",
+      "repository": "zai-org/GLM-5.2",
+      "revision": "cf457fa734ab149ffef225f80893eb38c6ff5cdc",
+      "models": [
+        "glm-5.2"
+      ],
+      "precision": "official-text",
+      "files": [
+        {
+          "name": "LICENSE",
+          "sourceURL": "https://huggingface.co/zai-org/GLM-5.2/resolve/cf457fa734ab149ffef225f80893eb38c6ff5cdc/LICENSE",
+          "path": "blobs/f4a18c6ae40b0a8e7d2b7667f52f6e1994e54a46430d2e172b73cb8c9b5eb0d7.txt",
+          "sha256": "f4a18c6ae40b0a8e7d2b7667f52f6e1994e54a46430d2e172b73cb8c9b5eb0d7",
+          "gitBlobSha1": "e14ce68b0a559601dc936eba5e7c4d1c3d8ffc84",
+          "sizeBytes": 1065
+        },
+        {
+          "name": "README.md",
+          "sourceURL": "https://huggingface.co/zai-org/GLM-5.2/resolve/cf457fa734ab149ffef225f80893eb38c6ff5cdc/README.md",
+          "path": "blobs/7ba22185651d8f69fbf6227ee718eb680fd834ec8e79ba78df6fa54896614b3d.md",
+          "sha256": "7ba22185651d8f69fbf6227ee718eb680fd834ec8e79ba78df6fa54896614b3d",
+          "gitBlobSha1": "52dc22190d49ff1443b9f64b8e70d03e2656c7b2",
+          "sizeBytes": 10939
+        },
+        {
+          "name": "chat_template.jinja",
+          "sourceURL": "https://huggingface.co/zai-org/GLM-5.2/resolve/cf457fa734ab149ffef225f80893eb38c6ff5cdc/chat_template.jinja",
+          "path": "blobs/172dc74a35e1752df75ecfb2b2cf9326d2852bb1379868ebeec9571654489679.jinja",
+          "sha256": "172dc74a35e1752df75ecfb2b2cf9326d2852bb1379868ebeec9571654489679",
+          "gitBlobSha1": "672034e3a1196d8b9fc0116ddc037cb554227f89",
+          "sizeBytes": 5076
+        },
+        {
+          "name": "tokenizer.json",
+          "sourceURL": "https://huggingface.co/zai-org/GLM-5.2/resolve/cf457fa734ab149ffef225f80893eb38c6ff5cdc/tokenizer.json",
+          "path": "blobs/19e773648cb4e65de8660ea6365e10acca112d42a854923df93db4a6f333a82d.json",
+          "sha256": "19e773648cb4e65de8660ea6365e10acca112d42a854923df93db4a6f333a82d",
+          "gitBlobSha1": "32d3bec9f21d17cd2cc753762094ff38fa45a006",
+          "sizeBytes": 20217442
+        },
+        {
+          "name": "tokenizer_config.json",
+          "sourceURL": "https://huggingface.co/zai-org/GLM-5.2/resolve/cf457fa734ab149ffef225f80893eb38c6ff5cdc/tokenizer_config.json",
+          "path": "blobs/98b1271574f41abf89427ae2dda030d94dc9478f0edc5a8bd240db213c6fd5fc.json",
+          "sha256": "98b1271574f41abf89427ae2dda030d94dc9478f0edc5a8bd240db213c6fd5fc",
+          "gitBlobSha1": "e375fa0a4e16660ce0e2026e39374d35dad4c079",
+          "sizeBytes": 761
+        }
+      ],
+      "errors": [],
+      "sourceURL": "https://huggingface.co/zai-org/GLM-5.2/tree/cf457fa734ab149ffef225f80893eb38c6ff5cdc",
+      "license": "mit",
+      "status": "complete",
+      "downloadedAt": "2026-10-22T17:36:03.662144+00:00"
+    },
+    {
+      "id": "glm_53",
+      "family": "GLM",
+      "format": "huggingface",
+      "repository": "zai-org/GLM-5.3",
+      "revision": "ba32f8c19c8738e2c57c71798c601d477a7bf844",
+      "models": [
+        "glm-5.3"
+      ],
+      "precision": "official-text",
+      "files": [
+        {
+          "name": "LICENSE",
+          "sourceURL": "https://huggingface.co/zai-org/GLM-5.3/resolve/ba32f8c19c8738e2c57c71798c601d477a7bf844/LICENSE",
+          "path": "blobs/96e1622099fc9d6b70c9760f007d99e66d7497eec636b63c60fe208401e9170c.txt",
+          "sha256": "96e1622099fc9d6b70c9760f007d99e66d7497eec636b63c60fe208401e9170c",
+          "gitBlobSha1": "f860919cd5a5377c0bc9d590ea9d1b8743475ca5",
+          "sizeBytes": 4263
+        },
+        {
+          "name": "README.md",
+          "sourceURL": "https://huggingface.co/zai-org/GLM-5.3/resolve/ba32f8c19c8738e2c57c71798c601d477a7bf844/README.md",
+          "path": "blobs/ed1c0a4563c437a32f8953d637a1db9bd831de1b24bd3062a5ace9e04340b1cf.md",
+          "sha256": "ed1c0a4563c437a32f8953d637a1db9bd831de1b24bd3062a5ace9e04340b1cf",
+          "gitBlobSha1": "e965a0a6ea0da381140a9ce4cc2c571058a31d05",
+          "sizeBytes": 14209
+        },
+        {
+          "name": "chat_template.jinja",
+          "sourceURL": "https://huggingface.co/zai-org/GLM-5.3/resolve/ba32f8c19c8738e2c57c71798c601d477a7bf844/chat_template.jinja",
+          "path": "blobs/0e2b6268ac54f04d2bc1157e8cfb896cb66f25c0b5e319ea12e56014c3914f24.jinja",
+          "sha256": "0e2b6268ac54f04d2bc1157e8cfb896cb66f25c0b5e319ea12e56014c3914f24",
+          "gitBlobSha1": "55fd3945292b8cad117c1414916807314b0fc85f",
+          "sizeBytes": 10614
+        },
+        {
+          "name": "tokenizer.json",
+          "sourceURL": "https://huggingface.co/zai-org/GLM-5.3/resolve/ba32f8c19c8738e2c57c71798c601d477a7bf844/tokenizer.json",
+          "path": "blobs/19e773648cb4e65de8660ea6365e10acca112d42a854923df93db4a6f333a82d.json",
+          "sha256": "19e773648cb4e65de8660ea6365e10acca112d42a854923df93db4a6f333a82d",
+          "gitBlobSha1": "32d3bec9f21d17cd2cc753762094ff38fa45a006",
+          "sizeBytes": 20217442
+        },
+        {
+          "name": "tokenizer_config.json",
+          "sourceURL": "https://huggingface.co/zai-org/GLM-5.3/resolve/ba32f8c19c8738e2c57c71798c601d477a7bf844/tokenizer_config.json",
+          "path": "blobs/98b1271574f41abf89427ae2dda030d94dc9478f0edc5a8bd240db213c6fd5fc.json",
+          "sha256": "98b1271574f41abf89427ae2dda030d94dc9478f0edc5a8bd240db213c6fd5fc",
+          "gitBlobSha1": "e375fa0a4e16660ce0e2026e39374d35dad4c079",
+          "sizeBytes": 761
+        }
+      ],
+      "errors": [],
+      "sourceURL": "https://huggingface.co/zai-org/GLM-5.3/tree/ba32f8c19c8738e2c57c71798c601d477a7bf844",
+      "license": "other",
+      "status": "complete",
+      "downloadedAt": "2026-10-22T17:36:03.662144+00:00"
+    },
+    {
+      "id": "glm_53_flash",
+      "family": "GLM",
+      "format": "huggingface",
+      "repository": "zai-org/GLM-5.3-Flash",
+      "revision": "46a050bec13002ad29ee795c16e61cf4fa3c4a9c",
+      "models": [
+        "glm-5.3-flash"
+      ],
+      "precision": "official-text",
+      "files": [
+        {
+          "name": "LICENSE",
+          "sourceURL": "https://huggingface.co/zai-org/GLM-5.3-Flash/resolve/46a050bec13002ad29ee795c16e61cf4fa3c4a9c/LICENSE",
+          "path": "blobs/30b85b6b9659f2e78aa259f8faf5d920a68dee7c9ced3fa6dba1f19f2bc4fca1.txt",
+          "sha256": "30b85b6b9659f2e78aa259f8faf5d920a68dee7c9ced3fa6dba1f19f2bc4fca1",
+          "gitBlobSha1": "986b06fb2916b3518b82c7dcc0870723b91f2f92",
+          "sizeBytes": 1070
+        },
+        {
+          "name": "README.md",
+          "sourceURL": "https://huggingface.co/zai-org/GLM-5.3-Flash/resolve/46a050bec13002ad29ee795c16e61cf4fa3c4a9c/README.md",
+          "path": "blobs/e6c5d41400e28f5a89418a0d15b09b9c113314a7553d40d7d4a8a72fcdb87d02.md",
+          "sha256": "e6c5d41400e28f5a89418a0d15b09b9c113314a7553d40d7d4a8a72fcdb87d02",
+          "gitBlobSha1": "46bc9e21fef7b4371a73cf663dbd1e54505c1205",
+          "sizeBytes": 8027
+        },
+        {
+          "name": "chat_template.jinja",
+          "sourceURL": "https://huggingface.co/zai-org/GLM-5.3-Flash/resolve/46a050bec13002ad29ee795c16e61cf4fa3c4a9c/chat_template.jinja",
+          "path": "blobs/2614a3c896d53e265f564c23701173c0049f985dacfbae79fc4bcd9f5ba083f4.jinja",
+          "sha256": "2614a3c896d53e265f564c23701173c0049f985dacfbae79fc4bcd9f5ba083f4",
+          "gitBlobSha1": "14180451f166c1dab87081d8c3ee2a347f9d9d81",
+          "sizeBytes": 10830
+        },
+        {
+          "name": "processor_config.json",
+          "sourceURL": "https://huggingface.co/zai-org/GLM-5.3-Flash/resolve/46a050bec13002ad29ee795c16e61cf4fa3c4a9c/processor_config.json",
+          "path": "blobs/aae38374c94b08cc9b0547c6e64f05b951bd9735cea571c6988f5ed552bed3ed.json",
+          "sha256": "aae38374c94b08cc9b0547c6e64f05b951bd9735cea571c6988f5ed552bed3ed",
+          "gitBlobSha1": "3ec2a058b2cdec556eca0f621e8c5164eec213c2",
+          "sizeBytes": 909
+        },
+        {
+          "name": "tokenizer.json",
+          "sourceURL": "https://huggingface.co/zai-org/GLM-5.3-Flash/resolve/46a050bec13002ad29ee795c16e61cf4fa3c4a9c/tokenizer.json",
+          "path": "blobs/19e773648cb4e65de8660ea6365e10acca112d42a854923df93db4a6f333a82d.json",
+          "sha256": "19e773648cb4e65de8660ea6365e10acca112d42a854923df93db4a6f333a82d",
+          "gitBlobSha1": "32d3bec9f21d17cd2cc753762094ff38fa45a006",
+          "sizeBytes": 20217442
+        },
+        {
+          "name": "tokenizer_config.json",
+          "sourceURL": "https://huggingface.co/zai-org/GLM-5.3-Flash/resolve/46a050bec13002ad29ee795c16e61cf4fa3c4a9c/tokenizer_config.json",
+          "path": "blobs/98b1271574f41abf89427ae2dda030d94dc9478f0edc5a8bd240db213c6fd5fc.json",
+          "sha256": "98b1271574f41abf89427ae2dda030d94dc9478f0edc5a8bd240db213c6fd5fc",
+          "gitBlobSha1": "e375fa0a4e16660ce0e2026e39374d35dad4c079",
+          "sizeBytes": 761
+        }
+      ],
+      "errors": [],
+      "sourceURL": "https://huggingface.co/zai-org/GLM-5.3-Flash/tree/46a050bec13002ad29ee795c16e61cf4fa3c4a9c",
+      "license": "mit",
+      "status": "complete",
+      "downloadedAt": "2026-10-22T17:36:03.662144+00:00"
+    },
+    {
+      "id": "gemma4",
+      "family": "Gemini",
+      "format": "huggingface",
+      "repository": "google/gemma-4-E4B-it",
+      "revision": "ee0ef6023621cff504d758262d4e04895a5af4a2",
+      "models": [
+        "gemini-3.5-flash",
+        "gemini-3.1-flash-lite",
+        "gemini-3.1-pro-preview"
+      ],
+      "precision": "official-sdk-text",
+      "notes": "来自 Google GenAI SDK 显式映射；不自动用于 Gemini 3.8 或其他未列出的型号。",
+      "files": [
+        {
+          "name": "README.md",
+          "sourceURL": "https://huggingface.co/google/gemma-4-E4B-it/resolve/ee0ef6023621cff504d758262d4e04895a5af4a2/README.md",
+          "path": "blobs/b21e4f69614ccd77baa2f3797d05311040dee07b989cb9f0d25111aa4b605b2c.md",
+          "sha256": "b21e4f69614ccd77baa2f3797d05311040dee07b989cb9f0d25111aa4b605b2c",
+          "gitBlobSha1": "0a4a3bf163f3a4248d7c46ca32b96dcabd1ab2f4",
+          "sizeBytes": 27956
+        },
+        {
+          "name": "chat_template.jinja",
+          "sourceURL": "https://huggingface.co/google/gemma-4-E4B-it/resolve/ee0ef6023621cff504d758262d4e04895a5af4a2/chat_template.jinja",
+          "path": "blobs/0a2c8073c878ab1da004bee933a998606537bbb62016310352c7285c3f01c5b5.jinja",
+          "sha256": "0a2c8073c878ab1da004bee933a998606537bbb62016310352c7285c3f01c5b5",
+          "gitBlobSha1": "fbe3b59b625cd1b8850ea592d4203df6ec04684b",
+          "sizeBytes": 18569
+        },
+        {
+          "name": "processor_config.json",
+          "sourceURL": "https://huggingface.co/google/gemma-4-E4B-it/resolve/ee0ef6023621cff504d758262d4e04895a5af4a2/processor_config.json",
+          "path": "blobs/32bdf45d2ad4cc29a0822ddd157a182de76644f0419a6228d151495256e9813c.json",
+          "sha256": "32bdf45d2ad4cc29a0822ddd157a182de76644f0419a6228d151495256e9813c",
+          "gitBlobSha1": "5465974d23e1eca2c46c2809b26c997946ce0d90",
+          "sizeBytes": 1689
+        },
+        {
+          "name": "tokenizer.json",
+          "sourceURL": "https://huggingface.co/google/gemma-4-E4B-it/resolve/ee0ef6023621cff504d758262d4e04895a5af4a2/tokenizer.json",
+          "path": "blobs/cc8d3a0ce36466ccc1278bf987df5f71db1719b9ca6b4118264f45cb627bfe0f.json",
+          "sha256": "cc8d3a0ce36466ccc1278bf987df5f71db1719b9ca6b4118264f45cb627bfe0f",
+          "gitBlobSha1": "c7c5ee3d681ef0152087345da5165560cba9df1d",
+          "sizeBytes": 32169626
+        },
+        {
+          "name": "tokenizer_config.json",
+          "sourceURL": "https://huggingface.co/google/gemma-4-E4B-it/resolve/ee0ef6023621cff504d758262d4e04895a5af4a2/tokenizer_config.json",
+          "path": "blobs/9f4fec4b1dc6ecddf8f4a92e9caea5971c0e67d81309f3f9066a2bee8c362633.json",
+          "sha256": "9f4fec4b1dc6ecddf8f4a92e9caea5971c0e67d81309f3f9066a2bee8c362633",
+          "gitBlobSha1": "6068e357379d36f823c377e30efb101fa2c67fe4",
+          "sizeBytes": 3082
+        }
+      ],
+      "errors": [],
+      "sourceURL": "https://huggingface.co/google/gemma-4-E4B-it/tree/ee0ef6023621cff504d758262d4e04895a5af4a2",
+      "license": "apache-2.0",
+      "status": "complete",
+      "downloadedAt": "2026-10-22T17:36:03.662144+00:00"
+    },
+    {
+      "id": "grok2",
+      "family": "Grok",
+      "format": "xai-tok-json",
+      "repository": "xai-org/grok-2",
+      "revision": "daf4395a80ad177386cfe39641b64fc12b1d70ed",
+      "models": [
+        "grok-2"
+      ],
+      "precision": "official-text",
+      "notes": "公开词表使用其原许可证，不宣称与 Grok 4 系列一致。",
+      "files": [
+        {
+          "name": "LICENSE",
+          "sourceURL": "https://huggingface.co/xai-org/grok-2/resolve/daf4395a80ad177386cfe39641b64fc12b1d70ed/LICENSE",
+          "path": "blobs/2576e2a47e576d18b3f86a9216083c2966bc19391207a80f9cd8faced69542d5.txt",
+          "sha256": "2576e2a47e576d18b3f86a9216083c2966bc19391207a80f9cd8faced69542d5",
+          "gitBlobSha1": "7627e72ce67023380bbe40def9bb5212bce8904e",
+          "sizeBytes": 5467
+        },
+        {
+          "name": "README.md",
+          "sourceURL": "https://huggingface.co/xai-org/grok-2/resolve/daf4395a80ad177386cfe39641b64fc12b1d70ed/README.md",
+          "path": "blobs/fe20d1639232a81974e61307b089be67880b4960174e4b6d94f61ada51e1b3cd.md",
+          "sha256": "fe20d1639232a81974e61307b089be67880b4960174e4b6d94f61ada51e1b3cd",
+          "gitBlobSha1": "301613dffbe7c3404f59e722f2143ef9201b7114",
+          "sizeBytes": 1583
+        },
+        {
+          "name": "tokenizer.tok.json",
+          "sourceURL": "https://huggingface.co/xai-org/grok-2/resolve/daf4395a80ad177386cfe39641b64fc12b1d70ed/tokenizer.tok.json",
+          "path": "blobs/8132d5a6e15d09fdc06680173bb8b30b982f13128c14e14377fbbb77351dcc06.json",
+          "sha256": "8132d5a6e15d09fdc06680173bb8b30b982f13128c14e14377fbbb77351dcc06",
+          "gitBlobSha1": "e7b48bde186413ecb80cc8cf74a9eb88e5774e81",
+          "sizeBytes": 7724637
+        }
+      ],
+      "errors": [],
+      "sourceURL": "https://huggingface.co/xai-org/grok-2/tree/daf4395a80ad177386cfe39641b64fc12b1d70ed",
+      "license": "见来源模型卡",
+      "status": "complete",
+      "downloadedAt": "2026-10-22T17:36:03.662144+00:00"
+    },
+    {
+      "id": "openai_bpe",
+      "family": "OpenAI",
+      "format": "tiktoken",
+      "repository": "openai/tiktoken",
+      "revision": "4e71bbe0c078468e00fefbf94b39849389f346e5",
+      "models": [
+        "gpt-5*",
+        "gpt-4o*",
+        "gpt-4.1*",
+        "o1*",
+        "o3*",
+        "o4-mini*"
+      ],
+      "precision": "official-text",
+      "notes": "确切型号映射以同 revision 的 model.py 为准，未定义 gpt-6 的精确映射。o200k_harmony 复用 o200k_base ranks，特殊 token 由 openai_public.py 定义。",
+      "files": [
+        {
+          "name": "o200k_base.tiktoken",
+          "sourceURL": "https://openaipublic.blob.core.windows.net/encodings/o200k_base.tiktoken",
+          "path": "blobs/446a9538cb6c348e3516120d7c08b09f57c36495e2acfffe59a5bf8b0cfb1a2d.tiktoken",
+          "sha256": "446a9538cb6c348e3516120d7c08b09f57c36495e2acfffe59a5bf8b0cfb1a2d",
+          "gitBlobSha1": "fbc14c2e1e71f5f666d5513d8a94da81381fe0be",
+          "sizeBytes": 3613922
+        },
+        {
+          "name": "cl100k_base.tiktoken",
+          "sourceURL": "https://openaipublic.blob.core.windows.net/encodings/cl100k_base.tiktoken",
+          "path": "blobs/223921b76ee99bde995b7ff738513eef100fb51d18c93597a113bcffe865b2a7.tiktoken",
+          "sha256": "223921b76ee99bde995b7ff738513eef100fb51d18c93597a113bcffe865b2a7",
+          "gitBlobSha1": "f1f50811175d9446bcd26399db7108ef2969ad94",
+          "sizeBytes": 1681126
+        },
+        {
+          "name": "openai_public.py",
+          "sourceURL": "https://raw.githubusercontent.com/openai/tiktoken/4e71bbe0c078468e00fefbf94b39849389f346e5/tiktoken_ext/openai_public.py",
+          "path": "blobs/954392738e60d0fb6dca1dad80872efc47c8e2733babecbbf0a23970ed66c2cb.py",
+          "sha256": "954392738e60d0fb6dca1dad80872efc47c8e2733babecbbf0a23970ed66c2cb",
+          "gitBlobSha1": "02c9ee20fa186223145da1de759bdf001f1f1e1c",
+          "sizeBytes": 5613
+        },
+        {
+          "name": "model.py",
+          "sourceURL": "https://raw.githubusercontent.com/openai/tiktoken/4e71bbe0c078468e00fefbf94b39849389f346e5/tiktoken/model.py",
+          "path": "blobs/600f26902d1cf6a1a5f54e37be988b3e0d911f1ff17ba7060bb361f9b5295521.py",
+          "sha256": "600f26902d1cf6a1a5f54e37be988b3e0d911f1ff17ba7060bb361f9b5295521",
+          "gitBlobSha1": "166db0692bfd5a374aa718f3a20c92d008a9918d",
+          "sizeBytes": 3909
+        },
+        {
+          "name": "LICENSE",
+          "sourceURL": "https://raw.githubusercontent.com/openai/tiktoken/4e71bbe0c078468e00fefbf94b39849389f346e5/LICENSE",
+          "path": "blobs/418cb499b436128d653d79941333a5437b7be2ea9213dcc2f04d15d5d2c51d86.txt",
+          "sha256": "418cb499b436128d653d79941333a5437b7be2ea9213dcc2f04d15d5d2c51d86",
+          "gitBlobSha1": "83ed1036f70d4f419307e8a044a35e163cc35201",
+          "sizeBytes": 1078
+        }
+      ],
+      "errors": [],
+      "sourceURL": "https://github.com/openai/tiktoken/tree/4e71bbe0c078468e00fefbf94b39849389f346e5",
+      "status": "complete",
+      "downloadedAt": "2026-10-22T17:36:03.662144+00:00"
+    },
+    {
+      "id": "gemma3",
+      "family": "Gemini",
+      "format": "sentencepiece",
+      "repository": "google/gemma_pytorch",
+      "revision": "014acb7ac4563a5f77c76d7ff98f31b568c16508",
+      "models": [
+        "gemini-2.5-pro",
+        "gemini-2.5-flash",
+        "gemini-2.5-flash-lite",
+        "gemini-2.0-flash",
+        "gemini-2.0-flash-lite",
+        "gemini-3-pro-preview",
+        "gemini-3-flash-preview"
+      ],
+      "precision": "official-sdk-text",
+      "notes": "只覆盖 Google SDK 明确映射的文本，其他型号仅可显式选择为近似词表。模型资源许可见来源仓库，不用 SDK 代码许可证代替模型许可。",
+      "files": [
+        {
+          "name": "tokenizer.model",
+          "sourceURL": "https://raw.githubusercontent.com/google/gemma_pytorch/014acb7ac4563a5f77c76d7ff98f31b568c16508/tokenizer/gemma3_cleaned_262144_v2.spiece.model",
+          "path": "blobs/1299c11d7cf632ef3b4e11937501358ada021bbdf7c47638d13c0ee982f2e79c.model",
+          "sha256": "1299c11d7cf632ef3b4e11937501358ada021bbdf7c47638d13c0ee982f2e79c",
+          "gitBlobSha1": "596d799af8b85f39f15769772b17182e94b4c0e1",
+          "sizeBytes": 4689074
+        },
+        {
+          "name": "README.md",
+          "sourceURL": "https://raw.githubusercontent.com/google/gemma_pytorch/014acb7ac4563a5f77c76d7ff98f31b568c16508/README.md",
+          "path": "blobs/86f6cd7c50eec67f1ad74b54a59c40c40748dde840b405bda897f92a754f201d.md",
+          "sha256": "86f6cd7c50eec67f1ad74b54a59c40c40748dde840b405bda897f92a754f201d",
+          "gitBlobSha1": "20344c5e4318a95e538a6f48d6bb5372cc3ad92e",
+          "sizeBytes": 5754
+        },
+        {
+          "name": "LICENSE",
+          "sourceURL": "https://raw.githubusercontent.com/google/gemma_pytorch/014acb7ac4563a5f77c76d7ff98f31b568c16508/LICENSE",
+          "path": "blobs/c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4.txt",
+          "sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
+          "gitBlobSha1": "261eeb9e9f8b2b4b0d119366dda99c6fd7d35c64",
+          "sizeBytes": 11357
+        }
+      ],
+      "errors": [],
+      "sourceURL": "https://github.com/google/gemma_pytorch/tree/014acb7ac4563a5f77c76d7ff98f31b568c16508",
+      "status": "complete",
+      "downloadedAt": "2026-10-22T17:36:03.662144+00:00"
+    },
+    {
+      "id": "grok1",
+      "family": "Grok",
+      "format": "sentencepiece",
+      "repository": "xai-org/grok-1",
+      "revision": "7050ed204b8206bb8645c7b7bbef7252f79561b0",
+      "models": [
+        "grok-1"
+      ],
+      "precision": "official-text",
+      "notes": "仅作为旧版及可选近似候选，不映射 Grok 4。",
+      "files": [
+        {
+          "name": "tokenizer.model",
+          "sourceURL": "https://raw.githubusercontent.com/xai-org/grok-1/7050ed204b8206bb8645c7b7bbef7252f79561b0/tokenizer.model",
+          "path": "blobs/5c69d7cbad192fa2c9d14e2a77fbfdc11597c68907b043ddb0260e3d28eddd7f.model",
+          "sha256": "5c69d7cbad192fa2c9d14e2a77fbfdc11597c68907b043ddb0260e3d28eddd7f",
+          "gitBlobSha1": "d2ff64d9c3329cfe2296d64126ef4e23452ee07f",
+          "sizeBytes": 2229219
+        },
+        {
+          "name": "README.md",
+          "sourceURL": "https://raw.githubusercontent.com/xai-org/grok-1/7050ed204b8206bb8645c7b7bbef7252f79561b0/README.md",
+          "path": "blobs/69b897742758aaf0b135af6dab5028e7b46402c098262bd5e244fcd575ffb1c8.md",
+          "sha256": "69b897742758aaf0b135af6dab5028e7b46402c098262bd5e244fcd575ffb1c8",
+          "gitBlobSha1": "f501a07e03a00d3efff10abf1542a86e94918e59",
+          "sizeBytes": 2145
+        },
+        {
+          "name": "LICENSE.txt",
+          "sourceURL": "https://raw.githubusercontent.com/xai-org/grok-1/7050ed204b8206bb8645c7b7bbef7252f79561b0/LICENSE.txt",
+          "path": "blobs/cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30.txt",
+          "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+          "gitBlobSha1": "d645695673349e3947e8e5ae42332d0ac3164cd7",
+          "sizeBytes": 11358
+        }
+      ],
+      "errors": [],
+      "sourceURL": "https://github.com/xai-org/grok-1/tree/7050ed204b8206bb8645c7b7bbef7252f79561b0",
+      "status": "complete",
+      "downloadedAt": "2026-10-22T17:36:03.662144+00:00"
+    },
+    {
+      "id": "google_local_tokenizer_rules",
+      "family": "Gemini",
+      "format": "source-reference",
+      "repository": "googleapis/python-genai",
+      "revision": "c97ae02ff87b5138bee29100b56c04c649233fed",
+      "models": [],
+      "precision": "reference",
+      "files": [
+        {
+          "name": "local_tokenizer.py",
+          "sourceURL": "https://raw.githubusercontent.com/googleapis/python-genai/c97ae02ff87b5138bee29100b56c04c649233fed/google/genai/local_tokenizer.py",
+          "path": "blobs/f7cf0985af5b1630b45e1ae151720c13976b8b832f9d482e6f885c3cc60cd1ef.py",
+          "sha256": "f7cf0985af5b1630b45e1ae151720c13976b8b832f9d482e6f885c3cc60cd1ef",
+          "gitBlobSha1": "2d2031e55e05d055b4bf49a01b3501ca1b7ff888",
+          "sizeBytes": 15158
+        },
+        {
+          "name": "_local_tokenizer_loader.py",
+          "sourceURL": "https://raw.githubusercontent.com/googleapis/python-genai/c97ae02ff87b5138bee29100b56c04c649233fed/google/genai/_local_tokenizer_loader.py",
+          "path": "blobs/eff7d8520c4656655cd42d3a7e981093fbd9cee8017db255c58df5112174df3c.py",
+          "sha256": "eff7d8520c4656655cd42d3a7e981093fbd9cee8017db255c58df5112174df3c",
+          "gitBlobSha1": "27f4781b8b2274e022eaf812e3bf4249dfe1e991",
+          "sizeBytes": 8045
+        },
+        {
+          "name": "LICENSE",
+          "sourceURL": "https://raw.githubusercontent.com/googleapis/python-genai/c97ae02ff87b5138bee29100b56c04c649233fed/LICENSE",
+          "path": "blobs/cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30.txt",
+          "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+          "gitBlobSha1": "d645695673349e3947e8e5ae42332d0ac3164cd7",
+          "sizeBytes": 11358
+        }
+      ],
+      "errors": [],
+      "sourceURL": "https://github.com/googleapis/python-genai/tree/c97ae02ff87b5138bee29100b56c04c649233fed",
+      "status": "complete",
+      "downloadedAt": "2026-10-22T17:36:03.662144+00:00"
+    },
+    {
+      "id": "deepseek_recipe_rules",
+      "family": "DeepSeek",
+      "format": "source-reference",
+      "repository": "deepseek-ai/deepseek-recipe",
+      "revision": "935817c66f5d6e64838f419692545f06787e485f",
+      "models": [],
+      "precision": "reference",
+      "files": [
+        {
+          "name": "tokenizer.md",
+          "sourceURL": "https://raw.githubusercontent.com/deepseek-ai/deepseek-recipe/935817c66f5d6e64838f419692545f06787e485f/docs/tokenizer.md",
+          "path": "blobs/3ac464425807e1251693a8813c3e586833d8a098732860f893ac4ce07b2454c4.md",
+          "sha256": "3ac464425807e1251693a8813c3e586833d8a098732860f893ac4ce07b2454c4",
+          "gitBlobSha1": "8ee41a5b1b02d3e8506d77e071d8bf05dc772fb5",
+          "sizeBytes": 10148
+        },
+        {
+          "name": "LICENSE",
+          "sourceURL": "https://raw.githubusercontent.com/deepseek-ai/deepseek-recipe/935817c66f5d6e64838f419692545f06787e485f/LICENSE",
+          "path": "blobs/ebb4f09972aee8608be255debaf78451a68e95c290f55c240dec2ecfa16ea6be.txt",
+          "sha256": "ebb4f09972aee8608be255debaf78451a68e95c290f55c240dec2ecfa16ea6be",
+          "gitBlobSha1": "c1f7a78e89e4e4dc7b86664c3b3c76eb5eee1785",
+          "sizeBytes": 1065
+        },
+        {
+          "name": "tokenizer_notices.md",
+          "sourceURL": "https://raw.githubusercontent.com/deepseek-ai/deepseek-recipe/935817c66f5d6e64838f419692545f06787e485f/static/tokenizers/README.md",
+          "path": "blobs/e2b2e400b7ad306d72cbfa621c1b1d39ea67e0165adbb32c29ffb164988bd4b7.md",
+          "sha256": "e2b2e400b7ad306d72cbfa621c1b1d39ea67e0165adbb32c29ffb164988bd4b7",
+          "gitBlobSha1": "a4890a28374eb18ad80145cd8d6877621da69415",
+          "sizeBytes": 1171
+        }
+      ],
+      "errors": [],
+      "sourceURL": "https://github.com/deepseek-ai/deepseek-recipe/tree/935817c66f5d6e64838f419692545f06787e485f",
+      "status": "complete",
+      "downloadedAt": "2026-10-22T17:36:03.662144+00:00"
+    },
+    {
+      "id": "claude_ctok_data",
+      "family": "Claude",
+      "format": "ctok",
+      "repository": "sanderland/ctok",
+      "revision": "8c43ffd3c7be467622a540f025516e49ef78d8b1",
+      "models": [
+        "claude-opus-4-6",
+        "claude-opus-4-7",
+        "claude-opus-4-8",
+        "claude-sonnet-5",
+        "claude-fable-5"
+      ],
+      "precision": "reconstructed",
+      "notes": "非官方逆向资源。下载不会替换已内嵌的算法和词表；算法升级仍须同步发布，不承诺新型号或完整请求准确性。",
+      "files": [
+        {
+          "name": "pieces_v3.json",
+          "sourceURL": "https://raw.githubusercontent.com/sanderland/ctok/8c43ffd3c7be467622a540f025516e49ef78d8b1/ctok/data/pieces_v3.json",
+          "path": "blobs/4c6db216062ef01e70ba033ff52ad3b97f886e79877235f2c7bbbd40d09ffb9b.json",
+          "sha256": "4c6db216062ef01e70ba033ff52ad3b97f886e79877235f2c7bbbd40d09ffb9b",
+          "gitBlobSha1": "dbef41b259d4dafc76f0146c56b5f73f7c78e3b5",
+          "sizeBytes": 3639018
+        },
+        {
+          "name": "pieces_v4_7.json",
+          "sourceURL": "https://raw.githubusercontent.com/sanderland/ctok/8c43ffd3c7be467622a540f025516e49ef78d8b1/ctok/data/pieces_v4_7.json",
+          "path": "blobs/a785fc240010c855f3d9a498fbd422ee389752dd151f1d5eef57ca8c85c19993.json",
+          "sha256": "a785fc240010c855f3d9a498fbd422ee389752dd151f1d5eef57ca8c85c19993",
+          "gitBlobSha1": "bb3e7b53e056e0c9a9afefda3dfc0be7a61f6264",
+          "sizeBytes": 1086653
+        },
+        {
+          "name": "LICENSE",
+          "sourceURL": "https://raw.githubusercontent.com/sanderland/ctok/8c43ffd3c7be467622a540f025516e49ef78d8b1/LICENSE",
+          "path": "blobs/5607d5baf3f475f490487e7c9c3ddbf39a96f8c16c41ff0d563f483615b430f3.txt",
+          "sha256": "5607d5baf3f475f490487e7c9c3ddbf39a96f8c16c41ff0d563f483615b430f3",
+          "gitBlobSha1": "5be4017428954a009f91480fc1e2e902488c6ad8",
+          "sizeBytes": 1068
+        }
+      ],
+      "errors": [],
+      "downloadedAt": "2026-10-22T18:07:57.276235+00:00",
+      "sourceURL": "https://github.com/sanderland/ctok/tree/8c43ffd3c7be467622a540f025516e49ef78d8b1",
+      "status": "complete"
+    },
+    {
+      "id": "hf_native_linux_amd64",
+      "family": "计数运行库",
+      "format": "native-runtime",
+      "repository": "daulet/tokenizers",
+      "revision": "v1.27.0",
+      "releaseAsset": "libtokenizers.linux-amd64.tar.gz",
+      "models": [],
+      "precision": "runtime",
+      "notes": "Go 调用 Hugging Face Rust 分词器的桥接库,仅 Linux amd64 glibc。下载后由构建流程链接,不在请求中执行安装。",
+      "files": [
+        {
+          "name": "libtokenizers.linux-amd64.tar.gz",
+          "sourceURL": "https://github.com/daulet/tokenizers/releases/download/v1.27.0/libtokenizers.linux-amd64.tar.gz",
+          "path": "blobs/72556cdca798dd4ea7cdaba308e5f0d68a8cb93b67c96edf485b7a0edd7b07f4.gz",
+          "sha256": "72556cdca798dd4ea7cdaba308e5f0d68a8cb93b67c96edf485b7a0edd7b07f4",
+          "gitBlobSha1": "7ce159e1bdbda0a02d50a429ad0b74d26daa24ad",
+          "sizeBytes": 14331593
+        }
+      ],
+      "errors": [],
+      "downloadedAt": "2026-10-22T19:03:56.427435+00:00",
+      "sourceURL": "https://github.com/daulet/tokenizers/releases/tag/v1.27.0",
+      "status": "complete"
+    },
+    {
+      "id": "hf_native_linux_arm64",
+      "family": "计数运行库",
+      "format": "native-runtime",
+      "repository": "daulet/tokenizers",
+      "revision": "v1.27.0",
+      "releaseAsset": "libtokenizers.linux-arm64.tar.gz",
+      "models": [],
+      "precision": "runtime",
+      "notes": "Go/HF 桥接库,仅 Linux arm64 glibc。",
+      "files": [
+        {
+          "name": "libtokenizers.linux-arm64.tar.gz",
+          "sourceURL": "https://github.com/daulet/tokenizers/releases/download/v1.27.0/libtokenizers.linux-arm64.tar.gz",
+          "path": "blobs/e96545ad05930c26f51f63d932ee6d3bbd32bbed149e102c5290d587a2293067.gz",
+          "sha256": "e96545ad05930c26f51f63d932ee6d3bbd32bbed149e102c5290d587a2293067",
+          "gitBlobSha1": "70b754ca24011a6942a87289be655259ba5fd8ed",
+          "sizeBytes": 14238993
+        }
+      ],
+      "errors": [],
+      "downloadedAt": "2026-10-22T19:04:02.122442+00:00",
+      "sourceURL": "https://github.com/daulet/tokenizers/releases/tag/v1.27.0",
+      "status": "complete"
+    },
+    {
+      "id": "hf_native_musl_amd64",
+      "family": "计数运行库",
+      "format": "native-runtime",
+      "repository": "daulet/tokenizers",
+      "revision": "v1.27.0",
+      "releaseAsset": "libtokenizers.linux-musl-amd64.tar.gz",
+      "models": [],
+      "precision": "runtime",
+      "notes": "Go/HF 桥接库,仅 Linux amd64 musl。",
+      "files": [
+        {
+          "name": "libtokenizers.linux-musl-amd64.tar.gz",
+          "sourceURL": "https://github.com/daulet/tokenizers/releases/download/v1.27.0/libtokenizers.linux-musl-amd64.tar.gz",
+          "path": "blobs/8043d2f258b2f4d84d2bef6868e2b971a37b9979afb9000965b38bce706d52d4.gz",
+          "sha256": "8043d2f258b2f4d84d2bef6868e2b971a37b9979afb9000965b38bce706d52d4",
+          "gitBlobSha1": "528bc70d620c8c684aedfea1efd6faaee8e54aa8",
+          "sizeBytes": 14310968
+        }
+      ],
+      "errors": [],
+      "downloadedAt": "2026-10-22T19:04:07.764823+00:00",
+      "sourceURL": "https://github.com/daulet/tokenizers/releases/tag/v1.27.0",
+      "status": "complete"
+    },
+    {
+      "id": "hf_native_musl_arm64",
+      "family": "计数运行库",
+      "format": "native-runtime",
+      "repository": "daulet/tokenizers",
+      "revision": "v1.27.0",
+      "releaseAsset": "libtokenizers.linux-musl-arm64.tar.gz",
+      "models": [],
+      "precision": "runtime",
+      "notes": "Go/HF 桥接库,仅 Linux arm64 musl。",
+      "files": [
+        {
+          "name": "libtokenizers.linux-musl-arm64.tar.gz",
+          "sourceURL": "https://github.com/daulet/tokenizers/releases/download/v1.27.0/libtokenizers.linux-musl-arm64.tar.gz",
+          "path": "blobs/8c64d719b7b35d824b7e2ff7fc8c2c49eca806169c11ea71a9c494e909a76399.gz",
+          "sha256": "8c64d719b7b35d824b7e2ff7fc8c2c49eca806169c11ea71a9c494e909a76399",
+          "gitBlobSha1": "810e5c27a03ff969f93daac4f49df0ba6c1b528d",
+          "sizeBytes": 14212078
+        }
+      ],
+      "errors": [],
+      "downloadedAt": "2026-10-22T19:04:13.453435+00:00",
+      "sourceURL": "https://github.com/daulet/tokenizers/releases/tag/v1.27.0",
+      "status": "complete"
+    },
+    {
+      "id": "sentencepiece_linux_amd64",
+      "family": "计数运行库",
+      "format": "native-runtime",
+      "repository": "google/sentencepiece",
+      "revision": "v0.2.2",
+      "releaseAsset": "sentencepiece-{version}-Linux-x86_64.7z",
+      "models": [],
+      "precision": "runtime",
+      "notes": "Google 官方 SentencePiece Linux amd64 发布包。",
+      "files": [
+        {
+          "name": "sentencepiece-0.2.2-Linux-x86_64.7z",
+          "sourceURL": "https://github.com/google/sentencepiece/releases/download/v0.2.2/sentencepiece-0.2.2-Linux-x86_64.7z",
+          "path": "blobs/0ba21fc7c82e5f9bf62306656e8afdee4367dd917fa8feb52c2af51d84277262.7z",
+          "sha256": "0ba21fc7c82e5f9bf62306656e8afdee4367dd917fa8feb52c2af51d84277262",
+          "gitBlobSha1": "a69380b104378a223ae90ace55afb6ba213bbe7c",
+          "sizeBytes": 1434038
+        }
+      ],
+      "errors": [],
+      "downloadedAt": "2026-10-22T19:04:19.028517+00:00",
+      "sourceURL": "https://github.com/google/sentencepiece/releases/tag/v0.2.2",
+      "status": "complete"
+    },
+    {
+      "id": "sentencepiece_windows_amd64",
+      "family": "计数运行库",
+      "format": "native-runtime",
+      "repository": "google/sentencepiece",
+      "revision": "v0.2.2",
+      "releaseAsset": "sentencepiece-{version}-Windows-AMD64.7z",
+      "models": [],
+      "precision": "runtime",
+      "notes": "Google 官方 SentencePiece Windows amd64 发布包;HF 桥接库没有同版本 Windows 预编译包,需在 Windows 构建或连接 Linux 计数节点。",
+      "files": [
+        {
+          "name": "sentencepiece-0.2.2-Windows-AMD64.7z",
+          "sourceURL": "https://github.com/google/sentencepiece/releases/download/v0.2.2/sentencepiece-0.2.2-Windows-AMD64.7z",
+          "path": "blobs/231940ac1a414babfc3c7ea40a864c272a41f79d639b1109bdc58417fc9bd719.7z",
+          "sha256": "231940ac1a414babfc3c7ea40a864c272a41f79d639b1109bdc58417fc9bd719",
+          "gitBlobSha1": "cd770f1d6742c946bf300532ca026c35c531a9c6",
+          "sizeBytes": 3217029
+        }
+      ],
+      "errors": [],
+      "downloadedAt": "2026-10-22T19:04:21.100148+00:00",
+      "sourceURL": "https://github.com/google/sentencepiece/releases/tag/v0.2.2",
+      "status": "complete"
+    },
+    {
+      "id": "sentencepiece_windows_arm64",
+      "family": "计数运行库",
+      "format": "native-runtime",
+      "repository": "google/sentencepiece",
+      "revision": "v0.2.2",
+      "releaseAsset": "sentencepiece-{version}-Windows-ARM64.7z",
+      "models": [],
+      "precision": "runtime",
+      "notes": "Google 官方 SentencePiece Windows arm64 发布包。",
+      "files": [
+        {
+          "name": "sentencepiece-0.2.2-Windows-ARM64.7z",
+          "sourceURL": "https://github.com/google/sentencepiece/releases/download/v0.2.2/sentencepiece-0.2.2-Windows-ARM64.7z",
+          "path": "blobs/b302d7a161cef4ab07d144cf358999c7dc00a9df55db833da2a28a0568bc2b86.7z",
+          "sha256": "b302d7a161cef4ab07d144cf358999c7dc00a9df55db833da2a28a0568bc2b86",
+          "gitBlobSha1": "455f50d266160cb4a0ca22f17103f572d4f7fdcb",
+          "sizeBytes": 3090438
+        }
+      ],
+      "errors": [],
+      "downloadedAt": "2026-10-22T19:04:23.272350+00:00",
+      "sourceURL": "https://github.com/google/sentencepiece/releases/tag/v0.2.2",
+      "status": "complete"
+    },
+    {
+      "id": "sentencepiece_source",
+      "family": "计数运行库",
+      "format": "native-runtime",
+      "repository": "google/sentencepiece",
+      "revision": "v0.2.2",
+      "releaseAsset": "sentencepiece-{version}.tar.gz",
+      "models": [],
+      "precision": "runtime",
+      "notes": "Google 官方源码,供缺少预编译包的架构使用;仅下载,不会自动编译安装。",
+      "files": [
+        {
+          "name": "sentencepiece-0.2.2.tar.gz",
+          "sourceURL": "https://github.com/google/sentencepiece/releases/download/v0.2.2/sentencepiece-0.2.2.tar.gz",
+          "path": "blobs/3d2b5e824b5622038dc7b490897efe05ebbbb9e7350fc142f3ecc8789ef9bdf6.gz",
+          "sha256": "3d2b5e824b5622038dc7b490897efe05ebbbb9e7350fc142f3ecc8789ef9bdf6",
+          "gitBlobSha1": "0edc819260123e2c54af146d1c814dcf4fc5488b",
+          "sizeBytes": 8218435
+        }
+      ],
+      "errors": [],
+      "downloadedAt": "2026-10-22T19:04:25.371282+00:00",
+      "sourceURL": "https://github.com/google/sentencepiece/releases/tag/v0.2.2",
+      "status": "complete"
+    },
+    {
+      "id": "abseil_source",
+      "family": "计数运行库",
+      "format": "native-runtime",
+      "repository": "abseil/abseil-cpp",
+      "revision": "20260526.0",
+      "releaseAsset": "abseil-cpp-{version}.tar.gz",
+      "models": [],
+      "precision": "runtime",
+      "notes": "SentencePiece v0.2.2 构建所需的官方 Abseil 源码,固定与其 CMake 相同版本;构建时使用已下载文件,不再临时 git clone。",
+      "files": [
+        {
+          "name": "abseil-cpp-20260526.0.tar.gz",
+          "sourceURL": "https://github.com/abseil/abseil-cpp/releases/download/20260526.0/abseil-cpp-20260526.0.tar.gz",
+          "path": "blobs/6e1aee535473414164bf83e4ebc40240dec71a4701f8a642d906e95bea1aea0c.gz",
+          "sha256": "6e1aee535473414164bf83e4ebc40240dec71a4701f8a642d906e95bea1aea0c",
+          "gitBlobSha1": "5c4625ab1a6b191964f90bb5d4efd3c35cf891ae",
+          "sizeBytes": 2391476
+        }
+      ],
+      "errors": [],
+      "downloadedAt": "2026-10-23T02:56:48.689169+00:00",
+      "sourceURL": "https://github.com/abseil/abseil-cpp/releases/tag/20260526.0",
+      "status": "complete"
+    },
+    {
+      "id": "deepseek_v4_pro",
+      "family": "DeepSeek",
+      "format": "huggingface",
+      "repository": "deepseek-ai/DeepSeek-V4-Pro",
+      "revision": "b5968e9190ef611bbf34a7229255be88a0e937c1",
+      "models": [
+        "deepseek-v4-pro"
+      ],
+      "precision": "official-text",
+      "files": [
+        {
+          "name": "LICENSE",
+          "sourceURL": "https://huggingface.co/deepseek-ai/DeepSeek-V4-Pro/resolve/b5968e9190ef611bbf34a7229255be88a0e937c1/LICENSE",
+          "path": "blobs/f2c6c602815669d292889e5be8c802f2ed950653b77999b1584e8e6aed25d040.txt",
+          "sha256": "f2c6c602815669d292889e5be8c802f2ed950653b77999b1584e8e6aed25d040",
+          "gitBlobSha1": "d62e3bef9f054f21b7fc616365850fbf879a99ff",
+          "sizeBytes": 1084
+        },
+        {
+          "name": "README.md",
+          "sourceURL": "https://huggingface.co/deepseek-ai/DeepSeek-V4-Pro/resolve/b5968e9190ef611bbf34a7229255be88a0e937c1/README.md",
+          "path": "blobs/c4d714818a4d3333542edc7d38ea065825a0cf7aa8fea3605bbd1d1c18e4a610.md",
+          "sha256": "c4d714818a4d3333542edc7d38ea065825a0cf7aa8fea3605bbd1d1c18e4a610",
+          "gitBlobSha1": "f621f4a76916208d0fa261a637d5983ddc6bc0e4",
+          "sizeBytes": 13149
+        },
+        {
+          "name": "tokenizer.json",
+          "sourceURL": "https://huggingface.co/deepseek-ai/DeepSeek-V4-Pro/resolve/b5968e9190ef611bbf34a7229255be88a0e937c1/tokenizer.json",
+          "path": "blobs/8f9f37ca37fdc4f5fd36d5cf4d3b0e8392edb4e894fd10cc0d70b4957c8633cf.json",
+          "sha256": "8f9f37ca37fdc4f5fd36d5cf4d3b0e8392edb4e894fd10cc0d70b4957c8633cf",
+          "gitBlobSha1": "628e3364caad11bdf9e67cea06eae7878122811d",
+          "sizeBytes": 6367146
+        },
+        {
+          "name": "tokenizer_config.json",
+          "sourceURL": "https://huggingface.co/deepseek-ai/DeepSeek-V4-Pro/resolve/b5968e9190ef611bbf34a7229255be88a0e937c1/tokenizer_config.json",
+          "path": "blobs/6ac8c8dc065ed118161d02dd532749ae3f52c243deac27872134fae2f50d8547.json",
+          "sha256": "6ac8c8dc065ed118161d02dd532749ae3f52c243deac27872134fae2f50d8547",
+          "gitBlobSha1": "f3dad388a2bbfd6a8605bd02754acd86d9ca5112",
+          "sizeBytes": 801
+        }
+      ],
+      "errors": [],
+      "sourceURL": "https://huggingface.co/deepseek-ai/DeepSeek-V4-Pro/tree/b5968e9190ef611bbf34a7229255be88a0e937c1",
+      "license": "mit",
+      "status": "complete",
+      "downloadedAt": "2026-10-22T17:36:03.662144+00:00"
+    }
+  ],
+  "embedded": [
+    {
+      "id": "claude_ctok",
+      "family": "Claude",
+      "sourceURL": "https://github.com/sanderland/ctok",
+      "revision": "8c43ffd3c7be467622a540f025516e49ef78d8b1",
+      "version": "1.3.0",
+      "precision": "reconstructed",
+      "files": [
+        {
+          "repositoryPath": "resources/tokenizers/embedded/pieces_v3.json",
+          "sha256": "446e56993a38f25c6c14da088914b47393e60bb1067a2f224fbf8d1c200ee888",
+          "sizeBytes": 3687887
+        },
+        {
+          "repositoryPath": "resources/tokenizers/embedded/pieces_v4_7.json",
+          "sha256": "d8fe6c5d1b89ff370f930c370a77d833ab001ec01f2fdbb583074d033a92fc48",
+          "sizeBytes": 1102010
+        },
+        {
+          "repositoryPath": "resources/tokenizers/embedded/LICENSE.ctok",
+          "sha256": "5607d5baf3f475f490487e7c9c3ddbf39a96f8c16c41ff0d563f483615b430f3",
+          "sizeBytes": 1068
+        }
+      ]
+    }
+  ]
+}

@@ -6,10 +6,7 @@ export const createUsageRecordCostResolver = () => {
   return (record, usage, serviceTier, withDetails = false) => {
     const compute = () => {
       if (!calculated.has(record)) {
-        calculated.set(
-          record,
-          CostCalculator.calculateCost(usage, record.model || 'unknown', serviceTier)
-        )
+        calculated.set(record, CostCalculator.calculateCost(usage, record.model || 'unknown', serviceTier))
       }
       return calculated.get(record)
     }
@@ -17,8 +14,7 @@ export const createUsageRecordCostResolver = () => {
     if (!withDetails) {
       return { cost }
     }
-    const realCost =
-      typeof record.realCost === 'number' ? record.realCost : (compute()?.costs?.total ?? 0)
+    const realCost = typeof record.realCost === 'number' ? record.realCost : (compute()?.costs?.total ?? 0)
     let breakdown = record.costBreakdown ?? record.realCostBreakdown
     if (!breakdown) {
       const costs = compute()?.costs
@@ -27,14 +23,14 @@ export const createUsageRecordCostResolver = () => {
         output: costs?.output ?? 0,
         cacheCreate: costs?.cacheWrite ?? 0,
         cacheRead: costs?.cacheRead ?? 0,
-        total: costs?.total ?? cost
+        total: costs?.total ?? cost,
       }
     }
     return {
       cost,
       realCost,
       costBreakdown: breakdown,
-      realCostBreakdown: record.realCostBreakdown ?? breakdown
+      realCostBreakdown: record.realCostBreakdown ?? breakdown,
     }
   }
 }

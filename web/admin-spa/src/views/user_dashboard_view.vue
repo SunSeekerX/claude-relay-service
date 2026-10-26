@@ -6,19 +6,10 @@
         <div class="flex h-16 justify-between">
           <div class="flex items-center">
             <div class="flex flex-shrink-0 items-center">
-              <svg
-                class="h-8 w-8 text-blue-600 dark:text-blue-400"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  stroke-width="2"
-                />
-              </svg>
+              <i
+                aria-hidden="true"
+                class="i-lucide-circle-check h-8 w-8 text-blue-600 dark:text-blue-400"
+              />
               <span class="ml-2 text-xl font-bold text-gray-900 dark:text-white">Claude Relay</span>
             </div>
             <div class="ml-10">
@@ -106,19 +97,7 @@
             <div class="p-3 sm:p-4">
               <div class="flex items-center">
                 <div class="flex-shrink-0">
-                  <svg
-                    class="h-6 w-6 text-green-400"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                  >
-                    <path
-                      d="M15 7a2 2 0 012 2m0 0a2 2 0 012 2m-2-2h-6m6 0v6a2 2 0 01-2 2H9a2 2 0 01-2-2V9a2 2 0 012-2h6z"
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                      stroke-width="2"
-                    />
-                  </svg>
+                  <i aria-hidden="true" class="i-lucide-key h-6 w-6 text-green-400" />
                 </div>
                 <div class="ml-5 w-0 flex-1">
                   <dl>
@@ -138,19 +117,7 @@
             <div class="p-3 sm:p-4">
               <div class="flex items-center">
                 <div class="flex-shrink-0">
-                  <svg
-                    class="h-6 w-6 text-gray-400"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                  >
-                    <path
-                      d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                      stroke-width="2"
-                    />
-                  </svg>
+                  <i aria-hidden="true" class="i-lucide-trash-2 h-6 w-6 text-gray-400" />
                 </div>
                 <div class="ml-5 w-0 flex-1">
                   <dl>
@@ -170,19 +137,7 @@
             <div class="p-3 sm:p-4">
               <div class="flex items-center">
                 <div class="flex-shrink-0">
-                  <svg
-                    class="h-6 w-6 text-blue-400"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                  >
-                    <path
-                      d="M13 10V3L4 14h7v7l9-11h-7z"
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                      stroke-width="2"
-                    />
-                  </svg>
+                  <i aria-hidden="true" class="i-lucide-zap h-6 w-6 text-blue-400" />
                 </div>
                 <div class="ml-5 w-0 flex-1">
                   <dl>
@@ -202,19 +157,7 @@
             <div class="p-3 sm:p-4">
               <div class="flex items-center">
                 <div class="flex-shrink-0">
-                  <svg
-                    class="h-6 w-6 text-purple-400"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                  >
-                    <path
-                      d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z"
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                      stroke-width="2"
-                    />
-                  </svg>
+                  <i aria-hidden="true" class="i-lucide-tags h-6 w-6 text-purple-400" />
                 </div>
                 <div class="ml-5 w-0 flex-1">
                   <dl>
@@ -234,19 +177,7 @@
             <div class="p-3 sm:p-4">
               <div class="flex items-center">
                 <div class="flex-shrink-0">
-                  <svg
-                    class="h-6 w-6 text-yellow-400"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                  >
-                    <path
-                      d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1"
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                      stroke-width="2"
-                    />
-                  </svg>
+                  <i aria-hidden="true" class="i-lucide-dollar-sign h-6 w-6 text-yellow-400" />
                 </div>
                 <div class="ml-5 w-0 flex-1">
                   <dl>

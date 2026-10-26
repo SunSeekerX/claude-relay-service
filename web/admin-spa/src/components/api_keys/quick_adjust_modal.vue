@@ -15,13 +15,14 @@
           </div>
           <button
             class="text-gray-400 transition-colors hover:text-gray-600 dark:hover:text-gray-200"
+            :disabled="saving"
             @click="requestClose"
           >
             <i class="i-lucide-x text-xl" />
           </button>
         </div>
 
-        <div class="modal-scroll-content custom-scrollbar flex-1 space-y-3">
+        <div class="modal-scroll-content custom-scrollbar flex-1 space-y-3" :inert="saving">
           <!-- API Key 信息 -->
           <div
             class="rounded-lg border border-blue-200 bg-blue-50 p-4 dark:border-blue-900/40 dark:bg-blue-900/20"
@@ -76,16 +77,6 @@
               <p v-if="newTotalCostLimitText" class="text-sm text-green-600 dark:text-green-400">
                 调整后总额度：{{ newTotalCostLimitText }}
               </p>
-              <button
-                class="btn btn-primary h-10 inline-flex w-full items-center justify-center px-6 text-sm font-semibold"
-                :disabled="costLoading || !canSaveCost"
-                type="button"
-                @click="saveCost"
-              >
-                <div v-if="costLoading" class="loading-spinner mr-2" />
-                <i v-else class="i-lucide-dollar-sign mr-2" />
-                {{ costLoading ? '保存中...' : '保存额度' }}
-              </button>
             </div>
           </div>
 
@@ -134,28 +125,17 @@
               <p v-if="newExpiresAtText" class="text-sm text-green-600 dark:text-green-400">
                 延长后过期时间：{{ newExpiresAtText }}
               </p>
-              <button
-                class="btn btn-primary h-10 inline-flex w-full items-center justify-center px-6 text-sm font-semibold"
-                :disabled="expiryLoading || !canSaveExpiry"
-                type="button"
-                @click="saveExpiry"
-              >
-                <div v-if="expiryLoading" class="loading-spinner mr-2" />
-                <i v-else class="i-lucide-clock mr-2" />
-                {{ expiryLoading ? '保存中...' : '保存有效期' }}
-              </button>
             </div>
           </div>
         </div>
 
         <div class="flex shrink-0 items-center gap-2 border-t border-gray-200 pt-3 dark:border-gray-700">
-          <button
-            class="inline-flex h-10 flex-1 items-center justify-center rounded-lg bg-gray-100 px-4 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600"
-            type="button"
-            @click="requestClose"
-          >
-            关闭
-          </button>
+          <DialogSaveActions
+            class="w-full"
+            :loading="saving"
+            @cancel="requestClose"
+            @save="save"
+          />
         </div>
       </div>
     </div>
@@ -189,8 +169,7 @@ const requestClose = () => {
 }
 const onClosed = () => emit('close')
 
-const costLoading = ref(false)
-const expiryLoading = ref(false)
+const saving = ref(false)
 const costPresets = [10, 50, 100, 500]
 const extendPresets = [7, 30, 90, 180, 365]
 const extendUnitOptions = [
@@ -267,7 +246,6 @@ const formatExpireDate = (dateString) => formatDateTime(dateString) || ''
 // 保存额度：成功后就地更新当前值、清空输入，不关闭 dialog；只回传本条变更给父级就地 patch
 const saveCost = async () => {
   if (!canSaveCost.value) return
-  costLoading.value = true
   try {
     const result = await httpApis.quickAdjustApiKeyApi(props.apiKey.id, {
       addCostLimit: parseFloat(form.addCostLimit)
@@ -282,20 +260,19 @@ const saveCost = async () => {
         keyId: props.apiKey.id,
         totalCostLimit: payload.newTotalCostLimit
       })
+      return true
     } else {
       showToast(msgOf(result, '保存失败'), 'error')
     }
   } catch (error) {
     showToast('保存失败', 'error')
-  } finally {
-    costLoading.value = false
   }
+  return false
 }
 
 // 保存有效期：成功后就地更新当前值、重置选择，不关闭 dialog；只回传本条变更给父级就地 patch
 const saveExpiry = async () => {
   if (!canSaveExpiry.value) return
-  expiryLoading.value = true
   try {
     const result = await httpApis.quickAdjustApiKeyApi(props.apiKey.id, {
       extendAmount: extendResolved.value.amount,
@@ -313,13 +290,24 @@ const saveExpiry = async () => {
         isActivated: payload.isActivated,
         activatedAt: payload.activatedAt
       })
+      return true
     } else {
       showToast(msgOf(result, '保存失败'), 'error')
     }
   } catch (error) {
     showToast('保存失败', 'error')
+  }
+  return false
+}
+
+const save = async (closeAfter = false) => {
+  saving.value = true
+  try {
+    if (canSaveCost.value && !(await saveCost())) return
+    if (canSaveExpiry.value && !(await saveExpiry())) return
+    if (closeAfter) requestClose()
   } finally {
-    expiryLoading.value = false
+    saving.value = false
   }
 }
 </script>
