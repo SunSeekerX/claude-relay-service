@@ -1,1 +1,0 @@
-import{A as e,h as t,v as n,x as r}from"./vendor--QDBHsAn.js";import{s as i}from"./index-BFeJ8TR0.js";import{t as a}from"./tutorial_view-BHhq-6Fs.js";var o={class:`tab-content`},s={class:`glass-strong rounded-2xl shadow-xl`},c=i({__name:`tutorial_tab`,setup(i){return(i,c)=>(e(),n(`div`,o,[t(`div`,s,[r(a)])]))}},[[`__scopeId`,`data-v-818a8ea7`]]);export{c as default};
