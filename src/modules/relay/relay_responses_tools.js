@@ -22,13 +22,14 @@ export const requiresResponsesToolAdapter = (body) =>
   body.tools?.some((tool) => ['namespace', 'tool_search', 'custom'].includes(tool.type)) ||
   body.input?.some?.(
     (item) =>
-      item.namespace ||
+      item?.namespace ||
       [
         'tool_search_call',
         'tool_search_output',
+        'additional_tools',
         'custom_tool_call',
         'custom_tool_call_output'
-      ].includes(item.type)
+      ].includes(item?.type),
   )
 
 export const adaptResponsesTools = (source) => {
@@ -112,7 +113,14 @@ export const adaptResponsesTools = (source) => {
   }
   const { input } = source
   for (const item of Array.isArray(input) ? input : []) {
-    if (item.type === 'tool_search_output') {
+    if (item?.type === 'additional_tools') {
+      if (!Array.isArray(item.tools)) {
+        throw invalid('additional_tools input must contain a tools array')
+      }
+      for (const tool of item.tools) {
+        add(tool)
+      }
+    } else if (item?.type === 'tool_search_output') {
       for (const tool of item.tools ?? []) {
         add(tool)
       }
@@ -168,7 +176,7 @@ export const adaptResponsesTools = (source) => {
     body.tools = tools
   }
   if (Array.isArray(input)) {
-    body.input = input.map(rewrite)
+    body.input = input.filter((item) => item?.type !== 'additional_tools').map(rewrite)
   }
   const choice = source.tool_choice
   if (choice?.type === 'function' || choice?.type === 'custom') {

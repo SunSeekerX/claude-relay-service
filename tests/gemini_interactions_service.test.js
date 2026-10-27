@@ -257,6 +257,159 @@ it('settles background work through the bounded pending queue', async () => {
   expect(pending.size).toBe(0)
 })
 
+const seedLegacyRecord = async (overrides = {}) => {
+  const record = {
+    ownerId: 'key-1',
+    id: 'int-1',
+    accountId: 'api-1',
+    version: 'v1beta',
+    model: 'gemini-test',
+    status: 'completed',
+    stored: true,
+    billed: false,
+    usage,
+    meta: { requestId: 'legacy-request' },
+    ...overrides
+  }
+  const key = await redis.createGeminiInteraction(record)
+  pending.set(key, 0)
+  return { key, record }
+}
+
+it('retains legacy stateless evidence for manual reconciliation without billing or querying upstream', async () => {
+  await seedLegacyRecord({ stored: false })
+  await service.poll()
+  expect(recordUsage).not.toHaveBeenCalled()
+  expect(axios).not.toHaveBeenCalled()
+  expect(await redis.getGeminiInteraction('key-1', 'int-1')).toMatchObject({
+    usage,
+    billed: false,
+    settlementUnknown: true,
+    settlementReviewRequired: true,
+    settlementReviewReason: 'upstream_not_stored'
+  })
+  expect(pending.size).toBe(0)
+  await new GeminiInteractionsService().poll()
+  expect(axios).not.toHaveBeenCalled()
+})
+
+it('settles retained legacy resources only from fresh final upstream usage', async () => {
+  await seedLegacyRecord()
+  const finalUsage = { ...usage, total_output_tokens: 40, total_tokens: 145 }
+  axios.mockResolvedValueOnce({ status: 200, data: { ...complete, usage: finalUsage } })
+  await service.poll()
+  expect(axios).toHaveBeenCalledTimes(1)
+  expect(recordUsage).toHaveBeenCalledTimes(1)
+  expect(recordUsage.mock.calls[0][1]._upstreamUsage).toEqual(finalUsage)
+  expect(recordUsage.mock.calls[0][6]).toMatchObject({
+    requestId: 'legacy-request',
+    billingDedupId: `gemini-interaction:${RedisKeys.geminiInteraction.record('key-1', 'int-1')}`
+  })
+  expect(await redis.getGeminiInteraction('key-1', 'int-1')).toMatchObject({ billed: true, usageFinal: true })
+  expect(pending.size).toBe(0)
+})
+
+it('marks an unavailable legacy resource for reconciliation after one 404', async () => {
+  await seedLegacyRecord()
+  axios.mockRejectedValueOnce(Object.assign(new Error('not found'), { response: { status: 404 } }))
+  await service.poll()
+  expect(recordUsage).not.toHaveBeenCalled()
+  expect(await redis.getGeminiInteraction('key-1', 'int-1')).toMatchObject({
+    usage,
+    billed: false,
+    settlementUnknown: true,
+    settlementReviewRequired: true,
+    settlementReviewReason: 'upstream_not_found'
+  })
+  expect(pending.size).toBe(0)
+  await service.poll()
+  expect(axios).toHaveBeenCalledTimes(1)
+})
+
+it('does not promote unmarked legacy checkpoint usage when a final resource response omits usage', async () => {
+  await seedLegacyRecord()
+  axios.mockResolvedValueOnce({ status: 200, data: { id: 'int-1', status: 'completed' } })
+  await service.poll()
+  expect(recordUsage).not.toHaveBeenCalled()
+  expect(await redis.getGeminiInteraction('key-1', 'int-1')).toMatchObject({
+    usage,
+    billed: false,
+    settlementUnknown: true,
+    settlementReviewRequired: true,
+    settlementReviewReason: 'legacy_final_usage_unverified'
+  })
+  expect(pending.size).toBe(0)
+})
+
+it('retains the old usage evidence when the fresh legacy response has incomplete final counters', async () => {
+  await seedLegacyRecord()
+  axios.mockResolvedValueOnce({ status: 200, data: { id: 'int-1', status: 'completed', usage: { total_tokens: 130 } } })
+  await service.poll()
+  expect(recordUsage).not.toHaveBeenCalled()
+  expect(await redis.getGeminiInteraction('key-1', 'int-1')).toMatchObject({
+    usage: { total_tokens: 130 },
+    checkpointUsage: usage,
+    billed: false,
+    settlementReviewRequired: true,
+    settlementReviewReason: 'legacy_final_usage_unverified'
+  })
+  expect(pending.size).toBe(0)
+})
+
+it('keeps a transient upstream failure in the recovery queue', async () => {
+  await seedLegacyRecord()
+  axios.mockRejectedValueOnce(
+    Object.assign(new Error('temporarily unavailable'), { response: { status: 503, data: {}, headers: {} } })
+  )
+  await service.poll()
+  expect(recordUsage).not.toHaveBeenCalled()
+  expect((await redis.getGeminiInteraction('key-1', 'int-1')).settlementReviewRequired).toBeUndefined()
+  expect(pending.size).toBe(1)
+  due()
+  await service.poll()
+  expect(recordUsage).toHaveBeenCalledTimes(1)
+})
+
+it('clears manual reconciliation only when a subsequent resource read provides final usage', async () => {
+  await seedLegacyRecord()
+  axios.mockRejectedValueOnce(Object.assign(new Error('not found'), { response: { status: 404 } }))
+  await service.poll()
+  const req = request()
+  req.params.id = 'int-1'
+  req.method = 'GET'
+  await service.resource(req, new Response(), 'get')
+  expect(recordUsage).toHaveBeenCalledTimes(1)
+  expect(await redis.getGeminiInteraction('key-1', 'int-1')).toMatchObject({
+    billed: true,
+    usageFinal: true,
+    settlementUnknown: false,
+    settlementReviewRequired: false,
+    settlementReviewReason: null
+  })
+})
+
+it('retries reconciliation state persistence when another settlement holds the lease', async () => {
+  const { key } = await seedLegacyRecord({ stored: false })
+  const owner = await redis.lockGeminiInteraction(key)
+  await service.poll()
+  expect((await redis.getGeminiInteraction('key-1', 'int-1')).settlementReviewRequired).toBeUndefined()
+  expect(pending.size).toBe(1)
+  await redis.unlockGeminiInteraction(key, owner)
+  due()
+  await service.poll()
+  expect((await redis.getGeminiInteraction('key-1', 'int-1')).settlementReviewRequired).toBe(true)
+  expect(pending.size).toBe(0)
+})
+
+it('does not overwrite a concurrently confirmed settlement with a stale reconciliation request', async () => {
+  const { key, record } = await seedLegacyRecord()
+  await redis.saveGeminiInteraction(key, { ...record, billed: true, usageFinal: true })
+  await service._deferToReconciliation(record, 'upstream_not_found')
+  expect(await redis.getGeminiInteraction('key-1', 'int-1')).toMatchObject({ billed: true, usageFinal: true })
+  expect((await redis.getGeminiInteraction('key-1', 'int-1')).settlementReviewRequired).toBeUndefined()
+  expect(pending.size).toBe(0)
+})
+
 it('persists billing evidence before a failed settlement and retries even store=false', async () => {
   recordUsage.mockRejectedValueOnce(new Error('ledger unavailable'))
   await service.create(request({ model: 'gemini-test', input: 'private', store: false }), new Response(), {})

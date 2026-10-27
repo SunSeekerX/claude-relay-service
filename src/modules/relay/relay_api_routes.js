@@ -1208,6 +1208,12 @@ export const handleMessagesRequest = async (req, res) => {
       // 尝试解析JSON响应并提取usage信息
       try {
         const jsonData = JSON.parse(response.body)
+        req._crsProtocolTerminal =
+          response.statusCode >= 400 || jsonData?.type === 'error'
+            ? 'error'
+            : jsonData?.type === 'message'
+              ? 'message'
+              : null
 
         if (response.statusCode >= 400) {
           logger.info(

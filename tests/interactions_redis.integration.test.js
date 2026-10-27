@@ -56,6 +56,53 @@ suite('Interactions and authentication alerts on disposable local Redis', () => 
     return keys
   }
 
+  it('finds and requeues legacy evidence after an old worker removed its queue pointer', async () => {
+    const ownerId = crypto.randomUUID()
+    const record = {
+      ownerId,
+      id: 'legacy',
+      billed: false,
+      stored: false,
+      status: 'completed',
+      usage: { total_input_tokens: 10, total_output_tokens: 2 }
+    }
+    const key = await store.createGeminiInteraction(record)
+    const owner = await store.lockGeminiInteraction(key)
+    const found = []
+    let cursor = '0'
+    do {
+      const { cursor: nextCursor, records } = await store.scanLegacyGeminiInteractions(cursor)
+      cursor = nextCursor
+      found.push(...records)
+    } while (cursor !== '0')
+    expect(found).toContainEqual({ key, ownerId, id: 'legacy' })
+    const ttl = await client.ttl(key)
+    expect(Number(await store.requeueLegacyGeminiInteraction(key))).toBe(1)
+    const score = await client.zscore(RedisKeys.geminiInteraction.pending, key)
+    expect(Number(await store.requeueLegacyGeminiInteraction(key))).toBe(0)
+    expect(await client.zscore(RedisKeys.geminiInteraction.pending, key)).toBe(score)
+    expect(await store.getGeminiInteraction(ownerId, 'legacy')).toEqual(record)
+    expect(await client.ttl(key)).toBeLessThanOrEqual(ttl)
+    await store.unlockGeminiInteraction(key, owner)
+  })
+
+  it.each([{ billed: true }, { settlementReviewRequired: true }, { usageFinal: false }, { usageFinal: true }])(
+    'does not restore records whose state changed after discovery: %j',
+    async (change) => {
+      const ownerId = crypto.randomUUID()
+      const record = {
+        ownerId,
+        id: 'changed',
+        billed: false,
+        usage: { total_input_tokens: 10, total_output_tokens: 2 }
+      }
+      const key = await store.createGeminiInteraction(record)
+      await store.saveGeminiInteraction(key, { ...record, ...change })
+      expect(Number(await store.requeueLegacyGeminiInteraction(key))).toBe(0)
+      expect(await client.zscore(RedisKeys.geminiInteraction.pending, key)).toBeNull()
+    }
+  )
+
   it('atomically accounts final usage once across concurrent retries and retains window TTLs', async () => {
     const ownerId = crypto.randomUUID()
     const start = Date.now()

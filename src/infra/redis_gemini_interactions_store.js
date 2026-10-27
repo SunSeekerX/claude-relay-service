@@ -3,6 +3,45 @@ import { RedisKeys, TTL } from './redis_key.js'
 import { RedisLua } from './redis_lua.js'
 
 export const attach = (redis) => {
+  redis.scanLegacyGeminiInteractions = async (cursor = '0') => {
+    const client = redis.getClientSafe()
+    const [nextCursor, keys] = await client.scan(
+      cursor,
+      'MATCH',
+      RedisKeys.geminiInteraction.recordPattern,
+      'COUNT',
+      100
+    )
+    const records = []
+    const recordKeys = keys.filter((key) => !key.endsWith(':billing_lock'))
+    const values = recordKeys.length ? await client.mget(...recordKeys) : []
+    for (const [index, value] of values.entries()) {
+      if (!value) {
+        continue
+      }
+      const record = JSON.parse(value)
+      if (
+        typeof record.ownerId === 'string' &&
+        typeof record.id === 'string' &&
+        recordKeys[index] === RedisKeys.geminiInteraction.record(record.ownerId, record.id) &&
+        record.billed === false &&
+        record.usageFinal === undefined &&
+        record.usage &&
+        typeof record.usage === 'object' &&
+        !Array.isArray(record.usage) &&
+        !record.settlementReviewRequired
+      ) {
+        records.push({ key: recordKeys[index], ownerId: record.ownerId, id: record.id })
+      }
+    }
+    return { cursor: nextCursor, records }
+  }
+
+  redis.requeueLegacyGeminiInteraction = async (key) =>
+    redis
+      .getClientSafe()
+      .eval(RedisLua.geminiInteraction.recoverLegacy, 2, key, RedisKeys.geminiInteraction.pending, Date.now())
+
   redis.getGeminiInteraction = async (ownerId, id) => {
     const raw = await redis.getClientSafe().get(RedisKeys.geminiInteraction.record(ownerId, id))
     return raw ? JSON.parse(raw) : null

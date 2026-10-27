@@ -113,7 +113,7 @@ router.post(['/v1/messages', '/messages'], authenticateApiKey, async (req, res) 
   }
 })
 
-// Responses compact（Grok 无原生 compact，服务侧改写）
+// Responses compact: 仅转发 xAI 原生压缩。
 router.post(['/v1/responses/compact', '/responses/compact'], authenticateApiKey, async (req, res) => {
   try {
     if (denyIfNoPermission(req, res)) {

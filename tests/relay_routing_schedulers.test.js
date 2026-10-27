@@ -173,6 +173,38 @@ test('Gemini Messages group excludes API and foreign-provider accounts, includin
   expect(markApi).not.toHaveBeenCalled()
 })
 
+test.each(['available', 'blocked', 'removed'])(
+  'Code Assist polling retains its original group account when it is %s',
+  async (state) => {
+    group.members = state === 'removed' ? ['other'] : ['owner', 'other']
+    for (const id of ['owner', 'other']) {
+      oauthAccounts.set(id, {
+        id,
+        oauthProvider: 'gemini-cli',
+        supportedModels: [],
+        priority: id === 'other' ? 1 : 100,
+      })
+    }
+    const available = jest
+      .spyOn(unifiedGeminiScheduler, '_isAccountAvailable')
+      .mockImplementation(async (id) => state !== 'blocked' || id !== 'owner')
+    const key = { id: 'key1', _relayRoute: { code: 'entry', provider: 'gemini', binding: 'group:group1' } }
+    const selected = unifiedGeminiScheduler.selectAccountForApiKey(key, null, null, {
+      oauthProvider: 'gemini-cli',
+      pinnedAccountId: 'owner',
+    })
+    if (state === 'available') {
+      await expect(selected).resolves.toMatchObject({ accountId: 'owner', accountType: 'gemini' })
+      expect(markOauth).toHaveBeenCalledWith('owner')
+    } else {
+      await expect(selected).rejects.toThrow('No available accounts')
+      expect(markOauth).not.toHaveBeenCalled()
+    }
+    expect(available.mock.calls).toEqual(state === 'removed' ? [] : [['owner', 'gemini']])
+    expect(markApi).not.toHaveBeenCalled()
+  },
+)
+
 test('Claude OAuth and Bedrock model restrictions remain hard gates with auto protection disabled', () => {
   expect(
     unifiedClaudeScheduler._isModelSupportedByAccount(

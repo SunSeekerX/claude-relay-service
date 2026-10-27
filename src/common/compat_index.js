@@ -9,6 +9,8 @@
 // | tokenStats         | compat_token_stats.js         | usage token 旧单字段(30/70)   | 所有 usage 写分离字段             |
 // | apiKeyHash         | compat_api_key_hash.js        | apikey_hash 新旧双结构        | 旧结构清退、hash_map 完整         |
 // | auth rate-limit    | src/infra/middleware_auth.js  | tokenLimit 优先 rateLimitCost | 所有 Key 用 rateLimitCost         |
+// | Interactions usage | relay_gemini_interactions_service.js poll | 缺少 usageFinal 的待结算记录 | 旧记录已核实或转人工对账，且 55 天旧记录 TTL 已耗尽 |
+// 旧版已掉队记录由 scripts/migrate-gemini-interactions-pending.js 默认只读检查，--apply 仅幂等恢复入队。
 //
 // 在册不搬:middleware_auth.js 的 token/cost 优先级判断与 res.status(429) HTTP 响应高度耦合,
 // 抽取需拆分决策与响应、改动认证中间件,风险高收益低,故保留原地、仅在此登记。

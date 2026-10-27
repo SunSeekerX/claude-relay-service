@@ -7,12 +7,23 @@ let account
 const scheduler = jest.fn()
 const forward = jest.fn()
 const getOauthClient = jest.fn()
+const getAccount = jest.fn()
+const operationAccounts = new Map()
+const operationRedis = {
+  getGeminiCodeAssistOperationAccount: jest.fn(
+    async (ownerId, operationId) => operationAccounts.get(`${ownerId}:${operationId}`) ?? null,
+  ),
+  saveGeminiCodeAssistOperationAccount: jest.fn(async (ownerId, operationId, accountId) => {
+    operationAccounts.set(`${ownerId}:${operationId}`, accountId)
+  }),
+}
 const logger = { error: jest.fn(), info: jest.fn() }
 const resource = jest.fn((_req, res) => res.status(501).end())
 jest.unstable_mockModule('../src/modules/relay/relay_gemini_interactions_service.js', () => ({
   geminiInteractionsService: { resource }
 }))
 jest.unstable_mockModule('../src/common/logger.js', () => ({ logger }))
+jest.unstable_mockModule('../src/infra/redis.js', () => ({ redis: operationRedis }))
 jest.unstable_mockModule('../src/infra/middleware_auth.js', () => ({
   authenticateApiKey: (req, _res, next) => {
     req.apiKey = key
@@ -20,7 +31,7 @@ jest.unstable_mockModule('../src/infra/middleware_auth.js', () => ({
   }
 }))
 jest.unstable_mockModule('../src/modules/account/account_gemini_service.js', () => ({
-  getAccount: async () => account,
+  getAccount,
   getOauthClient,
   forwardToCodeAssist: forward
 }))
@@ -78,8 +89,10 @@ const codeAssist = await import('../src/modules/relay/relay_gemini_code_assist_h
 
 beforeEach(() => {
   jest.clearAllMocks()
+  operationAccounts.clear()
   key = { id: 'fixture-key', permissions: ['gemini'], geminiAccountId: null }
   account = { id: 'oauth-a', accountType: 'shared', oauthProvider: 'gemini-cli' }
+  getAccount.mockReset().mockImplementation(async () => account)
   scheduler.mockResolvedValue({ accountId: 'oauth-a', accountType: 'gemini' })
   getOauthClient.mockResolvedValue({ fixture: true })
   forward.mockResolvedValue({ fixture: true })
@@ -133,11 +146,56 @@ describe('Gemini CLI auxiliary routes', () => {
   it('uses GET for settings and operation polling', async () => {
     expect((await request(app).get('/gemini/v1internal:getCodeAssistGlobalUserSetting')).status).toBe(200)
     expect(forward.mock.calls[0][4].method).toBe('GET')
+    operationAccounts.set(`${key.id}:123`, 'oauth-a')
     expect((await request(app).get('/gemini/v1internal/operations/123')).status).toBe(200)
     expect(forward.mock.calls[1][4]).toMatchObject({
       method: 'GET',
       operationName: 'operations/123'
     })
+  })
+
+  it('persists the named onboarding owner and pins later polls to it', async () => {
+    forward.mockResolvedValueOnce({ name: 'operations/op1', done: false })
+    const created = await request(named).post('/r/entry/v1internal:onboardUser').send({ tierId: 'free-tier' })
+    expect(created.body).toEqual({ name: 'operations/op1', done: false })
+    expect(operationRedis.saveGeminiCodeAssistOperationAccount).toHaveBeenCalledWith(key.id, 'op1', 'oauth-a')
+    scheduler.mockImplementation(async (_key, _session, _model, options) => ({
+      accountId: options.pinnedAccountId ?? 'oauth-b',
+      accountType: 'gemini',
+    }))
+    forward.mockResolvedValueOnce({ name: 'operations/op1', done: true })
+    const polled = await request(named).get('/r/entry/v1internal/operations/op1')
+    expect(polled.body.done).toBe(true)
+    expect(scheduler).toHaveBeenLastCalledWith(key, null, null, {
+      oauthProvider: 'gemini-cli',
+      pinnedAccountId: 'oauth-a',
+    })
+    expect(getAccount).toHaveBeenLastCalledWith('oauth-a')
+  })
+
+  it('does not schedule missing, expired or another key operation IDs', async () => {
+    operationAccounts.set('another-key:private-op', 'oauth-a')
+    for (const operationId of ['unknown', 'private-op']) {
+      expect((await request(app).get(`/gemini/v1internal/operations/${operationId}`)).status).toBe(404)
+    }
+    expect(scheduler).not.toHaveBeenCalled()
+    expect(forward).not.toHaveBeenCalled()
+  })
+
+  it('keeps pinned account admission failures terminal instead of polling a fallback', async () => {
+    operationAccounts.set(`${key.id}:op1`, 'oauth-a')
+    scheduler.mockRejectedValueOnce(Object.assign(new Error('Original account is unavailable'), { statusCode: 503 }))
+    expect((await request(app).get('/gemini/v1internal/operations/op1')).status).toBe(502)
+    expect(scheduler).toHaveBeenCalledTimes(1)
+    expect(forward).not.toHaveBeenCalled()
+  })
+
+  it('rejects invalid pending operation names and permits already completed onboarding', async () => {
+    forward.mockResolvedValueOnce({ name: 'operations/../secret', done: false })
+    expect((await request(named).post('/r/entry/v1internal:onboardUser').send({})).status).toBe(502)
+    expect(operationRedis.saveGeminiCodeAssistOperationAccount).not.toHaveBeenCalled()
+    forward.mockResolvedValueOnce({ done: true, response: { cloudaicompanionProject: 'project-a' } })
+    expect((await request(named).post('/r/entry/v1internal:onboardUser').send({})).status).toBe(200)
   })
 
   it.each([null, 'group:group-a', 'api:account-a'])(

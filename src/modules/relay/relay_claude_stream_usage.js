@@ -8,11 +8,12 @@ export const createClaudeStreamFinalizer = ({ state, usageCallback, clientReques
     if (finalized) {
       return finalized
     }
-    const result = state.finish(transportError)
+    const result = { ...state.finish(transportError), protocolTerminal: state.terminalType }
     const usage = state.getUsage()
     clientRequest?._crsRecordRelayResult?.({ ...result, hasUsage: Boolean(usage), final: true })
     if (clientRequest) {
       clientRequest._crsUsageDetailHandled = true
+      clientRequest._crsProtocolTerminal = state.terminalType
     }
     // DEC_20261013_223237 失败或截断按最后有效累计用量结算一次，未上报用量不估算。
     finalized = Promise.resolve().then(async () => {

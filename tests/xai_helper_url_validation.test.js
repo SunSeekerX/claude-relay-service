@@ -1,4 +1,11 @@
-import { validateBaseUrl } from '../src/common/xai_helper.js'
+import { validateBaseUrl, buildResponsesCompactUrl } from '../src/common/xai_helper.js'
+
+it('builds native compact URLs with existing official base URL normalization', () => {
+  expect(buildResponsesCompactUrl('https://api.x.ai/v1/')).toBe('https://api.x.ai/v1/responses/compact')
+  expect(buildResponsesCompactUrl('https://cli-chat-proxy.grok.com/v1')).toBe(
+    'https://cli-chat-proxy.grok.com/v1/responses/compact',
+  )
+})
 
 describe('xai_helper validateBaseUrl private host guard', () => {
   it('rejects plain private IPv4', () => {

@@ -178,7 +178,7 @@ class GrokRelayService {
   }
 
   async relayResponses(req, res, apiKeyData, sessionHash = null) {
-    // compact 子路径：OpenAI /responses/compact → Grok 总结轮
+    // compact 使用 xAI 原生接口, 不生成替代摘要。
     const path = String(req.path || req.url || '')
     if (path.includes('/compact')) {
       return this._relay(req, res, apiKeyData, sessionHash, 'responses_compact')
@@ -309,7 +309,7 @@ class GrokRelayService {
         'Grok request',
       )
 
-      let isStream =
+      const isStream =
         Boolean(req.body?.stream) &&
         !String(endpointKind).startsWith('images') &&
         !String(endpointKind).startsWith('videos') &&
@@ -336,11 +336,7 @@ class GrokRelayService {
         token = account.authType === 'apikey' ? account.apiKey : account.accessToken
       }
 
-      let targetUrl = this._buildTargetUrl(
-        account,
-        endpointKind === 'responses_compact' ? 'responses' : endpointKind,
-        req,
-      )
+      let targetUrl = this._buildTargetUrl(account, endpointKind, req)
       let body = this._prepareBody(req.body, endpointKind)
       const toolAdapter = endpointKind === 'responses' && requiresResponsesToolAdapter(body) ? adaptResponsesTools(body) : null
       if (toolAdapter) {({ body } = toolAdapter)}
@@ -348,13 +344,8 @@ class GrokRelayService {
       let reverseBridgeToChat = false
       const originalChatModel = requestedModel
 
-      // compact 改写
       if (endpointKind === 'responses_compact') {
         body = grokProtocol.buildGrokCompactRequestBody(body)
-        isStream = false
-        effectiveEndpointKind = 'responses'
-        targetUrl = this._buildTargetUrl(account, 'responses', req)
-        logger.info(`[GrokRelay] compact rewrite account=${account.id}`)
       }
 
       // chat → responses 桥（仅当资格满足；否则 raw chat）
@@ -441,6 +432,8 @@ class GrokRelayService {
       let response = await timedUpstreamRequest(req, () => axios(applyProxy(buildRequestOptions(body))))
       proxyResolver.report?.(proxyResolution?.proxyId, proxyResolution?.contextKey, null)
 
+      const compactUnsupported = (status) => endpointKind === 'responses_compact' && [405, 501].includes(status)
+
       // encrypted_content 400：剥离后同号重试一次
       if (
         effectiveEndpointKind === 'responses' &&
@@ -455,7 +448,12 @@ class GrokRelayService {
       }
 
       // failover：405/401/429/5xx 等换号重试一次
-      if (response.status >= 400 && grokProtocol.shouldFailoverGrokStatus(response.status) && !forcedAccountId) {
+      if (
+        response.status >= 400 &&
+        !compactUnsupported(response.status) &&
+        grokProtocol.shouldFailoverGrokStatus(response.status) &&
+        !forcedAccountId
+      ) {
         if (response.status === 429) {
           const retryAfter = upstreamErrorHelper.parseRetryAfter?.(response.headers) || 3600
           const grokAutoOff = account.disableAutoProtection === true || account.disableAutoProtection === 'true'
@@ -534,11 +532,7 @@ class GrokRelayService {
             }
             targetUrl = this._buildTargetUrl(
               account,
-              endpointKind === 'responses_compact'
-                ? 'responses'
-                : effectiveEndpointKind === 'responses'
-                  ? 'responses'
-                  : endpointKind,
+              effectiveEndpointKind === 'responses' ? 'responses' : endpointKind,
               req,
             )
             proxyResolution = proxyResolver.resolveAgent(account, 'grok')
@@ -547,6 +541,23 @@ class GrokRelayService {
         } catch (failoverError) {
           console.error(failoverError)
         }
+      }
+
+      if (compactUnsupported(response.status)) {
+        req._crsAccountId = account.id
+        req._crsAccountType = 'grok'
+        logger.warn('[GrokRelay] native compact unsupported', {
+          requestId: req.requestId,
+          accountId: account.id,
+          statusCode: response.status,
+        })
+        return res.status(501).json({
+          error: {
+            type: 'unsupported_operation',
+            code: 'compact_not_supported',
+            message: 'The selected provider does not support native Responses compaction',
+          },
+        })
       }
 
       if (response.status === 429) {
@@ -832,6 +843,8 @@ class GrokRelayService {
         return xaiHelper.buildChatCompletionsUrl(baseUrl)
       case 'responses':
         return xaiHelper.buildResponsesUrl(baseUrl)
+      case 'responses_compact':
+        return xaiHelper.buildResponsesCompactUrl(baseUrl)
       case 'images_generations':
         return xaiHelper.buildImagesGenerationsUrl(baseUrl)
       case 'images_edits':
@@ -1046,9 +1059,13 @@ class GrokRelayService {
     let { data } = response
     if (options.toolAdapter) {data = options.toolAdapter.restoreResponse(data)}
     let conversionFailed = false
-    // compact 响应改写
-    if (options.isCompact) {
-      data = grokProtocol.convertGrokResponseToOpenAICompact(data)
+    if (options.isCompact && !data?.error && !grokProtocol.isValidGrokCompactResponse(data)) {
+      conversionFailed = true
+      logger.error('[GrokRelay] invalid native compact response', {
+        requestId: req.requestId,
+        accountId: account.id,
+      })
+      data = buildClientError({ statusCode: 502, protocol: 'openai' }).body
     }
     // Responses → Chat 回桥
     if (options.reverseBridgeToChat) {

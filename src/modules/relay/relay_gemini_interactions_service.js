@@ -35,7 +35,8 @@ const hasTokenUsage = (usage) =>
 const hasFinalUsage = (record) => record.usageFinal === true && hasTokenUsage(record.usage)
 const needsRateLimit = (record) => record.trackRateLimit === true && record.billed && !record.rateLimitRecorded
 const needsProcessing = (record) =>
-  (!record.billed && (record.stored || hasFinalUsage(record))) || needsRateLimit(record)
+  (!record.billed && !record.settlementReviewRequired && (record.stored || hasFinalUsage(record))) ||
+  needsRateLimit(record)
 const writeEvents = (events) => events.map((event) => `data: ${JSON.stringify(event)}\n\n`).join('')
 const noteInteractionResult = (req, interaction, errorCode = null) => {
   if (req.method !== 'POST' || req.params.id || !terminal(interaction.status)) {
@@ -179,11 +180,15 @@ export class GeminiInteractionsService {
       saved.status = response.status ?? saved.status
       saved.model = response.model ?? saved.model
       if (response.usage !== undefined && response.usage !== null) {
-        if (terminal(saved.status) && saved.usageFinal === false && saved.usage) {
+        if (terminal(saved.status) && saved.usageFinal !== true && saved.usage) {
           saved.checkpointUsage = saved.usage
         }
         saved.usage = projectUpstreamUsage(response.usage)
         saved.usageFinal = terminal(saved.status)
+        if (hasFinalUsage(saved)) {
+          saved.settlementReviewRequired = false
+          saved.settlementReviewReason = null
+        }
       }
       const images =
         response.steps?.reduce(
@@ -639,6 +644,39 @@ export class GeminiInteractionsService {
     this.timer = null
   }
 
+  async _deferToReconciliation(record, reason) {
+    const key = RedisKeys.geminiInteraction.record(record.ownerId, record.id)
+    const owner = await redis.lockGeminiInteraction(key)
+    if (!owner) {
+      await redis.scheduleGeminiInteraction(key, true)
+      return
+    }
+    try {
+      const saved = await redis.getGeminiInteraction(record.ownerId, record.id)
+      if (!saved) {
+        await redis.scheduleGeminiInteraction(key, false)
+        return
+      }
+      if (saved.billed || hasFinalUsage(saved)) {
+        await redis.scheduleGeminiInteraction(key, needsProcessing(saved))
+        return
+      }
+      // DEC_20261027_110727 旧版用量无法核实为最终值时保留人工对账标记，不自动补扣。
+      saved.settlementUnknown = true
+      saved.settlementReviewRequired = true
+      saved.settlementReviewReason = reason
+      await redis.saveGeminiInteraction(key, saved)
+      await redis.scheduleGeminiInteraction(key, false)
+      logger.warn('Interactions settlement requires manual reconciliation', {
+        interactionId: saved.id,
+        ownerId: saved.ownerId,
+        reason
+      })
+    } finally {
+      await redis.unlockGeminiInteraction(key, owner)
+    }
+  }
+
   async poll() {
     if (this.polling) {
       return
@@ -653,13 +691,25 @@ export class GeminiInteractionsService {
         }
         const record = JSON.parse(raw)
         try {
+          if (!hasFinalUsage(record) && !record.stored) {
+            await this._deferToReconciliation(record, 'upstream_not_stored')
+            continue
+          }
           const response = hasFinalUsage(record)
             ? { data: { id: record.id, status: record.status, usage: record.usage } }
             : await this._request(record.accountId, record.version, { id: record.id, timeout: 30000 })
           await this._observe(record, response.data)
+          if (
+            record.usageFinal === undefined &&
+            record.usage &&
+            terminal(response.data.status) &&
+            !hasTokenUsage(response.data.usage)
+          ) {
+            await this._deferToReconciliation(record, 'legacy_final_usage_unverified')
+          }
         } catch (error) {
           if (error.response?.status === 404) {
-            await redis.scheduleGeminiInteraction(key, false)
+            await this._deferToReconciliation(record, 'upstream_not_found')
           } else {
             await redis.scheduleGeminiInteraction(key, true)
           }

@@ -28,7 +28,18 @@ const openaiResponsesAccountService = {
   updateUsageQuota: jest.fn().mockResolvedValue(undefined),
 }
 const unifiedOpenAIScheduler = { markAccountRateLimited: jest.fn().mockResolvedValue(undefined) }
-const grokAccountService = { markAccountRateLimited: jest.fn().mockResolvedValue(undefined) }
+const grokAccountService = {
+  markAccountRateLimited: jest.fn().mockResolvedValue(undefined),
+  ensureFreshToken: jest.fn(async (id) => ({
+    id,
+    authType: 'apikey',
+    apiKey: 'fixture-token',
+    disableAutoProtection: true,
+  })),
+  getUpstreamBaseUrl: () => 'https://api.x.ai/v1',
+  updateAccountUsage: jest.fn().mockResolvedValue(undefined),
+}
+const grokScheduler = { selectAccount: jest.fn() }
 const markTempUnavailable = jest.fn().mockResolvedValue(undefined)
 const geminiAccount = {
   id: 'gemini-account',
@@ -61,7 +72,7 @@ const modules = {
       markAccountUsed: jest.fn().mockResolvedValue(undefined)
     },
   },
-  '../src/modules/relay/relay_grok_scheduler.js': { grokScheduler: {} },
+  '../src/modules/relay/relay_grok_scheduler.js': { grokScheduler },
   '../src/modules/relay/relay_unified_openai_scheduler.js': { unifiedOpenAIScheduler },
   '../src/modules/relay/relay_unified_gemini_scheduler.js': {
     unifiedGeminiScheduler: {
@@ -78,10 +89,19 @@ const modules = {
     parseRetryAfter: () => 60,
   },
   '../src/modules/proxy/proxy_resolver.js': {
-    proxyResolver: { resolveProxyConfigForAccount: jest.fn().mockReturnValue(undefined) },
+    proxyResolver: {
+      resolveProxyConfigForAccount: jest.fn().mockReturnValue(undefined),
+      resolveAgent: jest.fn().mockReturnValue({}),
+      report: jest.fn(),
+    },
   },
   '../src/modules/proxy/proxy_helper.js': { ProxyHelper: {} },
-  '../src/common/xai_helper.js': {},
+  '../src/common/xai_helper.js': {
+    mapModel: (model) => model,
+    buildResponsesUrl: (base) => `${base}/responses`,
+    buildResponsesCompactUrl: (base) => `${base}/responses/compact`,
+    buildCliIdentityHeaders: () => ({}),
+  },
   '../src/common/common_helper.js': { getMappedModelName: jest.fn() },
   '../src/modules/pricing/pricing_cost_calculator.js': { CostCalculator: {} },
   '../src/modules/pricing/pricing_service.js': {
@@ -194,6 +214,102 @@ beforeEach(() => {
 })
 
 describe('Grok forwarding contracts', () => {
+  const compact = {
+    id: 'cmp1',
+    object: 'response.compaction',
+    model: 'grok-4.7',
+    output: [{ type: 'compaction', id: 'cmp_item1', encrypted_content: 'opaque-content' }],
+    usage,
+  }
+
+  it('forwards native compact to the official path and returns opaque output unchanged', async () => {
+    grokScheduler.selectAccount.mockResolvedValue({ id: 'fixture-account' })
+    axios.mockResolvedValue({ status: 200, headers: {}, data: compact })
+    const res = makeResponse()
+    const input = [{ role: 'user', content: 'history' }]
+    const req = makeRequest(res, { model: 'grok-4.7', input, stream: true, temperature: 0.5 })
+    req.path = '/v1/responses/compact'
+    await grokRelayService.relayResponses(req, res, req.apiKey)
+    expect(axios).toHaveBeenCalledTimes(1)
+    expect(axios.mock.calls[0][0]).toMatchObject({
+      url: 'https://api.x.ai/v1/responses/compact',
+      responseType: 'json',
+      data: { model: 'grok-4.7', input },
+    })
+    expect(Object.keys(axios.mock.calls[0][0].data).sort()).toEqual(['input', 'model'])
+    expect(res.body).toEqual(compact)
+    expect(apiKeyService.recordUsage).toHaveBeenCalledTimes(1)
+
+    const continued = makeResponse()
+    const continuedInput = [...res.body.output, { role: 'user', content: 'continue' }]
+    const continuedRequest = makeRequest(continued, { model: 'grok-4.7', input: continuedInput })
+    continuedRequest.path = '/v1/responses'
+    axios.mockResolvedValueOnce({ status: 200, headers: {}, data: { object: 'response', output: [], usage } })
+    await grokRelayService.relayResponses(continuedRequest, continued, continuedRequest.apiKey)
+    expect(axios.mock.calls[1][0]).toMatchObject({
+      url: 'https://api.x.ai/v1/responses',
+      data: { input: continuedInput },
+    })
+    expect(axios.mock.calls[1][0].data.input[0]).toEqual(compact.output[0])
+    expect(apiKeyService.recordUsage).toHaveBeenCalledTimes(2)
+  })
+
+  it.each([405, 501])(
+    'reports unsupported native compact %s without a summary request or account cooldown',
+    async (status) => {
+      grokScheduler.selectAccount.mockResolvedValue({ id: 'fixture-account' })
+      axios.mockResolvedValue({ status, headers: {}, data: { error: { message: 'unsupported' } } })
+      const res = makeResponse()
+      const req = makeRequest(res, { model: 'grok-4.7', input: 'history' })
+      req.path = '/v1/responses/compact'
+      await grokRelayService.relayResponses(req, res, req.apiKey)
+      expect(res.statusCode).toBe(501)
+      expect(res.body.error.code).toBe('compact_not_supported')
+      expect(axios).toHaveBeenCalledTimes(1)
+      expect(apiKeyService.recordUsage).not.toHaveBeenCalled()
+      expect(markTempUnavailable).not.toHaveBeenCalled()
+    },
+  )
+
+  it('keeps failover on the native compact path', async () => {
+    grokScheduler.selectAccount.mockResolvedValueOnce({ id: 'first' }).mockResolvedValueOnce({ id: 'second' })
+    axios
+      .mockResolvedValueOnce({ status: 503, headers: {}, data: { error: { message: 'busy' } } })
+      .mockResolvedValueOnce({ status: 200, headers: {}, data: compact })
+    const res = makeResponse()
+    const req = makeRequest(res, { model: 'grok-4.7', input: 'history' })
+    req.path = '/v1/responses/compact'
+    await grokRelayService.relayResponses(req, res, req.apiKey)
+    expect(axios.mock.calls.map(([options]) => options.url)).toEqual([
+      'https://api.x.ai/v1/responses/compact',
+      'https://api.x.ai/v1/responses/compact',
+    ])
+    expect(res.body).toEqual(compact)
+    expect(apiKeyService.recordUsage).toHaveBeenCalledTimes(1)
+    expect(apiKeyService.recordUsage.mock.calls[0][3]).toBe('second')
+  })
+
+  it('rejects a synthetic compact result while preserving already reported usage', async () => {
+    const res = makeResponse()
+    const req = makeRequest(res)
+    await grokRelayService._handleNormalResponse(
+      { status: 200, headers: {}, data: { object: 'response', output: [{ type: 'compaction', summary: [] }], usage } },
+      res,
+      account,
+      req.apiKey,
+      'grok-4.7',
+      req,
+      { isCompact: true, endpointKind: 'responses_compact' },
+    )
+    expect(res.statusCode).toBe(502)
+    expect(res.body.error).toBeDefined()
+    expect(apiKeyService.recordUsage).toHaveBeenCalledTimes(1)
+    expect(apiKeyService.recordUsage.mock.calls[0][5]).toMatchObject({
+      statusCode: 502,
+      errorCode: 'protocol_conversion_failed',
+    })
+  })
+
   it('restores native Responses namespace calls while billing the raw terminal usage once', async () => {
     const res = makeResponse()
     const req = makeRequest(res, { model: 'grok-test', stream: true })

@@ -51,8 +51,16 @@ const convertToolChoice = (choice, declarations, hasServerTools) => {
     }
   }
   return {
-    ...(allowed.mode === undefined ? {} : { mode: allowed.mode.toUpperCase() }),
-    ...(allowed.tools === undefined ? {} : { allowedFunctionNames: allowed.tools })
+    functionCallingConfig: {
+      ...(allowed.mode === undefined ? {} : { mode: allowed.mode.toUpperCase() }),
+      ...(allowed.tools === undefined || !['any', 'validated'].includes(allowed.mode)
+        ? {}
+        : { allowedFunctionNames: allowed.tools })
+    },
+    functionDeclarations:
+      allowed.tools !== undefined && !['any', 'validated'].includes(allowed.mode)
+        ? declarations.filter((tool) => allowed.tools.includes(tool.name))
+        : declarations
   }
 }
 
@@ -219,19 +227,18 @@ export const interactionToGenerateContent = (body) => {
       throw interactionError(`Tool ${tool.type} requires native Interactions support`)
     }
   }
-  if (declarations.length) {
-    tools.push({ functionDeclarations: declarations })
+  const toolChoice =
+    source.tool_choice === undefined ? null : convertToolChoice(source.tool_choice, declarations, tools.length > 0)
+  const functionDeclarations = toolChoice?.functionDeclarations ?? declarations
+  if (functionDeclarations.length) {
+    tools.push({ functionDeclarations })
   }
   if (tools.length) {
     request.tools = tools
   }
-  if (source.tool_choice !== undefined) {
+  if (toolChoice) {
     request.toolConfig = {
-      functionCallingConfig: convertToolChoice(
-        source.tool_choice,
-        declarations,
-        tools.some((tool) => !tool.functionDeclarations)
-      )
+      functionCallingConfig: toolChoice.functionCallingConfig
     }
   }
   return { model: body.model, request, stream: body.stream === true }

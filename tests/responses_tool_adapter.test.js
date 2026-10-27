@@ -1,5 +1,57 @@
 import { expect, test } from '@jest/globals'
-import { adaptResponsesTools } from '../src/modules/relay/relay_responses_tools.js'
+import { adaptResponsesTools, requiresResponsesToolAdapter } from '../src/modules/relay/relay_responses_tools.js'
+
+test('promotes Codex Lite input carriers while preserving schemas, history, and client tool names', () => {
+  const parameters = {
+    type: 'object',
+    properties: { additional_tools: { type: 'boolean', default: false } },
+    additionalProperties: false,
+  }
+  const source = {
+    model: 'grok-4.7',
+    tools: [{ type: 'function', name: 'existing', parameters: {} }],
+    input: [
+      { type: 'message', role: 'user', content: 'keep additional_tools in text' },
+      {
+        type: 'additional_tools',
+        role: 'developer',
+        tools: [
+          { type: 'namespace', name: 'files', tools: [{ type: 'function', name: 'read', parameters, strict: false }] },
+        ],
+      },
+      {
+        type: 'function_call',
+        namespace: 'files',
+        name: 'read',
+        call_id: 'call1',
+        arguments: '{"additional_tools":false}',
+      },
+      { type: 'function_call_output', call_id: 'call1', output: 'unchanged' },
+      { type: 'reasoning', encrypted_content: 'opaque' },
+    ],
+  }
+  const original = structuredClone(source)
+  expect(requiresResponsesToolAdapter(source)).toBe(true)
+  const adapter = adaptResponsesTools(source)
+  expect(adapter.body.tools.map((tool) => tool.name)).toEqual(['existing', 'files__read'])
+  expect(adapter.body.tools[1]).toMatchObject({ parameters, strict: false })
+  expect(adapter.body.input.map((item) => item.type)).toEqual([
+    'message',
+    'function_call',
+    'function_call_output',
+    'reasoning',
+  ])
+  expect(adapter.body.input[2]).toEqual(source.input[3])
+  expect(adapter.body.input[3]).toEqual(source.input[4])
+  expect(adapter.restoreItem({ ...adapter.body.input[1], id: 'fc1' })).toMatchObject(source.input[2])
+  expect(source).toEqual(original)
+})
+
+test('handles empty carriers and rejects malformed carrier tool arrays', () => {
+  expect(requiresResponsesToolAdapter({ input: [{ type: 'additional_tools', tools: [] }] })).toBe(true)
+  expect(adaptResponsesTools({ input: [{ type: 'additional_tools', tools: [] }] }).body.input).toEqual([])
+  expect(() => adaptResponsesTools({ input: [{ type: 'additional_tools', tools: {} }] })).toThrow('tools array')
+})
 
 test('flattens namespace definitions and replay calls and restores the identical client identity', () => {
   const source = {

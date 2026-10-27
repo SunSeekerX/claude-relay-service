@@ -64,8 +64,42 @@ it.each(['auto', 'any', 'none', 'validated'])('maps the official allowed_tools o
     generation_config: { tool_choice: { allowed_tools: { mode, tools: ['lookup'] } } }
   })
   expect(result.request.toolConfig).toEqual({
-    functionCallingConfig: { mode: mode.toUpperCase(), allowedFunctionNames: ['lookup'] }
+    functionCallingConfig: {
+      mode: mode.toUpperCase(),
+      ...(['any', 'validated'].includes(mode) ? { allowedFunctionNames: ['lookup'] } : {})
+    }
   })
+  expect(result.request.tools[0].functionDeclarations.map((tool) => tool.name)).toEqual(
+    ['any', 'validated'].includes(mode) ? ['lookup', 'other'] : ['lookup']
+  )
+})
+
+it('applies a default auto allowlist without adding an unsupported function-calling constraint', () => {
+  const body = {
+    input: 'hello',
+    tools: [
+      { type: 'function', name: 'lookup', parameters: { type: 'object', properties: { city: { type: 'string' } } } },
+      { type: 'function', name: 'other', parameters: { type: 'object' } }
+    ],
+    generation_config: { tool_choice: { allowed_tools: { tools: ['lookup'] } } }
+  }
+  const before = structuredClone(body)
+  const result = interactionToGenerateContent(body)
+  expect(result.request.toolConfig).toEqual({ functionCallingConfig: {} })
+  expect(result.request.tools).toEqual([
+    { functionDeclarations: [{ name: 'lookup', parametersJsonSchema: body.tools[0].parameters }] }
+  ])
+  expect(body).toEqual(before)
+})
+
+it('does not expose all functions when an auto allowlist is empty', () => {
+  const result = interactionToGenerateContent({
+    input: 'hello',
+    tools: [{ type: 'function', name: 'lookup' }],
+    generation_config: { tool_choice: { allowed_tools: { mode: 'auto', tools: [] } } }
+  })
+  expect(result.request.tools).toBeUndefined()
+  expect(result.request.toolConfig).toEqual({ functionCallingConfig: { mode: 'AUTO' } })
 })
 
 it('preserves string tool modes and an empty official tool choice', () => {

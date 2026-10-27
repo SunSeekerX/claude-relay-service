@@ -37,28 +37,10 @@ export const normalizeGrokImageBody = (body) => {
  * - chat↔responses 桥
  * - tool protocol 规范化
  * - SSE ping 过滤
- * - compact 改写
+ * - 原生 compact 契约
  * - 405 / encrypted_content 判定
  * 对齐 sub2api openai_gateway_grok_* 核心契约
  */
-
-export const GROK_COMPACT_SUMMARY_PROMPT = `Your task is to produce a faithful, concise summary of the conversation so far so that a successor assistant can continue the work seamlessly after the earlier turns are discarded. The successor will see the user's original query plus this summary. Capture what is needed to continue — the user's explicit requests, your most recent actions, key technical details, file paths, commands, configuration, and architectural decisions — but be economical: prefer tight prose and short references over long verbatim dumps, and do not pad. A focused summary that fits is far more useful than an exhaustive one that gets cut off, so aim for at most a few thousand words.
-
-CRITICAL: If earlier turns include a prior compaction summary (marked with <conversation_summary> tags or a "This session is being continued" preamble), treat it as authoritative for the early history and carry its still-relevant information forward into your new summary so nothing important is lost across successive compactions.
-
-Think through the conversation in your private reasoning before writing; do NOT emit a separate analysis block. Output the final summary inside a single <summary>...</summary> block, organized into the following numbered sections. Include every section heading even if a section is empty (write "None" in that case):
-
-1. Primary Request and Intent
-2. Key Technical Concepts
-3. Files and Code Sections
-4. Errors and Fixes
-5. Problem Solving
-6. All User Messages
-7. Pending Tasks
-8. Current Work
-9. Optional Next Step
-
-IMPORTANT: Do NOT call or use any tools. Respond with ONLY the <summary>...</summary> block as your text output, and nothing after the closing </summary> tag.`
 
 export const stripSsePingFrames = (chunkText) => {
   if (!chunkText || typeof chunkText !== 'string') {
@@ -442,74 +424,16 @@ export const maybeInjectFreeCacheTools = (responsesBody, account) => {
   }
 }
 
-// /responses/compact → 普通 Responses 总结轮
-export const buildGrokCompactRequestBody = (body) => {
-  const payload = { ...(body || {}) }
-  let { input } = payload
-  if (input === null || input === undefined) {
-    input = []
-  } else if (typeof input === 'string') {
-    input = [
-      {
-        type: 'message',
-        role: 'user',
-        content: [{ type: 'input_text', text: input }],
-      },
-    ]
-  } else if (!Array.isArray(input)) {
-    input = [input]
-  }
-  input = [
-    ...input,
-    {
-      type: 'message',
-      role: 'user',
-      content: [{ type: 'input_text', text: GROK_COMPACT_SUMMARY_PROMPT }],
-    },
-  ]
-  payload.input = input
-  payload.include = ['reasoning.encrypted_content']
-  payload.store = false
-  payload.stream = false
-  if (Array.isArray(payload.tools) && payload.tools.length > 0) {
-    payload.tool_choice = 'none'
-  }
-  return payload
-}
+// 原生 compact 只接收 model 与 input, opaque 历史项保持原样。
+export const buildGrokCompactRequestBody = (body) => ({ model: body.model, input: body.input })
 
-export const convertGrokResponseToOpenAICompact = (responseBody) => {
-  const response = responseBody?.response || responseBody || {}
-  let summaryText = ''
-  const output = Array.isArray(response.output) ? response.output : []
-  for (const item of output) {
-    if (item?.type === 'message' && Array.isArray(item.content)) {
-      for (const part of item.content) {
-        if (part?.type === 'output_text' && part.text) {
-          summaryText += part.text
-        }
-      }
-    }
-  }
-  // 提取 <summary>...</summary>
-  const match = summaryText.match(/<summary>([\s\S]*?)<\/summary>/i)
-  if (match) {
-    summaryText = match[1].trim()
-  }
-  const compactItem = {
-    id: `cmp_${Date.now()}`,
-    type: 'compaction',
-    summary: summaryText ? [{ type: 'summary_text', text: summaryText }] : [],
-  }
-  return {
-    id: response.id || `resp_compact_${Date.now()}`,
-    object: 'response',
-    created_at: response.created_at || Math.floor(Date.now() / 1000),
-    status: 'completed',
-    model: response.model,
-    output: [compactItem],
-    usage: response.usage || undefined,
-  }
-}
+export const isValidGrokCompactResponse = (body) =>
+  body?.object === 'response.compaction' &&
+  Array.isArray(body.output) &&
+  body.output.some(
+    (item) =>
+      item?.type === 'compaction' && typeof item.encrypted_content === 'string' && item.encrypted_content.length > 0,
+  )
 
 // failover 判定
 export const shouldFailoverGrokStatus = (statusCode) => {

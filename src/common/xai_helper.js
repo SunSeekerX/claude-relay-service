@@ -353,6 +353,9 @@ const joinBasePath = (baseUrl, suffix) => {
 export const buildResponsesUrl = (baseUrl, validator = null) =>
   joinBasePath(validatedBaseUrl(baseUrl, validator), '/responses')
 
+export const buildResponsesCompactUrl = (baseUrl, validator = null) =>
+  joinBasePath(validatedBaseUrl(baseUrl, validator), '/responses/compact')
+
 export const buildChatCompletionsUrl = (baseUrl, validator = null) =>
   joinBasePath(validatedBaseUrl(baseUrl, validator), '/chat/completions')
 

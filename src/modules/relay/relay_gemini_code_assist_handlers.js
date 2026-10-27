@@ -1,4 +1,5 @@
 import { logger } from '../../common/logger.js'
+import { redis } from '../../infra/redis.js'
 import { onClientDisconnect } from '../../common/client_disconnect.js'
 import { buildClientError, extractSafeMessage } from '../../common/client_error_builder.js'
 import { trackRequestTiming, timedUpstreamRequest } from '../../common/request_timing.js'
@@ -13,6 +14,22 @@ export const createCodeAssistHandler =
     const controller = new AbortController()
     const detach = onClientDisconnect(res, () => controller.abort(), 'Gemini Code Assist')
     try {
+      let operationName
+      let pinnedAccountId
+      if (apiMethod === 'getOperation') {
+        const { operationId } = req.params
+        if (!/^[A-Za-z0-9_-]+$/.test(operationId)) {
+          throw Object.assign(new Error('Invalid operation ID'), { statusCode: 400 })
+        }
+        operationName = `operations/${operationId}`
+        pinnedAccountId = await redis.getGeminiCodeAssistOperationAccount(req.apiKey.id, operationId)
+        if (!pinnedAccountId) {
+          throw Object.assign(new Error('Operation is unavailable for this API key'), {
+            statusCode: 404,
+            code: 'operation_not_found',
+          })
+        }
+      }
       const binding = req.apiKey.geminiAccountId
       if (dedicatedOnly && (!binding || binding.startsWith('group:') || binding.startsWith('api:'))) {
         return res.status(403).json({
@@ -26,9 +43,9 @@ export const createCodeAssistHandler =
       const selection = await trackRequestTiming(req, 'scheduling', () =>
         unifiedGeminiScheduler.selectAccountForApiKey(
           req.apiKey,
-          sessionHelper.generateSessionHash(req.body ?? {}),
+          pinnedAccountId ? null : sessionHelper.generateSessionHash(req.body ?? {}),
           null,
-          { oauthProvider: 'gemini-cli' },
+          { oauthProvider: 'gemini-cli', ...(pinnedAccountId ? { pinnedAccountId } : {}) },
         ),
       )
       req._crsAccountId = selection.accountId
@@ -54,16 +71,6 @@ export const createCodeAssistHandler =
           },
         })
       }
-      let operationName
-      if (apiMethod === 'getOperation') {
-        const { operationId } = req.params
-        if (!/^[A-Za-z0-9_-]+$/.test(operationId)) {
-          return res.status(400).json({
-            error: { code: 400, status: 'INVALID_ARGUMENT', message: 'Invalid operation ID' },
-          })
-        }
-        operationName = `operations/${operationId}`
-      }
       const proxyConfig = parseProxyConfig(account)
       const client = await geminiAccountService.getOauthClient(
         account.accessToken,
@@ -78,6 +85,17 @@ export const createCodeAssistHandler =
           signal: controller.signal,
         }),
       )
+      if (apiMethod === 'onboardUser' && response?.done !== true) {
+        const operationId =
+          typeof response?.name === 'string' ? response.name.match(/^operations\/([A-Za-z0-9_-]+)$/)?.[1] : null
+        if (!operationId) {
+          throw Object.assign(new Error('Upstream returned an invalid Code Assist operation'), {
+            statusCode: 502,
+            code: 'invalid_operation_response',
+          })
+        }
+        await redis.saveGeminiCodeAssistOperationAccount(req.apiKey.id, operationId, selection.accountId)
+      }
       if (!res.destroyed) {
         if (response === undefined || response === null || response === '') {
           return res.status(204).end()
@@ -98,7 +116,7 @@ export const createCodeAssistHandler =
         const result = buildClientError({
           statusCode: error.response?.status ?? error.statusCode ?? 503,
           protocol: 'gemini',
-          upstreamBody: error.response?.data,
+          upstreamBody: error.response?.data ?? { error: { message: error.message, code: error.code } },
         })
         return res.status(result.statusCode).json(result.body)
       }

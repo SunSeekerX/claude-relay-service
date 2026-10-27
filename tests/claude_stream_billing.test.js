@@ -215,7 +215,7 @@ for (const provider of ['official', 'console']) {
           accountId: 'account',
           cache_creation: { ephemeral_5m_input_tokens: 5, ephemeral_1h_input_tokens: 6 }
         }),
-        { statusCode: 200, errorCode: null, errorMessage: null }
+        { statusCode: 200, errorCode: null, errorMessage: null, protocolTerminal: 'message_stop' },
       )
       expect(res.req._crsRecordRelayResult).toHaveBeenLastCalledWith(
         expect.objectContaining({
@@ -297,7 +297,8 @@ for (const provider of ['official', 'console']) {
       expect(callback.mock.calls[0][0].output_tokens).toBe(9)
       expect(callback.mock.calls[0][1]).toMatchObject({
         statusCode: 502,
-        errorCode: 'upstream_stream_incomplete'
+        errorCode: 'upstream_stream_incomplete',
+        protocolTerminal: 'error',
       })
       const errors = new IncrementalSSEParser()
         .feed(res.chunks.join(''))
@@ -349,7 +350,7 @@ for (const provider of ['official', 'console']) {
       httpRequestStats.observe(res.req, res)
       const callback = jest.fn((_usage, result) => {
         const meta = createRequestDetailMeta(res.req, { stream: true, ...result })
-        expect(meta).toMatchObject({ statusCode: 529, errorCode: 'overloaded_error' })
+        expect(meta).toMatchObject({ statusCode: 529, errorCode: 'overloaded_error', protocolTerminal: 'error' })
         finalizeRequestDetailMeta(meta)
       })
       await run(
@@ -589,6 +590,27 @@ describe('native Claude backpressure', () => {
 })
 
 describe('Claude stream state validation and shared finalization', () => {
+  it('passes message_stop through billing metadata and preserves once-only finalization', async () => {
+    const state = new ClaudeStreamState()
+    state.observe(start)
+    state.observe(delta(9))
+    state.observe(stop)
+    const req = { requestId: 'terminal-fixture' }
+    const callback = jest.fn((_usage, result) => {
+      expect(createRequestDetailMeta(req, result).protocolTerminal).toBe('message_stop')
+    })
+    const finalize = createClaudeStreamFinalizer({
+      state,
+      usageCallback: callback,
+      clientRequest: req,
+      accountId: 'account',
+    })
+    await finalize()
+    await finalize(new Error('late close'))
+    expect(callback).toHaveBeenCalledTimes(1)
+    expect(callback.mock.calls[0][1]).toMatchObject({ statusCode: 200, protocolTerminal: 'message_stop' })
+    expect(req._crsProtocolTerminal).toBe('message_stop')
+  })
   it.each([null, -1, '9', 1.5, Number.NaN])('rejects invalid output snapshot %s', (invalid) => {
     const state = new ClaudeStreamState()
     state.observe(start)

@@ -46,8 +46,12 @@ export const RedisKeys = {
     index: (scope) => `responses:context_index:${scope}`,
   },
   relayRoutes: 'relay:routes',
+  geminiCodeAssist: {
+    operation: (ownerId, operationId) => `gemini:code_assist:operation:${ownerId}:${encodeURIComponent(operationId)}`,
+  },
   geminiInteraction: {
     record: (ownerId, interactionId) => `gemini:interaction:${ownerId}:${encodeURIComponent(interactionId)}`,
+    recordPattern: 'gemini:interaction:*',
     lock: (recordKey) => `${recordKey}:billing_lock`,
     pending: 'gemini:interactions:pending',
   },
@@ -508,6 +512,7 @@ const DAY = 86400
 
 export const TTL = {
   upstreamAuthWindow: 5 * 60,
+  geminiCodeAssistOperation: DAY,
   upstreamAuthAlertCooldown: 15 * 60,
   responsesContext: (retentionHours) => retentionHours * 3600,
   geminiInteraction: DAY * 55,

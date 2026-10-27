@@ -9,6 +9,14 @@
 
 export const RedisLua = {
   geminiInteraction: {
+    recoverLegacy: `
+local raw = redis.call('GET', KEYS[1])
+if not raw then return 0 end
+local record = cjson.decode(raw)
+if record.billed ~= false or record.usageFinal ~= nil or
+  type(record.usage) ~= 'table' or record.settlementReviewRequired then return 0 end
+return redis.call('ZADD', KEYS[2], 'NX', ARGV[1], KEYS[1])
+`,
     recordRateLimit: `
 local raw = redis.call('GET', KEYS[1])
 if not raw then return redis.error_reply('Interaction settlement record is missing') end
