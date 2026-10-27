@@ -1,4 +1,4 @@
-import { GeminiToOpenAIConverter } from './relay_gemini_to_openai.js'
+import { GeminiToOpenAIConverter, getGeminiPromptBlockReason } from './relay_gemini_to_openai.js'
 import express from 'express'
 import { IncrementalSSEParser } from './relay_sse_parser.js'
 import { createStreamBackpressure } from '../../common/stream_helper.js'
@@ -247,6 +247,12 @@ router.post('/v1/chat/completions', authenticateApiKey, async (req, res) => {
           if (data.usageMetadata) {
             usage = data.usageMetadata
           }
+          const blockReason = getGeminiPromptBlockReason(data)
+          if (blockReason) {
+            terminal = true
+            result.errorMessage = `Gemini prompt blocked: ${blockReason}`
+            result.protocolTerminal = 'content_filter'
+          }
           terminal ||= Boolean(data.candidates?.some((candidate) => candidate.finishReason))
           const converted = geminiConverter.convertStreamEvent(data, model, state)
           if (converted && !res.destroyed && !res.writableEnded && !res.write(converted)) {
@@ -349,6 +355,15 @@ router.post('/v1/chat/completions', authenticateApiKey, async (req, res) => {
 
       // 转换为 OpenAI 格式并返回
       const openaiResponse = geminiConverter.convertResponse(response, model)
+      const blockReason = getGeminiPromptBlockReason(response)
+      const blockResult = blockReason
+        ? {
+            statusCode: 200,
+            errorCode: null,
+            errorMessage: `Gemini prompt blocked: ${blockReason}`,
+            protocolTerminal: 'content_filter',
+          }
+        : {}
 
       // 记录使用统计
       if (openaiResponse.usage) {
@@ -364,6 +379,7 @@ router.post('/v1/chat/completions', authenticateApiKey, async (req, res) => {
               requestBody: req.body,
               stream: false,
               statusCode: res.statusCode || 200,
+              ...blockResult,
             }),
           )
           logger.info(
@@ -371,6 +387,23 @@ router.post('/v1/chat/completions', authenticateApiKey, async (req, res) => {
           )
         } catch (error) {
           logger.error('Failed to record Gemini usage:', error)
+        }
+      }
+
+      if (blockReason) {
+        req._crsUsageDetailHandled = true
+        req._crsRecordRelayResult?.({ ...blockResult, hasUsage: Boolean(openaiResponse.usage), final: true })
+        if (!openaiResponse.usage) {
+          try {
+            await requestDetailService.captureUnmeteredRequest(req, {
+              apiKeyId: apiKeyData.id,
+              accountId: account.id,
+              accountType: 'gemini',
+              result: { ...blockResult, model, stream: false },
+            })
+          } catch (error) {
+            logger.error('Failed to record Gemini blocked prompt:', error)
+          }
         }
       }
 

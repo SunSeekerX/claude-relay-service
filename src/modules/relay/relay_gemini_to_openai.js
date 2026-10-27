@@ -3,7 +3,16 @@
  * 将 Gemini API 的原生响应转为标准 OpenAI chat.completion / chat.completion.chunk 格式
  */
 
-import { IncrementalSSEParser } from './relay_sse_parser.js'
+import { IncrementalSSEParser, parseSSEEvent } from './relay_sse_parser.js'
+
+export const getGeminiPromptBlockReason = (response) => {
+  const data = response.response ?? response
+  if (data.candidates?.length) {
+    return null
+  }
+  const reason = data.promptFeedback?.blockReason
+  return typeof reason === 'string' && reason !== '' && reason !== 'BLOCK_REASON_UNSPECIFIED' ? reason : null
+}
 
 export const mapGeminiUsageToOpenAI = (meta) => {
   if (!meta) {
@@ -43,20 +52,29 @@ export class GeminiToOpenAIConverter {
    * @returns {string|null} 转换后的 SSE 字符串，null 表示跳过
    */
   convertStreamChunk(rawChunk, model, state) {
-    return this._convertEvents(state.parser.feed(rawChunk), model, state)
+    if (!state.parser.getRemaining()) {
+      const text = typeof rawChunk === 'string' ? rawChunk : rawChunk.toString()
+      if (!text.trim()) {
+        return text
+      }
+    }
+    return this._convertFrames(state.parser.feedFrames(rawChunk), model, state)
   }
 
   finishStream(model, state) {
-    return this._convertEvents(state.parser.finish(), model, state)
+    return this._convertFrames(state.parser.finishFrames(), model, state)
   }
 
-  _convertEvents(events, model, state) {
+  _convertFrames(frames, model, state) {
     let output = ''
-    for (const event of events) {
+    for (const frame of frames) {
+      const event = parseSSEEvent(frame)
       if (event.type === 'invalid') {
         throw Object.assign(new Error('Invalid Gemini SSE payload'), { code: 'upstream_parse_error' })
       }
-      if (event.type === 'data') {
+      if (event.type === 'event') {
+        output += frame
+      } else if (event.type === 'data') {
         output += this.convertStreamEvent(event.data, model, state)
       }
     }
@@ -158,12 +176,19 @@ export class GeminiToOpenAIConverter {
       }
     })
 
+    const blockReason = getGeminiPromptBlockReason(data)
+    if (blockReason) {
+      // DEC_20261026_234619 上游提示词拦截以 HTTP 200 和 content_filter 正常结束，保留拦截原因。
+      choices.push({ index: 0, message: { role: 'assistant', content: null }, finish_reason: 'content_filter' })
+    }
+
     const result = {
       id: data.responseId || `chatcmpl-${Date.now()}`,
       object: 'chat.completion',
       created: this._parseCreateTime(data.createTime),
       model: data.modelVersion || model,
       choices,
+      ...(blockReason ? { prompt_feedback: data.promptFeedback } : {}),
     }
 
     const usage = this._mapUsage(data.usageMetadata)
@@ -195,6 +220,17 @@ export class GeminiToOpenAIConverter {
     }
 
     const candidates = data.candidates || []
+    if (getGeminiPromptBlockReason(data)) {
+      const chunk = this._makeChunk(state, model)
+      this._injectRole(state, chunk.choices[0].delta)
+      chunk.choices[0].finish_reason = 'content_filter'
+      chunk.prompt_feedback = data.promptFeedback
+      const usage = this._mapUsage(data.usageMetadata)
+      if (usage) {
+        chunk.usage = usage
+      }
+      return [chunk]
+    }
     if (candidates.length === 0 && data.usageMetadata) {
       // 仅 usage 的最终 chunk
       const chunk = this._makeChunk(state, model)

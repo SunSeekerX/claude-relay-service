@@ -48,7 +48,8 @@ const modules = {
   },
   '../src/infra/redis_key.js': {
     RedisKeys: { session: { grokVideoTask: (_key, id) => `fixture-video:${id}` } },
-    TTL: { grokVideoTask: 172800, grokVideoSettlementLease: 60 }
+    TTL: { grokVideoTask: 172800, grokVideoSettlementLease: 60 },
+    LIMITS: { responsesContextBytes: 16 * 1024 * 1024 }
   },
   '../src/modules/apikey/apikey_service.js': { apiKeyService },
   '../src/modules/account/account_grok_service.js': { grokAccountService },
@@ -127,6 +128,7 @@ const { CodexToOpenAIConverter } = await import('../src/modules/relay/relay_code
 const { openaiResponsesRelayService } = await import('../src/modules/relay/relay_openai_responses_relay_service.js')
 const { handleMessages, handleStandardGenerateContent, handleStandardStreamGenerateContent } =
   await import('../src/modules/relay/relay_gemini_handlers_routes.js')
+const { relayResponsesViaProvider } = await import('../src/modules/relay/relay_responses_gateway.js')
 
 const makeResponse = () => {
   const res = new EventEmitter()
@@ -148,7 +150,8 @@ const makeResponse = () => {
     res.chunks.push(String(chunk))
     return true
   })
-  res.end = jest.fn(() => {
+  res.end = jest.fn((chunk) => {
+    if (chunk !== undefined && chunk !== null && typeof chunk !== 'function') {res.chunks.push(String(chunk))}
     res.writableEnded = true
     res.emit('finish')
     res.finishResponse()
@@ -542,6 +545,168 @@ describe('OpenAI Responses stream completion', () => {
 })
 
 describe('Gemini API Key tool responses', () => {
+  it.each([false, true])(
+    'conversion errors cannot skip the upstream usage charge (stream=%s)',
+    async (stream) => {
+      const res = makeResponse()
+      const req = makeRequest(res, { model: 'gemini-test', input: 'hello', stream, store: false })
+      req.path = '/gemini/v1/responses'
+      const data = {
+        candidates: [
+          {
+            content: { parts: [{ inlineData: { mimeType: 'image/png', data: 'YWJj' } }] },
+            finishReason: 'STOP'
+          }
+        ],
+        usageMetadata: { promptTokenCount: 10, candidatesTokenCount: 2, totalTokenCount: 12 }
+      }
+      axios.mockResolvedValue({
+        status: 200,
+        headers: {},
+        data: stream ? Readable.from([`data: ${JSON.stringify(data)}\n\n`]) : data
+      })
+      await relayResponsesViaProvider(req, res, {
+        provider: 'gemini',
+        handle: stream ? handleStandardStreamGenerateContent : handleStandardGenerateContent
+      })
+      await res.completion
+      await nextTick()
+      expect(axios).toHaveBeenCalledTimes(1)
+      expect(apiKeyService.recordUsage).toHaveBeenCalledTimes(1)
+      expect(apiKeyService.recordUsage.mock.calls[0][1]).toMatchObject({
+        input_tokens: 10,
+        output_tokens: 2
+      })
+      expect(apiKeyService.recordUsage.mock.calls[0][6]).toMatchObject({
+        statusCode: 502,
+        errorCode: 'provider_conversion_error',
+        protocolTerminal: 'response.failed'
+      })
+      if (stream) {
+        expect(res.chunks.join('')).toContain('response.failed')
+      } else {
+        expect(res.statusCode).toBe(502)
+      }
+    }
+  )
+  it.each([false, true])(
+    'reverse Responses bills actual usage once with the failed terminal metadata (stream=%s)',
+    async (stream) => {
+      const res = makeResponse()
+      const req = makeRequest(res, { model: 'gemini-test', input: 'hello', stream, store: false })
+      req.path = '/gemini/v1/responses'
+      req._crsRecordRelayResult = jest.fn()
+      const data = {
+        candidates: [
+          { content: { parts: [{ text: 'partial output' }] }, finishReason: 'UNEXPECTED_TOOL_CALL' }
+        ],
+        usageMetadata: {
+          promptTokenCount: 100,
+          cachedContentTokenCount: 60,
+          candidatesTokenCount: 7,
+          thoughtsTokenCount: 3,
+          totalTokenCount: 110
+        }
+      }
+      axios.mockResolvedValue({
+        status: 200,
+        headers: {},
+        data: stream ? Readable.from([`data: ${JSON.stringify(data)}\n\n`]) : data
+      })
+      await relayResponsesViaProvider(req, res, {
+        provider: 'gemini',
+        handle: stream ? handleStandardStreamGenerateContent : handleStandardGenerateContent
+      })
+      await res.completion
+      await nextTick()
+      expect(axios).toHaveBeenCalledTimes(1)
+      expect(apiKeyService.recordUsage).toHaveBeenCalledTimes(1)
+      const call = apiKeyService.recordUsage.mock.calls[0]
+      expect(call[1]).toMatchObject({
+        input_tokens: 40,
+        cache_read_input_tokens: 60,
+        output_tokens: 7,
+        reasoning_tokens: 3
+      })
+      expect(call[6]).toMatchObject({
+        statusCode: 502,
+        errorCode: 'upstream_unexpected_tool_call',
+        protocolTerminal: 'response.failed'
+      })
+      expect(req._crsRecordRelayResult).toHaveBeenCalledWith(
+        expect.objectContaining({
+          statusCode: 502,
+          errorCode: 'upstream_unexpected_tool_call',
+          hasUsage: true,
+          final: true
+        })
+      )
+      if (stream) {
+        const events = new IncrementalSSEParser()
+          .feed(res.chunks.join(''))
+          .filter((event) => event.type === 'data')
+          .map((event) => event.data)
+        expect(events.at(-1)).toMatchObject({
+          type: 'response.failed',
+          response: {
+            status: 'failed',
+            usage: { input_tokens: 100, output_tokens: 10, total_tokens: 110 }
+          }
+        })
+        expect(events.some((event) => event.type === 'response.completed')).toBe(false)
+      } else {
+        expect(res.body).toMatchObject({
+          status: 'failed',
+          error: { code: 'upstream_unexpected_tool_call' },
+          usage: { total_tokens: 110 }
+        })
+      }
+    }
+  )
+  it.each([false, true])(
+    'reverse Responses preserves filtered partial output and one metered incomplete outcome (stream=%s)',
+    async (stream) => {
+      const res = makeResponse()
+      const req = makeRequest(res, { model: 'gemini-test', input: 'hello', stream, store: false })
+      req.path = '/gemini/v1/responses'
+      const data = {
+        candidates: [
+          { content: { parts: [{ text: 'partial output' }] }, finishReason: 'PROHIBITED_CONTENT' }
+        ],
+        usageMetadata: { promptTokenCount: 10, candidatesTokenCount: 2, totalTokenCount: 12 }
+      }
+      axios.mockResolvedValue({
+        status: 200,
+        headers: {},
+        data: stream ? Readable.from([`data: ${JSON.stringify(data)}\n\n`]) : data
+      })
+      await relayResponsesViaProvider(req, res, {
+        provider: 'gemini',
+        handle: stream ? handleStandardStreamGenerateContent : handleStandardGenerateContent
+      })
+      await res.completion
+      await nextTick()
+      expect(axios).toHaveBeenCalledTimes(1)
+      expect(apiKeyService.recordUsage).toHaveBeenCalledTimes(1)
+      expect(apiKeyService.recordUsage.mock.calls[0][6]).toMatchObject({
+        statusCode: 200,
+        errorCode: 'response_incomplete',
+        protocolTerminal: 'response.incomplete'
+      })
+      const response = stream
+        ? new IncrementalSSEParser()
+            .feed(res.chunks.join(''))
+            .filter((event) => event.type === 'data')
+            .at(-1).data.response
+        : res.body
+      expect(response).toMatchObject({
+        status: 'incomplete',
+        incomplete_details: { reason: 'content_filter' },
+        output: [{ content: [{ text: 'partial output' }] }],
+        usage: { total_tokens: 12 }
+      })
+    }
+  )
   it.each([false, true])('preserves tool IDs and media with stream=%s', async (stream) => {
     const functionResponse = {
       id: 'call_1',

@@ -26,7 +26,7 @@ export const extractResponsesCountTexts = (body) => {
   }
   const texts = []
   let visited = 0
-  const visit = (value, depth = 0) => {
+  const visit = (value, depth = 0, inputItem = false) => {
     if (++visited > LIMITS.responsesCountItems || depth > LIMITS.responsesCountDepth) {
       throw Object.assign(new Error('本地估算输入结构超过限制'), { statusCode: 413 })
     }
@@ -39,11 +39,15 @@ export const extractResponsesCountTexts = (body) => {
     }
     if (Array.isArray(value)) {
       for (const item of value) {
-        visit(item, depth + 1)
+        visit(item, depth + 1, inputItem)
       }
       return
     }
     if (
+      (inputItem &&
+        typeof value.id === 'string' &&
+        (value.type === undefined || value.type === null) &&
+        Object.keys(value).every((field) => field === 'id' || field === 'type')) ||
       value.file_id ||
       value.file_url ||
       value.file_data ||
@@ -72,7 +76,7 @@ export const extractResponsesCountTexts = (body) => {
     }
   }
   visit(body.instructions)
-  visit(body.input)
+  visit(body.input, 0, true)
   if (body.tools?.some((tool) => ['mcp', 'file_search', 'tool_search'].includes(tool.type))) {
     throw Object.assign(new Error('本地估算无法还原远程工具或检索内容，请使用上游原生计数'), { statusCode: 422 })
   }
@@ -102,7 +106,12 @@ export const handleResponsesInputTokens = async (req, res) => {
     ) {
       throw Object.assign(new Error('model 必须是非空字符串，请求体必须为 JSON 对象'), { statusCode: 400 })
     }
-    if (body.input !== undefined && typeof body.input !== 'string' && !Array.isArray(body.input)) {
+    if (
+      body.input !== undefined &&
+      body.input !== null &&
+      typeof body.input !== 'string' &&
+      !Array.isArray(body.input)
+    ) {
       throw Object.assign(new Error('input 必须是字符串或输入项数组'), { statusCode: 400 })
     }
     if (body.instructions !== undefined && body.instructions !== null && typeof body.instructions !== 'string') {

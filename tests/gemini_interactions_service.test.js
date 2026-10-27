@@ -30,6 +30,7 @@ const client = {
 }
 const redis = { getClientSafe: () => client }
 attach(redis)
+const recordRateLimit = jest.spyOn(redis, 'recordGeminiInteractionRateLimit')
 const axios = jest.fn()
 const recordUsage = jest.fn()
 const scheduler = { selectAccountForApiKey: jest.fn(), _isAccountAvailable: jest.fn().mockResolvedValue(true) }
@@ -127,6 +128,10 @@ beforeEach(() => {
   values.clear()
   pending.clear()
   recordUsage.mockResolvedValue({ realCost: 1, ratedCost: 1 })
+  recordRateLimit.mockImplementation(async (key) => {
+    values.set(key, JSON.stringify({ ...JSON.parse(values.get(key)), rateLimitRecorded: true }))
+    return 1
+  })
   scheduler.selectAccountForApiKey.mockResolvedValue({ accountId: 'api-1', accountType: 'gemini-api' })
   axios.mockResolvedValue({ status: 200, data: complete })
   service = new GeminiInteractionsService()
@@ -157,6 +162,60 @@ it('forwards the official body/path and bills repeated resource reads only once'
   await Promise.all([service.resource(req, new Response(), 'get'), service.resource(req, new Response(), 'get')])
   expect(recordUsage).toHaveBeenCalledTimes(1)
   expect(JSON.stringify([...values])).not.toContain('hello')
+})
+
+it('counts native final usage and its rated cost once despite repeated resource reads', async () => {
+  const req = request({ model: 'gemini-test', input: 'hello' })
+  req.rateLimitInfo = { tokenCountKey: 'fixture', costCountKey: 'fixture-cost' }
+  await service.create(req, new Response(), {})
+  req.params.id = 'int-1'
+  req.method = 'GET'
+  await service.resource(req, new Response(), 'get')
+  expect(recordRateLimit).toHaveBeenCalledTimes(1)
+  expect(recordRateLimit).toHaveBeenCalledWith(RedisKeys.geminiInteraction.record('key-1', 'int-1'), 'key-1', 125, 1)
+  expect(recordUsage).toHaveBeenCalledTimes(1)
+})
+
+it('preserves a zero rated cost when window accounting follows settlement', async () => {
+  recordUsage.mockResolvedValueOnce({ realCost: 1, ratedCost: 0 })
+  const req = request({ model: 'gemini-test', input: 'hello' })
+  req.rateLimitInfo = {}
+  await service.create(req, new Response(), {})
+  expect(recordRateLimit).toHaveBeenCalledWith(expect.any(String), 'key-1', 125, 0)
+})
+
+it('restores background window accounting after a service restart', async () => {
+  axios.mockResolvedValueOnce({ status: 200, data: { id: 'int-1', status: 'in_progress', model: 'gemini-test' } })
+  const req = request({ model: 'gemini-test', input: 'hello', background: true })
+  req.rateLimitInfo = {}
+  await service.create(req, new Response(), {})
+  expect(recordRateLimit).not.toHaveBeenCalled()
+  due()
+  await new GeminiInteractionsService().poll()
+  expect(recordRateLimit).toHaveBeenCalledWith(expect.any(String), 'key-1', 125, 1)
+  expect(pending.size).toBe(0)
+})
+
+it('retries a failed window update from persisted settlement without rebilling or reading upstream', async () => {
+  recordRateLimit.mockRejectedValueOnce(new Error('window store unavailable'))
+  const req = request({ model: 'gemini-test', input: 'hello', store: false })
+  req.rateLimitInfo = {}
+  const res = new Response()
+  await service.create(req, res, {})
+  expect(res.body).toEqual(complete)
+  expect(pending.size).toBe(1)
+  expect(JSON.parse(values.get(RedisKeys.geminiInteraction.record('key-1', 'int-1')))).toMatchObject({
+    billed: true,
+    ratedCost: 1,
+    rateLimitTokens: 125
+  })
+  axios.mockClear()
+  due()
+  await new GeminiInteractionsService().poll()
+  expect(recordRateLimit).toHaveBeenCalledTimes(2)
+  expect(recordUsage).toHaveBeenCalledTimes(1)
+  expect(axios).not.toHaveBeenCalled()
+  expect(pending.size).toBe(0)
 })
 
 it('does not disclose another API key interaction or forward its resource request', async () => {
@@ -251,6 +310,90 @@ it('allows deletion with a persistent unknown settlement marker when cancel omit
   expect(pending.size).toBe(0)
 })
 
+it('retains GET usage as provisional evidence when deletion cancels without final usage', async () => {
+  axios.mockResolvedValueOnce({ status: 200, data: { id: 'int-1', status: 'in_progress', model: 'gemini-test' } })
+  const req = request({ model: 'gemini-test', input: 'private-input', background: true })
+  await service.create(req, new Response(), {})
+  axios
+    .mockResolvedValueOnce({ status: 200, data: { id: 'int-1', status: 'in_progress', usage } })
+    .mockResolvedValueOnce({ status: 200, data: { id: 'int-1', status: 'cancelled' } })
+    .mockResolvedValueOnce({ status: 204 })
+  req.params.id = 'int-1'
+  const res = new Response()
+  await service.resource(req, res, 'delete')
+  expect(res.statusCode).toBe(204)
+  expect(recordUsage).not.toHaveBeenCalled()
+  expect(JSON.parse(values.get(RedisKeys.geminiInteraction.record('key-1', 'int-1')))).toMatchObject({
+    usage,
+    usageFinal: false,
+    stored: false,
+    billed: false,
+    settlementUnknown: true
+  })
+  expect(JSON.stringify([...values])).not.toContain('private-input')
+  expect(pending.size).toBe(0)
+})
+
+it('retains the earlier checkpoint when cancellation returns only an incomplete usage object', async () => {
+  axios.mockResolvedValueOnce({ status: 200, data: { id: 'int-1', status: 'in_progress', model: 'gemini-test' } })
+  const req = request({ model: 'gemini-test', input: 'hello', background: true })
+  await service.create(req, new Response(), {})
+  axios
+    .mockResolvedValueOnce({ status: 200, data: { id: 'int-1', status: 'in_progress', usage } })
+    .mockResolvedValueOnce({ status: 200, data: { id: 'int-1', status: 'cancelled', usage: { total_tokens: 130 } } })
+    .mockResolvedValueOnce({ status: 204 })
+  req.params.id = 'int-1'
+  await service.resource(req, new Response(), 'delete')
+  expect(recordUsage).not.toHaveBeenCalled()
+  expect(JSON.parse(values.get(RedisKeys.geminiInteraction.record('key-1', 'int-1')))).toMatchObject({
+    usage: { total_tokens: 130 },
+    checkpointUsage: usage,
+    billed: false,
+    settlementUnknown: true
+  })
+  expect(pending.size).toBe(0)
+})
+
+it('does not promote an earlier stream checkpoint to final usage when cancellation omits usage', async () => {
+  const events = [
+    { event_type: 'interaction.created', interaction: { id: 'int-1', status: 'in_progress' } },
+    { event_type: 'step.stop', index: 0, usage },
+    { event_type: 'interaction.completed', interaction: { id: 'int-1', status: 'cancelled' } }
+  ]
+  axios.mockResolvedValueOnce({
+    status: 200,
+    data: Readable.from(events.map((event) => `data:${JSON.stringify(event)}\n\n`))
+  })
+  await service.create(
+    request({ model: 'gemini-test', input: 'hello', stream: true, store: false }),
+    new Response(),
+    {}
+  )
+  expect(recordUsage).not.toHaveBeenCalled()
+  expect(JSON.parse(values.get(RedisKeys.geminiInteraction.record('key-1', 'int-1')))).toMatchObject({
+    usage,
+    usageFinal: false,
+    billed: false,
+    settlementUnknown: true
+  })
+  expect(pending.size).toBe(0)
+})
+
+it('does not delete a resource while its observed usage cannot be persisted under another lease', async () => {
+  axios.mockResolvedValueOnce({ status: 200, data: { id: 'int-1', status: 'in_progress', model: 'gemini-test' } })
+  const req = request({ model: 'gemini-test', input: 'hello', background: true })
+  await service.create(req, new Response(), {})
+  const key = RedisKeys.geminiInteraction.record('key-1', 'int-1')
+  const owner = await redis.lockGeminiInteraction(key)
+  axios.mockResolvedValueOnce({ status: 200, data: { ...complete, status: 'in_progress' } })
+  req.params.id = 'int-1'
+  const res = new Response()
+  await service.resource(req, res, 'delete')
+  expect(res.statusCode).toBe(503)
+  expect(axios.mock.calls.map(([config]) => config.method)).toEqual(['POST', 'GET'])
+  await redis.unlockGeminiInteraction(key, owner)
+})
+
 it('does not treat incomplete usage evidence as a confirmed zero bill', async () => {
   axios.mockResolvedValueOnce({ status: 200, data: { ...complete, usage: { total_tokens: 123 } } })
   await service.create(request({ model: 'gemini-test', input: 'hello' }), new Response(), {})
@@ -267,8 +410,11 @@ it('keeps native SSE bytes intact while metering after client disconnect', async
   axios.mockResolvedValueOnce({ status: 200, data: Readable.from(Array.from(bytes, (b) => Buffer.from([b]))) })
   const res = new Response()
   res.destroyed = true
-  await service.create(request({ model: 'gemini-test', input: 'hello', stream: true }), res, {})
+  const req = request({ model: 'gemini-test', input: 'hello', stream: true })
+  req.rateLimitInfo = {}
+  await service.create(req, res, {})
   expect(recordUsage).toHaveBeenCalledTimes(1)
+  expect(recordRateLimit).toHaveBeenCalledWith(expect.any(String), 'key-1', 125, 1)
   expect(res.chunks).toEqual([])
 })
 

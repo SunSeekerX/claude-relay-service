@@ -2,6 +2,7 @@ import { jest, beforeEach, describe, it, expect } from '@jest/globals'
 import express from 'express'
 import request from 'supertest'
 import { Readable } from 'node:stream'
+import { httpRequestStats } from '../src/common/http_request_stats.js'
 import { buildOpenAIChatGeminiRequest } from '../src/modules/relay/relay_openai_gemini_request.js'
 import { GeminiToOpenAIConverter } from '../src/modules/relay/relay_gemini_to_openai.js'
 
@@ -17,7 +18,12 @@ const mocks = {
   '../src/infra/middleware_auth.js': {
     authenticateApiKey: (req, _res, next) => {
       req.apiKey = key
-      req._crsRecordRelayResult = outcomes
+      httpRequestStats.observe(req, _res)
+      const recordResult = req._crsRecordRelayResult
+      req._crsRecordRelayResult = (result) => {
+        outcomes(result)
+        recordResult(result)
+      }
       next()
     },
   },
@@ -62,6 +68,7 @@ const parse = (text) =>
 
 beforeEach(() => {
   jest.clearAllMocks()
+  httpRequestStats.reset()
   account.oauthProvider = 'gemini-cli'
   generate.mockResolvedValue({
     response: {
@@ -266,6 +273,100 @@ describe('legacy endpoint uses the shared converters and one usage settlement', 
     expect(unmetered).toHaveBeenCalledTimes(1)
   })
 
+  it.each([false, true])(
+    'returns a blocked prompt as content_filter and bills reported usage once, stream=%s',
+    async (streaming) => {
+      const promptFeedback = {
+        blockReason: 'SAFETY',
+        safetyRatings: [{ category: 'HARM_CATEGORY_DANGEROUS_CONTENT', probability: 'HIGH' }],
+      }
+      const usageMetadata = { promptTokenCount: 10, totalTokenCount: 10 }
+      generate.mockResolvedValue({ response: { promptFeedback, usageMetadata } })
+      stream.mockResolvedValue(
+        Readable.from([Buffer.from(events([{ response: { promptFeedback } }, { response: { usageMetadata } }]))]),
+      )
+      const res = await request(app)
+        .post(endpoint)
+        .send({
+          model: 'gemini-fixture',
+          stream: streaming,
+          messages: [{ role: 'user', content: 'fixture' }],
+        })
+      expect(res.status).toBe(200)
+      const chunks = streaming ? parse(res.text) : [res.body]
+      expect(chunks.some((chunk) => chunk.error)).toBe(false)
+      expect(chunks.filter((chunk) => chunk.choices[0]?.finish_reason === 'content_filter')).toHaveLength(1)
+      expect(chunks.find((chunk) => chunk.prompt_feedback)?.prompt_feedback).toEqual(promptFeedback)
+      expect(recordUsage).toHaveBeenCalledTimes(1)
+      expect(recordUsage.mock.calls[0][1]).toMatchObject({ input_tokens: 10, output_tokens: 0 })
+      expect(recordUsage.mock.calls[0][6]).toMatchObject({
+        statusCode: 200,
+        errorCode: null,
+        errorMessage: 'Gemini prompt blocked: SAFETY',
+        protocolTerminal: 'content_filter',
+      })
+      expect(outcomes).toHaveBeenLastCalledWith(
+        expect.objectContaining({ statusCode: 200, errorCode: null, hasUsage: true }),
+      )
+      expect(httpRequestStats.getStats().relay).toMatchObject({ completed: 1, failed: 0, unmetered: 0 })
+      expect(unmetered).not.toHaveBeenCalled()
+      if (streaming) {
+        expect(res.text.match(/data: \[DONE\]/g)).toHaveLength(1)
+      }
+    },
+  )
+
+  it.each([false, true])(
+    'preserves a blocked prompt with missing usage without inventing charges, stream=%s',
+    async (streaming) => {
+      const payload = { response: { candidates: [], promptFeedback: { blockReason: 'BLOCKLIST' } } }
+      generate.mockResolvedValue(payload)
+      stream.mockResolvedValue(Readable.from([Buffer.from(events([payload]))]))
+      const res = await request(app)
+        .post(endpoint)
+        .send({
+          model: 'gemini-fixture',
+          stream: streaming,
+          messages: [{ role: 'user', content: 'fixture' }],
+        })
+      expect(res.status).toBe(200)
+      const chunks = streaming ? parse(res.text) : [res.body]
+      expect(chunks[0].choices[0].finish_reason).toBe('content_filter')
+      expect(chunks[0].prompt_feedback.blockReason).toBe('BLOCKLIST')
+      expect(recordUsage).not.toHaveBeenCalled()
+      expect(unmetered).toHaveBeenCalledTimes(1)
+      expect(unmetered.mock.calls[0][1].result).toMatchObject({
+        statusCode: 200,
+        errorMessage: 'Gemini prompt blocked: BLOCKLIST',
+        protocolTerminal: 'content_filter',
+      })
+      expect(httpRequestStats.getStats().relay).toMatchObject({ completed: 1, failed: 0, unmetered: 1 })
+    },
+  )
+
+  it('does not treat an unspecified block reason as a completed stream', async () => {
+    stream.mockResolvedValue(
+      Readable.from([
+        Buffer.from(
+          events([{ promptFeedback: { blockReason: 'BLOCK_REASON_UNSPECIFIED' }, usageMetadata: wireUsage }]),
+        ),
+      ]),
+    )
+    await request(app)
+      .post(endpoint)
+      .send({
+        model: 'gemini-fixture',
+        stream: true,
+        messages: [{ role: 'user', content: 'fixture' }],
+      })
+    expect(outcomes).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        statusCode: 502,
+        errorCode: 'upstream_stream_incomplete',
+      }),
+    )
+  })
+
   it('uses the shared framing at every byte split including the last unterminated event', () => {
     const bytes = Buffer.from(
       'event: message\r\ndata:{"candidates":[{"content":{"parts":[{"text":"中文"}]},"finishReason":"STOP"}]}',
@@ -283,5 +384,42 @@ describe('legacy endpoint uses the shared converters and one usage settlement', 
           .join(''),
       ).toBe('中文')
     }
+  })
+})
+
+describe('Gemini SSE keepalive conversion', () => {
+  it.each(['\n', '\r\n', Buffer.from('\n'), Buffer.from('\r\n')])(
+    'forwards standalone heartbeat %p immediately',
+    (heartbeat) => {
+      const converter = new GeminiToOpenAIConverter()
+      const state = converter.createStreamState()
+      expect(converter.convertStreamChunk(heartbeat, 'fixture', state)).toBe(heartbeat.toString())
+      expect(converter.finishStream('fixture', state)).toBeNull()
+    },
+  )
+
+  it('preserves comment heartbeats across every network byte split', () => {
+    const bytes = Buffer.from(': keep-alive\r\n\r\n')
+    const converter = new GeminiToOpenAIConverter()
+    for (let split = 0; split <= bytes.length; split++) {
+      const state = converter.createStreamState()
+      const output =
+        (converter.convertStreamChunk(bytes.subarray(0, split), 'fixture', state) ?? '') +
+        (converter.convertStreamChunk(bytes.subarray(split), 'fixture', state) ?? '') +
+        (converter.finishStream('fixture', state) ?? '')
+      expect(output).toBe(bytes.toString())
+    }
+  })
+
+  it('keeps whitespace in a pending SSE frame until the frame is complete', () => {
+    const converter = new GeminiToOpenAIConverter()
+    const state = converter.createStreamState()
+    expect(
+      converter.convertStreamChunk('data:{"candidates":[{"content":{"parts":[{"text":"one"}]}}]}', 'fixture', state),
+    ).toBeNull()
+    expect(converter.convertStreamChunk('\n', 'fixture', state)).toBeNull()
+    const output = converter.convertStreamChunk('\n', 'fixture', state)
+    expect(parse(output)[0].choices[0].delta.content).toBe('one')
+    expect(converter.convertStreamChunk('\n', 'fixture', state)).toBe('\n')
   })
 })

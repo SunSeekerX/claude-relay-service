@@ -39,6 +39,7 @@ export const relayResponsesViaProvider = async (req, res, { provider, handle }) 
   const originalBody = req.body
   const originalParams = req.params
   const originalProvider = req._crsResponsesProvider
+  const originalObserver = req._crsObserveResponsesProviderMessage
   const originalJson = res.json.bind(res)
   const originalWrite = res.write.bind(res)
   const originalEnd = res.end.bind(res)
@@ -52,6 +53,7 @@ export const relayResponsesViaProvider = async (req, res, { provider, handle }) 
     req.body = originalBody
     req.params = originalParams
     req._crsResponsesProvider = originalProvider
+    req._crsObserveResponsesProviderMessage = originalObserver
     res.json = originalJson
     res.write = originalWrite
     res.end = originalEnd
@@ -157,6 +159,51 @@ export const relayResponsesViaProvider = async (req, res, { provider, handle }) 
     const { request, adapter } = buildResponsesProviderRequest(source, provider)
     const state = new ProviderResponsesState(provider, source.model, adapter)
     activeState = state
+    const recordResult = (response) => {
+      const incompleteReason = response.incomplete_details?.reason
+      const result = {
+        statusCode: response.status === 'failed' ? 502 : 200,
+        errorCode: response.error?.code ?? (incompleteReason ? 'response_incomplete' : null),
+        errorMessage:
+          response.error?.message ??
+          (incompleteReason ? `Response incomplete: ${incompleteReason}` : null),
+        protocolTerminal: `response.${response.status}`
+      }
+      req._crsProtocolTerminal = result.protocolTerminal
+      if (response.status !== 'completed') {
+        req._crsBridgeFailure = result
+      }
+      req._crsRecordRelayResult?.({ ...result, hasUsage: Boolean(response.usage), final: true })
+      if (response.status === 'failed') {
+        logger.error('Responses provider generation failed', {
+          requestId: req.requestId,
+          provider,
+          error: state.error,
+          finishReason: state.stopReason
+        })
+      }
+      return result
+    }
+    let nonStreamResult = null
+    let nonStreamError = null
+    req._crsObserveResponsesProviderMessage = (message) => {
+      if (!nonStreamResult) {
+        try {
+          state.fromMessage(message)
+          nonStreamResult = state.finish()
+        } catch (error) {
+          nonStreamError = error
+          state.error = {
+            code: 'provider_conversion_error',
+            message: 'Provider response could not be converted'
+          }
+          nonStreamResult = {
+            response: { status: 'failed', error: state.error, usage: state.usage }
+          }
+        }
+      }
+      return recordResult(nonStreamResult.response)
+    }
     req.body = request
     req._crsResponsesProvider = provider
     req.params = { ...req.params, ...(provider === 'gemini' ? { modelName: source.model } : {}) }
@@ -231,8 +278,13 @@ export const relayResponsesViaProvider = async (req, res, { provider, handle }) 
         })
       }
       const finish = async () => {
-        state.fromMessage(data)
-        const { response } = state.finish()
+        if (!nonStreamResult) {
+          req._crsObserveResponsesProviderMessage(data)
+        }
+        if (nonStreamError) {
+          throw nonStreamError
+        }
+        const { response } = nonStreamResult
         await persist(response)
         restore()
         return originalJson(compact ? renderCompact(response) : response)
@@ -289,6 +341,7 @@ export const relayResponsesViaProvider = async (req, res, { provider, handle }) 
           }
           originalWrite(sse(consume(parser.finish())))
           const { response, events } = state.finish()
+          recordResult(response)
           await persist(response)
           restore()
           return originalEnd(sse(events), 'utf8', done)

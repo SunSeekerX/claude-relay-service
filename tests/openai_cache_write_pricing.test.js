@@ -59,6 +59,119 @@ test('official mixed-lifetime example bills $0.01515 and preserves all four disj
   expect(CostCalculator.calculateCost(payload, model, 'priority').costs.total).toBeCloseTo(0.0303, 10)
 })
 
+test('missing 30m write prices use the effective input rate while explicit zero stays authoritative', () => {
+  const payload = buildTokenUsagePayload({ ...normalizeOpenAITokenUsage(officialUsage), rawUsage: officialUsage })
+  const pricing = pricingService.pricingData[model]
+  delete pricing.cache_creation_input_token_cost
+  expect(CostCalculator.calculateCost(payload, model).costs).toMatchObject({
+    cacheWrite30m: expect.closeTo(0.00375, 10),
+    total: expect.closeTo(0.01515, 10),
+  })
+  delete pricing.cache_creation_input_token_cost_priority
+  expect(CostCalculator.calculateCost(payload, model, 'priority').costs.cacheWrite30m).toBeCloseTo(0.0075, 10)
+  pricing.cache_creation_input_token_cost = 0
+  expect(CostCalculator.calculateCost(payload, model).costs.cacheWrite30m).toBe(0)
+  pricing.cache_creation_input_token_cost_priority = 0
+  expect(CostCalculator.calculateCost(payload, model, 'priority').costs.cacheWrite30m).toBe(0)
+})
+
+test('missing 12h tier prices cannot fall back to the base tier and retain explicitly configured tier prices', () => {
+  const payload = buildTokenUsagePayload({ ...normalizeOpenAITokenUsage(officialUsage), rawUsage: officialUsage })
+  const pricing = pricingService.pricingData[model]
+  delete pricing.cache_creation_input_token_cost_above_12hr_priority
+  expect(CostCalculator.calculateCost(payload, model, 'priority').costs).toMatchObject({
+    cacheWrite12h: expect.closeTo(0.02, 10),
+    total: expect.closeTo(0.0303, 10),
+  })
+  pricing.cache_creation_input_token_cost_above_12hr_priority = 0.000007
+  expect(CostCalculator.calculateCost(payload, model, 'priority').costs.cacheWrite12h).toBeCloseTo(0.028, 10)
+  pricing.cache_creation_input_token_cost_above_12hr_priority = 0
+  expect(CostCalculator.calculateCost(payload, model, 'priority').costs.cacheWrite12h).toBe(0)
+})
+
+test('cache-write fallback covers long-context and combined tiers without discarding explicit combined prices', () => {
+  const pricing = pricingService.pricingData[model]
+  Object.assign(pricing, {
+    input_cost_per_token_above_10k_tokens: 0.000003,
+    cache_read_input_token_cost_above_10k_tokens: 0.0000003,
+    input_cost_per_token_above_10k_tokens_priority: 0.000006,
+    cache_read_input_token_cost_above_10k_tokens_priority: 0.0000006,
+  })
+  const payload = buildTokenUsagePayload({ ...normalizeOpenAITokenUsage(officialUsage), rawUsage: officialUsage })
+  const long = CostCalculator.calculateCost(payload, model)
+  expect(long.costs.cacheWrite30m).toBeCloseTo(0.01125, 10)
+  expect(long.costs.cacheWrite12h).toBeCloseTo(0.03, 10)
+  const combined = CostCalculator.calculateCost(payload, model, 'priority')
+  expect(combined.costs.cacheWrite30m).toBeCloseTo(0.0225, 10)
+  expect(combined.costs.cacheWrite12h).toBeCloseTo(0.06, 10)
+  pricing.cache_creation_input_token_cost_above_12hr_above_10k_tokens_priority = 0
+  expect(CostCalculator.calculateCost(payload, model, 'priority').costs.cacheWrite12h).toBe(0)
+  pricing.cache_creation_input_token_cost_above_12hr_above_10k_tokens_priority = 0.00002
+  expect(CostCalculator.calculateCost(payload, model, 'priority').costs.cacheWrite12h).toBeCloseTo(0.08, 10)
+  delete pricing.cache_creation_input_token_cost_above_12hr_above_10k_tokens_priority
+  pricing.cache_creation_input_token_cost_above_12hr_above_10k_tokens = 0.0000075
+  expect(CostCalculator.calculateCost(payload, model, 'priority').costs.cacheWrite12h).toBeCloseTo(0.06, 10)
+})
+
+test('ultrafast alias pricing follows the configured tier chain and legacy unbucketed usage keeps its old fallback', () => {
+  const pricing = pricingService.pricingData[model]
+  const payload = buildTokenUsagePayload({ ...normalizeOpenAITokenUsage(officialUsage), rawUsage: officialUsage })
+  expect(CostCalculator.calculateCost(payload, model, 'ultrafast').costs.cacheWrite12h).toBeCloseTo(0.02, 10)
+  pricing.cache_creation_input_token_cost_above_12hr_priority = 0
+  expect(CostCalculator.calculateCost(payload, model, 'ultrafast').costs.cacheWrite12h).toBe(0)
+  delete pricing.cache_creation_input_token_cost
+  delete pricing.cache_creation_input_token_cost_priority
+  const legacy = { ...payload }
+  delete legacy.cache_write_tokens_details
+  expect(CostCalculator.calculateCost(legacy, model, 'priority').costs.cacheCreate).toBeCloseTo(0.014, 10)
+})
+
+test.each([
+  ['standard', null, 0, 1],
+  ['priority', 'priority', 0, 2],
+  ['flex', 'flex', 0, 0.5],
+  ['long context', null, 300000, 3],
+  ['priority with long context', 'priority', 300000, 6],
+])('derives missing 30m write prices from the effective input rate for %s', (_label, tier, input, rate) => {
+  pricingService.pricingData[model] = {
+    litellm_provider: 'openai',
+    input_cost_per_token: 0.000001,
+    output_cost_per_token: 0.000002,
+    cache_read_input_token_cost: 0.0000001,
+    input_cost_per_token_priority: 0.000002,
+    input_cost_per_token_flex: 0.0000005,
+    input_cost_per_token_above_272k_tokens: 0.000003,
+  }
+  const result = CostCalculator.calculateCost(
+    {
+      input_tokens: input,
+      cache_creation_input_tokens: 1000,
+      cache_write_tokens_details: { ttl_30m_tokens: 1000, ttl_12h_tokens: 0 },
+    },
+    model,
+    tier,
+  )
+  expect(result.costs.cacheWrite30m).toBeCloseTo(0.00125 * rate, 10)
+  expect(result.costs.total).toBeCloseTo(input * rate * 0.000001 + 0.00125 * rate, 10)
+  expect(result.pricing.cacheWrite).toBeCloseTo(rate * 1.25, 10)
+  expect(result.debug.usedFallbackPricing).toBe(false)
+})
+
+test.each([null, 'priority'])('keeps an explicitly free 30m cache-write price for tier %s', (tier) => {
+  pricingService.pricingData[model].cache_creation_input_token_cost = 0
+  pricingService.pricingData[model].cache_creation_input_token_cost_priority = 0
+  const result = CostCalculator.calculateCost(
+    {
+      input_tokens: 0,
+      cache_creation_input_tokens: 1000,
+      cache_write_tokens_details: { ttl_30m_tokens: 1000, ttl_12h_tokens: 0 },
+    },
+    model,
+    tier,
+  )
+  expect(result.costs.total).toBe(0)
+})
+
 test('explicit zero prices and zero lifetime counters are preserved, and missing long price uses the effective input price', () => {
   const payload = buildTokenUsagePayload({ ...normalizeOpenAITokenUsage(officialUsage), rawUsage: officialUsage })
   pricingService.pricingData[model].cache_creation_input_token_cost_above_12hr = 0

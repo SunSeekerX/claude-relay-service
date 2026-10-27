@@ -1,6 +1,9 @@
 import { afterAll, jest, expect, test } from '@jest/globals'
 jest.useFakeTimers({ doNotFake: ['setImmediate', 'nextTick'] })
-afterAll(() => { jest.clearAllTimers(); jest.useRealTimers() })
+afterAll(() => {
+  jest.clearAllTimers()
+  jest.useRealTimers()
+})
 import { buildTokenUsagePayload, normalizeOpenAITokenUsage } from '../src/modules/relay/relay_request_detail_helper.js'
 
 const redis = Object.fromEntries(
@@ -77,10 +80,19 @@ test('actual usage recording charges once and propagates TTL through quota stati
     expect(redis.incrementTokenUsage.mock.calls[0].at(-1)).toEqual({ ttl_30m_tokens: 3000, ttl_12h_tokens: 4000 })
     expect(redis.incrementAccountUsage.mock.calls[0].at(-1)).toEqual({ ttl_30m_tokens: 3000, ttl_12h_tokens: 4000 })
     const record = redis.addUsageRecord.mock.calls[0][1]
-    expect(record.billingAudit).toBeUndefined()
+    expect(record.billingAudit).toMatchObject({
+      model: 'fixture-openai',
+      serviceTier: 'default',
+      upstreamUsage: raw,
+      baseCost: expect.closeTo(0.01515, 10),
+      effectiveRate: 2,
+    })
     expect(captureRequestDetail.mock.calls[0][0].billingAudit).toMatchObject({
-      model: 'fixture-openai', serviceTier: 'default', upstreamUsage: raw,
-      pricingSnapshot: { input: 1, output: 2 }, effectiveRate: 2
+      model: 'fixture-openai',
+      serviceTier: 'default',
+      upstreamUsage: raw,
+      pricingSnapshot: { input: 1, output: 2 },
+      effectiveRate: 2,
     })
     expect(record).toMatchObject({
       inputTokens: 1000,

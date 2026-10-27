@@ -32,6 +32,10 @@ const hasTokenUsage = (usage) =>
   ['total_input_tokens', 'total_output_tokens'].every(
     (field) => Number.isSafeInteger(usage?.[field]) && usage[field] >= 0
   )
+const hasFinalUsage = (record) => record.usageFinal === true && hasTokenUsage(record.usage)
+const needsRateLimit = (record) => record.trackRateLimit === true && record.billed && !record.rateLimitRecorded
+const needsProcessing = (record) =>
+  (!record.billed && (record.stored || hasFinalUsage(record))) || needsRateLimit(record)
 const writeEvents = (events) => events.map((event) => `data: ${JSON.stringify(event)}\n\n`).join('')
 const noteInteractionResult = (req, interaction, errorCode = null) => {
   if (req.method !== 'POST' || req.params.id || !terminal(interaction.status)) {
@@ -168,14 +172,18 @@ export class GeminiInteractionsService {
     const owner = await redis.lockGeminiInteraction(key)
     if (!owner) {
       await redis.scheduleGeminiInteraction(key, true)
-      return
+      return false
     }
     try {
       const saved = await redis.getGeminiInteraction(record.ownerId, record.id)
       saved.status = response.status ?? saved.status
       saved.model = response.model ?? saved.model
       if (response.usage !== undefined && response.usage !== null) {
+        if (terminal(saved.status) && saved.usageFinal === false && saved.usage) {
+          saved.checkpointUsage = saved.usage
+        }
         saved.usage = projectUpstreamUsage(response.usage)
+        saved.usageFinal = terminal(saved.status)
       }
       const images =
         response.steps?.reduce(
@@ -186,8 +194,8 @@ export class GeminiInteractionsService {
         ) ?? 0
       saved.imageCount = Math.max(saved.imageCount ?? 0, record.imageCount ?? 0, images)
       await redis.saveGeminiInteraction(key, saved)
-      await redis.scheduleGeminiInteraction(key, !saved.billed && (saved.stored || hasTokenUsage(saved.usage)))
-      if (terminal(saved.status) && hasTokenUsage(saved.usage) && !saved.billed) {
+      await redis.scheduleGeminiInteraction(key, needsProcessing(saved))
+      if (terminal(saved.status) && hasFinalUsage(saved) && !saved.billed) {
         const { usage } = saved
         const tokenUsage = buildGeminiTokenUsagePayload({
           promptTokenCount: usage.total_input_tokens,
@@ -198,17 +206,32 @@ export class GeminiInteractionsService {
         })
         tokenUsage._upstreamUsage = projectUpstreamUsage(usage)
         try {
-          await apiKeyService.recordUsage(saved.ownerId, tokenUsage, saved.model, saved.accountId, 'gemini-api', null, {
-            ...saved.meta,
-            upstreamUsage: usage,
-            protocolTerminal: saved.status,
-            billingUsage: saved.imageCount ? { image_count: saved.imageCount } : undefined,
-            billingDedupId: `gemini-interaction:${key}`,
-            billingDedupTtl: TTL.geminiInteraction,
-            throwOnBillingFailure: true,
-            statusCode: saved.status === 'failed' ? 502 : 200
-          })
+          const cost = await apiKeyService.recordUsage(
+            saved.ownerId,
+            tokenUsage,
+            saved.model,
+            saved.accountId,
+            'gemini-api',
+            null,
+            {
+              ...saved.meta,
+              upstreamUsage: usage,
+              protocolTerminal: saved.status,
+              billingUsage: saved.imageCount ? { image_count: saved.imageCount } : undefined,
+              billingDedupId: `gemini-interaction:${key}`,
+              billingDedupTtl: TTL.geminiInteraction,
+              throwOnBillingFailure: true,
+              statusCode: saved.status === 'failed' ? 502 : 200
+            }
+          )
           saved.billed = true
+          saved.ratedCost = cost.ratedCost
+          saved.rateLimitTokens =
+            tokenUsage.input_tokens +
+            tokenUsage.output_tokens +
+            tokenUsage.cache_creation_input_tokens +
+            tokenUsage.cache_read_input_tokens +
+            tokenUsage.reasoning_tokens
         } catch (error) {
           logger.error('Interactions settlement deferred with usage persisted', {
             interactionId: saved.id,
@@ -221,7 +244,17 @@ export class GeminiInteractionsService {
         !saved.billed &&
         (terminal(saved.status) || record.settlementUnknown === true || saved.settlementUnknown === true)
       await redis.saveGeminiInteraction(key, saved)
-      await redis.scheduleGeminiInteraction(key, !saved.billed && (saved.stored || hasTokenUsage(saved.usage)))
+      if (needsRateLimit(saved)) {
+        try {
+          // DEC_20261026_234532 最终用量计入结算时仍有效的限流窗口，过期窗口不复活。
+          await redis.recordGeminiInteractionRateLimit(key, saved.ownerId, saved.rateLimitTokens, saved.ratedCost)
+          saved.rateLimitRecorded = true
+        } catch (error) {
+          logger.error('Interactions rate limit accounting deferred', { interactionId: saved.id, error })
+        }
+      }
+      await redis.scheduleGeminiInteraction(key, needsProcessing(saved))
+      return true
     } finally {
       await redis.unlockGeminiInteraction(key, owner)
     }
@@ -240,6 +273,7 @@ export class GeminiInteractionsService {
       status: interaction.status ?? 'in_progress',
       stored: req.body?.store !== false,
       billed: false,
+      trackRateLimit: Boolean(req.rateLimitInfo),
       meta
     }
   }
@@ -321,6 +355,9 @@ export class GeminiInteractionsService {
       const query = action === 'get' ? { stream: req.query.stream, last_event_id: req.query.last_event_id } : undefined
       if (action === 'delete') {
         const current = await this._request(record.accountId, record.version, { id: record.id, req })
+        if (!(await this._observe(record, current.data))) {
+          throw interactionError('Interaction settlement is busy; retry deletion', 'interaction_busy', 503)
+        }
         if (!terminal(current.data.status)) {
           const cancelled = await this._request(record.accountId, record.version, {
             method: 'POST',
@@ -328,9 +365,9 @@ export class GeminiInteractionsService {
             cancel: true,
             req
           })
-          await this._observe(record, cancelled.data)
-        } else {
-          await this._observe(record, current.data)
+          if (!(await this._observe(record, cancelled.data))) {
+            throw interactionError('Interaction settlement is busy; retry deletion', 'interaction_busy', 503)
+          }
         }
         // DEC_20261026_194257 取消后用量仍缺失时保留未结算标记并允许删除，缺失不作零费用。
       }
@@ -351,7 +388,7 @@ export class GeminiInteractionsService {
           ...saved,
           stored: false
         })
-        await redis.scheduleGeminiInteraction(key, !saved.billed && hasTokenUsage(saved.usage))
+        await redis.scheduleGeminiInteraction(key, needsProcessing({ ...saved, stored: false }))
         return res.status(response.status).end()
       }
       if (stream) {
@@ -406,7 +443,11 @@ export class GeminiInteractionsService {
         const snapshot =
           event.interaction ??
           (event.event_type === 'interaction.status_update' ? { id: event.interaction_id, status: event.status } : null)
-        const usage = snapshot?.usage ?? event.usage ?? event.metadata?.total_usage
+        const usage =
+          snapshot?.usage ??
+          event.usage ??
+          event.metadata?.total_usage ??
+          (event.event_type === 'interaction.completed' && snapshot?.status !== 'cancelled' ? record?.usage : undefined)
         if (record) {
           record.imageCount = Math.max(record.imageCount ?? 0, imageEvents.size)
         }
@@ -612,10 +653,9 @@ export class GeminiInteractionsService {
         }
         const record = JSON.parse(raw)
         try {
-          const response =
-            !record.stored && record.usage
-              ? { data: { id: record.id, status: record.status, usage: record.usage } }
-              : await this._request(record.accountId, record.version, { id: record.id, timeout: 30000 })
+          const response = hasFinalUsage(record)
+            ? { data: { id: record.id, status: record.status, usage: record.usage } }
+            : await this._request(record.accountId, record.version, { id: record.id, timeout: 30000 })
           await this._observe(record, response.data)
         } catch (error) {
           if (error.response?.status === 404) {

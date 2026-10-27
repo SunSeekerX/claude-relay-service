@@ -2,6 +2,7 @@ import express from 'express'
 import axios from 'axios'
 
 import { geminiApiAccountService } from './account_gemini_api_service.js'
+import { normalizeAccountApiKeyUpdate } from './account_api_key_update.js'
 import { testModelConfigService } from '../relay/relay_test_model_config_service.js'
 import { testPromptConfigService } from '../relay/relay_test_prompt_config_service.js'
 import { apiKeyService } from '../apikey/apikey_service.js'
@@ -182,6 +183,7 @@ router.put(
     const { id } = req.params
     // review#3：剥离外部传入的状态类字段，禁止伪造自动停用证据
     const updates = stripReadonlyAccountFields(parseObjectBody(req.body, '更新Gemini-API账户'))
+    normalizeAccountApiKeyUpdate(updates)
 
     // 验证priority的有效性（1-100）
     if (updates.priority !== undefined) {

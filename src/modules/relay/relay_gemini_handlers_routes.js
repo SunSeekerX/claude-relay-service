@@ -2308,6 +2308,7 @@ export const handleStandardGenerateContent = async (req, res) => {
       }
     }
 
+    const responsesBridgeResult = req._crsObserveResponsesProviderMessage?.(response.response || response)
     // 记录使用统计
     if (response?.response?.usageMetadata) {
       try {
@@ -2323,6 +2324,7 @@ export const handleStandardGenerateContent = async (req, res) => {
             requestBody: req.body,
             stream: false,
             statusCode: res.statusCode || 200,
+            ...responsesBridgeResult,
           }),
         )
         logger.info(
@@ -2716,6 +2718,7 @@ export const handleStandardStreamGenerateContent = async (req, res) => {
               requestBody: req.body,
               stream: true,
               statusCode: res.statusCode,
+              ...req._crsBridgeFailure,
             }),
           )
           .then(() => {

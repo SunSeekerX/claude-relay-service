@@ -1,6 +1,7 @@
 import express from 'express'
 
 import { claudeConsoleAccountService } from './account_claude_console_service.js'
+import { normalizeAccountApiKeyUpdate } from './account_api_key_update.js'
 import { claudeConsoleRelayService } from '../relay/relay_claude_console_relay_service.js'
 import { accountGroupService } from './account_group_service.js'
 import { apiKeyService } from '../apikey/apikey_service.js'
@@ -203,6 +204,7 @@ router.put(
     // 【新增】映射字段名：前端的 expiresAt -> 后端的 subscriptionExpiresAt
     // review#3：剥离外部传入的状态类字段，禁止伪造自动停用证据
     const mappedUpdates = stripReadonlyAccountFields(mapExpiryField(updates, 'Claude Console', accountId))
+    normalizeAccountApiKeyUpdate(mappedUpdates)
 
     // 验证priority的有效性（1-100）
     if (mappedUpdates.priority !== undefined && (mappedUpdates.priority < 1 || mappedUpdates.priority > 100)) {

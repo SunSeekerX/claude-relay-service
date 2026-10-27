@@ -54,6 +54,72 @@ it('matches function results by official call_id and preserves a false result', 
   })
 })
 
+it.each(['auto', 'any', 'none', 'validated'])('maps the official allowed_tools object with mode %s', (mode) => {
+  const result = interactionToGenerateContent({
+    input: 'hello',
+    tools: [
+      { type: 'function', name: 'lookup', parameters: { type: 'object' } },
+      { type: 'function', name: 'other', parameters: { type: 'object' } }
+    ],
+    generation_config: { tool_choice: { allowed_tools: { mode, tools: ['lookup'] } } }
+  })
+  expect(result.request.toolConfig).toEqual({
+    functionCallingConfig: { mode: mode.toUpperCase(), allowedFunctionNames: ['lookup'] }
+  })
+})
+
+it('preserves string tool modes and an empty official tool choice', () => {
+  expect(
+    interactionToGenerateContent({ input: 'hello', generation_config: { tool_choice: 'none' } }).request.toolConfig
+  ).toEqual({ functionCallingConfig: { mode: 'NONE' } })
+  expect(
+    interactionToGenerateContent({ input: 'hello', generation_config: { tool_choice: {} } }).request.toolConfig
+  ).toEqual({ functionCallingConfig: {} })
+})
+
+it('rejects a server tool allowlist that OAuth cannot enforce', () => {
+  expect(() =>
+    interactionToGenerateContent({
+      input: 'hello',
+      tools: [{ type: 'google_search' }],
+      generation_config: { tool_choice: { allowed_tools: { mode: 'any', tools: ['google_search'] } } }
+    })
+  ).toThrow(/native/)
+})
+
+it.each(['hate_speech', 'dangerous_content', 'harassment', 'sexually_explicit', 'jailbreak'])(
+  'maps official safety category %s and preserves its probability threshold',
+  (type) => {
+    const result = interactionToGenerateContent({
+      input: 'hello',
+      safety_settings: [{ type, threshold: 'off', method: 'probability' }]
+    })
+    expect(result.request.safetySettings).toEqual([
+      { category: `HARM_CATEGORY_${type.toUpperCase()}`, threshold: 'OFF' }
+    ])
+  }
+)
+
+it.each(['block_low_and_above', 'block_medium_and_above', 'block_only_high'])(
+  'maps safety threshold %s without weakening it',
+  (threshold) => {
+    const result = interactionToGenerateContent({
+      input: 'hello',
+      safety_settings: [{ type: 'harassment', threshold }]
+    })
+    expect(result.request.safetySettings[0].threshold).toBe(threshold.toUpperCase())
+  }
+)
+
+it('rejects an unrepresentable safety method instead of silently ignoring it', () => {
+  expect(() =>
+    interactionToGenerateContent({
+      input: 'hello',
+      safety_settings: [{ type: 'harassment', threshold: 'block_only_high', method: 'severity' }]
+    })
+  ).toThrow(/native/)
+})
+
 it.each([
   { previous_interaction_id: 'other' },
   { store: true },

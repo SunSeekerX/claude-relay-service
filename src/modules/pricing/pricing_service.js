@@ -349,6 +349,19 @@ class PricingService {
     return basePrice
   }
 
+  // 缓存 TTL 价必须覆盖当前两个维度；缺一个维度时按生效输入价推导，不能沿用基础档。
+  _resolveOpenAICacheWritePrice(pricing, baseField, contextSuffix, tierSuffixes, inputPrice, multiplier) {
+    const hasPrice = (suffix) =>
+      pricing[`${baseField}${suffix}`] !== null && pricing[`${baseField}${suffix}`] !== undefined
+    const hasCombinedPrice = contextSuffix && tierSuffixes.some((suffix) => hasPrice(`${contextSuffix}${suffix}`))
+    const hasContextPrice = !contextSuffix || hasPrice(contextSuffix)
+    const hasTierPrice = tierSuffixes.length === 0 || tierSuffixes.some(hasPrice)
+    if (hasCombinedPrice || (hasContextPrice && hasTierPrice)) {
+      return this._resolveTieredPrice(pricing, baseField, contextSuffix, tierSuffixes) ?? inputPrice * multiplier
+    }
+    return inputPrice * multiplier
+  }
+
   // 是否为 OpenAI 侧定价。长上下文档（272k）与 service_tier 档目前只对 OpenAI 生效：
   // Claude 200k 档由本文件既有分支处理（且 Claude 官方为平价），gemini 走各自链路不传 service_tier
   _isOpenAIPricing(modelName, pricing) {
@@ -1193,6 +1206,7 @@ class PricingService {
     const cacheCreationTokens = usage.cache_creation_input_tokens || 0
     const cacheReadTokens = usage.cache_read_input_tokens || 0
     const totalInputTokens = inputTokens + cacheCreationTokens + cacheReadTokens
+    const hasCacheWriteLifetimes = getOpenAICacheWriteDetails(usage) !== null
 
     // 识别 Claude 特性标识
     const betaFeatures = this.extractBetaFeatures(usage)
@@ -1282,22 +1296,31 @@ class PricingService {
     if (useOpenAITieredPricing) {
       const tieredPrice = (baseField) => this._resolveTieredPrice(pricing, baseField, contextSuffix, tierSuffixes) || 0
       const tieredInputPrice = tieredPrice('input_cost_per_token')
-      // OpenAI 多数模型不单列 cache-write 价，出现 cache creation token 时按输入价兜底（与 costCalculator 同口径）
-      const tieredCacheCreatePrice =
-        this._resolveTieredPrice(pricing, 'cache_creation_input_token_cost', contextSuffix, tierSuffixes) ??
-        tieredInputPrice
+      // TTL 写入缺价时按当前输入档位推导；旧的未分桶用量沿用输入价兜底。
+      const tieredCacheCreatePrice = hasCacheWriteLifetimes
+        ? this._resolveOpenAICacheWritePrice(
+            pricing,
+            'cache_creation_input_token_cost',
+            contextSuffix,
+            tierSuffixes,
+            tieredInputPrice,
+            1.25,
+          )
+        : (this._resolveTieredPrice(pricing, 'cache_creation_input_token_cost', contextSuffix, tierSuffixes) ??
+          tieredInputPrice)
       const tieredOutputPrice = tieredPrice('output_cost_per_token') || tieredPrice('output_cost_per_image_token') || 0
       return this._buildCostResult(usage, {
         inputPrice: tieredInputPrice || tieredPrice('input_cost_per_image_token') || 0,
         outputPrice: tieredOutputPrice,
         cacheCreatePrice: tieredCacheCreatePrice,
-        cacheWrite12hPrice:
-          this._resolveTieredPrice(
-            pricing,
-            'cache_creation_input_token_cost_above_12hr',
-            contextSuffix,
-            tierSuffixes,
-          ) ?? tieredInputPrice * 2.5,
+        cacheWrite12hPrice: this._resolveOpenAICacheWritePrice(
+          pricing,
+          'cache_creation_input_token_cost_above_12hr',
+          contextSuffix,
+          tierSuffixes,
+          tieredInputPrice,
+          2.5,
+        ),
         cacheReadPrice:
           tieredPrice('cache_read_input_token_cost') || tieredPrice('cache_read_input_image_token_cost') || 0,
         ephemeral1hPrice: tieredPrice('cache_creation_input_token_cost_above_1hr') || tieredCacheCreatePrice,
@@ -1354,7 +1377,8 @@ class PricingService {
           ? 0
           : pricing.cache_creation_input_token_cost_above_1hr || 0
     } else {
-      actualCacheCreatePrice = pricing.cache_creation_input_token_cost || 0
+      actualCacheCreatePrice =
+        pricing.cache_creation_input_token_cost ?? (hasCacheWriteLifetimes ? actualInputPrice * 1.25 : 0)
       actualCacheReadPrice = pricing.cache_read_input_token_cost || 0
       actualEphemeral1hPrice = pricing.cache_creation_input_token_cost_above_1hr || 0
     }

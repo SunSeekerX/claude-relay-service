@@ -124,6 +124,9 @@ test.each([
   { input: [{ type: 'input_file', file_id: 'file-1' }] },
   { input: [{ type: 'input_image', image_url: 'https://remote.invalid/image' }] },
   { input: [{ type: 'reasoning', encrypted_content: 'ciphertext' }] },
+  { input: [{ type: 'item_reference', id: 'server-item' }] },
+  { input: [{ id: 'server-item' }] },
+  { input: [{ id: 'server-item', type: null }] },
 ])('local fallback refuses unresolved server state or media: %j', async (extra) => {
   upstream.mockResolvedValue({ status: 404, data: {} })
   await request(app)
@@ -159,5 +162,54 @@ test('native upstream can resolve remote history and files without rejecting the
     .send({ ...body, previous_response_id: 'server-history', input: [{ type: 'input_file', file_id: 'server-file' }] })
     .expect(200)
   expect(upstream.mock.calls[0][0].data.previous_response_id).toBe('server-history')
+  expect(countLocal).not.toHaveBeenCalled()
+})
+
+test.each([{ conversation: 'server-conversation' }, { previous_response_id: 'server-response' }])(
+  'native upstream receives an explicit null input unchanged with remote state: %j',
+  async (remote) => {
+    await request(app)
+      .post('/v1/responses/input_tokens')
+      .send({ ...body, input: null, ...remote })
+      .expect(200)
+    expect(upstream.mock.calls[0][0].data).toMatchObject({ input: null, ...remote })
+    expect(countLocal).not.toHaveBeenCalled()
+  },
+)
+
+test('native upstream can resolve an id-only item reference instead of running local projection', async () => {
+  await request(app)
+    .post('/v1/responses/input_tokens')
+    .send({ ...body, input: [{ id: 'server-item' }] })
+    .expect(200)
+  expect(upstream.mock.calls[0][0].data.input).toEqual([{ id: 'server-item' }])
+  expect(countLocal).not.toHaveBeenCalled()
+})
+
+test('unavailable native count refuses null-input remote history but can estimate explicit local messages with IDs', async () => {
+  upstream.mockResolvedValue({ status: 404, data: {} })
+  await request(app)
+    .post('/v1/responses/input_tokens')
+    .send({ ...body, input: null, conversation: 'server-history' })
+    .expect(422)
+  expect(countLocal).not.toHaveBeenCalled()
+  const result = await request(app)
+    .post('/v1/responses/input_tokens')
+    .send({
+      ...body,
+      input: [{ id: 'inline-message', role: 'assistant', content: [{ type: 'output_text', text: 'Local content' }] }],
+    })
+    .expect(200)
+  expect(result.body._crs_estimate).toBe(true)
+  expect(countLocal.mock.calls[0][0].texts).toEqual(['Be brief', 'Local content'])
+})
+
+test('OAuth fallback refuses id-only references before invoking any estimator', async () => {
+  selectAccount.mockResolvedValue({ accountId: 'oauth-account', accountType: 'openai' })
+  await request(app)
+    .post('/v1/responses/input_tokens')
+    .send({ ...body, input: [{ id: 'server-item' }] })
+    .expect(422)
+  expect(upstream).not.toHaveBeenCalled()
   expect(countLocal).not.toHaveBeenCalled()
 })

@@ -9,6 +9,23 @@
 
 export const RedisLua = {
   geminiInteraction: {
+    recordRateLimit: `
+local raw = redis.call('GET', KEYS[1])
+if not raw then return redis.error_reply('Interaction settlement record is missing') end
+local record = cjson.decode(raw)
+if record.rateLimitRecorded then return 0 end
+local windowStart = redis.call('GET', KEYS[2])
+local active = windowStart and redis.call('PTTL', KEYS[2]) > 0 and
+  redis.call('PTTL', KEYS[3]) > 0 and redis.call('PTTL', KEYS[4]) > 0
+if active then
+  if tonumber(ARGV[1]) > 0 then redis.call('INCRBY', KEYS[3], ARGV[1]) end
+  if tonumber(ARGV[2]) > 0 then redis.call('INCRBYFLOAT', KEYS[4], ARGV[2]) end
+end
+record.rateLimitRecorded = true
+record.rateLimitWindowStart = active and tonumber(windowStart) or cjson.null
+redis.call('SET', KEYS[1], cjson.encode(record), 'KEEPTTL', 'XX')
+return active and 1 or 0
+`,
     unlock: `
 if redis.call('GET', KEYS[1]) == ARGV[1] then return redis.call('DEL', KEYS[1]) end
 return 0

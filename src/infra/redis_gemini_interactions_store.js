@@ -30,6 +30,20 @@ export const attach = (redis) => {
   redis.getPendingGeminiInteractions = async () =>
     redis.getClientSafe().zrangebyscore(RedisKeys.geminiInteraction.pending, '-inf', Date.now(), 'LIMIT', 0, 50)
 
+  redis.recordGeminiInteractionRateLimit = async (key, ownerId, totalTokens, ratedCost) =>
+    redis
+      .getClientSafe()
+      .eval(
+        RedisLua.geminiInteraction.recordRateLimit,
+        4,
+        key,
+        RedisKeys.rateLimit.windowStart(ownerId),
+        RedisKeys.rateLimit.tokens(ownerId),
+        RedisKeys.rateLimit.cost(ownerId),
+        totalTokens,
+        ratedCost
+      )
+
   redis.lockGeminiInteraction = async (key) => {
     const owner = crypto.randomUUID()
     const acquired = await redis

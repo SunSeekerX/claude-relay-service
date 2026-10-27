@@ -5,6 +5,56 @@ export const interactionError = (message, code = 'interaction_feature_unsupporte
 
 const array = (value) => (Array.isArray(value) ? value : value === undefined ? [] : [value])
 const contentTypes = new Set(['text', 'image', 'audio', 'video', 'document'])
+const safetyCategories = new Map(
+  ['hate_speech', 'dangerous_content', 'harassment', 'sexually_explicit', 'jailbreak'].map((type) => [
+    type,
+    `HARM_CATEGORY_${type.toUpperCase()}`
+  ])
+)
+const safetyThresholds = new Set(['block_low_and_above', 'block_medium_and_above', 'block_only_high', 'off'])
+const toolModes = new Set(['auto', 'any', 'none', 'validated'])
+
+const convertSafetySettings = (settings) => {
+  if (!Array.isArray(settings)) {
+    throw interactionError('safety_settings must be an array', 'invalid_argument')
+  }
+  return settings.map((setting) => {
+    if (!safetyCategories.has(setting?.type) || !safetyThresholds.has(setting?.threshold)) {
+      throw interactionError('Unsupported safety category or threshold', 'invalid_argument')
+    }
+    if (setting.method !== undefined && setting.method !== 'probability') {
+      throw interactionError('This safety method requires native Interactions support')
+    }
+    return { category: safetyCategories.get(setting.type), threshold: setting.threshold.toUpperCase() }
+  })
+}
+
+const convertToolChoice = (choice, declarations, hasServerTools) => {
+  const allowed =
+    typeof choice === 'string'
+      ? { mode: choice }
+      : choice && typeof choice === 'object' && !Array.isArray(choice)
+        ? (choice.allowed_tools ?? {})
+        : null
+  if (!allowed || typeof allowed !== 'object' || Array.isArray(allowed)) {
+    throw interactionError('tool_choice must be a mode or an allowed_tools configuration', 'invalid_argument')
+  }
+  if (allowed.mode !== undefined && !toolModes.has(allowed.mode)) {
+    throw interactionError('Unsupported tool choice mode', 'invalid_argument')
+  }
+  if (allowed.tools !== undefined) {
+    if (!Array.isArray(allowed.tools)) {
+      throw interactionError('allowed_tools.tools must be an array', 'invalid_argument')
+    }
+    if (hasServerTools || allowed.tools.some((name) => !declarations.some((tool) => tool.name === name))) {
+      throw interactionError('This tool selection requires native Interactions support')
+    }
+  }
+  return {
+    ...(allowed.mode === undefined ? {} : { mode: allowed.mode.toUpperCase() }),
+    ...(allowed.tools === undefined ? {} : { allowedFunctionNames: allowed.tools })
+  }
+}
 
 export const normalizeInteractionInput = (input) => {
   if (typeof input === 'string') {
@@ -152,7 +202,7 @@ export const interactionToGenerateContent = (body) => {
     request.generationConfig = generationConfig
   }
   if (body.safety_settings !== undefined) {
-    request.safetySettings = body.safety_settings
+    request.safetySettings = convertSafetySettings(body.safety_settings)
   }
   const tools = []
   const declarations = []
@@ -176,12 +226,12 @@ export const interactionToGenerateContent = (body) => {
     request.tools = tools
   }
   if (source.tool_choice !== undefined) {
-    const choice = source.tool_choice
     request.toolConfig = {
-      functionCallingConfig:
-        typeof choice === 'string'
-          ? { mode: choice.toUpperCase() }
-          : { mode: choice.mode?.toUpperCase(), allowedFunctionNames: choice.allowed_function_names }
+      functionCallingConfig: convertToolChoice(
+        source.tool_choice,
+        declarations,
+        tools.some((tool) => !tool.functionDeclarations)
+      )
     }
   }
   return { model: body.model, request, stream: body.stream === true }

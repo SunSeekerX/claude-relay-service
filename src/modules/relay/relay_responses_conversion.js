@@ -19,6 +19,21 @@ const decodeSignature = (provider, value) =>
 const textOf = (parts) =>
   typeof parts === 'string' ? parts : (parts ?? []).map((part) => part.text ?? '').join('\n')
 const responseId = (prefix) => `${prefix}_${crypto.randomUUID().replaceAll('-', '')}`
+const geminiFilterReasons = new Set([
+  'SAFETY',
+  'RECITATION',
+  'BLOCKLIST',
+  'PROHIBITED_CONTENT',
+  'SPII',
+  'MODEL_ARMOR',
+  'IMAGE_SAFETY',
+  'IMAGE_PROHIBITED_CONTENT',
+  'IMAGE_RECITATION'
+])
+const geminiFailureCodes = {
+  MALFORMED_FUNCTION_CALL: 'upstream_malformed_function_call',
+  UNEXPECTED_TOOL_CALL: 'upstream_unexpected_tool_call'
+}
 
 const validateParts = (content) => {
   if (typeof content === 'string') {
@@ -104,7 +119,7 @@ export const buildResponsesProviderRequest = (source, provider) => {
       }
       messages.push({
         role: 'assistant',
-        content: '',
+        content: [],
         tool_calls: [
           {
             id: item.call_id ?? item.id,
@@ -205,11 +220,12 @@ export const buildResponsesProviderRequest = (source, provider) => {
   }
   const parts = (content) => {
     if (typeof content === 'string') {
-      return [{ type: 'text', text: content }]
+      return content ? [{ type: 'text', text: content }] : []
     }
-    return content.map((part) => {
+    return content.flatMap((part) => {
       if (['input_text', 'output_text', 'text', 'refusal'].includes(part.type)) {
-        return { type: 'text', text: part.text ?? part.refusal ?? '' }
+        const text = part.text ?? part.refusal ?? ''
+        return text ? [{ type: 'text', text }] : []
       }
       const image = part.type === 'input_image' || part.type === 'image_url'
       const value = image
@@ -361,6 +377,8 @@ export class ProviderResponsesState {
     this.error = null
     this.ended = false
     this.outputBytes = 0
+    this.geminiBlockKey = null
+    this.contentFiltered = false
   }
   event(type, data = {}) {
     return { type, sequence_number: this.sequence++, ...data }
@@ -646,6 +664,8 @@ export class ProviderResponsesState {
     const candidate = response.candidates?.[0]
     for (const part of candidate?.content?.parts ?? []) {
       if (part.functionCall) {
+        events.push(...this.close(this.geminiBlockKey))
+        this.geminiBlockKey = null
         const key = part.functionCall.id ?? responseId('tool')
         events.push(
           ...this.addBlock(key, {
@@ -658,10 +678,17 @@ export class ProviderResponsesState {
         )
         events.push(...this.close(key))
       } else if (typeof part.text === 'string') {
-        const key = part.thought ? 'thinking' : 'text'
-        if (!this.blocks.has(key)) {
-          events.push(...this.addBlock(key, { type: part.thought ? 'thinking' : 'text' }))
+        const kind = part.thought ? 'thinking' : 'text'
+        const active = this.blocks.get(this.geminiBlockKey)
+        if (active && active.item.type !== (part.thought ? 'reasoning' : 'message')) {
+          events.push(...this.close(this.geminiBlockKey))
+          this.geminiBlockKey = null
         }
+        if (this.geminiBlockKey === null) {
+          this.geminiBlockKey = `gemini-block:${this.output.length}`
+          events.push(...this.addBlock(this.geminiBlockKey, { type: kind }))
+        }
+        const key = this.geminiBlockKey
         events.push(
           ...this.delta(key, {
             type: part.thought ? 'thinking_delta' : 'text_delta',
@@ -682,8 +709,11 @@ export class ProviderResponsesState {
       this.stopReason = candidate.finishReason
       this.ended = true
     }
-    if (response.promptFeedback?.blockReason) {
-      this.error = { code: 'content_filter', message: 'Provider blocked the request' }
+    if (
+      response.promptFeedback?.blockReason &&
+      response.promptFeedback.blockReason !== 'BLOCK_REASON_UNSPECIFIED'
+    ) {
+      this.contentFiltered = true
       this.ended = true
     }
     return events
@@ -712,13 +742,28 @@ export class ProviderResponsesState {
         message: 'Provider stream ended without a terminal event'
       }
     }
-    const incomplete = [
-      'max_tokens',
-      'MAX_TOKENS',
-      'SAFETY',
-      'RECITATION',
-      'content_filter'
-    ].includes(this.stopReason)
+    const limited = ['max_tokens', 'MAX_TOKENS'].includes(this.stopReason)
+    const filtered =
+      this.contentFiltered ||
+      (this.provider === 'gemini'
+        ? geminiFilterReasons.has(this.stopReason)
+        : ['SAFETY', 'RECITATION', 'content_filter'].includes(this.stopReason))
+    if (
+      this.provider === 'gemini' &&
+      this.ended &&
+      !this.error &&
+      !limited &&
+      !filtered &&
+      this.stopReason !== 'STOP'
+    ) {
+      this.error = {
+        code: Object.hasOwn(geminiFailureCodes, this.stopReason)
+          ? geminiFailureCodes[this.stopReason]
+          : 'upstream_generation_failed',
+        message: 'Provider ended generation with an unsuccessful finish reason'
+      }
+    }
+    const incomplete = limited || filtered
     const response = this.response(this.error ? 'failed' : incomplete ? 'incomplete' : 'completed')
     if (this.error) {
       response.error = {
@@ -727,11 +772,9 @@ export class ProviderResponsesState {
         message: 'Provider response failed'
       }
     }
-    if (incomplete) {
+    if (incomplete && !this.error) {
       response.incomplete_details = {
-        reason: ['max_tokens', 'MAX_TOKENS'].includes(this.stopReason)
-          ? 'max_output_tokens'
-          : 'content_filter'
+        reason: filtered ? 'content_filter' : 'max_output_tokens'
       }
     }
     return {
