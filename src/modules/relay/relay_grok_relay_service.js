@@ -23,6 +23,7 @@ import {
   summarizeErrorForLog,
   extractSafeMessage,
   extractUpstreamErrorCode,
+  isClientActionableUpstreamError,
 } from '../../common/client_error_builder.js'
 import { IncrementalSSEParser, parseSSEEvent } from './relay_sse_parser.js'
 import { ResponsesStreamState, isResponsesRateLimitError } from './relay_responses_stream_state.js'
@@ -229,6 +230,8 @@ class GrokRelayService {
     let proxyResolution = null
     let account = null
     let videoReservation = null
+    const deadline = (req.requestStartedAt ?? Date.now()) + this.defaultTimeout
+    const attemptedAccountIds = new Set()
 
     try {
       const requestedModel = req.body?.model || ''
@@ -265,7 +268,10 @@ class GrokRelayService {
       if (forcedAccountId) {
         account = await grokAccountService.getAccount(forcedAccountId, { decryptSecrets: true })
         if (!account) {
-          forcedAccountId = null
+          throw Object.assign(new Error('The original video account is unavailable'), {
+            statusCode: 404,
+            code: 'grok_video_task_not_found',
+          })
         }
       }
       if (!account) {
@@ -336,35 +342,44 @@ class GrokRelayService {
         token = account.authType === 'apikey' ? account.apiKey : account.accessToken
       }
 
-      let targetUrl = this._buildTargetUrl(account, endpointKind, req)
-      let body = this._prepareBody(req.body, endpointKind)
-      const toolAdapter = endpointKind === 'responses' && requiresResponsesToolAdapter(body) ? adaptResponsesTools(body) : null
-      if (toolAdapter) {({ body } = toolAdapter)}
-      let effectiveEndpointKind = endpointKind
-      let reverseBridgeToChat = false
+      let targetUrl
+      let body
+      let toolAdapter
+      let effectiveEndpointKind
+      let reverseBridgeToChat
       const originalChatModel = requestedModel
 
-      if (endpointKind === 'responses_compact') {
-        body = grokProtocol.buildGrokCompactRequestBody(body)
-      }
-
-      // chat → responses 桥（仅当资格满足；否则 raw chat）
-      if (endpointKind === 'chat') {
-        const bridge = grokProtocol.isChatBridgeEligible(body)
-        const preferBridge =
-          account.authType === 'oauth' ||
-          account.preferResponsesBridge === true ||
-          account.preferResponsesBridge === 'true'
-        if (preferBridge && bridge.ok) {
-          effectiveEndpointKind = 'responses'
-          reverseBridgeToChat = true
-          targetUrl = this._buildTargetUrl(account, 'responses', req)
-          body = grokProtocol.maybeInjectFreeCacheTools(grokProtocol.chatToResponsesBody(body), account)
-          logger.info(`[GrokRelay] chat→responses bridge account=${account.id} reason=${bridge.reason}`)
-        } else if (!bridge.ok) {
-          logger.debug(`[GrokRelay] chat raw forward account=${account.id} reason=${bridge.reason}`)
+      const prepareAttempt = () => {
+        targetUrl = this._buildTargetUrl(account, endpointKind, req)
+        body = this._prepareBody(req.body, endpointKind)
+        toolAdapter =
+          endpointKind === 'responses' && requiresResponsesToolAdapter(body) ? adaptResponsesTools(body) : null
+        if (toolAdapter) {
+          ;({ body } = toolAdapter)
+        }
+        effectiveEndpointKind = endpointKind
+        reverseBridgeToChat = false
+        if (endpointKind === 'responses_compact') {
+          body = grokProtocol.buildGrokCompactRequestBody(body)
+        }
+        if (endpointKind === 'chat') {
+          const bridge = grokProtocol.isChatBridgeEligible(body)
+          const preferBridge =
+            account.authType === 'oauth' ||
+            account.preferResponsesBridge === true ||
+            account.preferResponsesBridge === 'true'
+          if (preferBridge && bridge.ok) {
+            effectiveEndpointKind = 'responses'
+            reverseBridgeToChat = true
+            targetUrl = this._buildTargetUrl(account, 'responses', req)
+            body = grokProtocol.maybeInjectFreeCacheTools(grokProtocol.chatToResponsesBody(body), account)
+            logger.info(`[GrokRelay] chat→responses bridge account=${account.id} reason=${bridge.reason}`)
+          } else if (!bridge.ok) {
+            logger.debug(`[GrokRelay] chat raw forward account=${account.id} reason=${bridge.reason}`)
+          }
         }
       }
+      prepareAttempt()
 
       if (
         endpointKind === 'videos_generations' ||
@@ -378,27 +393,33 @@ class GrokRelayService {
         )
       }
 
-      const headers = {
-        ...pickGrokPassthroughHeaders(req.headers),
-        Authorization: `Bearer ${token}`,
-        'Content-Type': req.headers['content-type'] || 'application/json',
+      let headers
+      const prepareHeaders = () => {
+        headers = {
+          ...pickGrokPassthroughHeaders(req.headers),
+          Authorization: `Bearer ${token}`,
+          'Content-Type': req.headers['content-type'] || 'application/json',
+        }
+        if (account.authType === 'oauth') {
+          Object.assign(headers, xaiHelper.buildCliIdentityHeaders())
+        }
+        if (account.userAgent || req.headers['user-agent']) {
+          headers['User-Agent'] = account.userAgent || req.headers['user-agent']
+        }
       }
-      if (account.authType === 'oauth') {
-        Object.assign(headers, xaiHelper.buildCliIdentityHeaders())
-      }
-      if (account.userAgent) {
-        headers['User-Agent'] = account.userAgent
-      } else if (req.headers['user-agent']) {
-        headers['User-Agent'] = req.headers['user-agent']
-      }
+      prepareHeaders()
 
       const buildRequestOptions = (dataBody) => {
+        const remainingMs = deadline - Date.now()
+        if (remainingMs <= 0) {
+          throw Object.assign(new Error('Grok request budget exhausted'), { code: 'ETIMEDOUT' })
+        }
         const options = {
           method: 'POST',
           url: targetUrl,
           headers,
           data: dataBody,
-          timeout: this.defaultTimeout,
+          timeout: remainingMs,
           responseType: isStream ? 'stream' : 'json',
           validateStatus: () => true,
           signal: abortController.signal,
@@ -429,118 +450,154 @@ class GrokRelayService {
         `[GrokRelay] forward account=${account.id} url=${targetUrl} stream=${isStream} model=${body?.model || requestedModel || '-'} endpoint=${effectiveEndpointKind} reverseChat=${reverseBridgeToChat}`,
       )
 
-      let response = await timedUpstreamRequest(req, () => axios(applyProxy(buildRequestOptions(body))))
-      proxyResolver.report?.(proxyResolution?.proxyId, proxyResolution?.contextKey, null)
-
       const compactUnsupported = (status) => endpointKind === 'responses_compact' && [405, 501].includes(status)
-
-      // encrypted_content 400：剥离后同号重试一次
-      if (
-        effectiveEndpointKind === 'responses' &&
-        grokProtocol.isInvalidEncryptedContentError(response.status, response.data)
-      ) {
-        const stripped = grokProtocol.stripEncryptedReasoningContent(body)
-        if (stripped.changed) {
-          logger.warn(`[GrokRelay] invalid encrypted_content retry account=${account.id}`)
-          ;({ body } = stripped)
-          response = await timedUpstreamRequest(req, () => axios(applyProxy(buildRequestOptions(body))))
+      let response
+      let transportError
+      const sendRequest = async () => {
+        const options = applyProxy(buildRequestOptions(body))
+        let received
+        try {
+          received = await timedUpstreamRequest(req, () => axios(options))
+          proxyResolver.report?.(proxyResolution?.proxyId, proxyResolution?.contextKey, null)
+        } catch (error) {
+          proxyResolver.report?.(proxyResolution?.proxyId, proxyResolution?.contextKey, error)
+          throw error
+        }
+        if (received.status >= 400 && typeof received.data?.pipe === 'function') {
+          const text = await this._readStreamText(received.data, Math.max(1, Math.min(5000, deadline - Date.now())))
+          try {
+            received.data = JSON.parse(text)
+          } catch {
+            received.data = text
+          }
+        }
+        return received
+      }
+      const forwardAttempt = async () => {
+        attemptedAccountIds.add(account.id)
+        req._crsAccountId = account.id
+        req._crsAccountType = 'grok'
+        try {
+          response = await sendRequest()
+          transportError = null
+          // encrypted_content 400 仍只允许同号剥离 reasoning 后重试一次。
+          if (
+            effectiveEndpointKind === 'responses' &&
+            grokProtocol.isInvalidEncryptedContentError(response.status, response.data)
+          ) {
+            const stripped = grokProtocol.stripEncryptedReasoningContent(body)
+            if (stripped.changed) {
+              logger.warn(`[GrokRelay] invalid encrypted_content retry account=${account.id}`)
+              ;({ body } = stripped)
+              response = await sendRequest()
+            }
+          }
+        } catch (error) {
+          transportError = error
+          response = null
         }
       }
+      await forwardAttempt()
 
-      // failover：405/401/429/5xx 等换号重试一次
-      if (
-        response.status >= 400 &&
-        !compactUnsupported(response.status) &&
-        grokProtocol.shouldFailoverGrokStatus(response.status) &&
-        !forcedAccountId
-      ) {
-        if (response.status === 429) {
-          const retryAfter = upstreamErrorHelper.parseRetryAfter?.(response.headers) || 3600
-          const grokAutoOff = account.disableAutoProtection === true || account.disableAutoProtection === 'true'
-          if (!grokAutoOff) {
-            await grokAccountService.markAccountRateLimited(account.id, Math.ceil(retryAfter / 60) || 60)
+      const retryableTransportCodes = new Set([
+        'ECONNABORTED',
+        'ECONNRESET',
+        'ECONNREFUSED',
+        'ETIMEDOUT',
+        'EAI_AGAIN',
+        'ENOTFOUND',
+        'EPIPE',
+        'EHOSTUNREACH',
+        'ENETUNREACH',
+        'ERR_NETWORK',
+      ])
+      const requiresOriginalAccount = Boolean(
+        forcedAccountId || req.body?.previous_response_id || req.body?.conversation,
+      )
+      while (transportError || (response.status >= 400 && !compactUnsupported(response.status))) {
+        const retryable = transportError
+          ? retryableTransportCodes.has(transportError.code)
+          : grokProtocol.shouldFailoverGrokStatus(response.status) &&
+            !isClientActionableUpstreamError(response.status, response.data)
+        if (response && retryable) {
+          if (response.status === 429) {
+            const retryAfter = upstreamErrorHelper.parseRetryAfter?.(response.headers) || 3600
+            const autoOff = account.disableAutoProtection === true || account.disableAutoProtection === 'true'
+            if (!autoOff) {
+              await grokAccountService.markAccountRateLimited(account.id, Math.ceil(retryAfter / 60) || 60)
+            }
+          } else if (response.status === 401 || response.status === 403) {
+            await grokAccountService.markAccountUnauthorized(account.id, `Grok upstream ${response.status}`)
           }
-          const grokCtx = upstreamErrorHelper.buildErrorContext({
+          const context = upstreamErrorHelper.buildErrorContext({
             url: targetUrl,
             method: 'POST',
             requestHeaders: headers,
             requestBody: body,
             model: requestedModel,
-            responseStatus: 429,
+            responseStatus: response.status,
             responseHeaders: response.headers,
             responseBody: response.data,
           })
           await upstreamErrorHelper
-            .markTempUnavailable(account.id, 'grok', 429, retryAfter, grokCtx)
-            .catch((e) => console.error(e))
-        } else if (response.status === 401 || response.status === 403) {
-          await grokAccountService.markAccountUnauthorized(account.id, `Grok upstream ${response.status}`)
-          await upstreamErrorHelper
             .markTempUnavailable(
               account.id,
               'grok',
               response.status,
-              null,
-              upstreamErrorHelper.buildErrorContext({
-                url: targetUrl,
-                method: 'POST',
-                requestHeaders: headers,
-                requestBody: body,
-                model: requestedModel,
-                responseStatus: response.status,
-                responseHeaders: response.headers,
-                responseBody: response.data,
-                message: `Grok upstream ${response.status}`,
-              }),
-            )
-            .catch((e) => console.error(e))
-        } else if (response.status >= 500 || response.status === 405) {
-          await upstreamErrorHelper
-            .markTempUnavailable(
-              account.id,
-              'grok',
-              response.status,
-              null,
-              upstreamErrorHelper.buildErrorContext({
-                url: targetUrl,
-                method: 'POST',
-                requestHeaders: headers,
-                requestBody: body,
-                model: requestedModel,
-                responseStatus: response.status,
-                responseHeaders: response.headers,
-                responseBody: response.data,
-              }),
+              response.status === 429 ? upstreamErrorHelper.parseRetryAfter?.(response.headers) || 3600 : null,
+              context,
             )
             .catch((e) => console.error(e))
         }
-
-        // 换号重试（排除当前号）
+        if (
+          !retryable ||
+          requiresOriginalAccount ||
+          res.headersSent ||
+          res.destroyed ||
+          req._crsClientGone ||
+          abortController.signal.aborted ||
+          Date.now() >= deadline
+        ) {
+          break
+        }
+        let next
         try {
-          const next = await trackRequestTiming(req, 'scheduling', () =>
-            grokScheduler.selectAccount(apiKeyData, requestedModel, sessionHash, {
-              mediaGeneration,
-            }),
-          )
-          if (next && next.id !== account.id) {
-            logger.warn(`[GrokRelay] failover ${response.status} ${account.id} -> ${next.id}`)
-            account = (await grokAccountService.ensureFreshToken(next.id)) || next
-            token = account.authType === 'apikey' ? account.apiKey : account.accessToken
-            headers.Authorization = `Bearer ${token}`
-            if (account.authType === 'oauth') {
-              Object.assign(headers, xaiHelper.buildCliIdentityHeaders())
-            }
-            targetUrl = this._buildTargetUrl(
-              account,
-              effectiveEndpointKind === 'responses' ? 'responses' : endpointKind,
-              req,
+          do {
+            next = await trackRequestTiming(req, 'scheduling', () =>
+              grokScheduler.selectAccount(apiKeyData, requestedModel, sessionHash, {
+                mediaGeneration,
+                excludedAccountIds: attemptedAccountIds,
+                deferGroupAdmission: true,
+              }),
             )
-            proxyResolution = proxyResolver.resolveAgent(account, 'grok')
-            response = await timedUpstreamRequest(req, () => axios(applyProxy(buildRequestOptions(body))))
-          }
+            if (!mediaGeneration || (await grokAccountService.ensureMediaEligible(next.id)).eligible) {
+              break
+            }
+            attemptedAccountIds.add(next.id)
+            next = null
+          } while (!res.destroyed && !req._crsClientGone && !abortController.signal.aborted && Date.now() < deadline)
         } catch (failoverError) {
-          console.error(failoverError)
+          logger.info('[GrokRelay] no further eligible account', {
+            requestId: req.requestId,
+            attemptedAccounts: attemptedAccountIds.size,
+            ...summarizeErrorForLog(failoverError),
+          })
+          break
         }
+        if (!next || res.destroyed || req._crsClientGone || abortController.signal.aborted || Date.now() >= deadline) {
+          break
+        }
+        response?.data?.destroy?.()
+        logger.warn(`[GrokRelay] failover ${response?.status || transportError?.code} ${account.id} -> ${next.id}`)
+        account = (await grokAccountService.ensureFreshToken(next.id)) || next
+        token = account.authType === 'apikey' ? account.apiKey : account.accessToken
+        prepareAttempt()
+        prepareHeaders()
+        proxyResolution = proxyResolver.resolveAgent(account, 'grok')
+        await forwardAttempt()
+      }
+      if (transportError) {
+        throw transportError
       }
 
       if (compactUnsupported(response.status)) {
@@ -562,54 +619,17 @@ class GrokRelayService {
 
       if (response.status === 429) {
         const retryAfter = upstreamErrorHelper.parseRetryAfter?.(response.headers) || 3600
-        const grokAutoOff = account.disableAutoProtection === true || account.disableAutoProtection === 'true'
-        if (!grokAutoOff) {
-          await grokAccountService.markAccountRateLimited(account.id, Math.ceil(retryAfter / 60) || 60)
-        }
-        const grokCtx = upstreamErrorHelper.buildErrorContext({
-          url: targetUrl,
-          method: 'POST',
-          requestHeaders: headers,
-          requestBody: body,
-          model: requestedModel,
-          responseStatus: 429,
-          responseHeaders: response.headers,
-          responseBody: response.data,
-        })
-        await upstreamErrorHelper
-          .markTempUnavailable(account.id, 'grok', 429, retryAfter, grokCtx)
-          .catch((e) => console.error(e))
-
         const clientError = buildClientError({
           statusCode: 429,
           protocol: 'openai',
           upstreamBody: response.data,
           retryAfterSeconds: retryAfter,
         })
+        res.setHeader('Retry-After', String(retryAfter))
         return res.status(clientError.statusCode).json(clientError.body)
       }
 
       if (response.status === 401 || response.status === 403) {
-        await grokAccountService.markAccountUnauthorized(account.id, `Grok upstream ${response.status}`)
-        await upstreamErrorHelper
-          .markTempUnavailable(
-            account.id,
-            'grok',
-            response.status,
-            null,
-            upstreamErrorHelper.buildErrorContext({
-              url: targetUrl,
-              method: 'POST',
-              requestHeaders: headers,
-              requestBody: body,
-              model: requestedModel,
-              responseStatus: response.status,
-              responseHeaders: response.headers,
-              responseBody: response.data,
-              message: `Grok upstream ${response.status}`,
-            }),
-          )
-          .catch((e) => console.error(e))
         const clientError = buildClientError({
           statusCode: response.status,
           protocol: 'openai',
@@ -660,25 +680,6 @@ class GrokRelayService {
                 }
               : null,
           })
-        } else if (!autoOff && (response.status >= 500 || response.status === 405)) {
-          await upstreamErrorHelper
-            .markTempUnavailable(
-              account.id,
-              'grok',
-              response.status,
-              null,
-              upstreamErrorHelper.buildErrorContext({
-                url: targetUrl,
-                method: 'POST',
-                requestHeaders: headers,
-                requestBody: body,
-                model: requestedModel,
-                responseStatus: response.status,
-                responseHeaders: response.headers,
-                responseBody: response.data,
-              }),
-            )
-            .catch((e) => console.error(e))
         }
 
         const clientError = buildClientError({
@@ -792,10 +793,6 @@ class GrokRelayService {
       )
     } catch (error) {
       console.error(error)
-      // 传输层异常必须反馈代理池（熔断/权重）
-      if (proxyResolution) {
-        proxyResolver.report?.(proxyResolution.proxyId, proxyResolution.contextKey, error)
-      }
       if (error.name === 'AbortError' || error.code === 'ERR_CANCELED') {
         logger.info('[GrokRelay] client aborted')
         return
@@ -1388,13 +1385,24 @@ class GrokRelayService {
     }
   }
 
-  async _readStreamText(stream) {
+  async _readStreamText(stream, timeoutMs = 5000) {
     const chunks = []
     await new Promise((resolve) => {
-      stream.on('data', (chunk) => chunks.push(chunk))
-      stream.on('end', resolve)
-      stream.on('error', resolve)
-      setTimeout(resolve, 5000)
+      const onData = (chunk) => chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk))
+      const finish = () => {
+        clearTimeout(timer)
+        stream.off('data', onData)
+        stream.off('end', finish)
+        stream.off('error', finish)
+        stream.off('close', finish)
+        stream.destroy()
+        resolve()
+      }
+      const timer = setTimeout(finish, timeoutMs)
+      stream.on('data', onData)
+      stream.on('end', finish)
+      stream.on('error', finish)
+      stream.on('close', finish)
     })
     return Buffer.concat(chunks).toString()
   }

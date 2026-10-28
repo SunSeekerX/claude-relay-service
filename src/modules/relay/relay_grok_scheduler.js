@@ -280,6 +280,7 @@ class GrokScheduler {
       }
     }
 
+    candidates = candidates.filter((candidate) => !options.excludedAccountIds?.has(candidate.id))
     if (!candidates.length) {
       const error = new Error(`No available Grok accounts${hasBinding ? ' (respecting binding)' : ''}`)
       // 无绑定 = 池耗尽；有绑定不应走到这里（上面已 throw）

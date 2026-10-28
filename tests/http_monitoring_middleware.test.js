@@ -18,6 +18,7 @@ const modules = {
     applyRouteBinding: jest.fn(),
     resolveDefaultModelRoutes: jest.fn(),
     getRouteModels: jest.fn(),
+    getLegacyProviderModels: jest.fn(),
   },
 }
 for (const [name, exports] of Object.entries(modules)) {
@@ -73,6 +74,33 @@ it('warns about a slow content start and includes the request identity', () => {
   const { req, res } = fixture('/openai/responses', true)
   jest.advanceTimersByTime(6000)
   res.write('data: {"type":"response.output_text.delta","delta":"hi"}\n\n')
+  res.emit('finish')
+  expect(logger.warn).toHaveBeenCalledWith('Slow first token: 6000ms POST /openai/responses', {
+    requestId: req.requestId,
+    durationMs: 6000,
+  })
+})
+
+it('times a custom tool input delta after control frames and keeps the first content time', () => {
+  const { req, res } = fixture('/openai/responses', true)
+  jest.advanceTimersByTime(100)
+  res.write('event: response.created\ndata: {"type":"response.created","response":{}}\n\n')
+  res.write('data: {"type":"response.output_item.added","item":{"type":"custom_tool_call"}}\n\n')
+  expect(req.firstTokenMs).toBeNull()
+  jest.advanceTimersByTime(500)
+  res.write(Buffer.from('data: {"type":"response.custom_tool_call_input.delta","delta":"*** Begin Patch"}\n\n'))
+  expect(req.firstTokenMs).toBe(600)
+  jest.advanceTimersByTime(6000)
+  res.write('data: {"type":"response.output_text.delta","delta":"done"}\n\n')
+  res.emit('finish')
+  expect(req.firstTokenMs).toBe(600)
+  expect(logger.warn).not.toHaveBeenCalled()
+})
+
+it('warns when a custom tool input is the first content after a slow start', () => {
+  const { req, res } = fixture('/openai/responses', true)
+  jest.advanceTimersByTime(6000)
+  res.write('data: {"type":"response.custom_tool_call_input.delta","delta":"patch"}\n\n')
   res.emit('finish')
   expect(logger.warn).toHaveBeenCalledWith('Slow first token: 6000ms POST /openai/responses', {
     requestId: req.requestId,

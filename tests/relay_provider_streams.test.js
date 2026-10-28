@@ -30,6 +30,9 @@ const openaiResponsesAccountService = {
 const unifiedOpenAIScheduler = { markAccountRateLimited: jest.fn().mockResolvedValue(undefined) }
 const grokAccountService = {
   markAccountRateLimited: jest.fn().mockResolvedValue(undefined),
+  markAccountUnauthorized: jest.fn().mockResolvedValue(undefined),
+  getAccount: jest.fn(),
+  ensureMediaEligible: jest.fn().mockResolvedValue({ eligible: true }),
   ensureFreshToken: jest.fn(async (id) => ({
     id,
     authType: 'apikey',
@@ -100,7 +103,10 @@ const modules = {
     mapModel: (model) => model,
     buildResponsesUrl: (base) => `${base}/responses`,
     buildResponsesCompactUrl: (base) => `${base}/responses/compact`,
-    buildCliIdentityHeaders: () => ({}),
+    buildChatCompletionsUrl: (base) => `${base}/chat/completions`,
+    buildVideoStatusUrl: (base, id) => `${base}/videos/${id}`,
+    buildImagesGenerationsUrl: (base) => `${base}/images/generations`,
+    buildCliIdentityHeaders: () => ({ 'x-grok-version': 'fixture-oauth' }),
   },
   '../src/common/common_helper.js': { getMappedModelName: jest.fn() },
   '../src/modules/pricing/pricing_cost_calculator.js': { CostCalculator: {} },
@@ -209,6 +215,8 @@ const nextTick = () => new Promise((resolve) => setImmediate(resolve))
 beforeEach(() => {
   jest.clearAllMocks()
   axios.mockReset()
+  grokScheduler.selectAccount.mockReset()
+  grokAccountService.getAccount.mockReset()
   apiKeyService.recordUsage.mockReset().mockResolvedValue({ realCost: 1, ratedCost: 1 })
   videoDb.eval.mockReset().mockResolvedValue(1)
 })
@@ -287,6 +295,221 @@ describe('Grok forwarding contracts', () => {
     expect(res.body).toEqual(compact)
     expect(apiKeyService.recordUsage).toHaveBeenCalledTimes(1)
     expect(apiKeyService.recordUsage.mock.calls[0][3]).toBe('second')
+  })
+
+  const selectCandidates = (ids) => {
+    const selections = []
+    grokScheduler.selectAccount.mockImplementation(async (_key, _model, _session, options = {}) => {
+      selections.push([...(options.excludedAccountIds ?? [])])
+      const id = ids.find((candidate) => !options.excludedAccountIds?.has(candidate))
+      if (!id) {
+        throw Object.assign(new Error('No available Grok accounts'), { code: 'grok_pool_exhausted' })
+      }
+      return { id }
+    })
+    return selections
+  }
+  const requestResponses = (body = { model: 'grok-4.7', input: 'history' }) => {
+    const res = makeResponse()
+    const req = makeRequest(res, body)
+    req.path = '/v1/responses'
+    return { req, res }
+  }
+
+  it('tries all unattempted candidates even when auto protection leaves previous accounts schedulable', async () => {
+    const selections = selectCandidates(['first', 'second', 'third'])
+    axios
+      .mockResolvedValueOnce({ status: 503, headers: {}, data: { error: { message: 'busy' } } })
+      .mockResolvedValueOnce({ status: 502, headers: {}, data: { error: { message: 'busy' } } })
+      .mockResolvedValueOnce({ status: 200, headers: {}, data: { object: 'response', output: [], usage } })
+    const { req, res } = requestResponses()
+    await grokRelayService.relayResponses(req, res, req.apiKey, 'sticky')
+    expect(selections).toEqual([[], ['first'], ['first', 'second']])
+    expect(axios).toHaveBeenCalledTimes(3)
+    expect(apiKeyService.recordUsage).toHaveBeenCalledTimes(1)
+    expect(apiKeyService.recordUsage.mock.calls[0][3]).toBe('third')
+    expect(grokScheduler.selectAccount.mock.calls[1][3].deferGroupAdmission).toBe(true)
+    expect(markTempUnavailable).toHaveBeenCalledTimes(2)
+  })
+
+  it('ends after pool exhaustion and retains the last upstream rate limit without billing', async () => {
+    const selections = selectCandidates(['first', 'second', 'third'])
+    axios.mockResolvedValue({ status: 429, headers: {}, data: { error: { message: 'limited' } } })
+    const { req, res } = requestResponses()
+    await grokRelayService.relayResponses(req, res, req.apiKey)
+    expect(selections).toEqual([[], ['first'], ['first', 'second'], ['first', 'second', 'third']])
+    expect(axios).toHaveBeenCalledTimes(3)
+    expect(res.statusCode).toBe(429)
+    expect(res.setHeader).toHaveBeenCalledWith('Retry-After', '60')
+    expect(apiKeyService.recordUsage).not.toHaveBeenCalled()
+    expect(markTempUnavailable).toHaveBeenCalledTimes(3)
+  })
+
+  it('continues after a retryable transport error and records usage only on the successful account', async () => {
+    selectCandidates(['first', 'second'])
+    axios
+      .mockRejectedValueOnce(Object.assign(new Error('socket reset'), { code: 'ECONNRESET' }))
+      .mockResolvedValueOnce({ status: 200, headers: {}, data: { object: 'response', output: [], usage } })
+    const { req, res } = requestResponses()
+    await grokRelayService.relayResponses(req, res, req.apiKey)
+    expect(axios).toHaveBeenCalledTimes(2)
+    expect(apiKeyService.recordUsage).toHaveBeenCalledTimes(1)
+    expect(apiKeyService.recordUsage.mock.calls[0][3]).toBe('second')
+    expect(res.statusCode).toBe(200)
+  })
+
+  it('prepares the next account protocol and headers without carrying OAuth identity into an API key account', async () => {
+    selectCandidates(['first', 'second'])
+    grokAccountService.ensureFreshToken
+      .mockResolvedValueOnce({ id: 'first', authType: 'oauth', accessToken: 'oauth-token' })
+      .mockResolvedValueOnce({ id: 'second', authType: 'apikey', apiKey: 'api-token' })
+    const final = { choices: [{ message: { role: 'assistant', content: 'done' } }], usage }
+    axios
+      .mockResolvedValueOnce({ status: 503, headers: {}, data: { error: { message: 'busy' } } })
+      .mockResolvedValueOnce({ status: 200, headers: {}, data: final })
+    const { req, res } = requestResponses({ model: 'grok-4.7', messages: [{ role: 'user', content: 'hi' }] })
+    await grokRelayService.relayChatCompletions(req, res, req.apiKey)
+    const first = axios.mock.calls[0][0]
+    const second = axios.mock.calls[1][0]
+    expect(first.url).toBe('https://api.x.ai/v1/responses')
+    expect(first.headers).toMatchObject({ Authorization: 'Bearer oauth-token', 'x-grok-version': 'fixture-oauth' })
+    expect(second.url).toBe('https://api.x.ai/v1/chat/completions')
+    expect(second.data.messages).toEqual(req.body.messages)
+    expect(second.data.input).toBeUndefined()
+    expect(second.headers.Authorization).toBe('Bearer api-token')
+    expect(second.headers['x-grok-version']).toBeUndefined()
+    expect(res.body).toEqual(final)
+  })
+
+  it('checks media eligibility before dispatching a replacement account', async () => {
+    const selections = selectCandidates(['first', 'second', 'third'])
+    grokAccountService.ensureMediaEligible
+      .mockResolvedValueOnce({ eligible: true })
+      .mockResolvedValueOnce({ eligible: false, reason: 'oauth_free' })
+      .mockResolvedValueOnce({ eligible: true })
+    axios
+      .mockResolvedValueOnce({ status: 503, headers: {}, data: { error: { message: 'busy' } } })
+      .mockResolvedValueOnce({
+        status: 200,
+        headers: {},
+        data: { data: [{ url: 'https://example.invalid/image' }], usage },
+      })
+    const { req, res } = requestResponses({ model: 'grok-imagine-image', prompt: 'fixture' })
+    await grokRelayService.relayMedia(req, res, req.apiKey, 'images_generations')
+    expect(selections).toEqual([[], ['first'], ['first', 'second']])
+    expect(grokAccountService.ensureMediaEligible.mock.calls.map(([id]) => id)).toEqual(['first', 'second', 'third'])
+    expect(axios).toHaveBeenCalledTimes(2)
+    expect(apiKeyService.recordUsage).toHaveBeenCalledTimes(1)
+    expect(apiKeyService.recordUsage.mock.calls[0][3]).toBe('third')
+  })
+
+  it('permits one encrypted reasoning correction on the same account and then excludes that account on failover', async () => {
+    const selections = selectCandidates(['first', 'second'])
+    axios
+      .mockResolvedValueOnce({
+        status: 400,
+        headers: {},
+        data: { error: { code: 'invalid_encrypted_content', message: 'cannot decrypt encrypted_content' } },
+      })
+      .mockResolvedValueOnce({ status: 503, headers: {}, data: { error: { message: 'busy' } } })
+      .mockResolvedValueOnce({ status: 200, headers: {}, data: { object: 'response', output: [], usage } })
+    const { req, res } = requestResponses({
+      model: 'grok-4.7',
+      input: [{ type: 'reasoning', encrypted_content: 'opaque' }],
+    })
+    await grokRelayService.relayResponses(req, res, req.apiKey)
+    expect(axios).toHaveBeenCalledTimes(3)
+    expect(selections).toEqual([[], ['first']])
+    expect(axios.mock.calls[1][0].data.input[0].encrypted_content).toBeUndefined()
+    expect(req.body.input[0].encrypted_content).toBe('opaque')
+    expect(apiKeyService.recordUsage).toHaveBeenCalledTimes(1)
+  })
+
+  it.each([
+    [400, { error: { message: 'Invalid input' } }],
+    [403, { error: { code: 'content_policy_violation', message: 'content policy violation' } }],
+  ])('does not replay request-level errors or policy rejection %s', async (status, data) => {
+    selectCandidates(['first', 'second'])
+    axios.mockResolvedValueOnce({ status, headers: {}, data: Readable.from([JSON.stringify(data)]) })
+    const { req, res } = requestResponses({ model: 'grok-4.7', input: 'history', stream: true })
+    await grokRelayService.relayResponses(req, res, req.apiKey)
+    expect(axios).toHaveBeenCalledTimes(1)
+    expect(grokScheduler.selectAccount).toHaveBeenCalledTimes(1)
+    expect(res.statusCode).toBe(status)
+    expect(markTempUnavailable).not.toHaveBeenCalled()
+  })
+
+  it.each([{ previous_response_id: 'resp-parent' }, { conversation: 'conv-parent' }])(
+    'retains the original account for a server-side continuation %j',
+    async (continuation) => {
+      selectCandidates(['first', 'second'])
+      axios.mockResolvedValueOnce({ status: 503, headers: {}, data: { error: { message: 'busy' } } })
+      const { req, res } = requestResponses({ model: 'grok-4.7', ...continuation })
+      await grokRelayService.relayResponses(req, res, req.apiKey)
+      expect(axios).toHaveBeenCalledTimes(1)
+      expect(grokScheduler.selectAccount).toHaveBeenCalledTimes(1)
+    },
+  )
+
+  it('shares the existing timeout across candidates instead of resetting it', async () => {
+    const clock = jest.spyOn(Date, 'now').mockReturnValue(1000)
+    try {
+      selectCandidates(['first', 'second'])
+      axios
+        .mockImplementationOnce(async () => {
+          clock.mockReturnValue(1600)
+          return { status: 503, headers: {}, data: { error: { message: 'busy' } } }
+        })
+        .mockResolvedValueOnce({ status: 200, headers: {}, data: { object: 'response', output: [], usage } })
+      const { req, res } = requestResponses()
+      await grokRelayService.relayResponses(req, res, req.apiKey)
+      expect(axios.mock.calls.map(([options]) => options.timeout)).toEqual([1000, 400])
+    } finally {
+      clock.mockRestore()
+    }
+  })
+
+  it('stops before another dispatch when the request budget has expired', async () => {
+    const clock = jest.spyOn(Date, 'now').mockReturnValue(1000)
+    try {
+      selectCandidates(['first', 'second'])
+      axios.mockImplementationOnce(async () => {
+        clock.mockReturnValue(2001)
+        return { status: 503, headers: {}, data: { error: { message: 'busy' } } }
+      })
+      const { req, res } = requestResponses()
+      await grokRelayService.relayResponses(req, res, req.apiKey)
+      expect(axios).toHaveBeenCalledTimes(1)
+      expect(grokScheduler.selectAccount).toHaveBeenCalledTimes(1)
+    } finally {
+      clock.mockRestore()
+    }
+  })
+
+  it('does not dispatch another candidate after a streaming client disconnects', async () => {
+    selectCandidates(['first', 'second'])
+    const { req, res } = requestResponses({ model: 'grok-4.7', stream: true })
+    axios.mockImplementationOnce(async () => {
+      res.emit('close')
+      return { status: 503, headers: {}, data: { error: { message: 'busy' } } }
+    })
+    await grokRelayService.relayResponses(req, res, req.apiKey)
+    expect(axios).toHaveBeenCalledTimes(1)
+    expect(grokScheduler.selectAccount).toHaveBeenCalledTimes(1)
+  })
+
+  it('rejects a missing original video account without falling back to the pool', async () => {
+    const { req, res } = requestResponses()
+    req.params.requestId = 'video-task'
+    const redisModule = await import('../src/infra/redis.js')
+    redisModule.redis.getSessionAccountMapping = jest.fn().mockResolvedValue('deleted')
+    const keyModule = await import('../src/infra/redis_key.js')
+    keyModule.RedisKeys.session.unifiedGrokMapping = (id) => id
+    grokAccountService.getAccount.mockResolvedValueOnce(null)
+    await grokRelayService.relayMedia(req, res, req.apiKey, 'video_status')
+    expect(res.statusCode).toBe(404)
+    expect(axios).not.toHaveBeenCalled()
+    expect(grokScheduler.selectAccount).not.toHaveBeenCalled()
   })
 
   it('rejects a synthetic compact result while preserving already reported usage', async () => {

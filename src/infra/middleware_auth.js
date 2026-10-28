@@ -1829,7 +1829,7 @@ export const requestLogger = (req, res, next) => {
       // OpenAI Responses 流：生命周期/结构帧很多；只认「正文类 delta」为真首字
       // 覆盖 response.created / in_progress / output_item.* / content_part.* / completed 等
       if (/"type"\s*:\s*"response\./.test(joined)) {
-        return /"type"\s*:\s*"(response\.output_text\.delta|response\.reasoning_text\.delta|response\.reasoning_summary_text\.delta|response\.function_call_arguments\.delta|response\.audio\.delta|response\.output_audio\.delta)"/.test(
+        return /"type"\s*:\s*"(response\.output_text\.delta|response\.reasoning_text\.delta|response\.reasoning_summary_text\.delta|response\.function_call_arguments\.delta|response\.custom_tool_call_input\.delta|response\.audio\.delta|response\.output_audio\.delta)"/.test(
           joined,
         )
       }
