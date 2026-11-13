@@ -461,56 +461,6 @@ const summarizeAntigravityRequestForDebug = (requestData) => {
   }
 }
 
-/**
- * 清洗工具结果的 content blocks
- * - 移除 base64 图片（避免体积过大）
- * - 截断文本内容到 20 万字符
- * @param {Array} blocks - content blocks 数组
- * @returns {Array} 清洗后的 blocks
- */
-const sanitizeToolResultBlocksForAntigravity = (blocks) => {
-  const cleaned = []
-  let usedChars = 0
-  let removedImage = false
-
-  for (const block of blocks) {
-    if (!block || typeof block !== 'object') {
-      continue
-    }
-
-    if (block.type === 'image' && block.source?.type === 'base64' && typeof block.source?.data === 'string') {
-      removedImage = true
-      continue
-    }
-
-    if (block.type === 'text' && typeof block.text === 'string') {
-      const remaining = MAX_ANTIGRAVITY_TOOL_RESULT_CHARS - usedChars
-      if (remaining <= 0) {
-        break
-      }
-      const text = truncateText(block.text, remaining)
-      cleaned.push({ ...block, text })
-      usedChars += text.length
-      continue
-    }
-
-    cleaned.push(block)
-    usedChars += 100
-    if (usedChars >= MAX_ANTIGRAVITY_TOOL_RESULT_CHARS) {
-      break
-    }
-  }
-
-  if (removedImage) {
-    cleaned.push({
-      type: 'text',
-      text: '[image omitted to fit Antigravity prompt limits; use the file path in the previous text block]',
-    })
-  }
-
-  return cleaned
-}
-
 // ===
 // 核心函数：消息标准化和转换
 // ===
@@ -518,7 +468,7 @@ const sanitizeToolResultBlocksForAntigravity = (blocks) => {
 /**
  * 标准化工具结果内容
  * 支持字符串和 content blocks 数组两种格式
- * 对 Antigravity 会进行截断和图片移除处理
+ * Preserve structured tool text; media is converted into Gemini parts separately.
  */
 const normalizeToolResultContent = (content, { vendor = null } = {}) => {
   if (content === null || content === undefined) {
@@ -534,9 +484,6 @@ const normalizeToolResultContent = (content, { vendor = null } = {}) => {
   // 为对齐 CLIProxyAPI/Antigravity 的行为，这里优先保留原始 JSON 结构（数组/对象），
   // 避免上游将其视为“无效 tool_result”从而触发 tool_use concurrency 400。
   if (Array.isArray(content) || (content && typeof content === 'object')) {
-    if (vendor === 'antigravity' && Array.isArray(content)) {
-      return sanitizeToolResultBlocksForAntigravity(content)
-    }
     return content
   }
   return ''
@@ -887,7 +834,7 @@ const convertAnthropicToolChoiceToGeminiToolConfig = (toolChoice) => {
 const convertAnthropicMessagesToGeminiContents = (
   messages,
   toolUseIdToName,
-  { vendor = null, stripThinking = false, sessionId = null } = {},
+  { vendor = null, stripThinking = false, sessionId = null, model = null } = {},
 ) => {
   const contents = []
   for (const message of messages || []) {
@@ -895,6 +842,7 @@ const convertAnthropicMessagesToGeminiContents = (
 
     const content = message?.content
     const parts = []
+    const toolMedia = []
     let lastAntigravityThoughtSignature = ''
 
     if (typeof content === 'string') {
@@ -1011,44 +959,50 @@ const convertAnthropicMessagesToGeminiContents = (
             continue
           }
 
-          const raw = normalizeToolResultContent(part.content, { vendor })
-
-          let parsedResponse = null
-          if (raw && typeof raw === 'string') {
-            try {
-              parsedResponse = JSON.parse(raw)
-            } catch (_) {
-              parsedResponse = null
+          const contentBlocks = Array.isArray(part.content) ? part.content : null
+          const media = []
+          if (contentBlocks) {
+            for (const block of contentBlocks.filter((item) => item?.type === 'image')) {
+              const { source } = block
+              if (source?.type === 'base64' && source.data) {
+                media.push({ inlineData: { mimeType: source.media_type, data: source.data } })
+              } else if (source?.type === 'url' && source.url) {
+                media.push({ fileData: { fileUri: source.url } })
+              } else {
+                throw Object.assign(new Error('This tool image source cannot be shared across providers'), {
+                  statusCode: 400,
+                  code: 'unsupported_image_source',
+                })
+              }
             }
           }
-
-          if (vendor === 'antigravity') {
-            const toolCallId = typeof toolUseId === 'string' && toolUseId ? toolUseId : undefined
-            const result = parsedResponse !== null ? parsedResponse : raw || ''
-            const response = part.is_error === true ? { result, is_error: true } : { result }
-
-            parts.push({
-              functionResponse: {
-                ...(toolCallId ? { id: toolCallId } : {}),
-                name: toolName,
-                response,
-              },
-            })
-          } else {
-            const response =
-              parsedResponse !== null
-                ? parsedResponse
-                : {
-                    content: raw || '',
-                    is_error: part.is_error === true,
-                  }
-
-            parts.push({
-              functionResponse: {
-                name: toolName,
-                response,
-              },
-            })
+          const raw = normalizeToolResultContent(
+            contentBlocks ? contentBlocks.filter((block) => block?.type !== 'image') : part.content,
+            { vendor },
+          )
+          let result = raw
+          if (typeof raw === 'string') {
+            try {
+              result = JSON.parse(raw)
+            } catch {
+              // Preserve ordinary text as text.
+            }
+          }
+          const response = vendor === 'antigravity' ? { result } : { content: result }
+          if (part.is_error === true) {
+            response.is_error = true
+          }
+          const supportsMediaParts = /^gemini-(?:[3-9]|[1-9]\d)(?:[.-]|$)/i.test(model ?? '')
+          parts.push({
+            functionResponse: {
+              ...(toolUseId ? { id: toolUseId } : {}),
+              name: toolName,
+              response,
+              ...(supportsMediaParts && media.length ? { parts: media } : {}),
+            },
+          })
+          if (!supportsMediaParts) {
+            toolMedia.push(...media)
           }
         }
       }
@@ -1056,6 +1010,11 @@ const convertAnthropicMessagesToGeminiContents = (
 
     if (parts.length === 0) {
       continue
+    }
+    if (toolMedia.length) {
+      const responses = parts.filter((part) => part.functionResponse)
+      const other = parts.filter((part) => !part.functionResponse)
+      parts.splice(0, parts.length, ...responses, ...toolMedia, ...other)
     }
 
     contents.push({
@@ -1166,6 +1125,7 @@ const buildGeminiRequestFromAnthropic = (body, baseModel, { vendor = null, sessi
 
   let contents = convertAnthropicMessagesToGeminiContents(normalizedMessages || [], toolUseIdToName, {
     vendor,
+    model: baseModel,
     // 当 Antigravity 无法启用 thinking 时，剥离所有 thinking blocks
     stripThinking: vendor === 'antigravity' && !canEnableThinking,
     sessionId,
@@ -2875,6 +2835,7 @@ export const handleAnthropicCountTokensToGemini = async (req, res, { vendor }) =
 
   const contents = convertAnthropicMessagesToGeminiContents(normalizedMessages || [], toolUseIdToName, {
     vendor,
+    model,
     stripThinking: vendor === 'antigravity' && !canEnableThinking,
     sessionId: sessionHash,
   })

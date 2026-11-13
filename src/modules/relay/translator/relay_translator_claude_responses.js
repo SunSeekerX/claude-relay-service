@@ -1,5 +1,7 @@
 // Claude Messages ↔ OpenAI Responses 双向转换（对齐 CLIProxyAPI/sub2api 核心字段）
 import * as thinkingMap from './relay_translator_thinking.js'
+import { mergeClaudeMessageTurns } from '../relay_claude_message_turns.js'
+import { resolveResponsesConfiguration } from '../relay_responses_configuration.js'
 import { TranslatorFormat, TranslatorQuality } from './relay_translator_formats.js'
 import { registerTranslator } from './relay_translator_registry.js'
 import { normalizeOpenAITokenUsage } from '../relay_request_detail_helper.js'
@@ -63,10 +65,12 @@ const claudeContentToResponsesInputParts = (content) => {
         const mediaType = block.source.media_type || 'image/png'
         parts.push({
           type: 'input_image',
-          image_url: `data:${mediaType};base64,${block.source.data || ''}`
+          image_url: `data:${mediaType};base64,${block.source.data || ''}`,
         })
       } else if (block.source.type === 'url' && block.source.url) {
         parts.push({ type: 'input_image', image_url: block.source.url })
+      } else {
+        throw unsupportedReplay('This image source cannot be shared across providers')
       }
     } else if (block.type === 'document' && block.source) {
       const { source } = block
@@ -88,6 +92,9 @@ const claudeContentToResponsesInputParts = (content) => {
           code: 'unsupported_document_source'
         })
       }
+    }
+    if (block.type === 'tool_reference') {
+      throw unsupportedReplay('Claude tool references require their original provider')
     }
     // tool_use / tool_result / thinking 在消息级处理
   }
@@ -157,7 +164,16 @@ export const convertClaudeRequestToResponses = (claudeRequest, options = {}) => 
           input.push({
             type: 'function_call_output',
             call_id: result.tool_use_id,
-            output: parts ? (outputParts.length ? outputParts : '') : String(result.content ?? '')
+            output:
+              result.is_error === true
+                ? parts
+                  ? [{ type: 'input_text', text: '[tool_result is_error=true]' }, ...outputParts]
+                  : `[tool_result is_error=true]\n${String(result.content ?? '')}`
+                : parts
+                  ? outputParts.length
+                    ? outputParts
+                    : ''
+                  : String(result.content ?? ''),
           })
           toolResultFiles.push(...files)
         }
@@ -258,7 +274,9 @@ export const convertClaudeRequestToResponses = (claudeRequest, options = {}) => 
     }
   }
 
-  const effort = thinkingMap.claudeThinkingToEffort(body.thinking, body.output_config)
+  const effectiveOutputConfig =
+    body.messages?.findLast((message) => message?.output_config?.effort)?.output_config ?? body.output_config
+  const effort = thinkingMap.claudeThinkingToEffort(body.thinking, effectiveOutputConfig)
   if (effort && effort !== 'none') {
     result.reasoning = {
       effort: effort === 'auto' ? 'medium' : effort,
@@ -275,7 +293,9 @@ export const convertClaudeRequestToResponses = (claudeRequest, options = {}) => 
 }
 
 export const convertResponsesRequestToClaude = (responsesRequest, options = {}) => {
-  const body = responsesRequest && typeof responsesRequest === 'object' ? responsesRequest : {}
+  const body = resolveResponsesConfiguration(
+    responsesRequest && typeof responsesRequest === 'object' ? responsesRequest : {},
+  )
   const toolMap = buildResponsesToolMap(body)
   const messages = []
   let system = body.instructions || ''
@@ -420,9 +440,9 @@ export const convertResponsesRequestToClaude = (responsesRequest, options = {}) 
 
   const claude = {
     model: body.model,
-    messages,
+    messages: mergeClaudeMessageTurns(messages),
     max_tokens: body.max_output_tokens || options.defaultMaxTokens || 4096,
-    stream: body.stream === true
+    stream: body.stream === true,
   }
 
   if (system) {

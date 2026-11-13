@@ -62,6 +62,7 @@
     "@aws-sdk/credential-providers": "^3.1116.0",
     "@factory/droid-sdk": "0.10.0",
     "@huggingface/tokenizers": "0.2.0",
+    "@smithy/signature-v4": "5.7.3",
     "adm-zip": "^0.6.0",
     "axios": "^1.19.0",
     "bcryptjs": "^3.0.3",

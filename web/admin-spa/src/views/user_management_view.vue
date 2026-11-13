@@ -112,7 +112,8 @@
               <dd>{{ user.lastLoginAt ? formatDate(user.lastLoginAt) : '从未登录' }}</dd>
             </div>
           </dl>
-          <div class="admin-row-actions">
+          <div class="admin-row-actions admin-row-actions--grouped">
+            <div class="admin-action-row">
             <button class="btn btn-secondary" type="button" @click="changeUserRole(user)">
               <i class="i-lucide-user-round-cog" />修改角色</button
             ><button class="btn btn-secondary" type="button" @click="viewUserStats(user)">
@@ -124,7 +125,7 @@
               @click="toggleUserStatus(user)"
             >
               {{ user.isActive ? '停用用户' : '启用用户' }}</button
-            ><button
+            ></div><div class="admin-action-row"><button
               class="btn btn-secondary admin-danger"
               :disabled="!user.apiKeyCount"
               type="button"
@@ -132,6 +133,7 @@
             >
               停用全部 Key
             </button>
+</div>
           </div>
         </article>
       </div>

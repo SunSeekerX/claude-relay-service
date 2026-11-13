@@ -1,3 +1,4 @@
+import { buildMantleRequest, relayBedrockMantle } from '../relay/relay_bedrock_mantle.js'
 import { normalizeAccountModelRange } from './account_model_policy.js'
 import crypto from 'node:crypto'
 import { redis } from '../../infra/redis.js'
@@ -49,6 +50,7 @@ class BedrockAccountService {
       name = 'Unnamed Bedrock Account',
       description = '',
       region = env.AWS_REGION || 'us-east-1',
+      apiMode = 'invoke',
       awsCredentials = null, // { accessKeyId, secretAccessKey, sessionToken }
       bearerToken = null, // AWS Bearer Token for Bedrock API Keys
       defaultModel = 'us.anthropic.claude-sonnet-4-20250514-v1:0',
@@ -68,6 +70,7 @@ class BedrockAccountService {
       name,
       description,
       region,
+      apiMode,
       defaultModel,
       isActive,
       accountType,
@@ -310,6 +313,9 @@ class BedrockAccountService {
         if (updates.description !== undefined) {
           account.description = updates.description
         }
+        if (updates.apiMode !== undefined) {
+          account.apiMode = updates.apiMode
+        }
         if (updates.region !== undefined) {
           account.region = updates.region
         }
@@ -529,7 +535,11 @@ class BedrockAccountService {
 
       // 尝试创建 Bedrock 客户端来验证凭证格式
       try {
-        getBedrockRelayService()._getBedrockClient(account.region, account)
+        if (account.apiMode === 'mantle') {
+          await buildMantleRequest({ model: account.defaultModel, messages: [] }, account)
+        } else {
+          getBedrockRelayService()._getBedrockClient(account.region, account)
+        }
         logger.debug(`Bedrock客户端创建成功 - ID: ${accountId}`)
       } catch (clientError) {
         logger.error(`创建Bedrock客户端失败 - ID: ${accountId}`, clientError)
@@ -606,6 +616,23 @@ class BedrockAccountService {
 
       // 发送 test_start 事件
       res.write(`data: ${JSON.stringify({ type: 'test_start' })}\n\n`)
+
+      if (account.apiMode === 'mantle') {
+        const result = await relayBedrockMantle(
+          { model, max_tokens: 256, messages: [{ role: 'user', content: prompt }], stream: false },
+          account,
+          res,
+        )
+        for (const block of result.data.content ?? []) {
+          if (block.type === 'text') {
+            res.write(`data: ${JSON.stringify({ type: 'content', text: block.text })}\n\n`)
+          }
+        }
+        res.write(`data: ${JSON.stringify({ type: 'message_stop' })}\n\n`)
+        res.write(`data: ${JSON.stringify({ type: 'test_complete', success: true })}\n\n`)
+        res.end()
+        return
+      }
 
       // 构造测试请求体（Bedrock 格式）
       const bedrockPayload = {

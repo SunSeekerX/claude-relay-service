@@ -1,5 +1,6 @@
 import crypto from 'node:crypto'
 import express from 'express'
+import { relayGrokSpeechHttp } from './relay_grok_stt.js'
 import { authenticateApiKey } from '../../infra/middleware_auth.js'
 import { grokRelayService } from './relay_grok_relay_service.js'
 import { apiKeyService } from '../apikey/apikey_service.js'
@@ -16,6 +17,17 @@ import { getLegacyProviderModels } from './relay_routing_service.js'
  */
 
 export const router = express.Router()
+
+router.post(['/v1/stt', '/stt'], authenticateApiKey, async (req, res) => {
+  if (denyIfNoPermission(req, res)) {
+    return
+  }
+  try {
+    await relayGrokSpeechHttp(req, res)
+  } catch (error) {
+    sendRouteError(res, error)
+  }
+})
 
 const hasGrokPermission = (apiKeyData) => apiKeyService.hasPermission(apiKeyData?.permissions, 'grok')
 

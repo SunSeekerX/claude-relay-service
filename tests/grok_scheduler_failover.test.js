@@ -4,6 +4,7 @@ const accounts = new Map()
 const session = new Map()
 const apiKey = { id: 'key' }
 const accountService = {
+  ensureFreshToken: jest.fn(),
   getAllAccounts: jest.fn(async () => [...accounts.values()]),
   getAccount: jest.fn(async (id) => accounts.get(id)),
 }
@@ -90,6 +91,19 @@ test.each([null, 'group:group'])(
     }
   },
 )
+
+test.each([null, 'group:group'])('API-key-only selection skips OAuth before token refresh (%s)', async (binding) => {
+  Object.assign(accounts.get('first'), {
+    authType: 'oauth',
+    expiresAt: '2020-01-01T00:00:00Z',
+    refreshToken: 'fixture',
+  })
+  const selected = await grokScheduler.selectAccount({ ...apiKey, grokAccountId: binding }, 'grok-test', null, {
+    requiredAuthType: 'apikey',
+  })
+  expect(selected.id).toBe('second')
+  expect(accountService.ensureFreshToken).not.toHaveBeenCalled()
+})
 
 test.each([{ isActive: false }, { schedulable: false }, { supportedModels: ['other-model'] }, { dailyQuota: 10 }])(
   'preserves hard gates when automatic protection is disabled: %j',

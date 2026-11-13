@@ -4,6 +4,9 @@
  */
 
 export const CLAUDE_MODELS = [
+  { value: 'claude-fable-5-2', label: 'Claude Fable 5.2' },
+  { value: 'claude-mythos-5-2', label: 'Claude Mythos 5.2' },
+  { value: 'claude-haiku-5-5', label: 'Claude Haiku 5.5' },
   { value: 'claude-opus-5-5', label: 'Claude Opus 5.5' },
   { value: 'claude-sonnet-5-5', label: 'Claude Sonnet 5.5' },
   { value: 'claude-opus-5', label: 'Claude Opus 5' },
@@ -20,7 +23,7 @@ export const CLAUDE_MODELS = [
   { value: 'claude-fable-5-1', label: 'Claude Fable 5.1' },
   { value: 'claude-fable-5', label: 'Claude Fable 5' },
   { value: 'claude-haiku-4-5-20251001', label: 'Claude Haiku 4.5' },
-  { value: 'claude-3-5-haiku-20241022', label: 'Claude 3.5 Haiku' }
+  { value: 'claude-3-5-haiku-20241022', label: 'Claude 3.5 Haiku' },
 ]
 
 // 对齐 gemini-cli 0.62 config/models.ts VALID_GEMINI_MODELS
@@ -65,6 +68,11 @@ export const OPENAI_MODELS = [
 
 // DEC_20261001_114137 Bedrock ID 对齐 Claude Code 2.1.280 provider_ids.bedrock
 export const BEDROCK_MODELS = [
+  { value: 'anthropic.claude-fable-5-2', label: 'Claude Fable 5.2 (Mantle)' },
+  { value: 'anthropic.claude-mythos-5-2', label: 'Claude Mythos 5.2 (Mantle)' },
+  { value: 'anthropic.claude-opus-5-5', label: 'Claude Opus 5.5 (Mantle)' },
+  { value: 'anthropic.claude-sonnet-5-5', label: 'Claude Sonnet 5.5 (Mantle)' },
+  { value: 'anthropic.claude-haiku-5-5', label: 'Claude Haiku 5.5 (Mantle)' },
   { value: 'us.anthropic.claude-opus-5-5', label: 'Claude Opus 5.5' },
   { value: 'global.anthropic.claude-sonnet-5-5', label: 'Claude Sonnet 5.5' },
   { value: 'us.anthropic.claude-opus-5', label: 'Claude Opus 5' },
@@ -76,10 +84,12 @@ export const BEDROCK_MODELS = [
   { value: 'us.anthropic.claude-opus-4-6-v1', label: 'Claude Opus 4.6' },
   { value: 'us.anthropic.claude-sonnet-4-5-20250929-v1:0', label: 'Claude Sonnet 4.5' },
   { value: 'us.anthropic.claude-sonnet-4-20250514-v1:0', label: 'Claude Sonnet 4' },
-  { value: 'us.anthropic.claude-3-5-haiku-20241022-v1:0', label: 'Claude 3.5 Haiku' }
+  { value: 'us.anthropic.claude-3-5-haiku-20241022-v1:0', label: 'Claude 3.5 Haiku' },
 ]
 
 export const GROK_MODELS = [
+  { value: 'grok-stt', label: 'Grok Speech to Text (REST)' },
+  { value: 'grok-stt-streaming', label: 'Grok Speech to Text (WebSocket)' },
   { value: 'grok-4.6', label: 'Grok 4.6' },
   { value: 'grok-4.5', label: 'Grok 4.5' },
   { value: 'grok-4.3', label: 'Grok 4.3' },
@@ -93,7 +103,7 @@ export const GROK_MODELS = [
   { value: 'grok-imagine-image-quality', label: 'Grok Imagine Image Quality' },
   { value: 'grok-imagine-edit', label: 'Grok Imagine Edit' },
   { value: 'grok-imagine-video', label: 'Grok Imagine Video' },
-  { value: 'grok-imagine-video-1.5', label: 'Grok Imagine Video 1.5' }
+  { value: 'grok-imagine-video-1.5', label: 'Grok Imagine Video 1.5' },
 ]
 
 // 其他模型（用于账户编辑的模型映射）

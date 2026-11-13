@@ -26,6 +26,9 @@ importers:
       '@huggingface/tokenizers':
         specifier: 0.2.0
         version: 0.2.0
+      '@smithy/signature-v4':
+        specifier: 5.7.3
+        version: 5.7.3
       adm-zip:
         specifier: ^0.6.0
         version: 0.6.0

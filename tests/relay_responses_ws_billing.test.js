@@ -64,6 +64,24 @@ beforeEach(() => {
 })
 
 describe('Responses WebSocket admission and settlement', () => {
+  it('limits Azure to one active turn and rejects lane multiplexing', async () => {
+    const billing = createResponsesWsBilling({
+      req: { url: '/azure/responses', headers: {} },
+      apiKeyData: key(),
+      accountType: 'azure-openai',
+      maxActiveTurns: 1,
+      validateAccount,
+    })
+    billing.setAccount('azure-account')
+    await admit(billing, {})
+    await expect(admit(billing, {})).rejects.toMatchObject({ statusCode: 429 })
+    await expect(admit(billing, { stream_id: 'lane' })).rejects.toMatchObject({ statusCode: 400 })
+    emit(billing, 'response.created', 'first')
+    emit(billing, 'response.completed', 'first', null, { usage: { input_tokens: 1, output_tokens: 1 } })
+    await billing.flush()
+    await admit(billing, {})
+    await billing.close()
+  })
   it('settles interleaved lanes at terminal events and releases each slot before disconnect', async () => {
     const billing = makeBilling()
     expect(acquireWsTurnConcurrency).not.toHaveBeenCalled()
@@ -190,6 +208,36 @@ describe('Responses WebSocket admission and settlement', () => {
     expect(releases[0]).toHaveBeenCalledTimes(1)
     await expect(billing.close()).rejects.toMatchObject({ code: 'billing_unavailable' })
   })
+
+  it.each([false, true])(
+    'inherits tier for accepted steering when parent completes normally (late=%s)',
+    async (late) => {
+      const billing = makeBilling()
+      await admit(billing, { service_tier: 'priority' })
+      emit(billing, 'response.created', 'parent')
+      const accepted = () =>
+        billing.ingestUpstreamText(
+          JSON.stringify({
+            type: 'response.steer.accepted',
+            steer: { id: 'steer-1', previous_response_id: 'parent' },
+          }),
+        )
+      if (!late) {
+        accepted()
+      }
+      emit(billing, 'response.completed', 'parent', null, { usage: { input_tokens: 2, output_tokens: 1 } })
+      await billing.flush()
+      if (late) {
+        accepted()
+      }
+      emit(billing, 'response.created', 'child')
+      emit(billing, 'response.completed', 'child', null, { usage: { input_tokens: 3, output_tokens: 1 } })
+      await billing.flush()
+      expect(recordUsage.mock.calls.map((call) => call[5])).toEqual(['priority', 'priority'])
+      expect(releases.every((release) => release.mock.calls.length === 1)).toBe(true)
+      await billing.close()
+    },
+  )
 
   it('releases every unfinished lane even when detail capture fails', async () => {
     const billing = makeBilling()

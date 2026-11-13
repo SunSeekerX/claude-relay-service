@@ -2,7 +2,12 @@ import { jest } from '@jest/globals'
 import crypto from 'node:crypto'
 import http from 'node:http'
 import { connectWebSocketUpstream } from '../src/common/gateway_ws_upstream.js'
-import { encodeWsClientText, encodeWsFrame } from '../src/common/gateway_ws_endpoint.js'
+import {
+  encodeWsClientText,
+  encodeWsFrame,
+  encodeWsClientBinary,
+  acceptWebSocketEndpoint,
+} from '../src/common/gateway_ws_endpoint.js'
 import { createWsFrameSniffer } from '../src/common/gateway_ws_frame_sniffer.js'
 
 const key = { id: 'key', permissions: ['grok'] }
@@ -30,34 +35,31 @@ const mocks = {
   '../src/common/logger.js': { logger: new Proxy({}, { get: () => jest.fn() }) },
   '../src/infra/redis.js': { redis: {} },
   '../src/common/gateway_ws_api_key_auth.js': {
-    authenticateApiKeyForUpgrade: jest
-      .fn()
-      .mockResolvedValue({ ok: true, keyData: key, release: authRelease }),
+    authenticateApiKeyForUpgrade: jest.fn().mockResolvedValue({ ok: true, keyData: key, release: authRelease }),
     validateWsApiKey,
-    acquireWsTurnConcurrency
+    acquireWsTurnConcurrency,
   },
   '../src/modules/apikey/apikey_service.js': { apiKeyService: { recordUsage } },
   '../src/modules/account/account_openai_service.js': {},
   '../src/modules/account/account_grok_service.js': {
     grokAccountService: {
-      ensureFreshToken: jest
-        .fn()
-        .mockResolvedValue({ id: 'account', authType: 'apikey', apiKey: 'fixture' }),
-      getUpstreamBaseUrl: () => baseUrl
-    }
+      ensureFreshToken: jest.fn().mockResolvedValue({ id: 'account', authType: 'apikey', apiKey: 'fixture' }),
+      getUpstreamBaseUrl: () => baseUrl,
+      updateAccountUsage: jest.fn().mockResolvedValue(),
+    },
   },
   '../src/modules/relay/relay_grok_scheduler.js': {
     grokScheduler: {
       selectAccount: jest.fn().mockResolvedValue({ id: 'account' }),
-      assertAccountForWebSocket: jest.fn().mockResolvedValue('grok-test')
-    }
+      assertAccountForWebSocket: jest.fn().mockResolvedValue('grok-test'),
+    },
   },
   '../src/modules/relay/relay_request_detail_service.js': {
-    requestDetailService: { captureUnmeteredRequest: jest.fn().mockResolvedValue() }
+    requestDetailService: { captureUnmeteredRequest: jest.fn().mockResolvedValue() },
   },
   '../src/modules/proxy/proxy_resolver.js': {
-    proxyResolver: { resolveAgent: () => ({ agent: null }), report: jest.fn() }
-  }
+    proxyResolver: { resolveAgent: () => ({ agent: null }), report: jest.fn() },
+  },
 }
 for (const [name, exports] of Object.entries(mocks)) {
   jest.unstable_mockModule(name, () => exports)
@@ -182,4 +184,71 @@ it('relays native Grok rounds, settles before disconnect and gates the next requ
   client.socket.destroy()
   await waitFor(() => authRelease.mock.calls.length === 1)
   expect(leases.every((release) => release.mock.calls.length === 1)).toBe(true)
+})
+
+
+it('forwards Grok STT binary audio and charges only upstream-reported duration', async () => {
+  recordUsage.mockClear()
+  authRelease.mockClear()
+  const observed = []
+  const audio = []
+  const { handleGrokSpeechWebSocket } = await import('../src/modules/relay/relay_grok_stt.js')
+  mocks['../src/modules/relay/relay_grok_scheduler.js'].grokScheduler.selectAccount.mockResolvedValueOnce({
+    id: 'account',
+    authType: 'apikey',
+    apiKey: 'fixture',
+  })
+  baseUrl = await listen((req, socket, head) => {
+    expect(req.url).toBe('/v1/stt?sample_rate=16000&keyterm=hello&keyterm=world')
+    const endpoint = acceptWebSocketEndpoint(req, socket, head, {
+      onBinaryMessage: (data) => audio.push(data),
+      onTextMessage: (text) => {
+        expect(JSON.parse(text).type).toBe('audio.done')
+        endpoint.sendText(JSON.stringify({ type: 'transcript.done', text: 'hello', duration: 3 }))
+        endpoint.close(1000)
+      },
+    })
+  })
+  const relay = await listen(handleGrokSpeechWebSocket)
+  const client = await connectWebSocketUpstream({
+    targetUrl: `${relay}/grok/v1/stt?sample_rate=16000&keyterm=hello&keyterm=world&api_key=private`,
+    headers: {},
+  })
+  const sniffer = createWsFrameSniffer({ onTextMessage: (text) => observed.push(JSON.parse(text)) })
+  client.socket.on('data', sniffer.push)
+  if (client.head.length) {
+    sniffer.push(client.head)
+  }
+  client.socket.write(encodeWsClientBinary(Buffer.from([0, 1, 2, 255])))
+  client.socket.write(encodeWsClientText(JSON.stringify({ type: 'audio.done' })))
+  await waitFor(
+    () =>
+      recordUsage.mock.calls.length === 1 &&
+      authRelease.mock.calls.length === 1 &&
+      observed.some((event) => event.type === 'transcript.done'),
+  )
+  expect(Buffer.concat(audio)).toEqual(Buffer.from([0, 1, 2, 255]))
+  expect(recordUsage.mock.calls[0][2]).toBe('grok-stt-streaming')
+  expect(recordUsage.mock.calls[0][6].billingUsage).toEqual({ audio_input_seconds: 3 })
+  expect(observed.find((event) => event.type === 'transcript.done').text).toBe('hello')
+  client.socket.destroy()
+})
+
+it('captures unmetered speech without estimating a charge', async () => {
+  recordUsage.mockClear()
+  const capture =
+    mocks['../src/modules/relay/relay_request_detail_service.js'].requestDetailService.captureUnmeteredRequest
+  capture.mockClear()
+  const { recordGrokSpeechUsage } = await import('../src/modules/relay/relay_grok_stt_billing.js')
+  await recordGrokSpeechUsage(
+    { headers: {}, url: '/grok/v1/stt' },
+    key,
+    { id: 'account' },
+    { type: 'transcript.done', text: 'hello' },
+    true,
+    { statusCode: 200 },
+  )
+  expect(recordUsage).not.toHaveBeenCalled()
+  expect(capture).toHaveBeenCalledTimes(1)
+  expect(capture.mock.calls[0][1].result.errorCode).toBe('upstream_usage_missing')
 })

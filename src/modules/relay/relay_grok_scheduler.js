@@ -39,6 +39,9 @@ class GrokScheduler {
   }
 
   async _isGrokAccountUsable(account, requestedModel, options = {}) {
+    if (options.requiredAuthType && account?.authType !== options.requiredAuthType) {
+      return false
+    }
     if (account && Number(account.dailyQuota) > 0) {
       account = { ...account, dailyUsage: await redis.getAccountDailyCost(account.id) }
     }
@@ -220,6 +223,7 @@ class GrokScheduler {
         const groupId = binding.substring('group:'.length)
         candidates = await this._loadGroupAccounts(groupId, requestedModel, {
           mediaGeneration,
+          requiredAuthType: options.requiredAuthType,
           holdTarget: apiKeyData,
           deferGroupAdmission: options.deferGroupAdmission === true,
         })
@@ -234,7 +238,13 @@ class GrokScheduler {
       } else {
         // 专属绑定：只允许该号；不可用则直接失败，禁止静默退共享池
         const account = await grokAccountService.getAccount(binding, { decryptSecrets: true })
-        if (account && (await this._isGrokAccountUsable(account, requestedModel, { mediaGeneration }))) {
+        if (
+          account &&
+          (await this._isGrokAccountUsable(account, requestedModel, {
+            mediaGeneration,
+            requiredAuthType: options.requiredAuthType,
+          }))
+        ) {
           const ready = await this._ensureTokenReady(account)
           if (ready) {
             candidates = [ready]
@@ -270,7 +280,7 @@ class GrokScheduler {
         if (account.accountType && account.accountType !== 'shared') {
           continue
         }
-        if (!(await this._isGrokAccountUsable(account, requestedModel, { mediaGeneration }))) {
+        if (!(await this._isGrokAccountUsable(account, requestedModel, { mediaGeneration, requiredAuthType: options.requiredAuthType }))) {
           continue
         }
         const ready = await this._ensureTokenReady(account)
@@ -297,7 +307,13 @@ class GrokScheduler {
         const mappedAccountId = await redis.getSessionAccountMapping?.(stickyKey)
         if (mappedAccountId) {
           const mapped = candidates.find((account) => account.id === mappedAccountId)
-          if (mapped && (await this._isGrokAccountUsable(mapped, requestedModel, { mediaGeneration }))) {
+          if (
+            mapped &&
+            (await this._isGrokAccountUsable(mapped, requestedModel, {
+              mediaGeneration,
+              requiredAuthType: options.requiredAuthType,
+            }))
+          ) {
             await redis.extendSessionAccountMappingTTL?.(stickyKey)
             logger.info(`[GrokScheduler] sticky hit session=${sessionHash} account=${mapped.id}`)
             return mapped

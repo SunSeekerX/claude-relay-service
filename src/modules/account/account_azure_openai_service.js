@@ -118,6 +118,9 @@ export const createAccount = async (accountData) => {
     priority: accountData.priority || 50,
     // Azure OpenAI 特有字段
     azureEndpoint: accountData.azureEndpoint || '',
+    apiMode: accountData.apiMode ?? 'deployment',
+    authType: accountData.authType ?? 'api_key',
+    tokenExpiresAt: accountData.tokenExpiresAt ?? '',
     apiVersion: accountData.apiVersion || '2024-02-01', // 使用稳定版本
     deploymentName: accountData.deploymentName || 'gpt-4', // 使用默认部署名称
     apiKey: encrypt(accountData.apiKey || ''),
@@ -382,24 +385,34 @@ const isSubscriptionExpired = (account) => {
   return expiryDate <= new Date()
 }
 
-// 选择可用账户
-export const selectAvailableAccount = async (sessionId = null) => {
-  // 如果有会话ID，尝试获取之前分配的账户
+// All bound, session and shared selections use the same hard gates.
+export const _isAccountAvailable = async (accountId, accountType, requestedModel = null) => {
+  if (accountType !== 'azure-openai') {
+    return false
+  }
+  const account = await getAccount(accountId)
+  if (!account || String(account.isActive) !== 'true' || String(account.schedulable) !== 'true' ||
+    isSubscriptionExpired(account) || (account.authType === 'entra' && account.tokenExpiresAt &&
+      Date.parse(account.tokenExpiresAt) <= Date.now())) {
+    return false
+  }
+  const model = requestedModel?.replace(/^azure\//, '')
+  if (model && account.supportedModels?.length && !account.supportedModels.includes(model)) {
+    return false
+  }
+  const protectionDisabled = String(account.disableAutoProtection) === 'true'
+  return protectionDisabled || !(await upstreamErrorHelper.isTempUnavailable(accountId, 'azure-openai'))
+}
+
+export const selectAvailableAccount = async (sessionId = null, boundAccountId = null, requestedModel = null) => {
+  if (boundAccountId && await _isAccountAvailable(boundAccountId, 'azure-openai', requestedModel)) {
+    return getAccount(boundAccountId)
+  }
   if (sessionId) {
     const client = redisClient.getClientSafe()
-    const mappingKey = RedisKeys.session.azureOpenaiMapping(sessionId)
-    const accountId = await client.get(mappingKey)
-
-    if (accountId) {
-      const account = await getAccount(accountId)
-      if (account && account.isActive === 'true' && account.schedulable === 'true') {
-        const isTempUnavail = await upstreamErrorHelper.isTempUnavailable(accountId, 'azure-openai')
-        if (!isTempUnavail) {
-          logger.debug(`Reusing Azure OpenAI account ${accountId} for session ${sessionId}`)
-          return account
-        }
-        logger.warn(`Session-bound Azure OpenAI account ${accountId} temporarily unavailable, falling back to pool`)
-      }
+    const accountId = await client.get(RedisKeys.session.azureOpenaiMapping(sessionId))
+    if (accountId && (await _isAccountAvailable(accountId, 'azure-openai', requestedModel))) {
+      return getAccount(accountId)
     }
   }
 
@@ -409,28 +422,13 @@ export const selectAvailableAccount = async (sessionId = null) => {
   // 过滤出可用的账户（异步过滤，包含临时不可用检查）
   const availableAccounts = []
   for (const acc of sharedAccounts) {
-    // 检查账户订阅是否过期
-    if (isSubscriptionExpired(acc)) {
-      logger.debug(`Skipping expired Azure OpenAI account: ${acc.name}, expired at ${acc.subscriptionExpiresAt}`)
-      continue
+    if (await _isAccountAvailable(acc.id, 'azure-openai', requestedModel)) {
+      availableAccounts.push(acc)
     }
-
-    if (acc.isActive !== 'true' || acc.schedulable !== 'true') {
-      continue
-    }
-
-    // 检查临时不可用状态
-    const isTempUnavail = await upstreamErrorHelper.isTempUnavailable(acc.id, 'azure-openai')
-    if (isTempUnavail) {
-      logger.debug(`Skipping temporarily unavailable Azure OpenAI account: ${acc.name}`)
-      continue
-    }
-
-    availableAccounts.push(acc)
   }
 
   if (availableAccounts.length === 0) {
-    throw new Error('No available Azure OpenAI accounts')
+    throw Object.assign(new Error('No available Azure OpenAI accounts'), { statusCode: 503 })
   }
 
   // 按优先级排序并选择

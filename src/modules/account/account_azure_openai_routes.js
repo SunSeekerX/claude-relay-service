@@ -1,4 +1,5 @@
 import express from 'express'
+import { buildAzureOpenAIRequest } from '../relay/relay_azure_openai_request.js'
 import axios from 'axios'
 
 import * as azureOpenaiAccountService from './account_azure_openai_service.js'
@@ -112,6 +113,9 @@ router.post(
       description,
       accountType,
       azureEndpoint,
+      apiMode,
+      authType,
+      tokenExpiresAt,
       apiVersion,
       deploymentName,
       apiKey,
@@ -141,18 +145,25 @@ router.post(
       throw badRequest('Deployment name is required')
     }
 
+    if (apiMode && !['deployment', 'v1'].includes(apiMode)) {
+      throw badRequest('Invalid Azure API mode')
+    }
+    if (authType && !['api_key', 'entra'].includes(authType)) {
+      throw badRequest('Invalid Azure authentication type')
+    }
     // 验证 Azure endpoint 格式
-    if (!azureEndpoint.match(/^https:\/\/[\w-]+\.openai\.azure\.com$/)) {
-      throw badRequest('Invalid Azure OpenAI endpoint format. Expected: https://your-resource.openai.azure.com')
+    if (!azureEndpoint.match(/^https:\/\/[\w-]+\.(?:openai\.azure\.com|services\.ai\.azure\.com)\/?$/)) {
+      throw badRequest('Invalid Azure endpoint. Expected an openai.azure.com or services.ai.azure.com resource URL')
     }
 
     // 测试连接
     try {
-      const testUrl = `${azureEndpoint}/openai/deployments/${deploymentName}?api-version=${apiVersion || '2024-02-01'}`
-      await axios.get(testUrl, {
-        headers: {
-          'api-key': apiKey,
-        },
+      const test = buildAzureOpenAIRequest(
+        { azureEndpoint, apiMode, apiVersion, deploymentName, apiKey, authType },
+        'models',
+      )
+      await axios.get(test.url, {
+        headers: test.headers,
         timeout: 5000,
       })
     } catch (testError) {
@@ -168,6 +179,9 @@ router.post(
       description,
       accountType: accountType || 'shared',
       azureEndpoint,
+      apiMode,
+      authType,
+      tokenExpiresAt,
       apiVersion: apiVersion || '2024-02-01',
       deploymentName,
       apiKey,
@@ -206,6 +220,12 @@ router.put(
     // review#3：剥离外部传入的状态类字段，禁止伪造自动停用证据
     const mappedUpdates = stripReadonlyAccountFields(mapExpiryField(updates, 'Azure OpenAI', id))
 
+    if (mappedUpdates.apiMode && !['deployment', 'v1'].includes(mappedUpdates.apiMode)) {
+      throw badRequest('Invalid Azure API mode')
+    }
+    if (mappedUpdates.authType && !['api_key', 'entra'].includes(mappedUpdates.authType)) {
+      throw badRequest('Invalid Azure authentication type')
+    }
     const account = await azureOpenaiAccountService.updateAccount(id, mappedUpdates)
 
     return ok(account, 'Azure OpenAI account updated successfully')

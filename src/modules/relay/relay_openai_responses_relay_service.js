@@ -34,6 +34,7 @@ import { pricingService } from '../pricing/pricing_service.js'
 import { isNonProtocolUpstreamBody, handleNonProtocolUpstream } from './relay_upstream_protocol_guard.js'
 import { updateRateLimitCounters } from './relay_rate_limit_helper.js'
 import { IncrementalSSEParser } from './relay_sse_parser.js'
+import { readAudioResponse } from './relay_audio_response.js'
 import { ResponsesStreamState, isResponsesRateLimitError } from './relay_responses_stream_state.js'
 import { requestDetailService } from './relay_request_detail_service.js'
 import {
@@ -1441,7 +1442,11 @@ class OpenAIResponsesRelayService {
         headers,
         timeout: config.requestTimeout || 600000,
         validateStatus: () => true,
-        responseType: String(targetPath).includes('/audio/speech') ? 'arraybuffer' : 'json',
+        responseType: String(targetPath).includes('/audio/speech')
+          ? 'arraybuffer'
+          : String(targetPath).includes('/audio/')
+            ? 'stream'
+            : 'json',
         maxBodyLength: Infinity,
         maxContentLength: Infinity,
       }
@@ -1457,6 +1462,10 @@ class OpenAIResponsesRelayService {
           fullAccount.upstreamRequestIdHeader || fullAccount.extra?.upstreamRequestIdHeader || null
       }
       applyFilteredResponseHeaders(res, response.headers)
+      const audioResponse = axiosConfig.responseType === 'stream' ? await readAudioResponse(response, res) : null
+      if (audioResponse) {
+        response.data = audioResponse.data
+      }
       if (response.status >= 400) {
         // DEC_20260905_155232 禁止 response.data 原文出站
         const upstreamBody =
@@ -1549,8 +1558,8 @@ class OpenAIResponsesRelayService {
       if (apiKeyData) {
         try {
           const usage = response.data?.usage || {}
-          const promptTokens = usage.prompt_tokens || usage.input_tokens || 0
-          const completionTokens = usage.completion_tokens || usage.output_tokens || 0
+          const normalized = normalizeOpenAITokenUsage(usage)
+          const { inputTokens: promptTokens, outputTokens: completionTokens } = normalized
           const durationSeconds = Number(response.data?.duration || usage.seconds || usage.duration || 0)
           const billingUsage =
             Number.isFinite(durationSeconds) && durationSeconds > 0
@@ -1563,10 +1572,7 @@ class OpenAIResponsesRelayService {
             await apiKeyService.recordUsage(
               apiKeyData.id,
               buildTokenUsagePayload({
-                inputTokens: promptTokens,
-                outputTokens: completionTokens,
-                cacheCreateTokens: 0,
-                cacheReadTokens: 0,
+                ...normalized,
                 rawUsage: usage || null,
               }),
               req.body?.model || 'whisper-1',
@@ -1575,8 +1581,10 @@ class OpenAIResponsesRelayService {
               null,
               createRequestDetailMeta(req, {
                 requestBody: isMultipart ? { _multipart: true, path: targetPath } : req.body,
-                stream: false,
-                statusCode: response.status,
+                stream: audioResponse?.streaming === true,
+                statusCode: audioResponse?.statusCode ?? response.status,
+                protocolTerminal: audioResponse?.protocolTerminal,
+                errorCode: audioResponse?.errorCode,
                 billingUsage,
               }),
             )
@@ -1586,7 +1594,12 @@ class OpenAIResponsesRelayService {
           logger.error('[OpenAI-Responses] passthrough billing failed:', summarizeErrorForLog(error))
         }
       }
-      return res.status(response.status).json(response.data)
+      if (audioResponse?.streaming) {
+        return res.end()
+      }
+      return audioResponse
+        ? res.status(response.status).send(audioResponse.body)
+        : res.status(response.status).json(response.data)
     } catch (error) {
       console.error(summarizeErrorForLog(error))
       logger.error('[OpenAI-Responses] generic passthrough failed:', summarizeErrorForLog(error))

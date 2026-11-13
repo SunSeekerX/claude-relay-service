@@ -117,7 +117,7 @@ export const openAIContentPartToGeminiPart = (item) => {
   }
   if (type === 'input_audio' || type === 'audio') {
     const audio = item.input_audio || item.audio || item
-    return mediaSourceToGeminiPart(audio.data || audio.url, {
+    return mediaSourceToGeminiPart(audio.audio_url ?? audio.data ?? audio.url, {
       mimeType: audio.mime_type,
       format: audio.format,
       formatMap: AUDIO_FORMAT_MIME,

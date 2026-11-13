@@ -193,6 +193,7 @@ export class CostCalculator {
         output: result.pricing.output * 1000000,
         cacheWrite: result.pricing.cacheCreate * 1000000,
         cacheRead: result.pricing.cacheRead * 1000000,
+        cacheWrite1h: (result.pricing.ephemeral1h ?? 0) * 1000000,
         cacheWrite12h: (result.pricing.cacheWrite12h ?? 0) * 1000000,
       },
       usingDynamicPricing: true,

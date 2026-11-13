@@ -412,6 +412,24 @@ export const createRealtimeUsageAccumulator = ({ onUsage = null, terminalOnly = 
     return pending
   }
 
+  const acceptedSteers = new Map()
+  const completedTierContexts = new Map()
+  const queueSteeringTier = (parentId, context) => {
+    if (
+      !context ||
+      context.requiresInput ||
+      associationFrozen ||
+      pendingTierQueue.some((entry) => entry.steeringParentId === parentId)
+    ) {
+      return
+    }
+    if (pendingTierQueue.length >= 64) {
+      freezeAssociation('pending steering tier queue full')
+      return
+    }
+    pendingTierQueue.push({ ...context, warmup: false, steeringParentId: parentId })
+  }
+
   // 解析事件数组；source=upstream 才允许 usage 入账；client 只采 create 档位
   // DEC_20260906_011816 客户端帧禁止伪造 usage 扣费
   const ingestParsedEvents = (events, source) => {
@@ -429,6 +447,24 @@ export const createRealtimeUsageAccumulator = ({ onUsage = null, terminalOnly = 
       if (fromClient) {
         continue
       }
+      const steerParent = eventObj.steer?.previous_response_id
+      if (eventType === 'response.steer.accepted' && steerParent && eventObj.steer?.id) {
+        acceptedSteers.set(eventObj.steer.id, steerParent)
+        while (acceptedSteers.size > 128) {
+          acceptedSteers.delete(acceptedSteers.keys().next().value)
+        }
+        queueSteeringTier(steerParent, completedTierContexts.get(steerParent))
+      }
+      if (['response.steer.pending', 'response.steer.failed'].includes(eventType) && steerParent) {
+        acceptedSteers.delete(eventObj.steer.id)
+        if (eventType === 'response.steer.pending' || ![...acceptedSteers.values()].includes(steerParent)) {
+          for (let index = pendingTierQueue.length - 1; index >= 0; index -= 1) {
+            if (pendingTierQueue[index].steeringParentId === steerParent) {
+              pendingTierQueue.splice(index, 1)
+            }
+          }
+        }
+      }
       if (eventType === 'response.created') {
         bindCreatedResponseId(eventObj)
       }
@@ -442,13 +478,20 @@ export const createRealtimeUsageAccumulator = ({ onUsage = null, terminalOnly = 
         continue
       }
       const consumed = isTerminal ? consumeTurnTier(eventObj, responseId) : null
+      const needsInput = eventObj.response?.output?.some((item) =>
+        ['function_call', 'custom_tool_call', 'mcp_approval_request'].includes(item.type),
+      )
+      if (consumed && responseId) {
+        completedTierContexts.set(responseId, { ...consumed, requiresInput: needsInput })
+        while (completedTierContexts.size > 128) {
+          completedTierContexts.delete(completedTierContexts.keys().next().value)
+        }
+      }
       if (
-        eventType === 'response.incomplete' &&
-        eventObj.response?.incomplete_details?.reason === 'steered' &&
-        consumed &&
-        !associationFrozen
+        (eventType === 'response.incomplete' && eventObj.response?.incomplete_details?.reason === 'steered') ||
+        (eventType === 'response.completed' && !needsInput && [...acceptedSteers.values()].includes(responseId))
       ) {
-        pendingTierQueue.unshift({ ...consumed, warmup: false })
+        queueSteeringTier(responseId, consumed)
       }
       if (isTerminal) {
         rememberExhaustedResponseId(responseId)

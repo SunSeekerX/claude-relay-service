@@ -69,11 +69,12 @@ it('keeps files and images in tool results and rejects provider-scoped file refe
       }
     ]
   })
-  expect(result.messages[0].content[0]).toMatchObject({
+  expect(result.messages[0].content.find((block) => block.type === 'document')).toMatchObject({
     type: 'document',
-    source: { media_type: 'application/pdf', data: 'cGRm' }
+    source: { media_type: 'application/pdf', data: 'cGRm' },
   })
-  expect(result.messages[1].content[0].content[0]).toMatchObject({ type: 'image', source: { data: 'YWJj' } })
+  expect(result.messages[0].content[0]).toMatchObject({ type: 'tool_result' })
+  expect(result.messages[0].content[0].content[0]).toMatchObject({ type: 'image', source: { data: 'YWJj' } })
   expect(() =>
     convertResponsesRequestToClaude({
       input: [{ type: 'message', role: 'user', content: [{ type: 'input_file', file_id: 'file-private' }] }]

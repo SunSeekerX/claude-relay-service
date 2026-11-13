@@ -55,6 +55,38 @@ const GPT6_SHARED_META = {
 }
 
 export const MODEL_FALLBACK_PRICING = {
+  // https://platform.claude.com/docs/en/about-claude/pricing (2026-11-11)
+  'claude-fable-5-2': {
+    ...CLAUDE_SHARED_META,
+    input_cost_per_token: 8e-6,
+    output_cost_per_token: 40e-6,
+    cache_creation_input_token_cost: 10e-6,
+    cache_creation_input_token_cost_above_1hr: 16e-6,
+    cache_read_input_token_cost: 0.2e-6,
+    provider_specific_entry: { fast: 2 },
+  },
+  'claude-mythos-5-2': {
+    ...CLAUDE_SHARED_META,
+    input_cost_per_token: 8e-6,
+    output_cost_per_token: 40e-6,
+    cache_creation_input_token_cost: 10e-6,
+    cache_creation_input_token_cost_above_1hr: 16e-6,
+    cache_read_input_token_cost: 0.2e-6,
+    provider_specific_entry: { fast: 2 },
+  },
+  'claude-haiku-5-5': {
+    ...CLAUDE_SHARED_META,
+    input_cost_per_token: 0.1e-6,
+    output_cost_per_token: 0.5e-6,
+    cache_creation_input_token_cost: 0.125e-6,
+    cache_creation_input_token_cost_above_1hr: 0.2e-6,
+    cache_read_input_token_cost: 0.01e-6,
+    input_cost_per_token_above_100k_tokens: 0.5e-6,
+    output_cost_per_token_above_100k_tokens: 2.5e-6,
+    cache_creation_input_token_cost_above_100k_tokens: 0.625e-6,
+    cache_creation_input_token_cost_above_1hr_above_100k_tokens: 1e-6,
+    cache_read_input_token_cost_above_100k_tokens: 0.05e-6,
+  },
   // Claude Code 2.1.280 tier_4_20_cache_read_0_20；fast 2x 对齐 sub2api
   'claude-opus-5-5': {
     ...CLAUDE_SHARED_META,

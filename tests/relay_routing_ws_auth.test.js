@@ -43,6 +43,11 @@ const check = (path, permission) =>
     permission,
   )
 
+test('a default Grok route cannot replace Azure native endpoint permissions', async () => {
+  const result = await check('/azure/responses', 'openai')
+  expect(result).toMatchObject({ ok: false, status: 403 })
+})
+
 test('named and default WS routes authorize the actual target service rather than assuming OpenAI', async () => {
   for (const path of ['/r/grok-entry/v1/responses', '/v1/responses']) {
     const result = await check(path)

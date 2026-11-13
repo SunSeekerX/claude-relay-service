@@ -12,6 +12,12 @@ const num = (value) => {
 // 输出图分档：key = 1k|2k 或 1k_low|2k_low|1k_medium|2k_medium
 // 输出视频分档：key = 480p|720p|1080p
 export const GROK_MEDIA_FALLBACK_PRICING = {
+  'grok-stt': { litellm_provider: 'xai', mode: 'audio_transcription', input_cost_per_audio_per_second: 0.1 / 3600 },
+  'grok-stt-streaming': {
+    litellm_provider: 'xai',
+    mode: 'audio_transcription',
+    input_cost_per_audio_per_second: 0.2 / 3600,
+  },
   'grok-imagine-image': {
     litellm_provider: 'xai',
     mode: 'image_generation',

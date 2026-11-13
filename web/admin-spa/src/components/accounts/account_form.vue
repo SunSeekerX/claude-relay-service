@@ -821,6 +821,11 @@
 
             <!-- Bedrock 特定字段 -->
             <div v-if="form.platform === 'bedrock'" class="space-y-4">
+              <div>
+                <label class="mb-1 block text-sm font-semibold text-gray-700 dark:text-gray-300">Bedrock 接口模式</label>
+                <CustomDropdown v-model="form.bedrockApiMode" :options="[{ value: 'invoke', label: 'InvokeModel / AWS EventStream' }, { value: 'mantle', label: 'Mantle / Messages SSE' }]" />
+                <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">Mantle 使用 anthropic. 前缀的模型 ID，保留现有 AWS 凭证或 Bearer Token。</p>
+              </div>
               <!-- 凭证类型选择器 -->
               <div>
                 <label class="mb-1 block text-sm font-semibold text-gray-700 dark:text-gray-300"
@@ -1050,6 +1055,19 @@
             <!-- Azure OpenAI 特定字段 -->
             <div v-if="form.platform === 'azure_openai' && !isEdit" class="space-y-4">
               <div>
+                <label class="mb-1 block text-sm font-semibold text-gray-700 dark:text-gray-300">Azure 接口模式</label>
+                <CustomDropdown v-model="form.azureApiMode" :options="[{ value: 'deployment', label: '部署式（保留 API 版本）' }, { value: 'v1', label: 'Azure OpenAI v1' }]" />
+              </div>
+              <div>
+                <label class="mb-1 block text-sm font-semibold text-gray-700 dark:text-gray-300">Azure 鉴权</label>
+                <CustomDropdown v-model="form.azureAuthType" :options="[{ value: 'api_key', label: 'API Key' }, { value: 'entra', label: 'Microsoft Entra Access Token' }]" />
+                <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">Entra 模式在密钥栏填写 Access Token；到期后需更新。</p>
+              </div>
+              <div v-if="form.azureAuthType === 'entra'">
+                <label class="mb-1 block text-sm font-semibold text-gray-700 dark:text-gray-300">Token 到期时间（UTC ISO，可选）</label>
+                <input v-model="form.azureTokenExpiresAt" class="form-input w-full" placeholder="2026-11-11T18:00:00Z" type="text" />
+              </div>
+              <div>
                 <label class="mb-1 block text-sm font-semibold text-gray-700 dark:text-gray-300"
                   >Azure Endpoint *</label
                 >
@@ -1065,11 +1083,11 @@
                   {{ errors.azureEndpoint }}
                 </p>
                 <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
-                  Azure OpenAI 资源的终结点 URL，格式：https://your-resource.openai.azure.com
+                  填写 Azure OpenAI 或 Foundry 资源根地址，例如 https://your-resource.openai.azure.com
                 </p>
               </div>
 
-              <div>
+              <div v-if="form.azureApiMode === 'deployment'">
                 <label class="mb-1 block text-sm font-semibold text-gray-700 dark:text-gray-300"
                   >API 版本</label
                 >
@@ -2961,6 +2979,11 @@
           <div v-show="editActiveTab === 'basic'" class="space-y-4">
           <!-- Bedrock 特定字段（编辑模式）-->
           <div v-if="form.platform === 'bedrock'" class="space-y-4">
+              <div>
+                <label class="mb-1 block text-sm font-semibold text-gray-700 dark:text-gray-300">Bedrock 接口模式</label>
+                <CustomDropdown v-model="form.bedrockApiMode" :options="[{ value: 'invoke', label: 'InvokeModel / AWS EventStream' }, { value: 'mantle', label: 'Mantle / Messages SSE' }]" />
+                <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">Mantle 使用 anthropic. 前缀的模型 ID，保留现有 AWS 凭证或 Bearer Token。</p>
+              </div>
             <div>
               <label class="mb-1 block text-sm font-semibold text-gray-700 dark:text-gray-300"
                 >AWS 访问密钥 ID</label
@@ -3090,6 +3113,19 @@
           <div v-show="editActiveTab === 'basic'" class="space-y-4">
           <!-- Azure OpenAI 特定字段（编辑模式）-->
           <div v-if="form.platform === 'azure_openai'" class="space-y-4">
+              <div>
+                <label class="mb-1 block text-sm font-semibold text-gray-700 dark:text-gray-300">Azure 接口模式</label>
+                <CustomDropdown v-model="form.azureApiMode" :options="[{ value: 'deployment', label: '部署式（保留 API 版本）' }, { value: 'v1', label: 'Azure OpenAI v1' }]" />
+              </div>
+              <div>
+                <label class="mb-1 block text-sm font-semibold text-gray-700 dark:text-gray-300">Azure 鉴权</label>
+                <CustomDropdown v-model="form.azureAuthType" :options="[{ value: 'api_key', label: 'API Key' }, { value: 'entra', label: 'Microsoft Entra Access Token' }]" />
+                <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">Entra 模式在密钥栏填写 Access Token；到期后需更新。</p>
+              </div>
+              <div v-if="form.azureAuthType === 'entra'">
+                <label class="mb-1 block text-sm font-semibold text-gray-700 dark:text-gray-300">Token 到期时间（UTC ISO，可选）</label>
+                <input v-model="form.azureTokenExpiresAt" class="form-input w-full" placeholder="2026-11-11T18:00:00Z" type="text" />
+              </div>
             <div>
               <label class="mb-1 block text-sm font-semibold text-gray-700 dark:text-gray-300"
                 >Azure Endpoint</label
@@ -3106,7 +3142,7 @@
               </p>
             </div>
 
-            <div>
+            <div v-if="form.azureApiMode === 'deployment'">
               <label class="mb-1 block text-sm font-semibold text-gray-700 dark:text-gray-300"
                 >API 版本</label
               >
@@ -3918,6 +3954,7 @@ const form = ref({
   // 并发控制字段
   maxConcurrentTasks: Number(props.account?.maxConcurrentTasks) || 0,
   // Bedrock 特定字段
+  bedrockApiMode: props.account?.apiMode ?? 'invoke',
   credentialType: props.account?.credentialType || 'access_key', // 'access_key' 或 'bearer_token'
   accessKeyId: props.account?.accessKeyId || '',
   secretAccessKey: props.account?.secretAccessKey || '',
@@ -3927,6 +3964,9 @@ const form = ref({
   defaultModel: props.account?.defaultModel || BEDROCK_DEFAULT_MODEL,
   smallFastModel: props.account?.smallFastModel || '',
   // Azure OpenAI 特定字段
+  azureApiMode: props.account?.apiMode ?? 'deployment',
+  azureAuthType: props.account?.authType ?? 'api_key',
+  azureTokenExpiresAt: props.account?.tokenExpiresAt ?? '',
   azureEndpoint: props.account?.azureEndpoint || '',
   apiVersion: props.account?.apiVersion || AZURE_DEFAULT_API_VERSION,
   deploymentName: props.account?.deploymentName || '',
@@ -4223,6 +4263,10 @@ const errors = ref({
   secretAccessKey: '',
   region: '',
   bearerToken: '',
+  azureApiMode: 'deployment',
+  azureAuthType: 'api_key',
+  azureTokenExpiresAt: '',
+  bedrockApiMode: 'invoke',
   azureEndpoint: '',
   deploymentName: ''
 })
@@ -5283,6 +5327,7 @@ const createAccount = async (closeAfter = false) => {
         : []
     } else if (form.value.platform === 'bedrock') {
       // Bedrock 账户特定数据
+      data.apiMode = form.value.bedrockApiMode
       data.credentialType = form.value.credentialType || 'access_key'
 
       // 根据凭证类型构造不同的凭证对象
@@ -5305,6 +5350,9 @@ const createAccount = async (closeAfter = false) => {
       data.rateLimitDuration = form.value.enableRateLimit ? form.value.rateLimitDuration || 60 : 0
     } else if (form.value.platform === 'azure_openai') {
       // Azure OpenAI 账户特定数据
+      data.apiMode = form.value.azureApiMode
+      data.authType = form.value.azureAuthType
+      data.tokenExpiresAt = form.value.azureTokenExpiresAt
       data.azureEndpoint = form.value.azureEndpoint
       data.apiKey = form.value.apiKey
       data.apiVersion = form.value.apiVersion || '2024-02-01'
@@ -5642,6 +5690,7 @@ const updateAccount = async (closeAfter = false) => {
 
     // Bedrock 特定更新
     if (props.account.platform === 'bedrock') {
+      data.apiMode = form.value.bedrockApiMode
       // 更新凭证类型
       if (form.value.credentialType) {
         data.credentialType = form.value.credentialType
@@ -5682,6 +5731,9 @@ const updateAccount = async (closeAfter = false) => {
 
     // Azure OpenAI 特定更新
     if (props.account.platform === 'azure_openai') {
+      data.apiMode = form.value.azureApiMode
+      data.authType = form.value.azureAuthType
+      data.tokenExpiresAt = form.value.azureTokenExpiresAt
       data.azureEndpoint = form.value.azureEndpoint
       data.apiVersion = form.value.apiVersion || '2024-02-01'
       data.deploymentName = form.value.deploymentName

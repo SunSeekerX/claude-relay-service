@@ -116,6 +116,7 @@ router.post(
       name,
       description,
       region,
+      apiMode,
       awsCredentials,
       bearerToken,
       defaultModel,
@@ -139,6 +140,9 @@ router.post(
       throw badRequest('Invalid account type. Must be "shared" or "dedicated"')
     }
 
+    if (apiMode && !['invoke', 'mantle'].includes(apiMode)) {
+      throw badRequest('Invalid Bedrock API mode')
+    }
     // 验证credentialType的有效性
     if (credentialType && !['access_key', 'bearer_token'].includes(credentialType)) {
       throw badRequest('Invalid credential type. Must be "access_key" or "bearer_token"')
@@ -148,6 +152,7 @@ router.post(
       name,
       description: description || '',
       region: region || 'us-east-1',
+      apiMode: apiMode ?? 'invoke',
       awsCredentials,
       bearerToken,
       defaultModel,
@@ -189,6 +194,9 @@ router.put(
     }
 
     // 验证credentialType的有效性
+    if (mappedUpdates.apiMode && !['invoke', 'mantle'].includes(mappedUpdates.apiMode)) {
+      throw badRequest('Invalid Bedrock API mode')
+    }
     if (mappedUpdates.credentialType && !['access_key', 'bearer_token'].includes(mappedUpdates.credentialType)) {
       throw badRequest('Invalid credential type. Must be "access_key" or "bearer_token"')
     }

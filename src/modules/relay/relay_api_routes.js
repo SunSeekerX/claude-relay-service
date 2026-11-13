@@ -21,7 +21,7 @@ import { claudeAccountService } from '../account/account_claude_service.js'
 import { claudeConsoleAccountService } from '../account/account_claude_console_service.js'
 import { sanitizeUpstreamError } from '../../common/error_sanitizer.js'
 import { dumpAnthropicMessagesRequest } from './relay_anthropic_request_dump.js'
-import { createRequestDetailMeta } from './relay_request_detail_helper.js'
+import { createRequestDetailMeta, buildTokenUsagePayload } from './relay_request_detail_helper.js'
 import { isWarmupRequest, buildMockWarmupResponse, sendMockWarmupStream } from './relay_warmup_interceptor.js'
 import {
   handleAnthropicMessagesToGemini,
@@ -704,14 +704,20 @@ export const handleMessagesRequest = async (req, res) => {
           if (result.usage) {
             const inputTokens = result.usage.input_tokens || 0
             const outputTokens = result.usage.output_tokens || 0
+            const cacheCreateTokens = result.usage.cache_creation_input_tokens ?? 0
+            const cacheReadTokens = result.usage.cache_read_input_tokens ?? 0
 
             apiKeyService
               .recordUsage(
                 _apiKeyIdBedrock,
-                inputTokens,
-                outputTokens,
-                0,
-                0,
+                buildTokenUsagePayload({
+                  inputTokens,
+                  outputTokens,
+                  cacheCreateTokens,
+                  cacheReadTokens,
+                  rawUsage: result.usage,
+                  extras: result.usage.cache_creation ? { cache_creation: result.usage.cache_creation } : null,
+                }),
                 result.model,
                 accountId,
                 'bedrock',
@@ -719,7 +725,10 @@ export const handleMessagesRequest = async (req, res) => {
                 createRequestDetailMeta(req, {
                   requestBody: _requestBodyBedrock,
                   stream: true,
-                  statusCode: res.statusCode,
+                  statusCode: result.statusCode ?? res.statusCode,
+                  protocolTerminal: result.protocolTerminal,
+                  errorCode: result.errorCode,
+                  errorMessage: result.errorMessage,
                 }),
               )
               .then((costs) => {
@@ -728,8 +737,8 @@ export const handleMessagesRequest = async (req, res) => {
                   {
                     inputTokens,
                     outputTokens,
-                    cacheCreateTokens: 0,
-                    cacheReadTokens: 0,
+                    cacheCreateTokens,
+                    cacheReadTokens,
                   },
                   result.model,
                   'bedrock-stream',
@@ -745,8 +754,8 @@ export const handleMessagesRequest = async (req, res) => {
                   {
                     inputTokens,
                     outputTokens,
-                    cacheCreateTokens: 0,
-                    cacheReadTokens: 0,
+                    cacheCreateTokens,
+                    cacheReadTokens,
                   },
                   result.model,
                   'bedrock-stream',

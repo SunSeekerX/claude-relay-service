@@ -10,7 +10,17 @@ import { logger } from '../../common/logger.js'
 import { onClientDisconnect } from '../../common/client_disconnect.js'
 import { runtimeAddon } from '../../common/runtime_addon.js'
 import * as upstreamErrorHelper from './relay_upstream_error_helper.js'
-import { createRequestDetailMeta } from './relay_request_detail_helper.js'
+import {
+  createRequestDetailMeta,
+  buildTokenUsagePayload,
+  normalizeOpenAITokenUsage,
+  resolveOpenAIServiceTier,
+} from './relay_request_detail_helper.js'
+import { IncrementalSSEParser } from './relay_sse_parser.js'
+import { ClaudeStreamState } from './relay_claude_stream_state.js'
+import { ResponsesStreamState } from './relay_responses_stream_state.js'
+import { createStreamBackpressure } from '../../common/stream_helper.js'
+import { buildClientError } from '../../common/client_error_builder.js'
 import { RedisKeys } from '../../infra/redis_key.js'
 
 const SYSTEM_PROMPT = 'You are Droid, an AI software engineering agent built by Factory.'
@@ -442,17 +452,14 @@ class DroidRelayService {
       }
 
       let responseStarted = false
-      let responseCompleted = false
       let settled = false
-      let upstreamResponse = null
-      let completionWindow = ''
-      let hasForwardedData = false
 
       const resolveOnce = (value) => {
         if (settled) {
           return
         }
         settled = true
+        detachDisconnect?.()
         resolve(value)
       }
 
@@ -461,58 +468,107 @@ class DroidRelayService {
           return
         }
         settled = true
+        detachDisconnect?.()
         reject(error)
       }
 
+      const model = requestBody.model ?? 'unknown'
+      const parser = new IncrementalSSEParser()
+      const state =
+        endpointType === 'anthropic'
+          ? new ClaudeStreamState({ model })
+          : new ResponsesStreamState({ model, protocol: endpointType === 'comm' ? 'chat' : 'responses' })
+      let finishing = false
+      let upstreamSentError = false
+      let observedServiceTier
+      let backpressure = null
+      let detachDisconnect = null
+      const observe = (events) => {
+        for (const event of events) {
+          if (event.type === 'data') {
+            const data = event.data.type ? event.data : { ...event.data, type: event.name }
+            const response = data.response ?? data
+            if (Object.hasOwn(response, 'service_tier')) {
+              observedServiceTier = response.service_tier
+            }
+            state.observe(data)
+            upstreamSentError ||= data.type === 'error' || data.type === 'response.failed'
+          } else if (event.type === 'done' && endpointType === 'comm') {
+            state.sawDone = true
+          }
+        }
+      }
+      const finishStream = async (transportError = null) => {
+        if (settled || finishing) {
+          return
+        }
+        finishing = true
+        try {
+          try {
+            observe(parser.finish())
+          } catch (error) {
+            transportError = error
+          }
+          const result = state.finish(transportError)
+          const rawUsage = state.usage ?? {}
+          const requestMeta = createRequestDetailMeta(clientRequest, {
+            requestBody,
+            stream: true,
+            ...result,
+            protocolTerminal: state.terminalType,
+          })
+          requestMeta.serviceTier = resolveOpenAIServiceTier(observedServiceTier, requestBody.service_tier)
+          if (!skipUsageRecord) {
+            const { normalizedUsage, costs } = await this._recordUsageFromStreamData(
+              rawUsage,
+              apiKeyData,
+              account,
+              state.model ?? rawUsage.model ?? model,
+              requestMeta,
+              endpointType,
+            )
+            await this._applyRateLimitTracking(
+              clientRequest?.rateLimitInfo,
+              {
+                inputTokens: normalizedUsage.input_tokens,
+                outputTokens: normalizedUsage.output_tokens,
+                cacheCreateTokens: normalizedUsage.cache_creation_input_tokens,
+                cacheReadTokens: normalizedUsage.cache_read_input_tokens,
+              },
+              model,
+              ' [stream]',
+              keyId,
+              costs,
+            )
+          }
+          if (!clientResponse.destroyed && !clientResponse.writableEnded) {
+            if (result.statusCode >= 400 && !upstreamSentError) {
+              const error = buildClientError({
+                statusCode: result.statusCode,
+                protocol: endpointType === 'anthropic' ? 'anthropic' : 'openai',
+                upstreamBody: { error: { code: result.errorCode, message: result.errorMessage } },
+              })
+              clientResponse.write(`event: error\ndata: ${JSON.stringify(error.body)}\n\n`)
+            }
+            clientResponse.end()
+          }
+          resolveOnce({ ...result, streaming: true })
+        } catch (error) {
+          logger.error('Droid stream finalization failed:', error)
+          if (!clientResponse.destroyed && !clientResponse.writableEnded) {
+            clientResponse.end()
+          }
+          resolveOnce({ statusCode: 502, streaming: true, error })
+        } finally {
+          backpressure?.dispose()
+          detachDisconnect?.()
+        }
+      }
       const handleStreamError = (error) => {
         if (responseStarted) {
-          const isConnectionReset = error && (error.code === 'ECONNRESET' || error.message === 'aborted')
-          const upstreamComplete = responseCompleted || upstreamResponse?.complete || clientResponse.writableEnded
-
-          if (isConnectionReset && (upstreamComplete || hasForwardedData)) {
-            logger.debug('Droid stream连接在响应阶段被重置，视为正常结束:', {
-              message: error?.message,
-              code: error?.code,
-            })
-            if (!clientResponse.destroyed && !clientResponse.writableEnded) {
-              clientResponse.end()
-            }
-            resolveOnce({ statusCode: 200, streaming: true })
-            return
-          }
-
-          logger.error('Droid stream error:', error)
-          const mappedStatus = this._mapNetworkErrorStatus(error)
-          const errorBody = this._buildNetworkErrorBody(error)
-
-          if (!clientResponse.destroyed) {
-            if (!clientResponse.writableEnded) {
-              const canUseJson =
-                !hasForwardedData &&
-                typeof clientResponse.status === 'function' &&
-                typeof clientResponse.json === 'function'
-
-              if (canUseJson) {
-                clientResponse.status(mappedStatus).json(errorBody)
-              } else {
-                const errorPayload = JSON.stringify(errorBody)
-
-                if (!hasForwardedData) {
-                  if (typeof clientResponse.setHeader === 'function') {
-                    clientResponse.setHeader('Content-Type', 'application/json')
-                  }
-                  clientResponse.write(errorPayload)
-                  clientResponse.end()
-                } else {
-                  clientResponse.write(`event: error\ndata: ${errorPayload}\n\n`)
-                  clientResponse.end()
-                }
-              }
-            }
-          }
-
-          resolveOnce({ statusCode: mappedStatus, streaming: true, error })
+          void finishStream(error)
         } else {
+          detachDisconnect?.()
           rejectOnce(error)
         }
       }
@@ -528,7 +584,6 @@ class DroidRelayService {
       }
 
       const req = https.request(options, (res) => {
-        upstreamResponse = res
         logger.info(`Factory.ai stream response status: ${res.statusCode}`)
 
         // 错误响应
@@ -599,103 +654,36 @@ class DroidRelayService {
         clientResponse.setHeader('Cache-Control', 'no-cache')
         clientResponse.setHeader('Connection', 'keep-alive')
 
-        // Usage 数据收集
-        let buffer = ''
-        const currentUsageData = {}
-        const model = requestBody.model || 'unknown'
-
-        // 处理 SSE 流
+        backpressure = createStreamBackpressure(res, clientResponse)
         res.on('data', (chunk) => {
-          const chunkStr = chunk.toString()
-          completionWindow = (completionWindow + chunkStr).slice(-1024)
-          hasForwardedData = true
-
-          // 转发数据到客户端
-          clientResponse.write(chunk)
-          hasForwardedData = true
-
-          // 解析 usage 数据（根据端点类型）
-          if (endpointType === 'anthropic') {
-            // Anthropic Messages API 格式
-            this._parseAnthropicUsageFromSSE(chunkStr, buffer, currentUsageData)
-          } else if (endpointType === 'openai' || endpointType === 'comm') {
-            // OpenAI Chat Completions 格式（openai 和 comm 共用）
-            this._parseOpenAIUsageFromSSE(chunkStr, buffer, currentUsageData)
-          }
-
-          if (!responseCompleted && this._detectStreamCompletion(completionWindow, endpointType)) {
-            responseCompleted = true
-          }
-
-          buffer += chunkStr
-        })
-
-        res.on('end', async () => {
-          responseCompleted = true
-          clientResponse.end()
-
-          // 记录 usage 数据
-          if (!skipUsageRecord) {
-            const { normalizedUsage, costs: streamCosts } = await this._recordUsageFromStreamData(
-              currentUsageData,
-              apiKeyData,
-              account,
-              model,
-              createRequestDetailMeta(clientRequest, {
-                requestBody,
-                stream: true,
-                statusCode: clientResponse.statusCode,
-              }),
-            )
-
-            const usageSummary = {
-              inputTokens: normalizedUsage.input_tokens || 0,
-              outputTokens: normalizedUsage.output_tokens || 0,
-              cacheCreateTokens: normalizedUsage.cache_creation_input_tokens || 0,
-              cacheReadTokens: normalizedUsage.cache_read_input_tokens || 0,
+          try {
+            observe(parser.feed(chunk))
+            if (!clientResponse.destroyed && !clientResponse.writableEnded && !clientResponse.write(chunk)) {
+              void backpressure.waitForDrain()
             }
-
-            await this._applyRateLimitTracking(
-              clientRequest?.rateLimitInfo,
-              usageSummary,
-              model,
-              ' [stream]',
-              keyId,
-              streamCosts,
-            )
-
-            logger.success(`Droid stream completed - Account: ${account.name}`)
-          } else {
-            logger.success(`Droid stream completed - Account: ${account.name}, usage recording skipped`)
+          } catch (error) {
+            res.destroy(error)
+            handleStreamError(error)
           }
-          resolveOnce({ statusCode: 200, streaming: true })
         })
-
+        res.on('end', () => {
+          void finishStream()
+        })
         res.on('error', handleStreamError)
-
         res.on('close', () => {
-          if (settled) {
-            return
-          }
-
-          if (responseCompleted) {
-            if (!clientResponse.destroyed && !clientResponse.writableEnded) {
-              clientResponse.end()
-            }
-            resolveOnce({ statusCode: 200, streaming: true })
-          } else {
+          if (!res.complete) {
             handleStreamError(new Error('Upstream stream closed unexpectedly'))
           }
         })
       })
 
       // 客户端断开连接时清理（只用 res 判据）
-      onClientDisconnect(
+      detachDisconnect = onClientDisconnect(
         clientResponse,
         () => {
-          if (req && !req.destroyed) {
-            req.destroy(new Error('Client disconnected'))
-          }
+          const error = new Error('Client disconnected')
+          handleStreamError(error)
+          req.destroy(error)
         },
         'Droid stream',
       )
@@ -713,241 +701,57 @@ class DroidRelayService {
     })
   }
 
-  /**
-   * 从 SSE 流中解析 Anthropic usage 数据
-   */
-  _parseAnthropicUsageFromSSE(chunkStr, buffer, currentUsageData) {
-    try {
-      // 分割成行
-      const lines = (buffer + chunkStr).split('\n')
-
-      for (const line of lines) {
-        if (line.startsWith('data: ') && line.length > 6) {
-          try {
-            const jsonStr = line.slice(6)
-            const data = JSON.parse(jsonStr)
-
-            // message_start 包含 input tokens 和 cache tokens
-            if (data.type === 'message_start' && data.message && data.message.usage) {
-              currentUsageData.input_tokens = data.message.usage.input_tokens || 0
-              currentUsageData.cache_creation_input_tokens = data.message.usage.cache_creation_input_tokens || 0
-              currentUsageData.cache_read_input_tokens = data.message.usage.cache_read_input_tokens || 0
-
-              // 详细的缓存类型
-              if (data.message.usage.cache_creation) {
-                currentUsageData.cache_creation = {
-                  ephemeral_5m_input_tokens: data.message.usage.cache_creation.ephemeral_5m_input_tokens || 0,
-                  ephemeral_1h_input_tokens: data.message.usage.cache_creation.ephemeral_1h_input_tokens || 0,
-                }
-              }
-
-              logger.debug('Droid Anthropic input usage:', currentUsageData)
-            }
-
-            // message_delta 包含 output tokens
-            if (data.type === 'message_delta' && data.usage) {
-              currentUsageData.output_tokens = data.usage.output_tokens || 0
-              logger.debug('Droid Anthropic output usage:', currentUsageData.output_tokens)
-            }
-          } catch (parseError) {
-            // 忽略解析错误
-          }
-        }
-      }
-    } catch (error) {
-      logger.debug('Error parsing Anthropic usage:', error)
-    }
-  }
-
-  /**
-   * 从 SSE 流中解析 OpenAI usage 数据
-   */
-  _parseOpenAIUsageFromSSE(chunkStr, buffer, currentUsageData) {
-    try {
-      // OpenAI Chat Completions 流式格式
-      const lines = (buffer + chunkStr).split('\n')
-
-      for (const line of lines) {
-        if (line.startsWith('data: ') && line.length > 6) {
-          try {
-            const jsonStr = line.slice(6)
-            if (jsonStr === '[DONE]') {
-              continue
-            }
-
-            const data = JSON.parse(jsonStr)
-
-            // 兼容传统 Chat Completions usage 字段
-            if (data.usage) {
-              currentUsageData.input_tokens = data.usage.prompt_tokens || 0
-              currentUsageData.total_tokens = data.usage.total_tokens || 0
-              // completion_tokens 可能缺失（如某些模型响应），从 total_tokens - prompt_tokens 计算
-              if (data.usage.completion_tokens !== undefined && data.usage.completion_tokens !== null) {
-                currentUsageData.output_tokens = data.usage.completion_tokens
-              } else if (currentUsageData.total_tokens > 0 && currentUsageData.input_tokens >= 0) {
-                currentUsageData.output_tokens = Math.max(
-                  0,
-                  currentUsageData.total_tokens - currentUsageData.input_tokens,
-                )
-              } else {
-                currentUsageData.output_tokens = 0
-              }
-
-              // Capture cache tokens from OpenAI format
-              currentUsageData.cache_read_input_tokens = data.usage.input_tokens_details?.cached_tokens || 0
-              currentUsageData.cache_creation_input_tokens =
-                data.usage.input_tokens_details?.cache_creation_input_tokens ||
-                data.usage.cache_creation_input_tokens ||
-                0
-
-              logger.debug('Droid OpenAI usage:', currentUsageData)
-            }
-
-            // 新 Response API 在 response.usage 中返回统计
-            if (data.response && data.response.usage) {
-              const { usage } = data.response
-              currentUsageData.input_tokens = usage.input_tokens || usage.prompt_tokens || usage.total_tokens || 0
-              currentUsageData.total_tokens = usage.total_tokens || 0
-              // completion_tokens/output_tokens 可能缺失，从 total_tokens - input_tokens 计算
-              if (usage.output_tokens !== undefined || usage.completion_tokens !== undefined) {
-                currentUsageData.output_tokens = usage.output_tokens || usage.completion_tokens || 0
-              } else if (currentUsageData.total_tokens > 0 && currentUsageData.input_tokens >= 0) {
-                currentUsageData.output_tokens = Math.max(
-                  0,
-                  currentUsageData.total_tokens - currentUsageData.input_tokens,
-                )
-              } else {
-                currentUsageData.output_tokens = 0
-              }
-
-              // Capture cache tokens from OpenAI Response API format
-              currentUsageData.cache_read_input_tokens = usage.input_tokens_details?.cached_tokens || 0
-              currentUsageData.cache_creation_input_tokens =
-                usage.input_tokens_details?.cache_creation_input_tokens || usage.cache_creation_input_tokens || 0
-
-              logger.debug('Droid OpenAI response usage:', currentUsageData)
-            }
-          } catch (parseError) {
-            // 忽略解析错误
-          }
-        }
-      }
-    } catch (error) {
-      logger.debug('Error parsing OpenAI usage:', error)
-    }
-  }
-
-  /**
-   * 检测流式响应是否已经包含终止标记
-   */
-  _detectStreamCompletion(windowStr, endpointType) {
-    if (!windowStr) {
-      return false
-    }
-
-    const lower = windowStr.toLowerCase()
-    const compact = lower.replace(/\s+/g, '')
-
-    if (endpointType === 'anthropic') {
-      if (lower.includes('event: message_stop')) {
-        return true
-      }
-      if (compact.includes('"type":"message_stop"')) {
-        return true
-      }
-      return false
-    }
-
-    if (endpointType === 'openai' || endpointType === 'comm') {
-      if (lower.includes('data: [done]')) {
-        return true
-      }
-
-      if (compact.includes('"finish_reason"')) {
-        return true
-      }
-
-      if (lower.includes('event: response.done') || lower.includes('event: response.completed')) {
-        return true
-      }
-
-      if (compact.includes('"type":"response.done"') || compact.includes('"type":"response.completed"')) {
-        return true
-      }
-    }
-
-    return false
-  }
-
-  /**
-   * 记录从流中解析的 usage 数据
-   */
-  async _recordUsageFromStreamData(usageData, apiKeyData, account, model, requestMeta = null) {
-    const normalizedUsage = this._normalizeUsageSnapshot(usageData)
+  async _recordUsageFromStreamData(
+    usageData,
+    apiKeyData,
+    account,
+    model,
+    requestMeta = null,
+    endpointType = 'anthropic',
+  ) {
+    const normalizedUsage = this._normalizeUsageSnapshot(usageData, endpointType)
     const costs = await this._recordUsage(apiKeyData, account, model, normalizedUsage, requestMeta)
     return { normalizedUsage, costs }
   }
 
-  /**
-   * 标准化 usage 数据，确保字段完整且为数字
-   */
-  _normalizeUsageSnapshot(usageData = {}) {
-    const toNumber = (value) => {
-      if (value === undefined || value === null || value === '') {
-        return 0
+  _normalizeUsageSnapshot(usageData = {}, endpointType = 'anthropic') {
+    if (endpointType !== 'anthropic') {
+      const rawUsage = { ...usageData }
+      if (
+        (rawUsage.output_tokens === undefined || rawUsage.output_tokens === null) &&
+        (rawUsage.completion_tokens === undefined || rawUsage.completion_tokens === null) &&
+        Number.isFinite(rawUsage.total_tokens)
+      ) {
+        rawUsage.output_tokens = Math.max(
+          0,
+          rawUsage.total_tokens - (rawUsage.input_tokens ?? rawUsage.prompt_tokens ?? 0),
+        )
       }
-      const num = Number(value)
-      if (!Number.isFinite(num)) {
-        return 0
-      }
-      return Math.max(0, num)
+      return buildTokenUsagePayload({ ...normalizeOpenAITokenUsage(rawUsage), rawUsage })
     }
-
-    const inputTokens = toNumber(
-      usageData.input_tokens ?? usageData.prompt_tokens ?? usageData.inputTokens ?? usageData.total_input_tokens,
-    )
-    const totalTokens = toNumber(usageData.total_tokens ?? usageData.totalTokens)
-
-    // 尝试从多个字段获取 output_tokens
-    let outputTokens = toNumber(usageData.output_tokens ?? usageData.completion_tokens ?? usageData.outputTokens)
-    // 如果 output_tokens 为 0 但有 total_tokens，从差值计算
-    if (outputTokens === 0 && totalTokens > 0 && inputTokens >= 0) {
-      outputTokens = Math.max(0, totalTokens - inputTokens)
+    const tokenCount = (value) => {
+      const count = Number(value)
+      return Number.isSafeInteger(count) && count >= 0 ? count : 0
     }
-    const cacheReadTokens = toNumber(
-      usageData.cache_read_input_tokens ?? usageData.cacheReadTokens ?? usageData.input_tokens_details?.cached_tokens,
-    )
-
-    const rawCacheCreateTokens =
-      usageData.cache_creation_input_tokens ?? usageData.cacheCreateTokens ?? usageData.cache_tokens ?? 0
-    let cacheCreateTokens = toNumber(rawCacheCreateTokens)
-
-    const ephemeral5m = toNumber(
-      usageData.cache_creation?.ephemeral_5m_input_tokens ?? usageData.ephemeral_5m_input_tokens,
-    )
-    const ephemeral1h = toNumber(
-      usageData.cache_creation?.ephemeral_1h_input_tokens ?? usageData.ephemeral_1h_input_tokens,
-    )
-
-    if (cacheCreateTokens === 0 && (ephemeral5m > 0 || ephemeral1h > 0)) {
-      cacheCreateTokens = ephemeral5m + ephemeral1h
-    }
-
-    const normalized = {
-      input_tokens: inputTokens,
-      output_tokens: outputTokens,
-      cache_creation_input_tokens: cacheCreateTokens,
-      cache_read_input_tokens: cacheReadTokens,
-    }
-
-    if (ephemeral5m > 0 || ephemeral1h > 0) {
-      normalized.cache_creation = {
-        ephemeral_5m_input_tokens: ephemeral5m,
-        ephemeral_1h_input_tokens: ephemeral1h,
-      }
-    }
-
-    return normalized
+    const cache = usageData.cache_creation
+      ? {
+          ephemeral_5m_input_tokens: tokenCount(usageData.cache_creation.ephemeral_5m_input_tokens),
+          ephemeral_1h_input_tokens: tokenCount(usageData.cache_creation.ephemeral_1h_input_tokens),
+        }
+      : null
+    return buildTokenUsagePayload({
+      inputTokens: tokenCount(usageData.input_tokens),
+      outputTokens: tokenCount(usageData.output_tokens),
+      cacheCreateTokens:
+        tokenCount(usageData.cache_creation_input_tokens) ||
+        (cache?.ephemeral_5m_input_tokens ?? 0) + (cache?.ephemeral_1h_input_tokens ?? 0),
+      cacheReadTokens: tokenCount(usageData.cache_read_input_tokens),
+      rawUsage: usageData,
+      extras: {
+        ...(cache ? { cache_creation: { ...cache } } : {}),
+        ...(typeof usageData.speed === 'string' ? { speed: usageData.speed } : {}),
+      },
+    })
   }
 
   /**
@@ -1226,7 +1030,7 @@ class DroidRelayService {
 
     const model = requestBody.model || 'unknown'
 
-    const normalizedUsage = this._normalizeUsageSnapshot(usage)
+    const normalizedUsage = this._normalizeUsageSnapshot(usage, endpointType)
 
     if (!skipUsageRecord) {
       const droidCosts = await this._recordUsage(
@@ -1234,11 +1038,14 @@ class DroidRelayService {
         account,
         model,
         normalizedUsage,
-        createRequestDetailMeta(clientRequest, {
-          requestBody,
-          stream: false,
-          statusCode: response.status || 200,
-        }),
+        Object.assign(
+          createRequestDetailMeta(clientRequest, {
+            requestBody,
+            stream: false,
+            statusCode: response.status || 200,
+          }),
+          { serviceTier: resolveOpenAIServiceTier(data.service_tier, requestBody.service_tier) },
+        ),
       )
 
       const totalTokens = this._getTotalTokens(normalizedUsage)
@@ -1299,8 +1106,8 @@ class DroidRelayService {
           usageObject.output_tokens || 0,
           usageObject.cache_creation_input_tokens || 0,
           usageObject.cache_read_input_tokens || 0,
-          0, // ephemeral5mTokens - Droid 不含详细缓存数据
-          0, // ephemeral1hTokens - Droid 不含详细缓存数据
+          usageObject.cache_creation?.ephemeral_5m_input_tokens ?? 0,
+          usageObject.cache_creation?.ephemeral_1h_input_tokens ?? 0,
           model,
           false,
           // realCost / costRecorded 都不传（默认 0 / false）：本分支是「无 API Key、只有账户」的

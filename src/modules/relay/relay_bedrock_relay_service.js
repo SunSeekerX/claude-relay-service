@@ -1,6 +1,8 @@
 import { isAccountModelInRange } from '../account/account_model_policy.js'
 import { assertOutboundModelAccess } from './relay_model_access.js'
 import path from 'node:path'
+import { BEDROCK_MODELS } from '../../../config/models.js'
+import { relayBedrockMantle } from './relay_bedrock_mantle.js'
 import { createRequire } from 'node:module'
 import { fromEnv } from '@aws-sdk/credential-providers'
 import {
@@ -228,6 +230,15 @@ class BedrockRelayService {
         }
       }
 
+      if (bedrockAccount?.apiMode === 'mantle') {
+        return await relayBedrockMantle(requestBody, bedrockAccount, null, null, async () => {
+          if (queueLockAcquired) {
+            await getUserMessageQueueService().releaseQueueLock(accountId, queueRequestId)
+            queueLockAcquired = false
+          }
+        })
+      }
+
       const modelId = this._selectModel(requestBody, bedrockAccount)
       const region = this._selectRegion(modelId, bedrockAccount)
       const { client, proxyId, contextKey } = this._getBedrockClient(region, bedrockAccount)
@@ -377,6 +388,15 @@ class BedrockRelayService {
             `User message queue lock acquired for Bedrock account ${accountId} (stream), requestId: ${queueRequestId}`,
           )
         }
+      }
+
+      if (bedrockAccount?.apiMode === 'mantle') {
+        return await relayBedrockMantle(requestBody, bedrockAccount, res, _req, async () => {
+          if (queueLockAcquired) {
+            await getUserMessageQueueService().releaseQueueLock(accountId, queueRequestId)
+            queueLockAcquired = false
+          }
+        })
       }
 
       const modelId = this._selectModel(requestBody, bedrockAccount)
@@ -931,6 +951,14 @@ class BedrockRelayService {
   // 获取可用模型列表
   async getAvailableModels(bedrockAccount = null) {
     try {
+      if (bedrockAccount?.apiMode === 'mantle') {
+        return BEDROCK_MODELS.filter((model) => model.value.startsWith('anthropic.')).map((model) => ({
+          id: model.value,
+          name: model.label,
+          provider: 'anthropic',
+          type: 'bedrock',
+        }))
+      }
       const region = bedrockAccount?.region || this.defaultRegion
 
       // Bedrock暂不支持列出推理配置文件的API，返回预定义的模型列表

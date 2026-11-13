@@ -72,10 +72,11 @@ const normalizeClaudeModelId = (modelId) =>
     .replace(/^(us|eu|apac|global)\./, '')
     .replace(/^anthropic\./, '')
 
-const ADAPTIVE_ONLY_MODEL_RE = /claude-(opus-5-5|sonnet-5-5|fable-5|fable-5-1|mythos-5-1)(?![-.]?\d)/
+const ADAPTIVE_ONLY_MODEL_RE = /claude-(opus-5-5|sonnet-5-5|fable-5(?:-[12])?|mythos-5-[12])(?![-.]?\d)/
 const BETWEEN_TOOLS_MODEL_RE = /claude-sonnet-5-5(?![-.]?\d)/
+const HAIKU_ADAPTIVE_MODEL_RE = /claude-haiku-5-5(?![-.]?\d)/
 const XHIGH_EFFORT_MODEL_RE =
-  /claude-(opus-4-7|opus-4-8|opus-5|opus-5-5|sonnet-5|sonnet-5-5|fable-5|fable-5-1|mythos-5|mythos-5-1)(?![-.]?\d)/
+  /claude-(opus-4-7|opus-4-8|opus-5|opus-5-5|sonnet-5|sonnet-5-5|haiku-5-5|fable-5(?:-[12])?|mythos-5(?:-[12])?)(?![-.]?\d)/
 
 export const getClaudeThinkingCapabilities = (modelId) => {
   const model = normalizeClaudeModelId(modelId)
@@ -101,11 +102,14 @@ export const normalizeClaudeThinkingForModel = (body, modelId) => {
     return body
   }
   const capabilities = getClaudeThinkingCapabilities(modelId || body.model)
-  if (!capabilities.adaptiveOnly) {
+  if (!capabilities.adaptiveOnly && !HAIKU_ADAPTIVE_MODEL_RE.test(normalizeClaudeModelId(modelId || body.model))) {
     return body
   }
   const type = String(body.thinking.type || '').toLowerCase()
   if (type === 'disabled') {
+    if (!capabilities.adaptiveOnly) {
+      return body
+    }
     body.thinking = capabilities.betweenTools ? { type: 'between_tools' } : { type: 'adaptive' }
     if (!capabilities.betweenTools) {
       body.output_config = { ...(body.output_config || {}), effort: ThinkingLevel.low }
@@ -125,16 +129,26 @@ export const normalizeClaudeThinkingForModel = (body, modelId) => {
 
 // 直达 Messages 路径：adaptive-only 模型归一 thinking 后同步采样参数规则（与转换器路径一致）
 export const normalizeClaudeRequestForModel = (body, modelId) => {
-  if (!body || typeof body !== 'object' || !getClaudeThinkingCapabilities(modelId || body.model).adaptiveOnly) {
+  if (
+    !body ||
+    typeof body !== 'object' ||
+    (!getClaudeThinkingCapabilities(modelId || body.model).adaptiveOnly &&
+      !HAIKU_ADAPTIVE_MODEL_RE.test(normalizeClaudeModelId(modelId || body.model)))
+  ) {
     return body
   }
   normalizeClaudeThinkingForModel(body, modelId)
-  applyThinkingSamplingRules(body, isThinkingEnabled(body.thinking))
+  for (const field of ['temperature', 'top_p', 'top_k']) {
+    delete body[field]
+  }
   return body
 }
 
 // xhigh 仅 xhigh_effort 模型原生支持，其余降为 max
 const resolveAdaptiveEffort = (level, modelId) => {
+  if (level === 'minimal') {
+    return 'low'
+  }
   if (level === 'auto' || level === 'adaptive') {
     return 'high'
   }
@@ -153,7 +167,15 @@ export const effortToClaudeThinking = (effort, { supportsAdaptive = true, modelI
   if (level === 'none' || level === 'off' || level === 'disabled') {
     return { thinking: { type: 'disabled' } }
   }
-  if (supportsAdaptive && (level === 'auto' || level === 'adaptive' || level === 'max' || level === 'xhigh')) {
+  if (
+    supportsAdaptive &&
+    (getClaudeThinkingCapabilities(modelId).adaptiveOnly ||
+      HAIKU_ADAPTIVE_MODEL_RE.test(normalizeClaudeModelId(modelId)) ||
+      level === 'auto' ||
+      level === 'adaptive' ||
+      level === 'max' ||
+      level === 'xhigh')
+  ) {
     return {
       thinking: { type: 'adaptive' },
       output_config: { effort: resolveAdaptiveEffort(level, modelId) },
@@ -173,7 +195,7 @@ export const effortToClaudeThinking = (effort, { supportsAdaptive = true, modelI
 // Claude thinking → OpenAI reasoning_effort
 export const claudeThinkingToEffort = (thinking, outputConfig = null) => {
   if (!thinking || typeof thinking !== 'object') {
-    return null
+    return typeof outputConfig?.effort === 'string' ? outputConfig.effort.trim().toLowerCase() : null
   }
   const type = String(thinking.type || '').toLowerCase()
   if (type === 'disabled') {

@@ -4,6 +4,7 @@ import https from 'node:https'
 import zlib from 'node:zlib'
 import { IncrementalSSEParser, parseSSEEvent } from './relay_sse_parser.js'
 import { ClaudeStreamState } from './relay_claude_stream_state.js'
+import { mergeClaudeMessageTurns } from './relay_claude_message_turns.js'
 import { createClaudeStreamFinalizer } from './relay_claude_stream_usage.js'
 import path from 'node:path'
 import { ProxyHelper } from '../proxy/proxy_helper.js'
@@ -1166,7 +1167,7 @@ class ClaudeRelayService {
     const pendingToolUseIds = []
     const patched = []
 
-    for (const message of messages) {
+    for (const message of mergeClaudeMessageTurns(messages)) {
       if (!message || !Array.isArray(message.content)) {
         patched.push(message)
         continue

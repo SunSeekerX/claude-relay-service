@@ -34,6 +34,8 @@ import { router as droidRoutes } from './modules/relay/relay_droid_routes.js'
 import { router as grokRoutes } from './modules/relay/relay_grok_routes.js'
 import { router as userRoutes } from './modules/user/user_routes.js'
 import { router as azureOpenaiRoutes } from './modules/relay/relay_azure_openai_routes.js'
+import { isAzureResponsesWebSocketPath, handleAzureResponsesWebSocket } from './modules/relay/relay_azure_openai_ws.js'
+import { isGrokSpeechWebSocketPath, handleGrokSpeechWebSocket } from './modules/relay/relay_grok_stt.js'
 import { router as webhookRoutes } from './modules/webhook/webhook_routes.js'
 import { router as paymentRoutes } from './modules/payment/payment_routes.js'
 import { router as paymentWebhookRoutes } from './modules/payment/payment_webhook_routes.js'
@@ -289,7 +291,8 @@ export class Application {
           (requestPath.includes('/audio/transcriptions') ||
             requestPath.includes('/audio/translations') ||
             requestPath.endsWith('/audio/transcriptions') ||
-            requestPath.endsWith('/audio/translations'))
+            requestPath.endsWith('/audio/translations') ||
+            isGrokSpeechWebSocketPath(requestPath))
         if (!isRealtimeCreate && !isAudioMultipart) {
           return next()
         }
@@ -744,6 +747,14 @@ export class Application {
         const host = req.headers.host || 'localhost'
         const url = new URL(req.url || '/', `http://${host}`)
         const pathname = url.pathname || ''
+        if (isGrokSpeechWebSocketPath(pathname)) {
+          await handleGrokSpeechWebSocket(req, socket, head)
+          return
+        }
+        if (isAzureResponsesWebSocketPath(pathname)) {
+          await handleAzureResponsesWebSocket(req, socket, head)
+          return
+        }
         if (isGrokResponsesWebSocketPath(pathname)) {
           await handleGrokResponsesWebSocket(req, socket, head)
           return

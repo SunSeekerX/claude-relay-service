@@ -5,6 +5,7 @@ import { logger } from './logger.js'
 
 const OP_CONTINUATION = 0x0
 const OP_TEXT = 0x1
+const OP_BINARY = 0x2
 const OP_CLOSE = 0x8
 const OP_PING = 0x9
 const OP_PONG = 0xa
@@ -38,8 +39,7 @@ export const encodeWsFrame = (opcode, payload, { fin = true } = {}) => {
 const encodeWsText = (text) => encodeWsFrame(OP_TEXT, text)
 
 // 作为上游客户端发帧必须 mask（RFC6455）
-export const encodeWsClientText = (text) => {
-  const data = Buffer.from(String(text ?? ''), 'utf8')
+const encodeWsClientData = (opcode, data) => {
   const maskKey = crypto.randomBytes(4)
   const masked = Buffer.allocUnsafe(data.length)
   for (let i = 0; i < data.length; i += 1) {
@@ -49,18 +49,18 @@ export const encodeWsClientText = (text) => {
   let header
   if (len < 126) {
     header = Buffer.allocUnsafe(2 + 4)
-    header[0] = 0x80 | OP_TEXT
+    header[0] = 0x80 | opcode
     header[1] = 0x80 | len
     maskKey.copy(header, 2)
   } else if (len < 65536) {
     header = Buffer.allocUnsafe(4 + 4)
-    header[0] = 0x80 | OP_TEXT
+    header[0] = 0x80 | opcode
     header[1] = 0x80 | 126
     header.writeUInt16BE(len, 2)
     maskKey.copy(header, 4)
   } else {
     header = Buffer.allocUnsafe(10 + 4)
-    header[0] = 0x80 | OP_TEXT
+    header[0] = 0x80 | opcode
     header[1] = 0x80 | 127
     header.writeUInt32BE(0, 2)
     header.writeUInt32BE(len, 6)
@@ -68,6 +68,9 @@ export const encodeWsClientText = (text) => {
   }
   return Buffer.concat([header, masked])
 }
+
+export const encodeWsClientText = (text) => encodeWsClientData(OP_TEXT, Buffer.from(String(text ?? ''), 'utf8'))
+export const encodeWsClientBinary = (data) => encodeWsClientData(OP_BINARY, Buffer.from(data))
 
 const encodeWsClientControl = (opcode, payload = Buffer.alloc(0)) => {
   const data = Buffer.isBuffer(payload) ? payload : Buffer.from(String(payload ?? ''), 'utf8')
@@ -103,6 +106,7 @@ export const acceptWebSocketEndpoint = (
   head,
   {
     onTextMessage,
+    onBinaryMessage,
     onClose,
     onError,
     label = 'ws-endpoint',
@@ -335,6 +339,8 @@ export const acceptWebSocketEndpoint = (
           resetFragment()
           if (op === OP_TEXT) {
             emitText(full.toString('utf8'))
+          } else if (op === OP_BINARY) {
+            onBinaryMessage?.(full)
           }
         }
         continue
@@ -350,7 +356,9 @@ export const acceptWebSocketEndpoint = (
       if (opcode === OP_TEXT) {
         emitText(payload.toString('utf8'))
       }
-      // binary 忽略
+      if (opcode === OP_BINARY) {
+        onBinaryMessage?.(payload)
+      }
     }
   }
 

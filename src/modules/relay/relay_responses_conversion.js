@@ -2,9 +2,12 @@ import crypto from 'node:crypto'
 import { LIMITS } from '../../infra/redis_key.js'
 import { adaptResponsesTools } from './relay_responses_tools.js'
 import { buildOpenAIChatGeminiRequest } from './relay_openai_gemini_request.js'
+import { mergeClaudeMessageTurns } from './relay_claude_message_turns.js'
+import { resolveResponsesConfiguration } from './relay_responses_configuration.js'
 import {
   effortToClaudeThinking,
-  convertLevelToBudget
+  normalizeClaudeRequestForModel,
+  convertLevelToBudget,
 } from './translator/relay_translator_thinking.js'
 import { normalizeGeminiTokenUsage } from './relay_request_detail_helper.js'
 
@@ -51,13 +54,17 @@ const validateParts = (content) => {
         'input_image',
         'image_url',
         'input_file',
-        'refusal'
+        'input_audio',
+        'refusal',
       ].includes(part.type)
     ) {
       throw responsesConversionError(`Unsupported content part: ${part.type}`)
     }
     if (part.type === 'input_file' && !part.file_data && !part.file_url) {
       throw responsesConversionError('Provider-scoped file IDs cannot be shared across providers')
+    }
+    if (part.type === 'input_audio' && !part.audio_url) {
+      throw responsesConversionError('Provider-scoped audio IDs cannot be shared across providers')
     }
   }
 }
@@ -74,7 +81,7 @@ export const buildResponsesProviderRequest = (source, provider) => {
       throw responsesConversionError(`${field} is unavailable on this provider bridge`)
     }
   }
-  const adapter = adaptResponsesTools(source)
+  const adapter = adaptResponsesTools(resolveResponsesConfiguration(source))
   const { body } = adapter
   const messages = []
   if (body.instructions) {
@@ -228,6 +235,9 @@ export const buildResponsesProviderRequest = (source, provider) => {
         return text ? [{ type: 'text', text }] : []
       }
       const image = part.type === 'input_image' || part.type === 'image_url'
+      if (part.type === 'input_audio') {
+        throw responsesConversionError('This Claude target does not support audio input')
+      }
       const value = image
         ? (part.image_url?.url ?? part.image_url)
         : (part.file_data ?? part.file_url)
@@ -299,6 +309,7 @@ export const buildResponsesProviderRequest = (source, provider) => {
     }
     native.messages.push({ role: message.role, content })
   }
+  native.messages = mergeClaudeMessageTurns(native.messages)
   if (system.length) {
     native.system = system
   }
@@ -353,6 +364,7 @@ export const buildResponsesProviderRequest = (source, provider) => {
       output_config: { ...native.output_config, ...thinking.output_config }
     })
   }
+  normalizeClaudeRequestForModel(native, body.model)
   if (native.thinking?.type === 'enabled') {
     if (native.max_tokens <= 1024) {
       throw responsesConversionError('Thinking requires max_output_tokens greater than 1024')

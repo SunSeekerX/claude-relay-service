@@ -1,18 +1,11 @@
 import axios from 'axios'
+import { buildAzureOpenAIRequest } from './relay_azure_openai_request.js'
 import { ProxyHelper } from '../proxy/proxy_helper.js'
 import { proxyResolver } from '../proxy/proxy_resolver.js'
 import { logger } from '../../common/logger.js'
 import { onClientDisconnect } from '../../common/client_disconnect.js'
 import { config } from '../../../config/config.js'
 import * as upstreamErrorHelper from './relay_upstream_error_helper.js'
-// 转换模型名称（去掉 azure/ 前缀）
-const stripAzureModelPrefix = (model) => {
-  if (model && model.startsWith('azure/')) {
-    return model.replace('azure/', '')
-  }
-  return model
-}
-
 // 处理 Azure OpenAI 请求
 export const handleAzureOpenAIRequest = async ({
   account,
@@ -28,41 +21,13 @@ export const handleAzureOpenAIRequest = async ({
   let proxyResolution = null
 
   try {
-    // 构建 Azure OpenAI 请求 URL
-    const baseUrl = account.azureEndpoint
-    deploymentName = account.deploymentName || 'default'
-    // Azure Responses API requires preview versions; fall back appropriately
-    const apiVersion = account.apiVersion || (endpoint === 'responses' ? '2025-04-01-preview' : '2024-02-01')
-    if (endpoint === 'chat/completions') {
-      requestUrl = `${baseUrl}/openai/deployments/${deploymentName}/chat/completions?api-version=${apiVersion}`
-    } else if (endpoint === 'responses') {
-      requestUrl = `${baseUrl}/openai/responses?api-version=${apiVersion}`
-    } else {
-      requestUrl = `${baseUrl}/openai/deployments/${deploymentName}/${endpoint}?api-version=${apiVersion}`
-    }
-
-    // 准备请求头
-    const requestHeaders = {
-      'Content-Type': 'application/json',
-      'api-key': account.apiKey,
-    }
-
-    // 移除不需要的头部
-    delete requestHeaders['anthropic-version']
-    delete requestHeaders['x-api-key']
-    delete requestHeaders['host']
-
-    // 处理请求体
-    const processedBody = { ...requestBody }
-
-    // 标准化模型名称
-    if (endpoint === 'responses') {
-      processedBody.model = deploymentName
-    } else if (processedBody.model) {
-      processedBody.model = stripAzureModelPrefix(processedBody.model)
-    } else {
-      processedBody.model = 'gpt-4'
-    }
+    const request = buildAzureOpenAIRequest(account, endpoint, requestBody)
+    requestUrl = request.url
+    const { deploymentName: accountDeploymentName } = account
+    deploymentName = accountDeploymentName
+    const apiVersion = account.apiMode === 'v1' ? 'v1' : account.apiVersion
+    const requestHeaders = request.headers
+    const processedBody = request.body
 
     // 使用统一的代理解析（绑定 proxyGroupId 走代理池，否则用账户静态 proxy）
     proxyResolution = proxyResolver.resolveAgent(account, 'azure_openai')
@@ -152,7 +117,9 @@ export const handleAzureOpenAIRequest = async ({
     return response
   } catch (error) {
     // 被动健康检查：上报连接级故障（classifyBusinessTraffic 区分传输错误 vs 上游响应，不误熔断）
-    proxyResolver.report(proxyResolution.proxyId, proxyResolution.contextKey, error)
+    if (proxyResolution) {
+      proxyResolver.report(proxyResolution.proxyId, proxyResolution.contextKey, error)
+    }
     const errorDetails = {
       message: error.message,
       code: error.code,
@@ -294,6 +261,7 @@ export const handleStreamResponse = (upstreamResponse, clientResponse, options =
     let buffer = ''
     let usageData = null
     let actualModel = null
+  let serviceTier
     let hasEnded = false
     let eventCount = 0
     const maxEvents = 10000 // 最大事件数量限制
@@ -339,6 +307,9 @@ export const handleStreamResponse = (upstreamResponse, clientResponse, options =
             // 保存所有成功解析的事件
             allParsedEvents.push(eventData)
 
+            if (eventData.response?.service_tier !== undefined || eventData.service_tier !== undefined) {
+              serviceTier = eventData.response?.service_tier ?? eventData.service_tier
+            }
             // 获取模型信息
             if (eventData.model) {
               actualModel = eventData.model
@@ -563,7 +534,12 @@ export const handleStreamResponse = (upstreamResponse, clientResponse, options =
         }
 
         if (onEnd) {
-          onEnd({ usageData, actualModel })
+          onEnd({
+            usageData: usageData
+              ? { ...usageData, ...(serviceTier !== undefined ? { service_tier: serviceTier } : {}) }
+              : null,
+            actualModel,
+          })
         }
 
         if (!clientResponse.destroyed) {
@@ -757,7 +733,16 @@ export const handleNonStreamResponse = (upstreamResponse, clientResponse) => {
     // 使用强化的用量提取
     const { usageData, actualModel } = extractUsageDataRobust(responseData, 'non-stream')
 
-    return { usageData, actualModel, responseData }
+    return {
+      usageData: usageData
+        ? {
+            ...usageData,
+            ...(responseData.service_tier !== undefined ? { service_tier: responseData.service_tier } : {}),
+          }
+        : null,
+      actualModel,
+      responseData,
+    }
   } catch (error) {
     logger.error('Error handling Azure OpenAI non-stream response:', error)
     throw error

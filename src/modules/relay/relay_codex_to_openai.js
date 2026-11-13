@@ -1,3 +1,4 @@
+import { resolveResponsesConfiguration } from './relay_responses_configuration.js'
 /**
  * Codex Responses API → OpenAI Chat Completions 格式转换器
  * 将 Codex/OpenAI Responses API 的 SSE 事件转为标准 chat.completion / chat.completion.chunk 格式
@@ -588,7 +589,7 @@ export class CodexToOpenAIConverter {
 
   // Responses API 请求 → OpenAI Chat Completions 请求（buildRequestFromOpenAI 的逆）
   buildChatRequestFromResponses(responsesBody = {}) {
-    const body = responsesBody && typeof responsesBody === 'object' ? responsesBody : {}
+    const body = resolveResponsesConfiguration(responsesBody && typeof responsesBody === 'object' ? responsesBody : {})
     const result = {}
 
     if (body.model) {

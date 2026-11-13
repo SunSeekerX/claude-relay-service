@@ -27,6 +27,7 @@ export const createResponsesWsBilling = ({
   onLeaseExpired = null,
   validateAccount = null,
   onTerminal = null,
+  maxActiveTurns = 64,
 }) => {
   const url = new URL(req.url, `http://${req.headers.host ?? 'localhost'}`)
   let accountId = null
@@ -39,6 +40,61 @@ export const createResponsesWsBilling = ({
   const modelsByStream = new Map()
   const acceptedModelsByStream = new Map()
   const responseContexts = new Map()
+
+  const acceptedSteers = new Map()
+  const reserveSteeringSuccessor = (parent, reuseLease) => {
+    const turns = turnsByStream.get(parent.streamId) ?? []
+    if (turns.some((turn) => !turn.responseId)) {
+      return
+    }
+    const successor = {
+      ...parent,
+      responseId: null,
+      startedAt: Date.now(),
+      transferred: false,
+      terminal: false,
+      steeringParentId: parent.responseId,
+    }
+    if (reuseLease) {
+      let released = false
+      const { release } = parent
+      parent.release = async () => {
+        if (!released) {
+          released = true
+          await release()
+        }
+      }
+      successor.release = parent.release
+      parent.transferred = true
+    } else {
+      successor.release = async () => {}
+      pending = pending
+        .then(async () => {
+          const auth = await validateWsApiKey(req, url, requiredPermission)
+          if (!auth.ok) {
+            throw Object.assign(new Error(auth.message), { statusCode: auth.status })
+          }
+          const lease = await acquireWsTurnConcurrency(auth.keyData, { onLeaseExpired })
+          if (!lease.ok) {
+            throw Object.assign(new Error(lease.message), { statusCode: lease.status })
+          }
+          successor.release = lease.release
+          successor.keyData = auth.keyData
+          try {
+            await accountValidator?.(parent.model, auth.keyData)
+          } catch (error) {
+            await lease.release()
+            throw error
+          }
+        })
+        .catch((error) => {
+          billingError = error
+          onLeaseExpired?.()
+        })
+    }
+    turns.push(successor)
+    turnsByStream.set(parent.streamId, turns)
+  }
 
   const recordTurn = async (entry, event) => {
     if (selfBilled || !accountId) {
@@ -208,7 +264,7 @@ export const createResponsesWsBilling = ({
         code: 'invalid_stream_id',
       })
     }
-    if (accountType === 'grok' && (streamId !== null || steering)) {
+    if (['grok', 'azure-openai'].includes(accountType) && (streamId !== null || steering)) {
       throw Object.assign(new Error('Unsupported Grok WebSocket event'), {
         statusCode: 400,
         code: 'invalid_request_error',
@@ -250,7 +306,7 @@ export const createResponsesWsBilling = ({
       await accountValidator?.(model, auth.keyData, { deferGroupAdmission: true })
     }
     if (!steering) {
-      if ([...turnsByStream.values()].reduce((count, turns) => count + turns.length, 0) >= 64) {
+      if ([...turnsByStream.values()].reduce((count, turns) => count + turns.length, 0) >= maxActiveTurns) {
         throw Object.assign(new Error('Too many pending WebSocket turns'), {
           statusCode: 429,
           code: 'rate_limit_exceeded',
@@ -304,6 +360,34 @@ export const createResponsesWsBilling = ({
     for (const event of Array.isArray(parsed) ? parsed : [parsed]) {
       const streamId = event.stream_id ?? null
       const turns = turnsByStream.get(streamId) ?? []
+      const parentId = event.steer?.previous_response_id
+      const parent = responseContexts.get(parentId)
+      if (event.type === 'response.steer.accepted' && parent && event.steer?.id) {
+        acceptedSteers.set(event.steer.id, parentId)
+        while (acceptedSteers.size > 128) {
+          acceptedSteers.delete(acceptedSteers.keys().next().value)
+        }
+        if (parent.terminal && !parent.requiresInput) {
+          reserveSteeringSuccessor(parent, turns.includes(parent))
+        }
+      }
+      if (['response.steer.pending', 'response.steer.failed'].includes(event.type) && parentId) {
+        acceptedSteers.delete(event.steer.id)
+        if (event.type === 'response.steer.pending' || ![...acceptedSteers.values()].includes(parentId)) {
+          const index = turns.findIndex((turn) => !turn.responseId && turn.steeringParentId === parentId)
+          if (index >= 0) {
+            const [successor] = turns.splice(index, 1)
+            if (parent) {
+              parent.transferred = false
+            }
+            pending = pending
+              .then(() => successor.release())
+              .catch((error) => {
+                billingError = error
+              })
+          }
+        }
+      }
       if (event.type === 'response.created') {
         const turn = turns.find((item) => !item.responseId)
         if (turn) {
@@ -321,20 +405,19 @@ export const createResponsesWsBilling = ({
           : turns.find((item) => !item.responseId)
         if (turn) {
           turn.terminal = true
+          turn.requiresInput = event.response?.output?.some((item) =>
+            ['function_call', 'custom_tool_call', 'mcp_approval_request'].includes(item.type),
+          )
         }
       }
-      if (event.type === 'response.incomplete' && event.response?.incomplete_details?.reason === 'steered') {
-        const turn = responseContexts.get(event.response.id)
-        if (turn && turns.includes(turn) && !turn.transferred) {
-          turn.transferred = true
-          turns.splice(turns.indexOf(turn) + 1, 0, {
-            ...turn,
-            responseId: null,
-            startedAt: Date.now(),
-            transferred: false,
-            terminal: false,
-          })
-        }
+      const turn = responseContexts.get(event.response?.id)
+      const steered = event.type === 'response.incomplete' && event.response?.incomplete_details?.reason === 'steered'
+      const queued =
+        event.type === 'response.completed' &&
+        !turn?.requiresInput &&
+        [...acceptedSteers.values()].includes(event.response?.id)
+      if ((steered || queued) && turn && turns.includes(turn) && !turn.transferred) {
+        reserveSteeringSuccessor(turn, true)
       }
     }
     accumulator.ingestUpstreamText(text)

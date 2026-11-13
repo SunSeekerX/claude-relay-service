@@ -273,10 +273,10 @@ class PricingService {
     )
   }
 
-  // 定价源中最小的长上下文档阈值（当前 200k）。低于它的请求不可能命中任何档，
+  // 定价源中最小的长上下文档阈值（Haiku 5.5 为 100k）。低于它不命中长上下文档，
   // 供 costCalculator 判断"是否需要走详细定价分支"，避免在那边写死具体阈值
   get minContextTierThreshold() {
-    return 200000
+    return 100000
   }
 
   // 从定价字段名里解析该模型有哪些长上下文档阈值（input_cost_per_token_above_272k_tokens → 272000）。
@@ -1290,6 +1290,32 @@ class PricingService {
 
     if (isFastModeRequest) {
       logger.debug(`Fast mode ${fastMultiplier}x multiplier applied for ${normalizedModelName}`)
+    }
+
+    // Haiku 5.5 counts every input bucket toward its 100k threshold.
+    if (
+      isClaudeModel &&
+      totalInputTokens > 100000 &&
+      pricing.input_cost_per_token_above_100k_tokens !== undefined &&
+      pricing.input_cost_per_token_above_100k_tokens !== null
+    ) {
+      const inputPrice = pricing.input_cost_per_token_above_100k_tokens
+      return this._buildCostResult(usage, {
+        inputPrice: inputPrice * fastMultiplier,
+        outputPrice:
+          (pricing.output_cost_per_token_above_100k_tokens ?? pricing.output_cost_per_token ?? 0) * fastMultiplier,
+        cacheCreatePrice:
+          (pricing.cache_creation_input_token_cost_above_100k_tokens ??
+            inputPrice * this.claudeCacheMultipliers.write5m) * fastMultiplier,
+        cacheReadPrice:
+          (pricing.cache_read_input_token_cost_above_100k_tokens ?? inputPrice * this.claudeCacheMultipliers.read) *
+          fastMultiplier,
+        ephemeral1hPrice:
+          (pricing.cache_creation_input_token_cost_above_1hr_above_100k_tokens ??
+            inputPrice * this.claudeCacheMultipliers.write1h) * fastMultiplier,
+        isLongContextRequest: true,
+        ...this._unitPricesFromPricing(pricing, usage),
+      })
     }
 
     // OpenAI 档位命中时整单改走档位价，跳过下方 Claude 200k 分支（两套阈值语义不同，互不叠加）

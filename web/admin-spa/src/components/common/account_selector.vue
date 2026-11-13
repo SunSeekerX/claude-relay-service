@@ -1,22 +1,29 @@
 <template>
   <div ref="triggerRef" class="relative">
     <!-- 选择器主体 -->
-    <div
-      class="form-input flex w-full cursor-pointer items-center justify-between border-transparent dark:border-transparent dark:bg-gray-700 dark:text-gray-200"
+    <button
+      :aria-controls="dropdownId"
+      :aria-expanded="showDropdown"
+      aria-haspopup="dialog"
+      class="form-input flex w-full cursor-pointer items-center justify-between border-transparent text-left dark:border-transparent dark:bg-gray-700 dark:text-gray-200"
       :class="{ 'opacity-50': disabled }"
+      :disabled="disabled"
+      type="button"
       @click="!disabled && toggleDropdown()"
     >
       <span
+        class="min-w-0 flex-1 truncate"
         :class="
           modelValue ? 'text-gray-900 dark:text-gray-200' : 'text-gray-500 dark:text-gray-400'
         "
+        :title="selectedLabel"
         >{{ selectedLabel }}</span
       >
       <i
         class="i-lucide-chevron-down text-gray-400 transition-transform duration-200 dark:text-gray-500"
         :class="{ 'rotate-180': showDropdown }"
       />
-    </div>
+    </button>
 
     <!-- 下拉菜单 -->
     <Teleport to="body">
@@ -30,8 +37,11 @@
       >
         <div
           v-if="showDropdown"
+          :id="dropdownId"
           ref="dropdownRef"
-          class="absolute z-50 flex flex-col rounded-lg border border-gray-200 bg-white shadow-lg dark:border-gray-600 dark:bg-gray-800"
+          :aria-label="placeholder"
+          class="absolute z-50 flex flex-col overflow-hidden rounded-lg border border-gray-200 bg-white shadow-lg dark:border-gray-600 dark:bg-gray-800"
+          role="dialog"
           :style="dropdownStyle"
         >
           <!-- 搜索框 -->
@@ -61,7 +71,7 @@
           </div>
 
           <!-- 选项列表 -->
-          <div class="custom-scrollbar flex-1 overflow-y-auto">
+          <div :aria-label="placeholder" class="custom-scrollbar min-h-0 flex-1 overflow-y-auto" role="listbox">
             <!-- 特殊选项 -->
             <div
               v-if="specialOptionsList.length > 0"
@@ -70,10 +80,10 @@
               <div
                 v-for="option in specialOptionsList"
                 :key="`special-${option.value}`"
-                class="cursor-pointer px-4 py-2 transition-colors hover:bg-gray-50 dark:hover:bg-gray-700"
+                :aria-selected="modelValue === option.value"
+                class="cursor-pointer px-4 py-2 transition-colors hover:bg-gray-50 dark:hover:bg-gray-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-500"
                 :class="{ 'bg-blue-50 dark:bg-blue-900/20': modelValue === option.value }"
-                @click="selectAccount(option.value)"
-              >
+               role="option" tabindex="0" @click="selectAccount(option.value)" @keydown.enter.prevent="selectAccount(option.value)" @keydown.space.prevent="selectAccount(option.value)">
                 <span class="text-gray-700 dark:text-gray-300">{{ option.label }}</span>
                 <span
                   v-if="option.description"
@@ -86,10 +96,10 @@
 
             <!-- 默认选项 -->
             <div
-              class="cursor-pointer px-4 py-2 transition-colors hover:bg-gray-50 dark:hover:bg-gray-700"
+              :aria-selected="!modelValue"
+              class="cursor-pointer px-4 py-2 transition-colors hover:bg-gray-50 dark:hover:bg-gray-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-500"
               :class="{ 'bg-blue-50 dark:bg-blue-900/20': !modelValue }"
-              @click="selectAccount(null)"
-            >
+             role="option" tabindex="0" @click="selectAccount(null)" @keydown.enter.prevent="selectAccount(null)" @keydown.space.prevent="selectAccount(null)">
               <span class="text-gray-700 dark:text-gray-300">{{ defaultOptionText }}</span>
             </div>
 
@@ -103,10 +113,10 @@
               <div
                 v-for="group in filteredGroups"
                 :key="`group:${group.id}`"
-                class="cursor-pointer px-4 py-2 transition-colors hover:bg-gray-50 dark:hover:bg-gray-700"
+                :aria-selected="modelValue === `group:${group.id}`"
+                class="cursor-pointer px-4 py-2 transition-colors hover:bg-gray-50 dark:hover:bg-gray-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-500"
                 :class="{ 'bg-blue-50 dark:bg-blue-900/20': modelValue === `group:${group.id}` }"
-                @click="selectAccount(`group:${group.id}`)"
-              >
+               role="option" tabindex="0" @click="selectAccount(`group:${group.id}`)" @keydown.enter.prevent="selectAccount(`group:${group.id}`)" @keydown.space.prevent="selectAccount(`group:${group.id}`)">
                 <div class="flex items-center justify-between">
                   <span class="text-gray-700 dark:text-gray-300">{{ group.name }}</span>
                   <span class="text-sm text-gray-500 dark:text-gray-400"
@@ -136,10 +146,10 @@
               <div
                 v-for="account in filteredOAuthAccounts"
                 :key="account.id"
-                class="cursor-pointer px-4 py-2 transition-colors hover:bg-gray-50 dark:hover:bg-gray-700"
+                :aria-selected="modelValue === account.id"
+                class="cursor-pointer px-4 py-2 transition-colors hover:bg-gray-50 dark:hover:bg-gray-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-500"
                 :class="{ 'bg-blue-50 dark:bg-blue-900/20': modelValue === account.id }"
-                @click="selectAccount(account.id)"
-              >
+               role="option" tabindex="0" @click="selectAccount(account.id)" @keydown.enter.prevent="selectAccount(account.id)" @keydown.space.prevent="selectAccount(account.id)">
                 <div class="flex items-center justify-between">
                   <div>
                     <span class="text-gray-700 dark:text-gray-300">{{ account.name }}</span>
@@ -173,12 +183,12 @@
               <div
                 v-for="account in filteredConsoleAccounts"
                 :key="account.id"
-                class="cursor-pointer px-4 py-2 transition-colors hover:bg-gray-50 dark:hover:bg-gray-700"
+                :aria-selected="modelValue === `console:${account.id}`"
+                class="cursor-pointer px-4 py-2 transition-colors hover:bg-gray-50 dark:hover:bg-gray-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-500"
                 :class="{
                   'bg-blue-50 dark:bg-blue-900/20': modelValue === `console:${account.id}`
                 }"
-                @click="selectAccount(`console:${account.id}`)"
-              >
+               role="option" tabindex="0" @click="selectAccount(`console:${account.id}`)" @keydown.enter.prevent="selectAccount(`console:${account.id}`)" @keydown.space.prevent="selectAccount(`console:${account.id}`)">
                 <div class="flex items-center justify-between">
                   <div>
                     <span class="text-gray-700 dark:text-gray-300">{{ account.name }}</span>
@@ -212,12 +222,12 @@
               <div
                 v-for="account in filteredOpenAIResponsesAccounts"
                 :key="account.id"
-                class="cursor-pointer px-4 py-2 transition-colors hover:bg-gray-50 dark:hover:bg-gray-700"
+                :aria-selected="modelValue === `responses:${account.id}`"
+                class="cursor-pointer px-4 py-2 transition-colors hover:bg-gray-50 dark:hover:bg-gray-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-500"
                 :class="{
                   'bg-blue-50 dark:bg-blue-900/20': modelValue === `responses:${account.id}`
                 }"
-                @click="selectAccount(`responses:${account.id}`)"
-              >
+               role="option" tabindex="0" @click="selectAccount(`responses:${account.id}`)" @keydown.enter.prevent="selectAccount(`responses:${account.id}`)" @keydown.space.prevent="selectAccount(`responses:${account.id}`)">
                 <div class="flex items-center justify-between">
                   <div>
                     <span class="text-gray-700 dark:text-gray-300">{{ account.name }}</span>
@@ -251,12 +261,12 @@
               <div
                 v-for="account in filteredGeminiApiAccounts"
                 :key="account.id"
-                class="cursor-pointer px-4 py-2 transition-colors hover:bg-gray-50 dark:hover:bg-gray-700"
+                :aria-selected="modelValue === `api:${account.id}`"
+                class="cursor-pointer px-4 py-2 transition-colors hover:bg-gray-50 dark:hover:bg-gray-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-500"
                 :class="{
                   'bg-blue-50 dark:bg-blue-900/20': modelValue === `api:${account.id}`
                 }"
-                @click="selectAccount(`api:${account.id}`)"
-              >
+               role="option" tabindex="0" @click="selectAccount(`api:${account.id}`)" @keydown.enter.prevent="selectAccount(`api:${account.id}`)" @keydown.space.prevent="selectAccount(`api:${account.id}`)">
                 <div class="flex items-center justify-between">
                   <div>
                     <span class="text-gray-700 dark:text-gray-300">{{ account.name }}</span>
@@ -296,7 +306,7 @@
 </template>
 
 <script setup>
-import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
+import { ref, computed, watch, nextTick, onMounted, onUnmounted, useId } from 'vue'
 import { formatDate } from '@/libs/tools'
 
 const props = defineProps({
@@ -344,6 +354,7 @@ const searchInput = ref(null)
 const dropdownRef = ref(null)
 const dropdownStyle = ref({})
 const triggerRef = ref(null)
+const dropdownId = useId()
 const lastDirection = ref('') // 记住上次的显示方向
 const specialOptionsList = computed(() => props.specialOptions || [])
 
@@ -363,7 +374,7 @@ const selectedLabel = computed(() => {
   if (props.modelValue.startsWith('group:')) {
     const groupId = props.modelValue.substring(6)
     const group = props.groups.find((g) => g.id === groupId)
-    return group ? `${group.name} (${group.memberCount || 0} 个成员)` : ''
+    return group ? `${group.name} (${group.memberCount || 0} 个成员)` : '未找到所选分组，请重新选择'
   }
 
   // Console 账号
@@ -372,7 +383,7 @@ const selectedLabel = computed(() => {
     const account = props.accounts.find(
       (a) => a.id === accountId && a.platform === 'claude-console'
     )
-    return account ? `${account.name} (${getAccountStatusText(account)})` : ''
+    return account ? `${account.name} (${getAccountStatusText(account)})` : '未找到所选账号，请重新选择'
   }
 
   // OpenAI-Responses 账号
@@ -381,19 +392,19 @@ const selectedLabel = computed(() => {
     const account = props.accounts.find(
       (a) => a.id === accountId && a.platform === 'openai-responses'
     )
-    return account ? `${account.name} (${getAccountStatusText(account)})` : ''
+    return account ? `${account.name} (${getAccountStatusText(account)})` : '未找到所选账号，请重新选择'
   }
 
   // Gemini-API 账号
   if (props.modelValue.startsWith('api:')) {
     const accountId = props.modelValue.substring(4)
     const account = props.accounts.find((a) => a.id === accountId && a.platform === 'gemini-api')
-    return account ? `${account.name} (${getAccountStatusText(account)})` : ''
+    return account ? `${account.name} (${getAccountStatusText(account)})` : '未找到所选账号，请重新选择'
   }
 
   // OAuth 账号
   const account = props.accounts.find((a) => a.id === props.modelValue)
-  return account ? `${account.name} (${getAccountStatusText(account)})` : ''
+  return account ? `${account.name} (${getAccountStatusText(account)})` : '未找到所选账号，请重新选择'
 })
 
 // 获取账户状态文本
@@ -595,7 +606,7 @@ const updateDropdownPosition = () => {
 
   // 确保下拉框不超出视窗左右边界
   let left = rect.left
-  const dropdownWidth = rect.width
+  const dropdownWidth = Math.min(rect.width, Math.max(0, windowWidth - margin * 2))
   if (left + dropdownWidth > windowWidth - margin) {
     left = windowWidth - dropdownWidth - margin
   }
@@ -606,8 +617,8 @@ const updateDropdownPosition = () => {
   dropdownStyle.value = {
     position: 'fixed',
     left: `${left}px`,
-    width: `${rect.width}px`,
-    maxHeight: `${Math.min(maxHeight, 400)}px`, // 限制最大高度为400px
+    width: `${dropdownWidth}px`,
+    maxHeight: `${Math.max(0, Math.min(maxHeight, 400))}px`, // 限制最大高度为400px
     ...(showAbove ? { bottom: `${windowHeight - rect.top}px` } : { top: `${rect.bottom}px` })
   }
 }
@@ -641,9 +652,11 @@ const toggleDropdown = () => {
 
 // 选择账号
 const selectAccount = (value) => {
+  if (props.disabled) return
   emit('update:modelValue', value || '')
   showDropdown.value = false
   searchQuery.value = ''
+  triggerRef.value?.querySelector('button')?.focus()
 }
 
 // 处理搜索
@@ -671,13 +684,24 @@ const handleScroll = () => {
   }
 }
 
+const handleKeydown = (event) => {
+  if (!showDropdown.value || event.key !== 'Escape') return
+  event.preventDefault()
+  event.stopPropagation()
+  showDropdown.value = false
+  triggerRef.value?.querySelector('button')?.focus()
+}
+watch(() => props.disabled, disabled => { if (disabled) showDropdown.value = false })
+
 onMounted(() => {
+  document.addEventListener('keydown', handleKeydown, true)
   document.addEventListener('click', handleClickOutside)
   window.addEventListener('scroll', handleScroll, true)
   window.addEventListener('resize', updateDropdownPosition)
 })
 
 onUnmounted(() => {
+  document.removeEventListener('keydown', handleKeydown, true)
   document.removeEventListener('click', handleClickOutside)
   window.removeEventListener('scroll', handleScroll, true)
   window.removeEventListener('resize', updateDropdownPosition)

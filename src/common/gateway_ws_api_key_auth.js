@@ -162,7 +162,11 @@ export const validateWsApiKey = async (req, url, requiredPermission = 'openai') 
   if (/\/responses$/.test(path)) {
     const explicitCode = path.match(/^\/r\/([^/]+)\//)?.[1] ?? null
     try {
-      const route = await resolveRequestRoute(keyData, explicitCode ? 'openai-responses' : getDefaultRouteFormat(req, 'openai-responses'), explicitCode)
+      const route = await resolveRequestRoute(
+        keyData,
+        explicitCode ? 'openai-responses' : getDefaultRouteFormat(req, 'openai-responses'),
+        explicitCode,
+      )
       if (route) {
         keyData = applyRouteBinding(keyData, route)
         requiredPermission = ROUTE_PROVIDERS[route.provider].permission
@@ -179,6 +183,14 @@ export const validateWsApiKey = async (req, url, requiredPermission = 'openai') 
       logger.security(`WS client restriction failed for key: ${keyData.id} (${keyData.name})`)
       return fail(403, 'Client not allowed')
     }
+  }
+
+  // Explicit provider endpoints retain their own permission even with a default named route.
+  if (path.startsWith('/azure/')) {
+    requiredPermission = 'openai'
+  }
+  if (path.startsWith('/grok/')) {
+    requiredPermission = 'grok'
   }
 
   if (!apiKeyService.hasPermission(keyData.permissions, requiredPermission)) {
