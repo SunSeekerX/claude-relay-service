@@ -53,10 +53,10 @@ const queueRateLimitUpdate = (
   return updateRateLimitCounters(rateLimitInfo, usageSummary, model, keyId, accountType, preCalculatedCost)
     .then(({ totalTokens, totalCost }) => {
       if (totalTokens > 0) {
-        logger.api(`Updated rate limit token count${label}: +${totalTokens} tokens`)
+        logger.debug(`Updated rate limit token count${label}: +${totalTokens} tokens`)
       }
       if (typeof totalCost === 'number' && totalCost > 0) {
-        logger.api(`Updated rate limit cost count${label}: +$${totalCost.toFixed(6)}`)
+        logger.debug(`Updated rate limit cost count${label}: +$${totalCost.toFixed(6)}`)
       }
       return { totalTokens, totalCost }
     })
@@ -135,6 +135,7 @@ const isOldSession = (body) => {
 
 // 共享的消息处理函数
 export const handleMessagesRequest = async (req, res) => {
+  const releaseRequestResources = req._crsRetainRequestResources?.()
   try {
     const startTime = Date.now()
 
@@ -193,7 +194,7 @@ export const handleMessagesRequest = async (req, res) => {
       }
     }
 
-    logger.api('/v1/messages request received', {
+    logger.debug('/v1/messages request received', {
       model: req.body.model || null,
       forcedVendor,
       stream: req.body.stream === true,
@@ -254,7 +255,7 @@ export const handleMessagesRequest = async (req, res) => {
     // })
     // }
 
-    logger.api(`Processing ${isStream ? 'stream' : 'non-stream'} request for key: ${req.apiKey.name}`)
+    logger.debug(`Processing ${isStream ? 'stream' : 'non-stream'} request for key: ${req.apiKey.name}`)
 
     if (isStream) {
       // 检查客户端连接是否仍然有效（可能在并发排队等待期间断开）
@@ -280,7 +281,7 @@ export const handleMessagesRequest = async (req, res) => {
         if (!existingConnection) {
           res.setHeader('Connection', 'keep-alive')
         } else {
-          logger.api(
+          logger.debug(
             ` [STREAM] Preserving existing Connection header: ${existingConnection} for key: ${req.apiKey?.name || 'unknown'}`,
           )
         }
@@ -329,14 +330,14 @@ export const handleMessagesRequest = async (req, res) => {
             // 如果已有绑定，使用绑定的账户
             if (validation.binding) {
               forcedAccount = validation.binding
-              logger.api(`Using bound account for session ${originalSessionId}: ${forcedAccount.accountId}`)
+              logger.debug(`Using bound account for session ${originalSessionId}: ${forcedAccount.accountId}`)
             }
 
             // 标记需要在调度成功后建立绑定
             if (validation.isNewSession) {
               needSessionBinding = true
               originalSessionIdForBinding = originalSessionId
-              logger.api(`New session detected, will create binding: ${originalSessionId}`)
+              logger.debug(`New session detected, will create binding: ${originalSessionId}`)
             }
           }
         }
@@ -398,7 +399,7 @@ export const handleMessagesRequest = async (req, res) => {
       if (needSessionBinding && originalSessionIdForBinding && accountId && accountType === 'claude-official') {
         // 允许新 session ID 创建绑定（支持 Claude Code /clear 等场景）
         // 信任客户端的 session ID 作为新会话的标识，不再检查请求内容
-        logger.info(
+        logger.debug(
           `Creating new session binding: sessionId=${originalSessionIdForBinding}, ` +
             `messages.length=${req.body?.messages?.length}, tools.length=${req.body?.tools?.length || 0}, ` +
             `accountId=${accountId}, accountType=${accountType}`,
@@ -446,7 +447,7 @@ export const handleMessagesRequest = async (req, res) => {
           _headers,
           (usageData, result = {}) => {
             // 回调函数：当检测到完整usage数据时记录真实token使用量
-            logger.info('Usage callback triggered with complete data:', JSON.stringify(usageData, null, 2))
+            logger.debug('Usage callback triggered with complete data:', JSON.stringify(usageData, null, 2))
 
             if (usageData && usageData.input_tokens !== undefined && usageData.output_tokens !== undefined) {
               const inputTokens = usageData.input_tokens || 0
@@ -545,7 +546,7 @@ export const handleMessagesRequest = async (req, res) => {
                 })
 
               usageDataCaptured = true
-              logger.api(
+              logger.debug(
                 `Stream usage recorded (real) - Model: ${model}, Input: ${inputTokens}, Output: ${outputTokens}, Cache Create: ${cacheCreateTokens}, Cache Read: ${cacheReadTokens}, Total: ${inputTokens + outputTokens + cacheCreateTokens + cacheReadTokens} tokens`,
               )
               return recordedUsage
@@ -570,7 +571,7 @@ export const handleMessagesRequest = async (req, res) => {
           _headersConsole,
           (usageData, result = {}) => {
             // 回调函数：当检测到完整usage数据时记录真实token使用量
-            logger.info('Usage callback triggered with complete data:', JSON.stringify(usageData, null, 2))
+            logger.debug('Usage callback triggered with complete data:', JSON.stringify(usageData, null, 2))
 
             if (usageData && usageData.input_tokens !== undefined && usageData.output_tokens !== undefined) {
               const inputTokens = usageData.input_tokens || 0
@@ -670,7 +671,7 @@ export const handleMessagesRequest = async (req, res) => {
                 })
 
               usageDataCaptured = true
-              logger.api(
+              logger.debug(
                 `Stream usage recorded (real) - Model: ${model}, Input: ${inputTokens}, Output: ${outputTokens}, Cache Create: ${cacheCreateTokens}, Cache Read: ${cacheReadTokens}, Total: ${inputTokens + outputTokens + cacheCreateTokens + cacheReadTokens} tokens`,
               )
               return recordedUsage
@@ -765,7 +766,7 @@ export const handleMessagesRequest = async (req, res) => {
               })
 
             usageDataCaptured = true
-            logger.api(
+            logger.debug(
               `Bedrock stream usage recorded - Model: ${result.model}, Input: ${inputTokens}, Output: ${outputTokens}, Total: ${inputTokens + outputTokens} tokens`,
             )
           }
@@ -797,7 +798,7 @@ export const handleMessagesRequest = async (req, res) => {
           _headersCcr,
           (usageData) => {
             // 回调函数：当检测到完整usage数据时记录真实token使用量
-            logger.info('CCR usage callback triggered with complete data:', JSON.stringify(usageData, null, 2))
+            logger.debug('CCR usage callback triggered with complete data:', JSON.stringify(usageData, null, 2))
 
             if (usageData && usageData.input_tokens !== undefined && usageData.output_tokens !== undefined) {
               const inputTokens = usageData.input_tokens || 0
@@ -894,7 +895,7 @@ export const handleMessagesRequest = async (req, res) => {
                 })
 
               usageDataCaptured = true
-              logger.api(
+              logger.debug(
                 `CCR stream usage recorded (real) - Model: ${model}, Input: ${inputTokens}, Output: ${outputTokens}, Cache Create: ${cacheCreateTokens}, Cache Read: ${cacheReadTokens}, Total: ${inputTokens + outputTokens + cacheCreateTokens + cacheReadTokens} tokens`,
               )
             } else {
@@ -929,7 +930,7 @@ export const handleMessagesRequest = async (req, res) => {
       }
 
       // 非流式响应 - 只使用官方真实usage数据
-      logger.info('Starting non-streaming request', {
+      logger.debug('Starting non-streaming request', {
         apiKeyId: _apiKeyIdNonStream,
         apiKeyName: _apiKeyNameNonStream,
       })
@@ -1006,7 +1007,7 @@ export const handleMessagesRequest = async (req, res) => {
 
             if (validation.binding) {
               forcedAccountNonStream = validation.binding
-              logger.api(
+              logger.debug(
                 `Using bound account for session (non-stream) ${originalSessionId}: ${forcedAccountNonStream.accountId}`,
               )
             }
@@ -1014,7 +1015,7 @@ export const handleMessagesRequest = async (req, res) => {
             if (validation.isNewSession) {
               needSessionBindingNonStream = true
               originalSessionIdForBindingNonStream = originalSessionId
-              logger.api(`New session detected (non-stream), will create binding: ${originalSessionId}`)
+              logger.debug(`New session detected (non-stream), will create binding: ${originalSessionId}`)
             }
           }
         }
@@ -1079,7 +1080,7 @@ export const handleMessagesRequest = async (req, res) => {
       ) {
         // 允许新 session ID 创建绑定（支持 Claude Code /clear 等场景）
         // 信任客户端的 session ID 作为新会话的标识，不再检查请求内容
-        logger.info(
+        logger.debug(
           `Creating new session binding (non-stream): sessionId=${originalSessionIdForBindingNonStream}, ` +
             `messages.length=${req.body?.messages?.length}, tools.length=${req.body?.tools?.length || 0}, ` +
             `accountId=${accountId}, accountType=${accountType}`,
@@ -1187,7 +1188,7 @@ export const handleMessagesRequest = async (req, res) => {
         )
       }
 
-      logger.info('Claude API response received', {
+      logger.debug('Claude API response received', {
         statusCode: response.statusCode,
         headers: JSON.stringify(response.headers),
         bodyLength: response.body ? response.body.length : 0,
@@ -1229,7 +1230,9 @@ export const handleMessagesRequest = async (req, res) => {
             `Parsed Claude API error response status=${response.statusCode} message=${extractSafeMessage(jsonData) || 'n/a'}`,
           )
         } else {
-          logger.info('Parsed Claude API response:', JSON.stringify(jsonData, null, 2))
+          if (logger.isDebugEnabled()) {
+            logger.debug('Parsed Claude API response:', JSON.stringify(jsonData, null, 2))
+          }
         }
 
         // 从Claude API响应中提取usage信息（完整的token分类体系）
@@ -1314,7 +1317,7 @@ export const handleMessagesRequest = async (req, res) => {
           )
 
           usageRecorded = true
-          logger.api(
+          logger.debug(
             `Non-stream usage recorded (real) - Model: ${model}, Input: ${inputTokens}, Output: ${outputTokens}, Cache Create: ${cacheCreateTokens} (5m: ${ephemeral5mTokens}, 1h: ${ephemeral1hTokens}), Cache Read: ${cacheReadTokens}, Total: ${inputTokens + outputTokens + cacheCreateTokens + cacheReadTokens} tokens`,
           )
         } else {
@@ -1357,7 +1360,7 @@ export const handleMessagesRequest = async (req, res) => {
     }
 
     const duration = Date.now() - startTime
-    logger.api(`Request completed in ${duration}ms for key: ${req.apiKey.name}`)
+    logger.debug(`Request completed in ${duration}ms for key: ${req.apiKey.name}`)
     return undefined
   } catch (error) {
     let handledError = error
@@ -1471,6 +1474,8 @@ export const handleMessagesRequest = async (req, res) => {
       }
       return undefined
     }
+  } finally {
+    releaseRequestResources?.()
   }
 }
 
@@ -1660,7 +1665,7 @@ export const handleCountTokensRequest = async (req, res) => {
     }
   }
 
-  logger.info(`Processing token count request for key: ${req.apiKey.name}`)
+  logger.debug(`Processing token count request for key: ${req.apiKey.name}`)
 
   const sessionHash = sessionHelper.generateSessionHash(req.body)
   const requestedModel = req.body.model
@@ -1682,7 +1687,7 @@ export const handleCountTokensRequest = async (req, res) => {
     if (accountType === 'ccr') {
       // CCR 无可靠 count_tokens：本地启发式（与 Bedrock 同口径）
       const estimate = await countAnthropicEstimate(req.body, req.apiKey._relayRoute?.tokenizerOverride)
-      logger.info(
+      logger.debug(
         `[count_tokens] ccr local estimate input_tokens=${estimate.contentTokens} key=${req.apiKey?.name || ''}`,
       )
       if (!res.headersSent) {
@@ -1697,7 +1702,7 @@ export const handleCountTokensRequest = async (req, res) => {
     if (accountType === 'bedrock') {
       // Bedrock 无官方 count_tokens：本地启发式估算（不假装上游精确值）
       const estimate = await countAnthropicEstimate(req.body, req.apiKey._relayRoute?.tokenizerOverride)
-      logger.info(
+      logger.debug(
         `[count_tokens] bedrock local estimate input_tokens=${estimate.contentTokens} key=${req.apiKey?.name || ''}`,
       )
       if (!res.headersSent) {
@@ -1772,7 +1777,7 @@ export const handleCountTokensRequest = async (req, res) => {
       res.send(response.body)
     }
 
-    logger.info(`Token count request completed for key: ${req.apiKey.name}`)
+    logger.debug(`Token count request completed for key: ${req.apiKey.name}`)
     return { fallbackResponse: false }
   }
 

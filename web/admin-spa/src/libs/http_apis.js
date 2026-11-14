@@ -484,6 +484,11 @@ export const getClaudeRelayConfigApi = (config) =>
 export const updateClaudeRelayConfigApi = (data, config) =>
   request({ url: '/admin/claude-relay-config', method: 'PUT', data, ...config })
 
+export const getRequestResourcesApi = (config) =>
+  request({ url: '/admin/relay-request-resources', method: 'GET', ...config })
+export const updateRequestResourcesApi = (data, config) =>
+  request({ url: '/admin/relay-request-resources', method: 'PUT', data, ...config })
+
 // 连通性测试默认模型配置
 export const getTestModelConfigApi = (config) =>
   request({ url: '/admin/test-model-config', method: 'GET', ...config })

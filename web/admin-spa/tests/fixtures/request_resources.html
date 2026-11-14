@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>实例资源保护验证</title>
+  </head>
+  <body>
+    <div id="app" style="padding: 20px"></div>
+    <script type="module">
+      import { createApp } from 'vue'
+      import { createPinia } from 'pinia'
+      import { createRouter, createMemoryHistory, RouterView } from 'vue-router'
+      import SettingsView from '/src/views/settings_view.vue'
+      import '/src/assets/styles/main.css'
+      import 'virtual:uno.css'
+      const router = createRouter({
+        history: createMemoryHistory(),
+        routes: [{ path: '/settings/:section', name: 'Settings', component: SettingsView }]
+      })
+      await router.push('/settings/requestResources')
+      createApp(RouterView).use(createPinia()).use(router).mount('#app')
+    </script>
+  </body>
+</html>

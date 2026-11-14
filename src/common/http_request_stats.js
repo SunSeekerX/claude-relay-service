@@ -27,6 +27,11 @@ export const httpRequestStats = {
       if (relayFinal && result.final !== true) {
         return
       }
+      req._crsRelayResult = {
+        statusCode: result.statusCode,
+        errorCode: result.errorCode ?? null,
+        errorMessage: result.errorMessage ?? null,
+      }
       const outcome =
         result.errorCode === 'response_incomplete'
           ? 'incomplete'

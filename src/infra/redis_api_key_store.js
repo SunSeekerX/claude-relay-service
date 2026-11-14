@@ -1,6 +1,7 @@
 import { createRequire } from 'node:module'
 import { logger } from '../common/logger.js'
 import { RedisKeys, TTL } from './redis_key.js'
+import { RedisLua } from './redis_lua.js'
 import { resolveKeyIdByHash } from '../common/compat_api_key_hash.js'
 
 // 懒加载业务 service，打断 ESM 环：redis → api_key_store → accountNameCache/account services → redis
@@ -68,6 +69,22 @@ export const attach = (redisClient) => {
   redisClient.getApiKey = async function (keyId) {
     const key = RedisKeys.apiKey.byId(keyId)
     return await this.client.hgetall(key)
+  }
+
+  // 高频用量路径只写时间，不能把读出的完整旧快照覆盖回管理配置。
+  redisClient.touchApiKeyLastUsed = async function (keyId, lastUsedAt) {
+    const client = this.getClientSafe()
+    if (!client.touchApiKeyLastUsed) {
+      client.defineCommand('touchApiKeyLastUsed', { numberOfKeys: 2, lua: RedisLua.apiKey.touchLastUsed })
+    }
+    return client.touchApiKeyLastUsed(
+      RedisKeys.apiKey.byId(keyId),
+      RedisKeys.apiKey.idx.lastUsedAt,
+      lastUsedAt,
+      Date.parse(lastUsedAt),
+      keyId,
+      TTL.apiKeyData,
+    )
   }
 
   redisClient.deleteApiKey = async function (keyId) {

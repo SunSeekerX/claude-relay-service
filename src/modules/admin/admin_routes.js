@@ -20,6 +20,7 @@ import { router as accountBalanceRoutes } from '../account/account_balance_route
 import { router as systemRoutes } from './admin_system_routes.js'
 import { router as concurrencyRoutes } from '../relay/relay_concurrency_routes.js'
 import { router as claudeRelayConfigRoutes } from '../relay/relay_claude_relay_config_routes.js'
+import { router as requestResourcesRoutes } from '../relay/relay_request_resources_routes.js'
 import { router as testModelConfigRoutes } from '../relay/relay_test_model_config_routes.js'
 import { router as syncRoutes } from './admin_sync_routes.js'
 import { router as accountsMigrationRoutes } from '../account/account_migration_routes.js'
@@ -59,6 +60,7 @@ router.use('/', accountBalanceRoutes)
 router.use('/', systemRoutes)
 router.use('/', concurrencyRoutes)
 router.use('/', claudeRelayConfigRoutes)
+router.use('/', requestResourcesRoutes)
 router.use('/', testModelConfigRoutes)
 router.use('/', syncRoutes)
 router.use('/', accountsMigrationRoutes)

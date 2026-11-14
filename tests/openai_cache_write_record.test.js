@@ -12,6 +12,7 @@ const redis = Object.fromEntries(
     'incrementTokenUsage',
     'incrementAccountUsage',
     'setApiKeyWithLastUsedIndex',
+    'touchApiKeyLastUsed',
     'addUsageRecord',
   ].map((name) => [name, jest.fn(async () => true)]),
 )

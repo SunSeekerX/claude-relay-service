@@ -10,6 +10,7 @@ import {
   extractThinkingTokens,
   isThinkingAlreadyInOutput,
   finalizeRequestDetailMeta,
+  recordRequestUsageSummary,
 } from '../relay/relay_request_detail_helper.js'
 import * as requestBodyRuleService from '../relay/relay_request_body_rule_service.js'
 import { normalizeKeyRouting } from '../relay/relay_routing_contract.js'
@@ -489,7 +490,7 @@ class ApiKeyService {
       // 更新最后使用时间（优化：只在实际API调用时更新，而不是验证时）
       // 注意：lastUsedAt的更新已移至recordUsage方法中
 
-      logger.api(`API key validated successfully: ${keyData.id}`)
+      logger.debug(`API key validated successfully: ${keyData.id}`)
 
       // 解析限制模型数据
       let restrictedModels = []
@@ -2066,11 +2067,10 @@ class ApiKeyService {
       // 获取API Key数据以确定关联的账户
       const keyData = await redis.getApiKey(keyId)
       if (keyData && Object.keys(keyData).length > 0) {
-        // 更新最后使用时间：hash + LAST_USED_AT 排序索引并入同一 MULTI 更新（见 setApiKeyWithLastUsedIndex），
-        // best-effort 包裹——失败不影响用量记录；正常运行下 hash 与排序索引一起提交、不会长期错序（MULTI 非回滚）
+        // 仅更新时间和排序索引，避免完整旧快照覆盖并发的管理配置。
         keyData.lastUsedAt = new Date().toISOString()
         try {
-          await redis.setApiKeyWithLastUsedIndex(keyId, keyData)
+          await redis.touchApiKeyLastUsed(keyId, keyData.lastUsedAt)
         } catch (err) {
           logger.warn(`更新 lastUsedAt 失败（不影响用量记录）: ${keyId}`, err)
         }
@@ -2157,6 +2157,7 @@ class ApiKeyService {
       // DEC_20261026_201526 小体积账务证据随用量记录保留，不受请求明细采集开关影响。
       usageRecord.billingAudit = billingAudit
       await redis.addUsageRecord(keyId, usageRecord)
+      recordRequestUsageSummary(requestMeta, usageRecord)
       this._captureRequestDetail(keyId, { ...usageRecord, billingAudit }, finalizedRequestMeta).catch(
         (captureError) => {
           logger.warn(`Failed to schedule request detail capture: ${captureError.message}`)
@@ -2414,11 +2415,10 @@ class ApiKeyService {
       // 获取API Key数据以确定关联的账户
       const keyData = await redis.getApiKey(keyId)
       if (keyData && Object.keys(keyData).length > 0) {
-        // 更新最后使用时间：hash + LAST_USED_AT 排序索引并入同一 MULTI 更新（见 setApiKeyWithLastUsedIndex），
-        // best-effort 包裹——失败不影响用量记录；正常运行下 hash 与排序索引一起提交、不会长期错序（MULTI 非回滚）
+        // 仅更新时间和排序索引，避免完整旧快照覆盖并发的管理配置。
         keyData.lastUsedAt = new Date().toISOString()
         try {
-          await redis.setApiKeyWithLastUsedIndex(keyId, keyData)
+          await redis.touchApiKeyLastUsed(keyId, keyData.lastUsedAt)
         } catch (err) {
           logger.warn(`更新 lastUsedAt 失败（不影响用量记录）: ${keyId}`, err)
         }
@@ -2526,6 +2526,7 @@ class ApiKeyService {
       })
       usageRecord.billingAudit = billingAudit
       await redis.addUsageRecord(keyId, usageRecord)
+      recordRequestUsageSummary(requestMeta, usageRecord)
       this._captureRequestDetail(keyId, { ...usageRecord, billingAudit }, finalizedRequestMeta).catch(
         (captureError) => {
           logger.warn(`Failed to schedule request detail capture: ${captureError.message}`)

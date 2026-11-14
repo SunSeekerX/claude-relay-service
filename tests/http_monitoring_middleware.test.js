@@ -1,6 +1,8 @@
 import { jest } from '@jest/globals'
 import { EventEmitter } from 'node:events'
 import { httpRequestStats } from '../src/common/http_request_stats.js'
+import { createRequestResourceBudget } from '../src/infra/middleware_request_resources.js'
+import { createRequestDetailMeta, recordRequestUsageSummary } from '../src/modules/relay/relay_request_detail_helper.js'
 
 const logger = Object.fromEntries(['info', 'warn', 'error', 'debug', 'security'].map((name) => [name, jest.fn()]))
 const modules = {
@@ -57,6 +59,69 @@ beforeEach(() => {
   httpRequestStats.reset()
 })
 afterEach(() => jest.useRealTimers())
+
+it('logs one successful access summary with persisted model, account, terminal and accumulated usage', () => {
+  const { req, res } = fixture('/openai/responses', true)
+  const meta = createRequestDetailMeta(req)
+  for (let part = 0; part < 2; part++) {
+    recordRequestUsageSummary(meta, {
+      model: 'actual-model', accountId: 'account-1', accountType: 'openai-responses',
+      inputTokens: 2, outputTokens: 3, totalTokens: 5, cost: 0.01, realCost: 0.01,
+      billingAudit: { protocolTerminal: 'response.completed' },
+    })
+  }
+  res.emit('finish')
+  res.emit('close')
+  req._crsFinalizeRequestLog()
+  expect(logger.info).toHaveBeenCalledTimes(1)
+  expect(logger.info.mock.calls[0][1]._file).toMatchObject({
+    model: 'actual-model', accountId: 'account-1', protocolTerminal: 'response.completed',
+    usage: { inputTokens: 4, outputTokens: 6, totalTokens: 10, recordCount: 2, cost: 0.02 },
+  })
+})
+
+it('logs a disconnect after end was called when the response never finished flushing', () => {
+  const { res } = fixture('/openai/responses', true)
+  res.headersSent = true
+  res.writableEnded = true
+  res.writableFinished = false
+  res.emit('close')
+  expect(logger.info).not.toHaveBeenCalled()
+  expect(logger.warn).toHaveBeenCalledTimes(1)
+  expect(logger.warn.mock.calls[0][1]._file).toMatchObject({ statusCode: 200, clientDisconnected: true })
+})
+
+it('waits for usage draining after disconnect and emits one warning summary', () => {
+  const { req, res } = fixture('/openai/responses', true)
+  req.headers = { 'content-length': '20' }
+  const budget = createRequestResourceBudget({ maxRequests: 0, maxBodyBytes: 1000, maxInflightBodyBytes: 0 })
+  budget.middleware(req, res, () => {})
+  req._crsReleaseRequestBodyProcessing()
+  const release = req._crsRetainRequestResources()
+  res.write('data:{"type":"response.output_text.delta","delta":"hi"}\n\n')
+  jest.advanceTimersByTime(100)
+  res.emit('close')
+  expect(logger.info).not.toHaveBeenCalled()
+  expect(logger.warn).not.toHaveBeenCalled()
+  jest.advanceTimersByTime(200)
+  recordRequestUsageSummary(createRequestDetailMeta(req), {
+    model: 'actual-model', totalTokens: 9, cost: 0.1, billingAudit: { protocolTerminal: 'response.completed' },
+  })
+  release()
+  expect(logger.warn).toHaveBeenCalledTimes(1)
+  expect(logger.warn.mock.calls[0][1]._file).toMatchObject({
+    durationMs: 100, drainDurationMs: 200, clientDisconnected: true,
+    protocolTerminal: 'response.completed', usage: { totalTokens: 9 },
+  })
+})
+
+it('does not hide a failed SSE terminal behind its HTTP 200 status', () => {
+  const { req, res } = fixture('/openai/responses', true)
+  req._crsRecordRelayResult({ statusCode: 502, errorCode: 'upstream_stream_incomplete', hasUsage: false, final: true })
+  res.emit('finish')
+  expect(logger.warn).toHaveBeenCalledTimes(1)
+  expect(logger.warn.mock.calls[0][1]._file).toMatchObject({ statusCode: 200, relayStatusCode: 502, errorCode: 'upstream_stream_incomplete' })
+})
 
 it('keeps a long successful generation in access logs without a slow-first-token warning', () => {
   const { res } = fixture('/openai/responses', true)

@@ -230,30 +230,28 @@ const joinSseLines = (lines, block) => {
   return lines.join('\n')
 }
 
-// 流式 SSE 出站改写器：跨 TCP chunk 缓冲；同时认 \n\n 与 \r\n\r\n
+export const rewriteCapacityShedSseFrame = (block) => {
+  if (
+    !block.includes('server_is_overloaded') &&
+    !block.includes('slow_down') &&
+    !/overloaded|at capacity/i.test(block)
+  ) {
+    return block
+  }
+  const lines = splitSseLines(block)
+  const rewritten = lines.map((line) => sanitizeOpenAICapacityShedSseDataLine(line).line)
+  return joinSseLines(rewritten, block)
+}
+
 // DEC_20260905_100000
 export const createCapacityShedSseRewriteStream = () => {
   const parser = new IncrementalSSEParser()
-
-  const rewriteEventBlock = (block) => {
-    if (
-      !block.includes('server_is_overloaded') &&
-      !block.includes('slow_down') &&
-      !/overloaded|at capacity/i.test(block)
-    ) {
-      return block
-    }
-    const lines = splitSseLines(block)
-    const rewritten = lines.map((line) => sanitizeOpenAICapacityShedSseDataLine(line).line)
-    return joinSseLines(rewritten, block)
-  }
-
   return {
     push(chunk) {
-      return parser.feedFrames(chunk).map(rewriteEventBlock).join('')
+      return parser.feedFrames(chunk).map(rewriteCapacityShedSseFrame).join('')
     },
     flush() {
-      return parser.finishFrames().map(rewriteEventBlock).join('')
+      return parser.finishFrames().map(rewriteCapacityShedSseFrame).join('')
     },
   }
 }

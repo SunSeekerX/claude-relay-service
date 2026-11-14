@@ -42,6 +42,31 @@ describe('Gemini official usage accounting', () => {
     })
   })
 
+  it('charges tool-use prompts as uncached input and retains the original billing evidence', () => {
+    const reported = { ...usage, toolUsePromptTokenCount: 75, totalTokenCount: 1225 }
+    const payload = buildGeminiTokenUsagePayload(reported)
+    expect(normalizeGeminiTokenUsage(reported)).toMatchObject({
+      inputTokens: 175,
+      totalInputTokens: 1075,
+      cacheReadTokens: 900,
+      outputTokens: 100,
+    })
+    expect(
+      payload.input_tokens + payload.cache_read_input_tokens + payload.output_tokens + payload.reasoning_tokens,
+    ).toBe(1225)
+    expect(payload._upstreamUsage.toolUsePromptTokenCount).toBe(75)
+    expect(mapGeminiUsageToOpenAI(reported)).toMatchObject({
+      prompt_tokens: 1075,
+      completion_tokens: 150,
+      total_tokens: 1225,
+    })
+    expect(normalizeGeminiTokenUsage({ cachedContentTokenCount: 900, toolUsePromptTokenCount: 75 })).toMatchObject({
+      inputTokens: 75,
+      cacheReadTokens: 900,
+      totalInputTokens: 975,
+    })
+  })
+
   it('preserves explicit zero and does not invent cache creation', () => {
     expect(
       buildGeminiTokenUsagePayload({ promptTokenCount: 0, cachedContentTokenCount: 0 })

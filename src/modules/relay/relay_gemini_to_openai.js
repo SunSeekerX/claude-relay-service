@@ -19,7 +19,7 @@ export const mapGeminiUsageToOpenAI = (meta) => {
     return undefined
   }
   const result = {
-    prompt_tokens: meta.promptTokenCount ?? 0,
+    prompt_tokens: (meta.promptTokenCount ?? 0) + (meta.toolUsePromptTokenCount ?? 0),
     completion_tokens: (meta.candidatesTokenCount ?? 0) + (meta.thoughtsTokenCount ?? 0),
     total_tokens: meta.totalTokenCount ?? 0,
   }
@@ -52,7 +52,7 @@ export class GeminiToOpenAIConverter {
    * @returns {string|null} 转换后的 SSE 字符串，null 表示跳过
    */
   convertStreamChunk(rawChunk, model, state) {
-    if (!state.parser.getRemaining()) {
+    if (!state.parser.hasPending()) {
       const text = typeof rawChunk === 'string' ? rawChunk : rawChunk.toString()
       if (!text.trim()) {
         return text

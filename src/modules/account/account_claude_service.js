@@ -1029,7 +1029,7 @@ class ClaudeAccountService {
           if (mappedAccount) {
             // 智能会话续期：剩余时间少于14天时自动续期到15天
             await redis.extendSessionAccountMappingTTL(sessionHash)
-            logger.info(
+            logger.debug(
               ` Using sticky session account: ${mappedAccount.name} (${mappedAccountId}) for session ${sessionHash}`,
             )
             return mappedAccountId
@@ -1156,7 +1156,7 @@ class ClaudeAccountService {
             } else {
               // 智能会话续期：剩余时间少于14天时自动续期到15天
               await redis.extendSessionAccountMappingTTL(sessionHash)
-              logger.info(
+              logger.debug(
                 ` Using sticky session shared account: ${mappedAccount.name} (${mappedAccountId}) for session ${sessionHash}`,
               )
               return mappedAccountId
@@ -1219,7 +1219,7 @@ class ClaudeAccountService {
         )
       }
 
-      logger.info(
+      logger.debug(
         ` Selected shared account: ${candidateAccounts[0].name} (${selectedAccountId}) for API key ${apiKeyData.name}`,
       )
       return selectedAccountId

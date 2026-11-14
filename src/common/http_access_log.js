@@ -39,6 +39,10 @@ export const formatBytes = (n) => {
   return `${(num / (1024 * 1024)).toFixed(2)}MB`
 }
 
+// 复制 UTF-16 码元，避免小日志切片保留整条大事件，同时保留原始截断结果。
+export const copyLogSnippet = (text, maxChars = 2000) =>
+  Buffer.from(text.slice(0, maxChars), 'utf16le').toString('utf16le')
+
 export const colorMethod = (method) => {
   const m = String(method || '').toUpperCase()
   if (m === 'GET' || m === 'HEAD') {

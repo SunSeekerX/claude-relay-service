@@ -31,6 +31,7 @@ import { requestDetailService } from './relay_request_detail_service.js'
 import { pricingService } from '../pricing/pricing_service.js'
 import * as upstreamErrorHelper from './relay_upstream_error_helper.js'
 import { proxyResolver } from '../proxy/proxy_resolver.js'
+import { createStreamBackpressure, isStreamWritable } from '../../common/stream_helper.js'
 import * as xaiHelper from '../../common/xai_helper.js'
 import { applyFilteredResponseHeaders, pickGrokPassthroughHeaders } from './relay_header_filter.js'
 import { isNonProtocolUpstreamBody, handleNonProtocolUpstream } from './relay_upstream_protocol_guard.js'
@@ -225,6 +226,10 @@ class GrokRelayService {
   }
 
   async _relay(req, res, apiKeyData, sessionHash, endpointKind) {
+    if (res.destroyed) {
+      return
+    }
+    const releaseRequestResources = req._crsRetainRequestResources?.()
     let abortController = null
     let detachClientDisconnect = () => {}
     let proxyResolution = null
@@ -292,6 +297,9 @@ class GrokRelayService {
 
       // 再取一次保证 token 新鲜
       account = (await grokAccountService.ensureFreshToken(account.id)) || account
+      req._crsAccountId = account.id
+      req._crsAccountName = account.name
+      req._crsAccountType = 'grok'
 
       let token = account.authType === 'apikey' ? account.apiKey : account.accessToken
       if (!token) {
@@ -305,6 +313,7 @@ class GrokRelayService {
           // 流式：不断上游，drain 收 usage；非流式：abort
           if (req.body?.stream) {
             req._crsClientGone = true
+            req._crsDrainForUsage = true
             logger.info('Grok client disconnected during stream; draining upstream for usage')
             return
           }
@@ -373,7 +382,7 @@ class GrokRelayService {
             reverseBridgeToChat = true
             targetUrl = this._buildTargetUrl(account, 'responses', req)
             body = grokProtocol.maybeInjectFreeCacheTools(grokProtocol.chatToResponsesBody(body), account)
-            logger.info(`[GrokRelay] chat→responses bridge account=${account.id} reason=${bridge.reason}`)
+            logger.debug(`[GrokRelay] chat→responses bridge account=${account.id} reason=${bridge.reason}`)
           } else if (!bridge.ok) {
             logger.debug(`[GrokRelay] chat raw forward account=${account.id} reason=${bridge.reason}`)
           }
@@ -446,7 +455,7 @@ class GrokRelayService {
         return options
       }
 
-      logger.info(
+      logger.debug(
         `[GrokRelay] forward account=${account.id} url=${targetUrl} stream=${isStream} model=${body?.model || requestedModel || '-'} endpoint=${effectiveEndpointKind} reverseChat=${reverseBridgeToChat}`,
       )
 
@@ -820,14 +829,20 @@ class GrokRelayService {
         }
       }
     } finally {
-      if (videoReservation && !videoReservation.linked) {
-        if (typeof redis.releaseCostReservation === 'function') {
-          await redis
-            .releaseCostReservation(apiKeyData?.id, videoReservation.reservationId)
-            .catch((error) => logger.error('Failed to release unlinked Grok video reservation', error))
+      try {
+        if (videoReservation && !videoReservation.linked) {
+          if (typeof redis.releaseCostReservation === 'function') {
+            await redis
+              .releaseCostReservation(apiKeyData?.id, videoReservation.reservationId)
+              .catch((error) => logger.error('Failed to release unlinked Grok video reservation', error))
+          }
         }
+      } finally {
+        detachClientDisconnect()
+        req._crsDrainForUsage = false
+        req.releaseGroupCostHold?.()
+        releaseRequestResources?.()
       }
-      detachClientDisconnect()
     }
   }
 
@@ -1054,7 +1069,9 @@ class GrokRelayService {
 
   async _handleNormalResponse(response, res, account, apiKeyData, requestedModel, req, options = {}) {
     let { data } = response
-    if (options.toolAdapter) {data = options.toolAdapter.restoreResponse(data)}
+    if (options.toolAdapter) {
+      data = options.toolAdapter.restoreResponse(data)
+    }
     let conversionFailed = false
     if (options.isCompact && !data?.error && !grokProtocol.isValidGrokCompactResponse(data)) {
       conversionFailed = true
@@ -1209,18 +1226,30 @@ class GrokRelayService {
       claudeState.model = options.originalClaudeModel || requestedModel || ''
     }
 
-    const writeClaudeEvents = (events) => {
+    const backpressure = createStreamBackpressure(response.data, res)
+    const writeClientChunk = async (chunk) => {
+      clientGone ||= Boolean(req._crsClientGone) || !isStreamWritable(res)
+      if (clientGone) {
+        return
+      }
+      try {
+        if (!res.write(chunk)) {
+          clientGone ||= !(await backpressure.waitForDrain())
+        }
+      } catch (error) {
+        clientGone = true
+        logger.warn('Grok client write failed; draining upstream for usage', summarizeErrorForLog(error))
+      }
+    }
+    const writeClaudeEvents = async (events) => {
       for (const item of events) {
         const eventName = item.event || item.data?.type
         const data = item.data || item
-        if (eventName) {
-          res.write(`event: ${eventName}\n`)
-        }
-        res.write(`data: ${JSON.stringify(data)}\n\n`)
+        await writeClientChunk(`${eventName ? `event: ${eventName}\n` : ''}data: ${JSON.stringify(data)}\n\n`)
       }
     }
 
-    const processFrame = (frame) => {
+    const processFrame = async (frame) => {
       if (req?._crsClientGone) {
         clientGone = true
       }
@@ -1245,9 +1274,11 @@ class GrokRelayService {
       if (!reverseBridge && !reverseClaude) {
         if (options.toolAdapter && parsedEvent.type === 'data') {
           for (const event of options.toolAdapter.restoreEvent(parsedEvent.data)) {
-            res.write(`event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`)
+            await writeClientChunk(`event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`)
           }
-        } else {res.write(frame)}
+        } else {
+          await writeClientChunk(frame)
+        }
       } else if (parsedEvent.type === 'data') {
         if (reverseBridge) {
           try {
@@ -1258,13 +1289,13 @@ class GrokRelayService {
             )
             for (const out of chunks) {
               chatDoneSent ||= out.includes('data: [DONE]')
-              res.write(out)
+              await writeClientChunk(out)
             }
           } catch (error) {
             bridgeError = new Error('Unable to convert upstream Responses events')
             logger.error('Grok Chat stream conversion failed', summarizeErrorForLog(error))
             const clientError = buildClientError({ statusCode: 502, protocol: 'openai' })
-            res.write(`data: ${JSON.stringify(clientError.body)}\n\n`)
+            await writeClientChunk(`data: ${JSON.stringify(clientError.body)}\n\n`)
           }
         } else {
           const events = claudeResponses.convertResponsesStreamEventToClaude(parsedEvent.data, claudeState)
@@ -1273,7 +1304,7 @@ class GrokRelayService {
           if (events.some((item) => item.event === 'error') && !upstreamFailed) {
             bridgeError = new Error('Unable to convert upstream Responses events')
           }
-          writeClaudeEvents(events)
+          await writeClaudeEvents(events)
         }
       }
     }
@@ -1282,14 +1313,14 @@ class GrokRelayService {
       // 客户端断开后继续读取 usage；协议终态到达后结束上游迭代并释放连接。
       for await (const chunk of response.data) {
         for (const frame of parser.feedFrames(chunk)) {
-          processFrame(frame)
+          await processFrame(frame)
         }
         if (upstreamState.terminalType) {
           break
         }
       }
       for (const frame of parser.finishFrames()) {
-        processFrame(frame)
+        await processFrame(frame)
       }
     } catch (error) {
       transportError = error
@@ -1305,11 +1336,11 @@ class GrokRelayService {
 
     if (!clientGone && !res.destroyed && !res.writableEnded) {
       if (reverseClaude) {
-        writeClaudeEvents(claudeResponses.finishClaudeFromResponsesStream(claudeState, upstreamState.error))
+        await writeClaudeEvents(claudeResponses.finishClaudeFromResponsesStream(claudeState, upstreamState.error))
       } else if (!hadTerminal && result.clientError) {
-        res.write(`data: ${JSON.stringify(result.clientError)}\n\n`)
+        await writeClientChunk(`data: ${JSON.stringify(result.clientError)}\n\n`)
       } else if (reverseBridge && !chatDoneSent && !result.clientError && !bridgeError) {
-        res.write('data: [DONE]\n\n')
+        await writeClientChunk('data: [DONE]\n\n')
       }
     }
 
@@ -1371,10 +1402,11 @@ class GrokRelayService {
         })
       }
     } finally {
+      backpressure.dispose()
       if (!clientGone && !res.destroyed && !res.writableEnded) {
         res.end()
       }
-      logger.info('Grok stream finished', {
+      logger.debug('Grok stream finished', {
         requestId: req.requestId,
         accountId: account.id,
         terminalType: upstreamState.terminalType,

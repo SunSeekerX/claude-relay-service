@@ -18,6 +18,8 @@ import {
 } from '../src/modules/relay/relay_request_detail_helper.js'
 import { buildAzureOpenAIRequest, assertAzureModelAccess } from '../src/modules/relay/relay_azure_openai_request.js'
 import { buildBillingAudit } from '../src/modules/pricing/pricing_billing_audit.js'
+import { CodexToOpenAIConverter } from '../src/modules/relay/relay_codex_to_openai.js'
+import { resolveResponsesConfiguration } from '../src/modules/relay/relay_responses_configuration.js'
 
 const sourceMethod = (file, from, to, globals = {}) => {
   const source = fs.readFileSync(new URL(file, import.meta.url), 'utf8')
@@ -37,6 +39,34 @@ const patch = sourceMethod(
     logger: { warn: () => {} },
   },
 )._patchOrphanedToolUse
+
+test('parallel PDF tool results retain call ownership, error markers and user text', () => {
+  const result = convertClaudeRequestToResponses({
+    messages: [{
+      role: 'user',
+      content: [
+        { type: 'tool_result', tool_use_id: 'read_a', content: [
+          { type: 'document', title: 'a.pdf', source: { type: 'base64', media_type: 'application/pdf', data: 'YQ==' } },
+        ] },
+        { type: 'tool_result', tool_use_id: 'read_b', is_error: true, content: [
+          { type: 'text', text: 'partial result' },
+          { type: 'document', title: 'b.pdf', source: { type: 'url', url: 'https://example.invalid/b.pdf' } },
+        ] },
+        { type: 'text', text: 'Compare the two tool results' },
+      ],
+    }],
+  })
+  expect(result.input).toHaveLength(3)
+  expect(result.input[0]).toMatchObject({ type: 'function_call_output', call_id: 'read_a', output: [
+    { type: 'input_file', filename: 'a.pdf', file_data: 'data:application/pdf;base64,YQ==' },
+  ] })
+  expect(result.input[1]).toMatchObject({ call_id: 'read_b', output: [
+    { type: 'input_text', text: '[tool_result is_error=true]' },
+    { type: 'input_text', text: 'partial result' },
+    { type: 'input_file', file_url: 'https://example.invalid/b.pdf' },
+  ] })
+  expect(result.input[2].content).toEqual([{ type: 'input_text', text: 'Compare the two tool results' }])
+})
 
 describe('parallel tool turns', () => {
   test('turn merging preserves the latest per-message effort and leaves the input history intact', () => {
@@ -166,6 +196,85 @@ test('configuration updates change effective effort and inline audio reaches Gem
       'gemini',
     ),
   ).toThrow(/audio IDs/)
+})
+
+describe('Responses configuration updates', () => {
+  const schema = {
+    type: 'object',
+    properties: { ok: { type: 'boolean' } },
+    required: ['ok'],
+    additionalProperties: false,
+  }
+  const format = { type: 'json_schema', name: 'result', strict: true, schema }
+  const input = [
+    { role: 'user', content: 'solve' },
+    { type: 'configuration_update', text: { format } },
+    { type: 'configuration_update', reasoning: { effort: 'high' } },
+  ]
+
+  test('resolves effort and format independently without rewriting the source history', () => {
+    const source = {
+      input,
+      reasoning: { effort: 'low', summary: 'auto' },
+      text: { format: { type: 'text' }, verbosity: 'low' },
+    }
+    const resolved = resolveResponsesConfiguration(source)
+    expect(resolved.reasoning).toEqual({ effort: 'high', summary: 'auto' })
+    expect(resolved.text).toEqual({ format, verbosity: 'low' })
+    expect(resolved.input).toEqual([input[0]])
+    expect(source.input).toHaveLength(3)
+    expect(source.text.format).toEqual({ type: 'text' })
+    expect(source.reasoning.effort).toBe('low')
+  })
+
+  test.each([
+    ['gateway', (body) => buildResponsesProviderRequest(body, 'claude').request],
+    ['registry', convertResponsesRequestToClaude],
+  ])('%s preserves structured output together with the effective effort', (_name, convert) => {
+    const request = convert({ model: 'claude-fable-5-2', input })
+    expect(request.output_config).toEqual({ effort: 'high', format: { type: 'json_schema', schema } })
+    expect(request.messages).toHaveLength(1)
+  })
+
+  test('format-only updates reach Gemini and Chat without requiring an effort', () => {
+    const source = { model: 'gemini-3.8-pro', input: input.slice(0, 2) }
+    expect(buildResponsesProviderRequest(source, 'gemini').request.generationConfig).toMatchObject({
+      responseMimeType: 'application/json',
+      responseJsonSchema: schema,
+    })
+    expect(new CodexToOpenAIConverter().buildChatRequestFromResponses(source).response_format).toEqual({
+      type: 'json_schema',
+      json_schema: { name: 'result', strict: true, schema },
+    })
+  })
+
+  test('combined updates and a later text reset keep the last effort but remove the old schema', () => {
+    const source = {
+      model: 'claude-fable-5-2',
+      input: [
+        input[0],
+        { type: 'configuration_update', reasoning: { effort: 'xhigh' }, text: { format } },
+        { type: 'configuration_update', text: { format: { type: 'text' } } },
+      ],
+    }
+    expect(resolveResponsesConfiguration(source)).toMatchObject({
+      reasoning: { effort: 'xhigh' },
+      text: { format: { type: 'text' } },
+    })
+    expect(buildResponsesProviderRequest(source, 'claude').request.output_config).toEqual({ effort: 'xhigh' })
+    expect(convertResponsesRequestToClaude(source).output_config).toEqual({ effort: 'xhigh' })
+    expect(new CodexToOpenAIConverter().buildChatRequestFromResponses(source).response_format).toEqual({ type: 'text' })
+  })
+
+  test.each([
+    { type: 'configuration_update' },
+    { type: 'configuration_update', reasoning: { effort: 'invalid' } },
+    { type: 'configuration_update', text: { format: { type: 'invalid' } } },
+  ])('rejects unsupported configuration updates explicitly: %j', (update) => {
+    expect(() => resolveResponsesConfiguration({ input: [input[0], update] })).toThrow(
+      expect.objectContaining({ statusCode: 400, code: 'unsupported_parameter' }),
+    )
+  })
 })
 
 test('Droid partitions OpenAI input exactly once and retains Anthropic additive caches', () => {

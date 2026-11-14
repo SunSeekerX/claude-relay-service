@@ -90,7 +90,7 @@ jest.mock('../src/modules/relay/relay_rate_limit_helper.js', () => ({
 jest.mock('../src/modules/relay/relay_sse_parser.js', () => ({
   IncrementalSSEParser: jest.fn().mockImplementation(() => ({
     feed: jest.fn(() => []),
-    getRemaining: jest.fn(() => '')
+    hasPending: jest.fn(() => false)
   }))
 }))
 

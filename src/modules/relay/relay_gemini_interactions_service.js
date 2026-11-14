@@ -284,6 +284,7 @@ export class GeminiInteractionsService {
   }
 
   async create(req, res, compatibility) {
+    const releaseRequestResources = req._crsRetainRequestResources?.()
     let detach = () => {}
     try {
       if (!req.body || typeof req.body !== 'object' || Array.isArray(req.body)) {
@@ -345,6 +346,7 @@ export class GeminiInteractionsService {
     } catch (error) {
       await this._error(req, res, error)
     } finally {
+      releaseRequestResources?.()
       detach()
       if (req._crsAccountType === 'gemini-api' || res.writableEnded) {
         req._crsDrainForUsage = false

@@ -696,6 +696,34 @@ export const finalizeRequestDetailMeta = (requestMeta = null) => {
   }
 }
 
+export const recordRequestUsageSummary = (requestMeta, record) => {
+  const req = requestMetaRequests.get(requestMeta)
+  if (!req) {
+    return
+  }
+  const previous = req._crsUsageSummary
+  const summary = {
+    model: record.model,
+    accountId: record.accountId,
+    accountType: record.accountType,
+    protocolTerminal: record.billingAudit?.protocolTerminal ?? null,
+    recordCount: (previous?.recordCount ?? 0) + 1,
+  }
+  for (const field of [
+    'inputTokens',
+    'outputTokens',
+    'cacheReadTokens',
+    'cacheCreateTokens',
+    'thinkingTokens',
+    'totalTokens',
+    'cost',
+    'realCost',
+  ]) {
+    summary[field] = (previous?.[field] ?? 0) + (record[field] ?? 0)
+  }
+  req._crsUsageSummary = summary
+}
+
 // 转发 API 路径前缀（鉴权后的上游转发面）
 const RELAY_PATH_PREFIXES = [
   '/api/',
@@ -1027,11 +1055,12 @@ export const normalizeOpenAITokenUsage = (usage = {}) => {
   }
 }
 
-// Gemini promptTokenCount 包含缓存命中，candidate 与 thoughts 分开报告。
+// Gemini 普通输入包含缓存命中，工具输入另计，candidate 与 thoughts 分开报告。
 export const normalizeGeminiTokenUsage = (usage = {}) => {
   const tokenCount = (value) => Math.max(0, Math.trunc(toFiniteNumber(value) ?? 0))
   const cacheReadTokens = tokenCount(usage.cachedContentTokenCount)
-  const totalInputTokens = Math.max(tokenCount(usage.promptTokenCount), cacheReadTokens)
+  const totalInputTokens =
+    Math.max(tokenCount(usage.promptTokenCount), cacheReadTokens) + tokenCount(usage.toolUsePromptTokenCount)
   return {
     inputTokens: totalInputTokens - cacheReadTokens,
     outputTokens: tokenCount(usage.candidatesTokenCount),

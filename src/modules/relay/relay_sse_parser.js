@@ -81,7 +81,11 @@ export const parseSSEEvent = (frame) => {
  */
 export class IncrementalSSEParser {
   constructor() {
-    this.buffer = ''
+    this.parts = []
+    this.smallParts = []
+    this.smallLength = 0
+    this.pendingLength = 0
+    this.tail = ''
     this.decoder = new StringDecoder('utf8')
   }
 
@@ -96,36 +100,86 @@ export class IncrementalSSEParser {
 
   // 返回含原始分隔符的完整事件，供出站改写复用同一个字节解码和分帧规则。
   feedFrames(chunk) {
-    this.buffer += this.decoder.write(typeof chunk === 'string' ? Buffer.from(chunk) : chunk)
-    return this._takeFrames()
+    return this._takeFrames(this.decoder.write(typeof chunk === 'string' ? Buffer.from(chunk) : chunk))
   }
 
-  _takeFrames() {
-    const frames = []
-    // DEC_20260905_155232
-    const boundary = /\r\n\r\n|\r\n\n|\n\r\n|\n\n|\r\r/
-    let match
-    while ((match = boundary.exec(this.buffer))) {
-      const end = match.index + match[0].length
-      if (end > 64 * 1024 * 1024) {
-        throw new Error('SSE event exceeds the buffer limit')
-      }
-      frames.push(this.buffer.slice(0, end))
-      this.buffer = this.buffer.slice(end)
+  _flushSmallParts() {
+    if (this.smallLength > 0) {
+      this.parts.push(this.smallParts.join(''))
+      this.smallParts = []
+      this.smallLength = 0
     }
-    if (this.buffer.length > 64 * 1024 * 1024) {
+  }
+
+  _append(text) {
+    if (!text) {
+      return
+    }
+    this.pendingLength += text.length
+    if (this.pendingLength > 64 * 1024 * 1024) {
       throw new Error('SSE event exceeds the buffer limit')
     }
+    // 合并细碎分片，避免单字节输入产生与正文同量级的数组条目。
+    if (text.length >= 4096) {
+      this._flushSmallParts()
+      this.parts.push(text)
+    } else {
+      this.smallParts.push(text)
+      this.smallLength += text.length
+      if (this.smallLength >= 4096) {
+        this._flushSmallParts()
+      }
+    }
+  }
+
+  _takePending() {
+    this._flushSmallParts()
+    const text = this.parts.length === 1 ? this.parts[0] : this.parts.join('')
+    this.parts = []
+    this.pendingLength = 0
+    this.tail = ''
+    return text
+  }
+
+  _takeFrames(text) {
+    const frames = []
+    if (!text) {
+      return frames
+    }
+    // 最长分隔符为四字符；只重看前一分片末尾三字符，不重扫累计事件。
+    const prefixLength = this.tail.length
+    const scanned = this.tail + text
+    // DEC_20260905_155232
+    const boundary = /\r\n\r\n|\r\n\n|\n\r\n|\n\n|\r\r/g
+    let match
+    let consumed = 0
+    while ((match = boundary.exec(scanned))) {
+      const end = match.index + match[0].length - prefixLength
+      const part = text.slice(consumed, end)
+      if (this.pendingLength === 0) {
+        if (part.length > 64 * 1024 * 1024) {
+          throw new Error('SSE event exceeds the buffer limit')
+        }
+        frames.push(part)
+        this.tail = ''
+      } else {
+        this._append(part)
+        frames.push(this._takePending())
+      }
+      consumed = end
+    }
+    const remaining = text.slice(consumed)
+    this._append(remaining)
+    this.tail = (this.tail + remaining).slice(-3)
     return frames
   }
 
   finishFrames() {
-    this.buffer += this.decoder.end()
-    const frames = this._takeFrames()
-    if (this.buffer.trim()) {
-      frames.push(`${this.buffer}\n\n`)
+    const frames = this._takeFrames(this.decoder.end())
+    const remaining = this._takePending()
+    if (remaining.trim()) {
+      frames.push(`${remaining}\n\n`)
     }
-    this.buffer = ''
     return frames
   }
 
@@ -134,18 +188,22 @@ export class IncrementalSSEParser {
   }
 
   /**
-   * 获取剩余的 buffer 内容
-   * @returns {string}
+   * 是否有尚未完成的事件；不拼接累计正文。
+   * @returns {boolean}
    */
-  getRemaining() {
-    return this.buffer
+  hasPending() {
+    return this.pendingLength > 0
   }
 
   /**
    * 重置解析器
    */
   reset() {
-    this.buffer = ''
+    this.parts = []
+    this.smallParts = []
+    this.smallLength = 0
+    this.pendingLength = 0
+    this.tail = ''
     this.decoder = new StringDecoder('utf8')
   }
 }

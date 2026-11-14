@@ -5,8 +5,7 @@ import { StringDecoder } from 'node:string_decoder'
 import { onClientDisconnect } from '../../common/client_disconnect.js'
 import * as geminiAccountService from '../account/account_gemini_service.js'
 import { geminiApiAccountService } from '../account/account_gemini_api_service.js'
-import { sendGeminiRequest } from './relay_gemini_relay_service.js'
-import { sendAntigravityRequest } from './relay_antigravity_relay_service.js'
+import { relayGeminiChatResponse } from './relay_gemini_relay_service.js'
 import crypto from 'node:crypto'
 import { sessionHelper } from './relay_session_helper.js'
 import { unifiedGeminiScheduler } from './relay_unified_gemini_scheduler.js'
@@ -238,10 +237,10 @@ export const applyRateLimitTracking = async (req, usageSummary, model, context =
     )
 
     if (totalTokens > 0) {
-      logger.api(`Updated rate limit token count${label}: +${totalTokens} tokens`)
+      logger.debug(`Updated rate limit token count${label}: +${totalTokens} tokens`)
     }
     if (typeof totalCost === 'number' && totalCost > 0) {
-      logger.api(`Updated rate limit cost count${label}: +$${totalCost.toFixed(6)}`)
+      logger.debug(`Updated rate limit cost count${label}: +$${totalCost.toFixed(6)}`)
     }
   } catch (error) {
     logger.error(`Failed to update rate limit counters${label}:`, error)
@@ -435,7 +434,7 @@ export const handleMessages = async (req, res) => {
           },
         })
       }
-      logger.info(`Using Gemini API account: ${account.id} for API key: ${apiKeyData.id}`)
+      logger.debug(`Using Gemini API account: ${account.id} for API key: ${apiKeyData.id}`)
       // 标记 API 账户被使用
       await geminiApiAccountService.markAccountUsed(account.id)
     } else {
@@ -448,7 +447,7 @@ export const handleMessages = async (req, res) => {
           },
         })
       }
-      logger.info(`Using Gemini OAuth account: ${account.id} for API key: ${apiKeyData.id}`)
+      logger.debug(`Using Gemini OAuth account: ${account.id} for API key: ${apiKeyData.id}`)
       // 标记 OAuth 账户被使用
       await geminiAccountService.markAccountUsed(account.id)
     }
@@ -468,149 +467,117 @@ export const handleMessages = async (req, res) => {
       'Gemini request',
     )
 
-    let geminiResponse
-
-    if (isApiAccount) {
-      // API 账户：直接调用 Google Gemini API
-      // 转换 OpenAI 格式的 messages 为 Gemini 格式的 contents
-      const contents = messages.map((msg) => ({
-        role: msg.role === 'assistant' ? 'model' : msg.role,
-        parts: [{ text: msg.content }],
-      }))
-
-      const requestBody = {
-        contents,
-        generationConfig: {
-          temperature,
-          maxOutputTokens: max_tokens,
-          topP: 0.95,
-          topK: 40,
-        },
-      }
-
-      // 解析代理配置
-      const proxyConfig = parseProxyConfig(account)
-
-      const apiUrl = buildGeminiApiUrl(
-        account.baseUrl,
+    if (!isApiAccount) {
+      await relayGeminiChatResponse({
+        req,
+        res,
+        account,
         model,
-        stream ? 'streamGenerateContent' : 'generateContent',
-        account.apiKey,
-        { stream },
-      )
-
-      const axiosConfig = {
-        method: 'POST',
-        url: apiUrl,
-        data: requestBody,
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': account.apiKey,
-          'x-goog-api-key': account.apiKey,
-        },
-        responseType: stream ? 'stream' : 'json',
+        stream,
+        requestBody: req.body,
         signal: abortController.signal,
-      }
+        proxyConfig: parseProxyConfig(account),
+      })
+      return undefined
+    }
 
-      // 添加代理配置
-      if (proxyConfig) {
-        axiosConfig.httpsAgent = ProxyHelper.createProxyAgent(proxyConfig)
-        axiosConfig.httpAgent = ProxyHelper.createProxyAgent(proxyConfig)
-      }
+    let geminiResponse
+    // API 账户：直接调用 Google Gemini API
+    // 转换 OpenAI 格式的 messages 为 Gemini 格式的 contents
+    const contents = messages.map((msg) => ({
+      role: msg.role === 'assistant' ? 'model' : msg.role,
+      parts: [{ text: msg.content }],
+    }))
 
-      try {
-        const apiResponse = await timedUpstreamRequest(req, () => axios(axiosConfig))
-        if (stream) {
-          geminiResponse = apiResponse.data
-        } else {
-          // 转换为 OpenAI 兼容格式
-          const geminiData = apiResponse.data
-          geminiResponse = {
-            id: crypto.randomUUID(),
-            object: 'chat.completion',
-            created: Math.floor(Date.now() / 1000),
-            model,
-            choices: [
-              {
-                index: 0,
-                message: {
-                  role: 'assistant',
-                  content: geminiData.candidates?.[0]?.content?.parts?.[0]?.text || 'No response generated',
-                },
-                finish_reason: 'stop',
-              },
-            ],
-            usage: mapGeminiUsageToOpenAI(geminiData.usageMetadata),
-          }
+    const requestBody = {
+      contents,
+      generationConfig: {
+        temperature,
+        maxOutputTokens: max_tokens,
+        topP: 0.95,
+        topK: 40,
+      },
+    }
 
-          // 记录使用统计
-          if (geminiData.usageMetadata) {
-            await apiKeyService.recordUsage(
-              apiKeyData.id,
-              buildGeminiTokenUsagePayload(geminiData.usageMetadata),
-              model,
-              accountId,
-              'gemini',
-              null,
-              createRequestDetailMeta(req, {
-                requestBody: req.body,
-                stream,
-                statusCode: res.statusCode || 200,
-              }),
-            )
-          }
-        }
-      } catch (error) {
-        logger.error('Gemini API request failed:', {
-          status: error.response?.status,
-          statusText: error.response?.statusText,
-          data: error.response?.data,
-        })
-        throw error
-      }
-    } else {
-      // OAuth 账户：使用现有的 sendGeminiRequest
-      // 智能处理项目ID：优先使用配置的 projectId，降级到临时 tempProjectId
-      const effectiveProjectId = account.projectId || account.tempProjectId || null
-      const oauthProvider = account.oauthProvider || 'gemini-cli'
+    // 解析代理配置
+    const proxyConfig = parseProxyConfig(account)
 
-      if (oauthProvider === 'antigravity') {
-        geminiResponse = await sendAntigravityRequest({
-          messages,
-          model,
-          temperature,
-          maxTokens: max_tokens,
-          stream,
-          accessToken: account.accessToken,
-          proxy: parseProxyConfig(account),
-          apiKeyId: apiKeyData.id,
-          signal: abortController.signal,
-          projectId: effectiveProjectId,
-          accountId: account.id,
-          requestMeta: createRequestDetailMeta(req, {
-            requestBody: req.body,
-            stream,
-          }),
-        })
+    const apiUrl = buildGeminiApiUrl(
+      account.baseUrl,
+      model,
+      stream ? 'streamGenerateContent' : 'generateContent',
+      account.apiKey,
+      { stream },
+    )
+
+    const axiosConfig = {
+      method: 'POST',
+      url: apiUrl,
+      data: requestBody,
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': account.apiKey,
+        'x-goog-api-key': account.apiKey,
+      },
+      responseType: stream ? 'stream' : 'json',
+      signal: abortController.signal,
+    }
+
+    // 添加代理配置
+    if (proxyConfig) {
+      axiosConfig.httpsAgent = ProxyHelper.createProxyAgent(proxyConfig)
+      axiosConfig.httpAgent = ProxyHelper.createProxyAgent(proxyConfig)
+    }
+
+    try {
+      const apiResponse = await timedUpstreamRequest(req, () => axios(axiosConfig))
+      if (stream) {
+        geminiResponse = apiResponse.data
       } else {
-        geminiResponse = await sendGeminiRequest({
-          messages,
+        // 转换为 OpenAI 兼容格式
+        const geminiData = apiResponse.data
+        geminiResponse = {
+          id: crypto.randomUUID(),
+          object: 'chat.completion',
+          created: Math.floor(Date.now() / 1000),
           model,
-          temperature,
-          maxTokens: max_tokens,
-          stream,
-          accessToken: account.accessToken,
-          proxy: parseProxyConfig(account),
-          apiKeyId: apiKeyData.id,
-          signal: abortController.signal,
-          projectId: effectiveProjectId,
-          accountId: account.id,
-          requestMeta: createRequestDetailMeta(req, {
-            requestBody: req.body,
-            stream,
-          }),
-        })
+          choices: [
+            {
+              index: 0,
+              message: {
+                role: 'assistant',
+                content: geminiData.candidates?.[0]?.content?.parts?.[0]?.text || 'No response generated',
+              },
+              finish_reason: 'stop',
+            },
+          ],
+          usage: mapGeminiUsageToOpenAI(geminiData.usageMetadata),
+        }
+
+        // 记录使用统计
+        if (geminiData.usageMetadata) {
+          await apiKeyService.recordUsage(
+            apiKeyData.id,
+            buildGeminiTokenUsagePayload(geminiData.usageMetadata),
+            model,
+            accountId,
+            'gemini',
+            null,
+            createRequestDetailMeta(req, {
+              requestBody: req.body,
+              stream,
+              statusCode: res.statusCode || 200,
+            }),
+          )
+        }
       }
+    } catch (error) {
+      logger.error('Gemini API request failed:', {
+        status: error.response?.status,
+        statusText: error.response?.statusText,
+        data: error.response?.data,
+      })
+      throw error
     }
 
     if (stream) {
@@ -620,96 +587,85 @@ export const handleMessages = async (req, res) => {
       res.setHeader('Connection', 'keep-alive')
       res.setHeader('X-Accel-Buffering', 'no')
 
-      if (isApiAccount) {
-        // API 账户：处理 SSE 流并记录使用统计
-        let totalUsage = {
-          promptTokenCount: 0,
-          candidatesTokenCount: 0,
-          totalTokenCount: 0,
-        }
-        const usageParser = new IncrementalSSEParser()
-        const captureUsage = (events) => {
-          for (const event of events) {
-            if (event.type === 'data' && event.data && typeof event.data === 'object') {
-              totalUsage = event.data.usageMetadata ?? event.data.response?.usageMetadata ?? totalUsage
-            }
-          }
-        }
-
-        geminiResponse.on('data', (chunk) => {
-          try {
-            res.write(chunk)
-            captureUsage(usageParser.feed(chunk))
-          } catch (error) {
-            logger.error('Error processing Gemini stream chunk', {
-              error,
-              requestId: req.requestId,
-            })
-            geminiResponse.destroy(error)
-          }
-        })
-
-        geminiResponse.on('end', () => {
-          captureUsage(usageParser.finish())
-          res.end()
-
-          // 异步记录使用统计
-          if (totalUsage.totalTokenCount > 0) {
-            apiKeyService
-              .recordUsage(
-                apiKeyData.id,
-                buildGeminiTokenUsagePayload(totalUsage),
-                model,
-                accountId,
-                'gemini',
-                null,
-                createRequestDetailMeta(req, {
-                  requestBody: req.body,
-                  stream: true,
-                  statusCode: res.statusCode,
-                }),
-              )
-              .then(() => {
-                logger.info(
-                  `Recorded Gemini API stream usage - Input: ${totalUsage.promptTokenCount}, Output: ${totalUsage.candidatesTokenCount}`,
-                )
-              })
-              .catch((error) => {
-                logger.error('Failed to record Gemini API usage:', error)
-              })
-          }
-        })
-
-        geminiResponse.on('error', (error) => {
-          logger.error('Stream error:', error)
-          if (!res.headersSent) {
-            res.status(500).json({
-              error: {
-                message: getSafeMessage(error) || 'Stream error',
-                type: 'api_error',
-              },
-            })
-          } else {
-            res.end()
-          }
-        })
-      } else {
-        // OAuth 账户：使用原有的流式传输逻辑
-        for await (const chunk of geminiResponse) {
-          if (abortController.signal.aborted) {
-            break
-          }
-          res.write(chunk)
-        }
-        res.end()
+      // API 账户：处理 SSE 流并记录使用统计
+      let totalUsage = {
+        promptTokenCount: 0,
+        candidatesTokenCount: 0,
+        totalTokenCount: 0,
       }
+      const usageParser = new IncrementalSSEParser()
+      const captureUsage = (events) => {
+        for (const event of events) {
+          if (event.type === 'data' && event.data && typeof event.data === 'object') {
+            totalUsage = event.data.usageMetadata ?? event.data.response?.usageMetadata ?? totalUsage
+          }
+        }
+      }
+
+      geminiResponse.on('data', (chunk) => {
+        try {
+          res.write(chunk)
+          captureUsage(usageParser.feed(chunk))
+        } catch (error) {
+          logger.error('Error processing Gemini stream chunk', {
+            error,
+            requestId: req.requestId,
+          })
+          geminiResponse.destroy(error)
+        }
+      })
+
+      geminiResponse.on('end', () => {
+        captureUsage(usageParser.finish())
+        res.end()
+
+        // 异步记录使用统计
+        if (totalUsage.totalTokenCount > 0) {
+          apiKeyService
+            .recordUsage(
+              apiKeyData.id,
+              buildGeminiTokenUsagePayload(totalUsage),
+              model,
+              accountId,
+              'gemini',
+              null,
+              createRequestDetailMeta(req, {
+                requestBody: req.body,
+                stream: true,
+                statusCode: res.statusCode,
+              }),
+            )
+            .then(() => {
+              logger.info(
+                `Recorded Gemini API stream usage - Input: ${totalUsage.promptTokenCount}, Output: ${totalUsage.candidatesTokenCount}`,
+              )
+            })
+            .catch((error) => {
+              logger.error('Failed to record Gemini API usage:', error)
+            })
+        }
+      })
+
+      geminiResponse.on('error', (error) => {
+        logger.error('Stream error:', error)
+        if (!res.headersSent) {
+          res.status(500).json({
+            error: {
+              message: getSafeMessage(error) || 'Stream error',
+              type: 'api_error',
+            },
+          })
+        } else {
+          res.end()
+        }
+      })
     } else {
       // 非流式响应
       res.json(geminiResponse)
     }
 
     const duration = Date.now() - startTime
-    logger.info(`Gemini request completed in ${duration}ms`)
+    logger.debug(`Gemini request completed in ${duration}ms`)
   } catch (error) {
     logger.error('Gemini request error:', error)
 
@@ -1573,7 +1529,7 @@ export const handleGenerateContent = async (req, res) => {
     const { accessToken, refreshToken } = account
 
     const version = req.path.includes('v1beta') ? 'v1beta' : 'v1internal'
-    logger.info(`GenerateContent request (${version})`, {
+    logger.debug(`GenerateContent request (${version})`, {
       model,
       userPromptId: user_prompt_id,
       projectId: project || account.projectId,
@@ -1629,7 +1585,7 @@ export const handleGenerateContent = async (req, res) => {
       })
     }
 
-    logger.info('项目ID处理逻辑', {
+    logger.debug('项目ID处理逻辑', {
       accountProjectId: account.projectId,
       accountTempProjectId: account.tempProjectId,
       effectiveProjectId,
@@ -1807,7 +1763,7 @@ export const handleStreamGenerateContent = async (req, res) => {
     const { accessToken, refreshToken } = account
 
     const version = req.path.includes('v1beta') ? 'v1beta' : 'v1internal'
-    logger.info(`StreamGenerateContent request (${version})`, {
+    logger.debug(`StreamGenerateContent request (${version})`, {
       model,
       userPromptId: user_prompt_id,
       projectId: project || account.projectId,
@@ -1877,7 +1833,7 @@ export const handleStreamGenerateContent = async (req, res) => {
       })
     }
 
-    logger.info('流式请求项目ID处理逻辑', {
+    logger.debug('流式请求项目ID处理逻辑', {
       accountProjectId: account.projectId,
       accountTempProjectId: account.tempProjectId,
       effectiveProjectId,
@@ -1929,7 +1885,7 @@ export const handleStreamGenerateContent = async (req, res) => {
       const timeSinceLastData = Date.now() - lastDataTime
       if (timeSinceLastData >= HEARTBEAT_INTERVAL && !res.destroyed) {
         res.write('\n')
-        logger.info(`Sent SSE keepalive (gap: ${(timeSinceLastData / 1000).toFixed(1)}s)`)
+        logger.debug(`Sent SSE keepalive (gap: ${(timeSinceLastData / 1000).toFixed(1)}s)`)
       }
     }
 
@@ -1997,7 +1953,7 @@ export const handleStreamGenerateContent = async (req, res) => {
     })
 
     streamResponse.on('end', () => {
-      logger.info('Stream completed successfully')
+      logger.debug('Stream completed successfully')
 
       if (heartbeatTimer) {
         clearInterval(heartbeatTimer)
@@ -2157,11 +2113,13 @@ export const handleStandardGenerateContent = async (req, res) => {
     const actualRequestData = buildGeminiGenerateBody(req.body)
 
     // 使用统一调度选择账号
-    const schedulerResult = req._crsGeminiSelection ?? await trackRequestTiming(req, 'scheduling', () =>
-      unifiedGeminiScheduler.selectAccountForApiKey(req.apiKey, sessionHash, model, {
-        allowApiAccounts: true,
-      }),
-    )
+    const schedulerResult =
+      req._crsGeminiSelection ??
+      (await trackRequestTiming(req, 'scheduling', () =>
+        unifiedGeminiScheduler.selectAccountForApiKey(req.apiKey, sessionHash, model, {
+          allowApiAccounts: true,
+        }),
+      ))
     ;({ accountId, accountType } = schedulerResult)
 
     isApiAccount = accountType === 'gemini-api'
@@ -2180,7 +2138,7 @@ export const handleStandardGenerateContent = async (req, res) => {
         })
       }
 
-      logger.info(`Standard Gemini API generateContent request (${version}) - API Key Account`, {
+      logger.debug(`Standard Gemini API generateContent request (${version}) - API Key Account`, {
         model,
         accountId: actualAccountId,
         apiKeyId: req.apiKey?.id || 'unknown',
@@ -2188,7 +2146,7 @@ export const handleStandardGenerateContent = async (req, res) => {
     } else {
       account = await geminiAccountService.getAccount(actualAccountId)
 
-      logger.info(`Standard Gemini API generateContent request (${version}) - OAuth Account`, {
+      logger.debug(`Standard Gemini API generateContent request (${version}) - OAuth Account`, {
         model,
         projectId: account.projectId,
         apiKeyId: req.apiKey?.id || 'unknown',
@@ -2204,7 +2162,7 @@ export const handleStandardGenerateContent = async (req, res) => {
       // Gemini API 账户：直接使用 API Key 请求
       const apiUrl = buildGeminiApiUrl(account.baseUrl, model, 'generateContent', account.apiKey)
 
-      logger.info('Gemini upstream request', {
+      logger.debug('Gemini upstream request', {
         targetUrl: apiUrl.replace(/key=[^&]+/, 'key=***'),
         model,
         accountId: account.id,
@@ -2399,11 +2357,13 @@ export const handleStandardStreamGenerateContent = async (req, res) => {
     const actualRequestData = buildGeminiGenerateBody(req.body)
 
     // 使用统一调度选择账号
-    const schedulerResult = req._crsGeminiSelection ?? await trackRequestTiming(req, 'scheduling', () =>
-      unifiedGeminiScheduler.selectAccountForApiKey(req.apiKey, sessionHash, model, {
-        allowApiAccounts: true,
-      }),
-    )
+    const schedulerResult =
+      req._crsGeminiSelection ??
+      (await trackRequestTiming(req, 'scheduling', () =>
+        unifiedGeminiScheduler.selectAccountForApiKey(req.apiKey, sessionHash, model, {
+          allowApiAccounts: true,
+        }),
+      ))
     ;({ accountId, accountType } = schedulerResult)
 
     isApiAccount = accountType === 'gemini-api'
@@ -2422,7 +2382,7 @@ export const handleStandardStreamGenerateContent = async (req, res) => {
         })
       }
 
-      logger.info(`Standard Gemini API streamGenerateContent request (${version}) - API Key Account`, {
+      logger.debug(`Standard Gemini API streamGenerateContent request (${version}) - API Key Account`, {
         model,
         accountId: actualAccountId,
         apiKeyId: req.apiKey?.id || 'unknown',
@@ -2430,7 +2390,7 @@ export const handleStandardStreamGenerateContent = async (req, res) => {
     } else {
       account = await geminiAccountService.getAccount(actualAccountId)
 
-      logger.info(`Standard Gemini API streamGenerateContent request (${version}) - OAuth Account`, {
+      logger.debug(`Standard Gemini API streamGenerateContent request (${version}) - OAuth Account`, {
         model,
         projectId: account.projectId,
         apiKeyId: req.apiKey?.id || 'unknown',
@@ -2463,7 +2423,7 @@ export const handleStandardStreamGenerateContent = async (req, res) => {
         stream: true,
       })
 
-      logger.info('Gemini upstream request', {
+      logger.debug('Gemini upstream request', {
         targetUrl: apiUrl.replace(/key=[^&]+/, 'key=***'),
         model,
         accountId: actualAccountId,
@@ -2599,7 +2559,7 @@ export const handleStandardStreamGenerateContent = async (req, res) => {
       const timeSinceLastData = Date.now() - lastDataTime
       if (timeSinceLastData >= HEARTBEAT_INTERVAL && !res.destroyed) {
         res.write('\n')
-        logger.info(`Sent SSE keepalive (gap: ${(timeSinceLastData / 1000).toFixed(1)}s)`)
+        logger.debug(`Sent SSE keepalive (gap: ${(timeSinceLastData / 1000).toFixed(1)}s)`)
       }
     }
 
@@ -2686,7 +2646,7 @@ export const handleStandardStreamGenerateContent = async (req, res) => {
     })
 
     streamResponse.on('end', () => {
-      logger.info('Stream completed successfully')
+      logger.debug('Stream completed successfully')
 
       sseBuffer += sseDecoder.end()
       if (sseBuffer.trim()) {
@@ -2828,9 +2788,11 @@ export const handleStandardStreamGenerateContent = async (req, res) => {
  * 入站 Interactions → generateContent 上游 → 再转回 Interactions
  */
 export const handleInteractions = async (req, res) => {
-  if (!ensureGeminiPermission(req, res)) return undefined
+  if (!ensureGeminiPermission(req, res)) {
+    return undefined
+  }
   return geminiInteractionsService.create(req, res, {
     generate: handleStandardGenerateContent,
-    stream: handleStandardStreamGenerateContent
+    stream: handleStandardStreamGenerateContent,
   })
 }

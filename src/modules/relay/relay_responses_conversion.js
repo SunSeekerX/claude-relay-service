@@ -4,6 +4,7 @@ import { adaptResponsesTools } from './relay_responses_tools.js'
 import { buildOpenAIChatGeminiRequest } from './relay_openai_gemini_request.js'
 import { mergeClaudeMessageTurns } from './relay_claude_message_turns.js'
 import { resolveResponsesConfiguration } from './relay_responses_configuration.js'
+import { responsesTextToClaudeOutputConfig } from './translator/relay_translator_response_format.js'
 import {
   effortToClaudeThinking,
   normalizeClaudeRequestForModel,
@@ -19,8 +20,7 @@ const decodeSignature = (provider, value) =>
   typeof value === 'string' && value.startsWith(`crs:${provider}:v1:`)
     ? Buffer.from(value.slice(`crs:${provider}:v1:`.length), 'base64url').toString()
     : null
-const textOf = (parts) =>
-  typeof parts === 'string' ? parts : (parts ?? []).map((part) => part.text ?? '').join('\n')
+const textOf = (parts) => (typeof parts === 'string' ? parts : (parts ?? []).map((part) => part.text ?? '').join('\n'))
 const responseId = (prefix) => `${prefix}_${crypto.randomUUID().replaceAll('-', '')}`
 const geminiFilterReasons = new Set([
   'SAFETY',
@@ -31,11 +31,11 @@ const geminiFilterReasons = new Set([
   'MODEL_ARMOR',
   'IMAGE_SAFETY',
   'IMAGE_PROHIBITED_CONTENT',
-  'IMAGE_RECITATION'
+  'IMAGE_RECITATION',
 ])
 const geminiFailureCodes = {
   MALFORMED_FUNCTION_CALL: 'upstream_malformed_function_call',
-  UNEXPECTED_TOOL_CALL: 'upstream_unexpected_tool_call'
+  UNEXPECTED_TOOL_CALL: 'upstream_unexpected_tool_call',
 }
 
 const validateParts = (content) => {
@@ -87,8 +87,7 @@ export const buildResponsesProviderRequest = (source, provider) => {
   if (body.instructions) {
     messages.push({ role: 'system', content: body.instructions })
   }
-  const input =
-    typeof body.input === 'string' ? [{ role: 'user', content: body.input }] : body.input
+  const input = typeof body.input === 'string' ? [{ role: 'user', content: body.input }] : body.input
   if (!Array.isArray(input)) {
     throw responsesConversionError('input must be text or an array', 'invalid_request')
   }
@@ -101,7 +100,7 @@ export const buildResponsesProviderRequest = (source, provider) => {
       if (!text) {
         throw responsesConversionError(
           'This private compaction block cannot be recovered; resend visible conversation history',
-          'compaction_not_replayable'
+          'compaction_not_replayable',
         )
       }
       messages.push({ role: 'assistant', content: text })
@@ -116,10 +115,7 @@ export const buildResponsesProviderRequest = (source, provider) => {
       try {
         args = JSON.parse(item.arguments ?? '{}')
       } catch {
-        throw responsesConversionError(
-          'Tool arguments must be valid JSON',
-          'invalid_tool_arguments'
-        )
+        throw responsesConversionError('Tool arguments must be valid JSON', 'invalid_tool_arguments')
       }
       if (!args || typeof args !== 'object' || Array.isArray(args)) {
         throw responsesConversionError('Tool arguments must be a JSON object')
@@ -133,16 +129,14 @@ export const buildResponsesProviderRequest = (source, provider) => {
             type: 'function',
             function: { name: item.name, arguments: JSON.stringify(args) },
             extra_content: {
-              google: { thought_signature: decodeSignature('gemini', item.encrypted_content) }
-            }
-          }
-        ]
+              google: { thought_signature: decodeSignature('gemini', item.encrypted_content) },
+            },
+          },
+        ],
       })
     } else if (item.type === 'function_call_output') {
       const content =
-        typeof item.output === 'string' || Array.isArray(item.output)
-          ? item.output
-          : JSON.stringify(item.output ?? '')
+        typeof item.output === 'string' || Array.isArray(item.output) ? item.output : JSON.stringify(item.output ?? '')
       validateParts(content)
       messages.push({ role: 'tool', tool_call_id: item.call_id, content })
     } else if (item.type === 'message' || item.role) {
@@ -173,13 +167,13 @@ export const buildResponsesProviderRequest = (source, provider) => {
                     name: tool.name,
                     parameters: tool.parameters,
                     description: tool.description,
-                    strict: tool.strict
-                  }
+                    strict: tool.strict,
+                  },
                 }
-              : tool
-          )
+              : tool,
+          ),
         }
-      : {})
+      : {}),
   }
   if (body.tool_choice !== undefined) {
     chat.tool_choice =
@@ -213,14 +207,11 @@ export const buildResponsesProviderRequest = (source, provider) => {
                 medium: 'MEDIUM',
                 high: 'HIGH',
                 xhigh: 'HIGH',
-                max: 'HIGH'
-              }[body.reasoning.effort] ?? 'HIGH'
+                max: 'HIGH',
+              }[body.reasoning.effort] ?? 'HIGH',
           }
         : {
-            thinkingBudget:
-              body.reasoning.effort === 'none'
-                ? 0
-                : convertLevelToBudget(body.reasoning.effort).budget
+            thinkingBudget: body.reasoning.effort === 'none' ? 0 : convertLevelToBudget(body.reasoning.effort).budget,
           }
     }
     return { request: { ...native, model: body.model, stream: body.stream === true }, adapter }
@@ -238,9 +229,7 @@ export const buildResponsesProviderRequest = (source, provider) => {
       if (part.type === 'input_audio') {
         throw responsesConversionError('This Claude target does not support audio input')
       }
-      const value = image
-        ? (part.image_url?.url ?? part.image_url)
-        : (part.file_data ?? part.file_url)
+      const value = image ? (part.image_url?.url ?? part.image_url) : (part.file_data ?? part.file_url)
       if (typeof value !== 'string') {
         throw responsesConversionError('A media URL or base64 value is required')
       }
@@ -258,7 +247,7 @@ export const buildResponsesProviderRequest = (source, provider) => {
       return {
         type: image ? 'image' : 'document',
         source: mediaSource,
-        ...(!image && part.filename ? { title: part.filename } : {})
+        ...(!image && part.filename ? { title: part.filename } : {}),
       }
     })
   }
@@ -266,7 +255,7 @@ export const buildResponsesProviderRequest = (source, provider) => {
     model: body.model,
     max_tokens: chat.max_tokens,
     stream: chat.stream,
-    messages: []
+    messages: [],
   }
   const system = []
   for (const message of messages) {
@@ -281,9 +270,9 @@ export const buildResponsesProviderRequest = (source, provider) => {
           {
             type: 'tool_result',
             tool_use_id: message.tool_call_id,
-            content: parts(message.content)
-          }
-        ]
+            content: parts(message.content),
+          },
+        ],
       })
       continue
     }
@@ -295,8 +284,8 @@ export const buildResponsesProviderRequest = (source, provider) => {
           {
             type: 'thinking',
             thinking: textOf(message.content),
-            signature: message._thinkingSignature
-          }
+            signature: message._thinkingSignature,
+          },
         ]
       : parts(message.content)
     for (const call of message.tool_calls ?? []) {
@@ -304,7 +293,7 @@ export const buildResponsesProviderRequest = (source, provider) => {
         type: 'tool_use',
         id: call.id,
         name: call.function.name,
-        input: JSON.parse(call.function.arguments)
+        input: JSON.parse(call.function.arguments),
       })
     }
     native.messages.push({ role: message.role, content })
@@ -321,7 +310,7 @@ export const buildResponsesProviderRequest = (source, provider) => {
       return {
         name: tool.name,
         description: tool.description,
-        input_schema: tool.parameters ?? { type: 'object', properties: {} }
+        input_schema: tool.parameters ?? { type: 'object', properties: {} },
       }
     })
   }
@@ -350,18 +339,14 @@ export const buildResponsesProviderRequest = (source, provider) => {
     }
     native.service_tier = body.service_tier === 'default' ? 'standard_only' : 'auto'
   }
-  if (body.text?.format?.type === 'json_object') {
-    native.output_config = {
-      format: { type: 'json_schema', schema: { type: 'object', additionalProperties: true } }
-    }
-  }
-  if (body.text?.format?.type === 'json_schema') {
-    native.output_config = { format: { type: 'json_schema', schema: body.text.format.schema } }
+  const outputConfig = responsesTextToClaudeOutputConfig(body.text)
+  if (outputConfig) {
+    native.output_config = outputConfig
   }
   const thinking = effortToClaudeThinking(body.reasoning?.effort, { modelId: body.model })
   if (thinking) {
     Object.assign(native, thinking, {
-      output_config: { ...native.output_config, ...thinking.output_config }
+      output_config: { ...native.output_config, ...thinking.output_config },
     })
   }
   normalizeClaudeRequestForModel(native, body.model)
@@ -400,7 +385,7 @@ export class ProviderResponsesState {
     this.sequence += events.length - 1
     return events.map((output, index) => ({
       ...output,
-      sequence_number: event.sequence_number + index
+      sequence_number: event.sequence_number + index,
     }))
   }
   response(status = 'in_progress') {
@@ -411,13 +396,13 @@ export class ProviderResponsesState {
       model: this.model,
       status,
       output: this.output.map((item) => this.adapter.restoreItem({ ...item })),
-      usage: this.usage
+      usage: this.usage,
     }
   }
   start() {
     return [
       this.event('response.created', { response: this.response() }),
-      this.event('response.in_progress', { response: this.response() })
+      this.event('response.in_progress', { response: this.response() }),
     ]
   }
   addBlock(key, block) {
@@ -437,20 +422,20 @@ export class ProviderResponsesState {
             call_id: block.id ?? responseId('call'),
             name: block.name,
             arguments: '',
-            status: 'in_progress'
+            status: 'in_progress',
           }
         : block.type === 'thinking'
           ? {
               type: 'reasoning',
               id: responseId('rs'),
-              summary: [{ type: 'summary_text', text: block.thinking ?? '' }]
+              summary: [{ type: 'summary_text', text: block.thinking ?? '' }],
             }
           : {
               type: 'message',
               id: responseId('msg'),
               role: 'assistant',
               status: 'in_progress',
-              content: [{ type: 'output_text', text: block.text ?? '', annotations: [] }]
+              content: [{ type: 'output_text', text: block.text ?? '', annotations: [] }],
             }
     if (block.signature) {
       item.encrypted_content = encodeSignature(this.provider, block.signature)
@@ -464,7 +449,7 @@ export class ProviderResponsesState {
           ? { ...item, summary: [] }
           : { ...item }
     const events = this.adaptedEvent(
-      this.event('response.output_item.added', { output_index: outputIndex, item: added })
+      this.event('response.output_item.added', { output_index: outputIndex, item: added }),
     )
     if (item.type === 'message') {
       events.push(
@@ -472,8 +457,8 @@ export class ProviderResponsesState {
           item_id: item.id,
           output_index: outputIndex,
           content_index: 0,
-          part: { ...item.content[0], text: '' }
-        })
+          part: { ...item.content[0], text: '' },
+        }),
       )
     }
     if (item.type === 'reasoning') {
@@ -482,31 +467,24 @@ export class ProviderResponsesState {
           item_id: item.id,
           output_index: outputIndex,
           summary_index: 0,
-          part: { type: 'summary_text', text: '' }
-        })
+          part: { type: 'summary_text', text: '' },
+        }),
       )
     }
     if (block.text || block.thinking) {
       events.push(
-        this.event(
-          item.type === 'reasoning'
-            ? 'response.reasoning_summary_text.delta'
-            : 'response.output_text.delta',
-          {
-            item_id: item.id,
-            output_index: outputIndex,
-            ...(item.type === 'reasoning' ? { summary_index: 0 } : { content_index: 0 }),
-            delta: block.text ?? block.thinking
-          }
-        )
+        this.event(item.type === 'reasoning' ? 'response.reasoning_summary_text.delta' : 'response.output_text.delta', {
+          item_id: item.id,
+          output_index: outputIndex,
+          ...(item.type === 'reasoning' ? { summary_index: 0 } : { content_index: 0 }),
+          delta: block.text ?? block.thinking,
+        }),
       )
     }
     return events
   }
   delta(key, delta) {
-    this.outputBytes += Buffer.byteLength(
-      delta.text ?? delta.thinking ?? delta.partial_json ?? delta.signature ?? ''
-    )
+    this.outputBytes += Buffer.byteLength(delta.text ?? delta.thinking ?? delta.partial_json ?? delta.signature ?? '')
     if (this.outputBytes > LIMITS.responsesContextBytes) {
       throw new Error('Provider output exceeds the bridge resource budget')
     }
@@ -526,8 +504,8 @@ export class ProviderResponsesState {
       return this.adaptedEvent(
         this.event('response.function_call_arguments.delta', {
           ...common,
-          delta: delta.partial_json ?? ''
-        })
+          delta: delta.partial_json ?? '',
+        }),
       )
     }
     const thinking = item.type === 'reasoning'
@@ -538,10 +516,11 @@ export class ProviderResponsesState {
       item.content[0].text += text
     }
     return [
-      this.event(
-        thinking ? 'response.reasoning_summary_text.delta' : 'response.output_text.delta',
-        { ...common, ...(thinking ? { summary_index: 0 } : { content_index: 0 }), delta: text }
-      )
+      this.event(thinking ? 'response.reasoning_summary_text.delta' : 'response.output_text.delta', {
+        ...common,
+        ...(thinking ? { summary_index: 0 } : { content_index: 0 }),
+        delta: text,
+      }),
     ]
   }
   close(key) {
@@ -560,39 +539,39 @@ export class ProviderResponsesState {
         ...this.adaptedEvent(
           this.event('response.function_call_arguments.done', {
             ...common,
-            arguments: item.arguments
-          })
-        )
+            arguments: item.arguments,
+          }),
+        ),
       )
     } else if (item.type === 'message') {
       events.push(
         this.event('response.output_text.done', {
           ...common,
           content_index: 0,
-          text: item.content[0].text
-        })
+          text: item.content[0].text,
+        }),
       )
       events.push(
         this.event('response.content_part.done', {
           ...common,
           content_index: 0,
-          part: item.content[0]
-        })
+          part: item.content[0],
+        }),
       )
     } else {
       events.push(
         this.event('response.reasoning_summary_text.done', {
           ...common,
           summary_index: 0,
-          text: item.summary[0].text
-        })
+          text: item.summary[0].text,
+        }),
       )
       events.push(
         this.event('response.reasoning_summary_part.done', {
           ...common,
           summary_index: 0,
-          part: item.summary[0]
-        })
+          part: item.summary[0],
+        }),
       )
     }
     if (item.type !== 'reasoning') {
@@ -601,8 +580,8 @@ export class ProviderResponsesState {
     events.push(
       this.event('response.output_item.done', {
         output_index: outputIndex,
-        item: this.adapter.restoreItem({ ...item })
-      })
+        item: this.adapter.restoreItem({ ...item }),
+      }),
     )
     return events
   }
@@ -615,19 +594,14 @@ export class ProviderResponsesState {
       this.usage = {
         input_tokens: usage.inputTokens + usage.cacheReadTokens,
         output_tokens: usage.outputTokens + (raw.thoughtsTokenCount ?? 0),
-        total_tokens:
-          usage.inputTokens +
-          usage.cacheReadTokens +
-          usage.outputTokens +
-          (raw.thoughtsTokenCount ?? 0),
+        total_tokens: usage.inputTokens + usage.cacheReadTokens + usage.outputTokens + (raw.thoughtsTokenCount ?? 0),
         input_tokens_details: { cached_tokens: usage.cacheReadTokens },
-        output_tokens_details: { reasoning_tokens: raw.thoughtsTokenCount ?? 0 }
+        output_tokens_details: { reasoning_tokens: raw.thoughtsTokenCount ?? 0 },
       }
     } else {
       const previous = this.usage ?? { input_tokens: 0, output_tokens: 0, input_tokens_details: {} }
       const cached = raw.cache_read_input_tokens ?? previous.input_tokens_details.cached_tokens ?? 0
-      const created =
-        raw.cache_creation_input_tokens ?? previous.input_tokens_details.cache_write_tokens ?? 0
+      const created = raw.cache_creation_input_tokens ?? previous.input_tokens_details.cache_write_tokens ?? 0
       this.usage = {
         input_tokens:
           (raw.input_tokens ??
@@ -637,7 +611,7 @@ export class ProviderResponsesState {
           cached +
           created,
         output_tokens: raw.output_tokens ?? previous.output_tokens,
-        input_tokens_details: { cached_tokens: cached, cache_write_tokens: created }
+        input_tokens_details: { cached_tokens: cached, cache_write_tokens: created },
       }
       this.usage.total_tokens = this.usage.input_tokens + this.usage.output_tokens
     }
@@ -685,8 +659,8 @@ export class ProviderResponsesState {
             id: key,
             name: part.functionCall.name,
             input: part.functionCall.args,
-            signature: part.thoughtSignature
-          })
+            signature: part.thoughtSignature,
+          }),
         )
         events.push(...this.close(key))
       } else if (typeof part.text === 'string') {
@@ -704,14 +678,11 @@ export class ProviderResponsesState {
         events.push(
           ...this.delta(key, {
             type: part.thought ? 'thinking_delta' : 'text_delta',
-            text: part.text
-          })
+            text: part.text,
+          }),
         )
         if (part.thoughtSignature) {
-          this.blocks.get(key).item.encrypted_content = encodeSignature(
-            'gemini',
-            part.thoughtSignature
-          )
+          this.blocks.get(key).item.encrypted_content = encodeSignature('gemini', part.thoughtSignature)
         }
       } else {
         throw new Error('Unsupported provider output content')
@@ -721,10 +692,7 @@ export class ProviderResponsesState {
       this.stopReason = candidate.finishReason
       this.ended = true
     }
-    if (
-      response.promptFeedback?.blockReason &&
-      response.promptFeedback.blockReason !== 'BLOCK_REASON_UNSPECIFIED'
-    ) {
+    if (response.promptFeedback?.blockReason && response.promptFeedback.blockReason !== 'BLOCK_REASON_UNSPECIFIED') {
       this.contentFiltered = true
       this.ended = true
     }
@@ -751,7 +719,7 @@ export class ProviderResponsesState {
     if (!this.ended && !this.error) {
       this.error = {
         code: 'upstream_stream_incomplete',
-        message: 'Provider stream ended without a terminal event'
+        message: 'Provider stream ended without a terminal event',
       }
     }
     const limited = ['max_tokens', 'MAX_TOKENS'].includes(this.stopReason)
@@ -772,7 +740,7 @@ export class ProviderResponsesState {
         code: Object.hasOwn(geminiFailureCodes, this.stopReason)
           ? geminiFailureCodes[this.stopReason]
           : 'upstream_generation_failed',
-        message: 'Provider ended generation with an unsuccessful finish reason'
+        message: 'Provider ended generation with an unsuccessful finish reason',
       }
     }
     const incomplete = limited || filtered
@@ -781,17 +749,17 @@ export class ProviderResponsesState {
       response.error = {
         type: 'api_error',
         code: this.error.code ?? 'upstream_error',
-        message: 'Provider response failed'
+        message: 'Provider response failed',
       }
     }
     if (incomplete && !this.error) {
       response.incomplete_details = {
-        reason: filtered ? 'content_filter' : 'max_output_tokens'
+        reason: filtered ? 'content_filter' : 'max_output_tokens',
       }
     }
     return {
       response,
-      events: [...events, this.event(`response.${response.status}`, { response })]
+      events: [...events, this.event(`response.${response.status}`, { response })],
     }
   }
 }

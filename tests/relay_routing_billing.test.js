@@ -87,7 +87,7 @@ describe('actual selected entry owns group multiplier and usage', () => {
 
   test('usage records retain bounded financial evidence independently of request-detail capture', async () => {
     const { redis } = await import('../src/infra/redis.js')
-    for (const name of ['incrementDailyCost', 'incrementTokenUsage', 'setApiKeyWithLastUsedIndex', 'addUsageRecord']) {
+    for (const name of ['incrementDailyCost', 'incrementTokenUsage', 'setApiKeyWithLastUsedIndex', 'touchApiKeyLastUsed', 'addUsageRecord']) {
       redis[name] = jest.fn().mockResolvedValue(true)
     }
     const capture = jest.spyOn(apiKeyService, '_captureRequestDetail').mockResolvedValue({ captured: false })

@@ -18,6 +18,7 @@ import * as groupPolicy from '../modules/account/account_group_policy.js'
 import crypto from 'node:crypto'
 import { env } from '../../config/env.js'
 import { sendAuthFail, sendError, resolveStatusCode } from '../common/http_result.js'
+import { requestResourcesConfig } from '../../config/request_resources.js'
 import { getRequestRouteFormat, getDefaultRouteFormat } from '../modules/relay/relay_routing_contract.js'
 import {
   resolveRequestRoute,
@@ -42,7 +43,7 @@ const stripQuery = (url) => {
 }
 
 // 管理端 SPA / 用户门户 / 支付用户 JSON 等套 { code, msg, data } 的路径
-const isManagementJsonPath = (req) => {
+export const isManagementJsonPath = (req) => {
   const path = stripQuery(req?.originalUrl || req?.url || '')
   if (path.startsWith('/admin')) {
     return true
@@ -568,7 +569,7 @@ export const authenticateApiKey = async (req, res, next) => {
       }
 
       // 验证通过
-      logger.api(
+      logger.debug(
         `Client validated: ${validationResult.clientName} (${validationResult.matchedClient}) for key: ${validation.keyData.id} (${validation.keyData.name})`,
       )
     }
@@ -610,7 +611,7 @@ export const authenticateApiKey = async (req, res, next) => {
               })
             }
 
-            logger.api(`Claude Code client validated (global: ${globalClaudeCodeOnly}, key: ${keyClaudeCodeOnly})`)
+            logger.debug(`Claude Code client validated (global: ${globalClaudeCodeOnly}, key: ${keyClaudeCodeOnly})`)
           }
         } catch (error) {
           logger.error('Error checking Claude Code restriction:', error)
@@ -681,7 +682,7 @@ export const authenticateApiKey = async (req, res, next) => {
       const currentConcurrency = await redis.incrConcurrency(validation.keyData.id, requestId, leaseSeconds)
       hasConcurrencySlot = true
       setTemporaryConcurrencyCleanup()
-      logger.api(
+      logger.debug(
         `Incremented concurrency for key: ${validation.keyData.id} (${validation.keyData.name}), current: ${currentConcurrency}, limit: ${concurrencyLimit}`,
       )
 
@@ -1020,7 +1021,7 @@ export const authenticateApiKey = async (req, res, next) => {
           }
           try {
             const newCount = await redis.decrConcurrency(validation.keyData.id, requestId)
-            logger.api(
+            logger.debug(
               `Decremented concurrency for key: ${validation.keyData.id} (${validation.keyData.name}), new count: ${newCount}`,
             )
           } catch (error) {
@@ -1037,13 +1038,13 @@ export const authenticateApiKey = async (req, res, next) => {
       // 监听最可靠的事件（避免重复监听）
       // res.on('close') 是最可靠的，会在连接关闭时触发
       res.once('close', () => {
-        logger.api(`Response closed for key: ${validation.keyData.id} (${validation.keyData.name})`)
+        logger.debug(`Response closed for key: ${validation.keyData.id} (${validation.keyData.name})`)
         decrementConcurrency()
       })
 
       // req.on('close') 作为备用，处理请求端断开
       req.once('close', () => {
-        logger.api(`Request closed for key: ${validation.keyData.id} (${validation.keyData.name})`)
+        logger.debug(`Request closed for key: ${validation.keyData.id} (${validation.keyData.name})`)
         decrementConcurrency()
       })
 
@@ -1064,7 +1065,7 @@ export const authenticateApiKey = async (req, res, next) => {
 
       // res.on('finish') 处理正常完成的情况
       res.once('finish', () => {
-        logger.api(`Response finished for key: ${validation.keyData.id} (${validation.keyData.name})`)
+        logger.debug(`Response finished for key: ${validation.keyData.id} (${validation.keyData.name})`)
         decrementConcurrency()
       })
 
@@ -1250,7 +1251,7 @@ export const authenticateApiKey = async (req, res, next) => {
       }
 
       // 记录当前费用使用情况
-      logger.api(
+      logger.debug(
         `Cost usage for key: ${validation.keyData.id} (${
           validation.keyData.name
         }), current: $${dailyCost.toFixed(2)}/$${dailyCostLimit}`,
@@ -1281,7 +1282,7 @@ export const authenticateApiKey = async (req, res, next) => {
         })
       }
 
-      logger.api(
+      logger.debug(
         `Total cost usage for key: ${validation.keyData.id} (${
           validation.keyData.name
         }), current: $${totalCost.toFixed(2)}/$${totalCostLimit}`,
@@ -1325,7 +1326,7 @@ export const authenticateApiKey = async (req, res, next) => {
         }
 
         // 记录当前 Claude 费用使用情况
-        logger.api(
+        logger.debug(
           `Claude weekly cost usage for key: ${validation.keyData.id} (${
             validation.keyData.name
           }), current: $${weeklyOpusCost.toFixed(2)}/$${weeklyOpusCostLimit}`,
@@ -1390,10 +1391,10 @@ export const authenticateApiKey = async (req, res, next) => {
 
     const authDuration = Date.now() - startTime
     const userAgent = req.headers['user-agent'] || 'No User-Agent'
-    logger.api(
+    logger.debug(
       `Authenticated request from key: ${validation.keyData.name} (${validation.keyData.id}) in ${authDuration}ms`,
     )
-    logger.api(`User-Agent: "${userAgent}"`)
+    logger.debug(`User-Agent: "${userAgent}"`)
 
     finishRequestTiming(req, 'authentication')
     if (discoveryRoutes.length > 0) {
@@ -1802,18 +1803,7 @@ export const requestLogger = (req, res, next) => {
   if (!res._firstTokenTimerAttached) {
     res._firstTokenTimerAttached = true
     const originalWrite = res.write.bind(res)
-    const looksLikeContentChunk = (chunk) => {
-      if (chunk === null || chunk === undefined) {
-        return false
-      }
-      const text =
-        typeof chunk === 'string'
-          ? chunk
-          : Buffer.isBuffer(chunk)
-            ? chunk.toString('utf8')
-            : chunk && typeof chunk === 'object' && typeof chunk.length === 'number'
-              ? Buffer.from(chunk).toString('utf8')
-              : ''
+    const looksLikeContentText = (text) => {
       if (!text || !text.trim()) {
         return false
       }
@@ -1854,14 +1844,18 @@ export const requestLogger = (req, res, next) => {
       return true
     }
     res.write = (chunk, encoding, callback) => {
-      if (req.firstTokenAt === null && looksLikeContentChunk(chunk)) {
+      const text = typeof chunk === 'string' ? chunk : Buffer.isBuffer(chunk) ? chunk.toString('utf8') : ''
+      const contentText =
+        !text && chunk && typeof chunk === 'object' && typeof chunk.length === 'number'
+          ? Buffer.from(chunk).toString('utf8')
+          : text
+      if (req.firstTokenAt === null && looksLikeContentText(contentText)) {
         req.firstTokenAt = Date.now()
         req.firstTokenMs = Math.max(0, req.firstTokenAt - start)
       }
       // 流式失败摘要：截获含 error 的 SSE；优先保留带 message/details 的更完整片段
       // DEC_20260905_100000 避免只截到 event: error 头
       try {
-        const text = typeof chunk === 'string' ? chunk : Buffer.isBuffer(chunk) ? chunk.toString('utf8') : ''
         if (
           text &&
           (text.includes('"error"') ||
@@ -1880,7 +1874,7 @@ export const requestLogger = (req, res, next) => {
             prevText.trim() === 'event: error' ||
             (!prevText.includes('"message"') && !prevText.includes('details'))
           if (!prevText || (richer && prevThin) || text.length > prevText.length) {
-            res._responseBody = text.length > 2000 ? text.slice(0, 2000) : text
+            res._responseBody = httpAccessLog.copyLogSnippet(text)
           }
         }
       } catch (e) {
@@ -1912,14 +1906,21 @@ export const requestLogger = (req, res, next) => {
     return originalJson(body)
   }
 
-  res.on('finish', () => {
+  let logged = false
+  let responseEndedAt = null
+  let clientDisconnected = false
+  const logRequest = () => {
+    if (logged || responseEndedAt === null) {
+      return
+    }
+    logged = true
     if (req.originalUrl === '/health') {
       return
     }
-    const duration = Date.now() - start
+    const duration = responseEndedAt - start
     finishRequestTiming(req, 'authentication')
     const contentLength = res.get('Content-Length') || '0'
-    const status = res.statusCode
+    const status = clientDisconnected && !res.headersSent ? 499 : res.statusCode
 
     const queryIdx = req.originalUrl.indexOf('?')
     const pathOnly = queryIdx > -1 ? req.originalUrl.substring(0, queryIdx) : req.originalUrl
@@ -1941,6 +1942,23 @@ export const requestLogger = (req, res, next) => {
       responseBody: res._responseBody,
       query,
     })
+    const usage = req._crsUsageSummary
+    const result = req._crsRelayResult
+    const relayMeta = {
+      model: usage?.model ?? req._crsRequestedModel ?? req.body?.model,
+      accountId: usage?.accountId ?? req._crsAccountId,
+      accountType: usage?.accountType ?? req._crsAccountType,
+      accountName: req._crsAccountName,
+      protocolTerminal: usage?.protocolTerminal ?? req._crsProtocolTerminal,
+      ...(usage ? { usage } : {}),
+      ...(result ? { relayStatusCode: result.statusCode, errorCode: result.errorCode } : {}),
+      ...(clientDisconnected ? { clientDisconnected: true, drainDurationMs: Date.now() - responseEndedAt } : {}),
+    }
+    Object.assign(payload.consoleMeta, relayMeta)
+    Object.assign(payload.fileMeta, relayMeta)
+    if ((clientDisconnected || result?.statusCode >= 400) && status < 400) {
+      payload.level = 'warn'
+    }
 
     // consoleMeta 给控制台树；file 侧 winston 同一 meta 用摘要后的 fileMeta 合并
     // logger 约定：第二参 meta 同时进 console/file；用摘要后的 console 友好结构，避免不可读 dump
@@ -1951,7 +1969,7 @@ export const requestLogger = (req, res, next) => {
       _file: payload.fileMeta,
       // 控制台主行彩色（文件仍用 payload.message 纯文本）
       _coloredMessage: payload.coloredMessage,
-      _accessMetaLines: httpAccessLog.formatAccessConsoleLines(payload),
+      _accessMetaLines: () => httpAccessLog.formatAccessConsoleLines(payload),
     }
 
     if (isDebugRoute) {
@@ -1995,6 +2013,25 @@ export const requestLogger = (req, res, next) => {
         .catch((error) => {
           console.error(error)
         })
+    }
+  }
+  req._crsFinalizeRequestLog = logRequest
+  let finished = false
+  res.once('finish', () => {
+    finished = true
+    responseEndedAt ??= Date.now()
+    if (!req._crsRequestResourcesActive) {
+      logRequest()
+    }
+  })
+  res.once('close', () => {
+    if (finished) {
+      return
+    }
+    clientDisconnected = true
+    responseEndedAt ??= Date.now()
+    if (!req._crsRequestResourcesActive) {
+      logRequest()
     }
   })
 
@@ -2238,8 +2275,8 @@ export const globalRateLimit = async (req, res, next) =>
 
 // 请求大小限制中间件
 export const requestSizeLimit = (req, res, next) => {
-  const MAX_SIZE_MB = parseInt(env.REQUEST_MAX_SIZE_MB || '100', 10)
-  const maxSize = MAX_SIZE_MB * 1024 * 1024
+  const maxSize = requestResourcesConfig.maxBodyBytes
+  const MAX_SIZE_MB = maxSize / 1024 / 1024
   const contentLength = parseInt(req.headers['content-length'] || '0')
 
   if (contentLength > maxSize) {

@@ -37,7 +37,6 @@ const mocks = {
   '../src/modules/relay/relay_unified_gemini_scheduler.js': {
     unifiedGeminiScheduler: { selectAccountForApiKey: async () => ({ accountId: account.id }) },
   },
-  '../src/modules/relay/relay_gemini_relay_service.js': { getAvailableModels: () => [] },
   '../src/modules/apikey/apikey_service.js': { apiKeyService: { hasPermission: () => true, recordUsage } },
   '../src/modules/relay/relay_antigravity_client.js': { ensureAntigravityProjectId: () => 'fixture-project' },
   '../src/modules/relay/relay_request_detail_service.js': {

@@ -186,7 +186,7 @@ class UnifiedClaudeScheduler {
         // 检查是否是分组
         if (apiKeyData.claudeAccountId.startsWith('group:')) {
           const groupId = apiKeyData.claudeAccountId.replace('group:', '')
-          logger.info(`API key ${apiKeyData.name} is bound to group ${groupId}, selecting from group`)
+          logger.debug(`API key ${apiKeyData.name} is bound to group ${groupId}, selecting from group`)
           return await this.selectAccountFromGroup(groupId, sessionHash, effectiveModel, {
             allowCcr: vendor === 'ccr',
             isClaudeCode: apiKeyData?._isClaudeCode === true,
@@ -204,7 +204,7 @@ class UnifiedClaudeScheduler {
           boundAccount &&
           (await this._isAccountAvailable(apiKeyData.claudeAccountId, 'claude-official', effectiveModel))
         ) {
-          logger.info(
+          logger.debug(
             `Using bound dedicated Claude OAuth account: ${boundAccount.name} (${apiKeyData.claudeAccountId}) for API key ${apiKeyData.name}`,
           )
           return {
@@ -275,7 +275,7 @@ class UnifiedClaudeScheduler {
           boundConsoleAccount &&
           (await this._isAccountAvailable(apiKeyData.claudeConsoleAccountId, 'claude-console', effectiveModel))
         ) {
-          logger.info(
+          logger.debug(
             `Using bound dedicated Claude Console account: ${boundConsoleAccount.name} (${apiKeyData.claudeConsoleAccountId}) for API key ${apiKeyData.name}`,
           )
           return {
@@ -297,7 +297,7 @@ class UnifiedClaudeScheduler {
           boundBedrockAccountResult.success &&
           (await this._isAccountAvailable(apiKeyData.bedrockAccountId, 'bedrock', effectiveModel))
         ) {
-          logger.info(
+          logger.debug(
             `Using bound dedicated Bedrock account: ${boundBedrockAccountResult.data.name} (${apiKeyData.bedrockAccountId}) for API key ${apiKeyData.name}`,
           )
           return {
@@ -331,7 +331,7 @@ class UnifiedClaudeScheduler {
             if (isAvailable) {
               // 智能会话续期：剩余时间少于14天时自动续期到15天（续期正确的 unified 映射键）
               await this._extendSessionMappingTTL(sessionHash)
-              logger.info(
+              logger.debug(
                 `Using sticky session account: ${mappedAccount.accountId} (${mappedAccount.accountType}) for session ${sessionHash}`,
               )
               return mappedAccount
@@ -377,7 +377,7 @@ class UnifiedClaudeScheduler {
         )
       }
 
-      logger.info(
+      logger.debug(
         `Selected account: ${selectedAccount.name} (${selectedAccount.accountId}, ${selectedAccount.accountType}) with priority ${selectedAccount.priority} for API key ${apiKeyData.name}`,
       )
 
@@ -409,7 +409,7 @@ class UnifiedClaudeScheduler {
         boundAccount &&
         (await this._isAccountAvailable(apiKeyData.claudeAccountId, 'claude-official', requestedModel))
       ) {
-        logger.info(`Using bound dedicated Claude OAuth account: ${boundAccount.name} (${apiKeyData.claudeAccountId})`)
+        logger.debug(`Using bound dedicated Claude OAuth account: ${boundAccount.name} (${apiKeyData.claudeAccountId})`)
         return [
           {
             ...boundAccount,
@@ -447,7 +447,7 @@ class UnifiedClaudeScheduler {
         boundConsoleAccount &&
         (await this._isAccountAvailable(apiKeyData.claudeConsoleAccountId, 'claude-console', requestedModel))
       ) {
-        logger.info(
+        logger.debug(
           `Using bound dedicated Claude Console account: ${boundConsoleAccount.name} (${apiKeyData.claudeConsoleAccountId})`,
         )
         return [
@@ -474,7 +474,7 @@ class UnifiedClaudeScheduler {
         boundBedrockAccountResult.success &&
         (await this._isAccountAvailable(apiKeyData.bedrockAccountId, 'bedrock', requestedModel))
       ) {
-        logger.info(
+        logger.debug(
           `Using bound dedicated Bedrock account: ${boundBedrockAccountResult.data.name} (${apiKeyData.bedrockAccountId})`,
         )
         return [
@@ -1339,7 +1339,7 @@ class UnifiedClaudeScheduler {
         throw new Error(`Group ${groupId} not found`)
       }
 
-      logger.info(`Selecting account from group: ${group.name} (${group.platform})`)
+      logger.debug(`Selecting account from group: ${group.name} (${group.platform})`)
 
       // 分组硬门：白名单 / ClaudeCodeOnly / RPM / 日周月额度
       // hold 成功时挂到 holdTarget（apiKeyData/req.apiKey），失败 once-release，成功留给计费/中间件
@@ -1387,7 +1387,7 @@ class UnifiedClaudeScheduler {
               if (isAvailable) {
                 // 智能会话续期：续期 unified 映射键
                 await this._extendSessionMappingTTL(sessionHash)
-                logger.info(
+                logger.debug(
                   `Using sticky session account from group: ${mappedAccount.accountId} (${mappedAccount.accountType}) for session ${sessionHash}`,
                 )
                 return mappedAccount
@@ -1485,7 +1485,7 @@ class UnifiedClaudeScheduler {
         )
       }
 
-      logger.info(
+      logger.debug(
         `Selected account from group ${group.name}: ${selectedAccount.name} (${selectedAccount.accountId}, ${selectedAccount.accountType}) with priority ${selectedAccount.priority}`,
       )
 
@@ -1522,7 +1522,7 @@ class UnifiedClaudeScheduler {
           if (isAvailable) {
             // 智能会话续期：续期 unified 映射键
             await this._extendSessionMappingTTL(sessionHash)
-            logger.info(`Using sticky CCR session account: ${mappedAccount.accountId} for session ${sessionHash}`)
+            logger.debug(`Using sticky CCR session account: ${mappedAccount.accountId} for session ${sessionHash}`)
             return mappedAccount
           } else {
             logger.warn(`Mapped CCR account ${mappedAccount.accountId} is no longer available, selecting new account`)
@@ -1556,7 +1556,7 @@ class UnifiedClaudeScheduler {
         )
       }
 
-      logger.info(
+      logger.debug(
         `Selected CCR account: ${selectedAccount.name} (${selectedAccount.accountId}) with priority ${selectedAccount.priority} for API key ${apiKeyData.name}`,
       )
 

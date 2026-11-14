@@ -78,7 +78,7 @@ export class ClientValidator {
     const requestPath = req.originalUrl || req.path || ''
 
     // 记录验证开始
-    logger.api(`Starting client validation for User-Agent: "${userAgent}"`)
+    logger.debug(`Starting client validation for User-Agent: "${userAgent}"`)
     logger.api(`Allowed clients: ${allowedClients.join(', ')}`)
     logger.api(`Request path: ${requestPath}`)
     logger.api(`Request from IP: ${clientIP}`)
@@ -104,7 +104,7 @@ export class ClientValidator {
         if (validator.validate(req)) {
           // 验证成功
           logger.api(`Client validated: ${validator.getName()} (${clientId})`)
-          logger.api(`Matched User-Agent: "${userAgent}"`)
+          logger.debug(`Matched User-Agent: "${userAgent}"`)
           logger.api(`Allowed path: "${requestPath}"`)
 
           return {

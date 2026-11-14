@@ -1581,6 +1581,7 @@ export const generateContent = async (
   projectId = null,
   sessionId = null,
   proxyConfig = null,
+  signal = null,
 ) => {
   const CODE_ASSIST_ENDPOINT = 'https://cloudcode-pa.googleapis.com'
   const CODE_ASSIST_API_VERSION = 'v1internal'
@@ -1612,6 +1613,7 @@ export const generateContent = async (
     },
     data: request,
     timeout: 600000, // 生成内容可能需要更长时间
+    signal,
   }
 
   // 添加代理配置
@@ -1641,6 +1643,7 @@ export const generateContentAntigravity = async (
   projectId = null,
   sessionId = null,
   proxyConfig = null,
+  signal = null,
 ) => {
   const { token } = await client.getAccessToken()
   const { model } = antigravityClient.buildAntigravityEnvelope({
@@ -1663,6 +1666,7 @@ export const generateContentAntigravity = async (
     projectId,
     sessionId,
     stream: false,
+    signal,
   })
   logger.info('Antigravity generateContent API调用成功')
   return response.data

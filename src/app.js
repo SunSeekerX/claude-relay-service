@@ -9,6 +9,8 @@ import compression from 'compression'
 import bcrypt from 'bcryptjs'
 
 import { config } from '../config/config.js'
+import { requestResourcesConfig } from '../config/request_resources.js'
+import { relayRequestResourcesService } from './modules/relay/relay_request_resources_service.js'
 import packageJson from '../package.json' with { type: 'json' }
 import { logger } from './common/logger.js'
 import { redis } from './infra/redis.js'
@@ -42,7 +44,8 @@ import { router as paymentWebhookRoutes } from './modules/payment/payment_webhoo
 import { createOfficialAliasRouter } from './modules/relay/relay_official_aliases_routes.js'
 import { initPaymentProviders } from './modules/payment/payment_providers.js'
 import { browserFallbackMiddleware } from './infra/middleware_browser_fallback.js'
-import { requestDecompress } from './infra/middleware_request_decompress.js'
+import { createRequestBodyParser } from './infra/middleware_request_decompress.js'
+import { verifyJsonBody } from './common/json_body.js'
 import { formatStartupSummary } from './common/startup_banner.js'
 import { accountBalanceService } from './modules/account/account_balance_service.js'
 import { registerAllProviders } from './modules/payment/payment_balance_providers.js'
@@ -90,6 +93,7 @@ export class Application {
   constructor() {
     this.app = express()
     this.server = null
+    this.requestResources = relayRequestResourcesService.budget
   }
 
   async initialize() {
@@ -201,6 +205,7 @@ export class Application {
 
       // 初始化代理池（冷加载 L1 + Pub/Sub 订阅 + 统计写回）
       logger.startupStage('[6/7] 代理、路由与后台任务')
+      await relayRequestResourcesService.start()
       try {
         await proxyPoolService.start()
       } catch (error) {
@@ -272,11 +277,17 @@ export class Application {
       initPaymentProviders()
       this.app.use('/payment/webhook', express.raw({ type: '*/*', limit: '2mb' }), paymentWebhookRoutes)
 
-      // 请求体解压：body-parser 只认 identity/gzip/deflate，zstd/br 需在其之前解开（Codex CLI 默认发 zstd）
-      this.app.use(requestDecompress)
+      this.app.use((req, res, next) =>
+        authMod.isManagementJsonPath(req) ? next() : this.requestResources.middleware(req, res, next),
+      )
 
       // Realtime/Live 建连可能是 application/sdp 或 multipart，不能走 json 解析
       // Audio transcriptions/translations 的 multipart 文件也必须保留原始 body 才能透传上游
+      const parseRawRequestBody = createRequestBodyParser(express.raw, {
+        type: () => true,
+        limit: requestResourcesConfig.maxBodyBytes,
+        verify: (request, _response, buffer) => request._crsRecordRequestBodyBytes?.(buffer.length),
+      })
       this.app.use((req, res, next) => {
         const requestPath = req.path || ''
         const contentType = String(req.headers['content-type'] || '')
@@ -296,7 +307,7 @@ export class Application {
         if (!isRealtimeCreate && !isAudioMultipart) {
           return next()
         }
-        return express.raw({ type: () => true, limit: '100mb' })(req, res, (err) => {
+        return parseRawRequestBody(req, res, (err) => {
           if (err) {
             return next(err)
           }
@@ -330,17 +341,28 @@ export class Application {
 
       // 基础中间件
       this.app.use(
-        express.json({
-          limit: '100mb',
-          verify: (req, res, buf, encoding) => {
-            // 验证JSON格式
-            if (buf && buf.length && !buf.toString(encoding || 'utf8').trim()) {
-              throw new Error('Invalid JSON: empty body')
-            }
-          },
+        createRequestBodyParser(express.json, {
+          type: 'application/json',
+          limit: requestResourcesConfig.maxBodyBytes,
+          verify: verifyJsonBody,
         }),
       )
-      this.app.use(express.urlencoded({ extended: true, limit: '100mb' }))
+      this.app.use(
+        createRequestBodyParser(express.urlencoded, {
+          type: 'application/x-www-form-urlencoded',
+          extended: true,
+          limit: requestResourcesConfig.maxBodyBytes,
+          verify: (request, _response, buffer) => request._crsRecordRequestBodyBytes?.(buffer.length),
+        }),
+      )
+      this.app.use((req, _res, next) => {
+        req._crsReleaseRequestBodyProcessing?.()
+        next()
+      })
+      this.app.use((error, req, _res, next) => {
+        req._crsReleaseRequestBodyProcessing?.()
+        next(error)
+      })
       this.app.use(authMod.securityMiddleware)
 
       // 请求明细在启用时保存完整 JSON 响应快照；敏感字段由 request_detail_helper 统一脱敏。
@@ -523,6 +545,7 @@ export class Application {
             version,
             timestamp: new Date().toISOString(),
             uptime: process.uptime(),
+            requestResources: this.requestResources.status(),
             memory: {
               used: `${Math.round(memory.heapUsed / 1024 / 1024)}MB`,
               total: `${Math.round(memory.heapTotal / 1024 / 1024)}MB`,
@@ -1602,6 +1625,7 @@ export class Application {
 
           // 停止代理池服务
           try {
+            relayRequestResourcesService.stop()
             proxyHealthService.stop()
             proxyPoolService.stop()
             logger.info('Proxy pool services stopped')

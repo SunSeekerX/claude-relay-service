@@ -17,24 +17,25 @@ const hiddenKeys = new Set([
   'msg',
 ])
 const singleLine = (value) => String(value).replace(/[\r\n\t]+/g, ' ')
-const identityKeys = ['requestId', 'model', 'accountId', 'routeCode']
+const identityKeys = ['requestId', 'model', 'accountId', 'routeCode', 'protocolTerminal']
 
 export const formatConsoleEntry = (info, { detailed = false } = {}) => {
   const level = String(info.level).toUpperCase()
   const color = info.level === 'error' ? chalk.red : info.level === 'warn' ? chalk.yellow : chalk.cyan
   const prefix = `${chalk.gray(info.timestamp)} ${color(level.padEnd(5))}`
-  const metadata = Object.entries(info).filter(([key]) => !hiddenKeys.has(key) && !key.startsWith('_'))
   const expanded = detailed || ['warn', 'error'].includes(info.level)
   const message =
     info.type === 'startup-summary' ? String(info.message) : singleLine(info._coloredMessage ?? info.message)
   let output = `${prefix} ${message}`
   if (expanded) {
-    const lines = Array.isArray(info._accessMetaLines)
-      ? info._accessMetaLines
-      : metadata.map(
-          ([key, value]) =>
-            `${key}: ${value instanceof Error ? (value.stack ?? value.message) : formatMetaValueForConsole(value)}`,
-        )
+    const lines = info._accessMetaLines
+      ? info._accessMetaLines()
+      : Object.entries(info)
+          .filter(([key]) => !hiddenKeys.has(key) && !key.startsWith('_'))
+          .map(
+            ([key, value]) =>
+              `${key}: ${value instanceof Error ? (value.stack ?? value.message) : formatMetaValueForConsole(value)}`,
+          )
     for (const line of lines) {
       output += `\n  ${line}`
     }
@@ -43,6 +44,12 @@ export const formatConsoleEntry = (info, { detailed = false } = {}) => {
     const labels = identityKeys
       .filter((key) => identity[key] !== undefined && identity[key] !== null)
       .map((key) => `${key}=${singleLine(identity[key])}`)
+    if (identity.usage) {
+      labels.push(`tokens=${identity.usage.totalTokens}`, `cost=$${identity.usage.cost}`)
+    }
+    if (identity.clientDisconnected) {
+      labels.push('client=disconnected')
+    }
     if (labels.length) {
       output += ` | ${labels.join(' ')}`
     }

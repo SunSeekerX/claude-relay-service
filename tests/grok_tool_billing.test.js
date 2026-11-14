@@ -12,6 +12,7 @@ const redis = {
   incrementAccountUsage: jest.fn(),
   addUsageRecord: jest.fn(),
   setApiKeyWithLastUsedIndex: jest.fn(),
+  touchApiKeyLastUsed: jest.fn(),
   getClientSafe: () => ({ xadd: publish }),
 }
 const publish = jest.fn().mockResolvedValue('1-0')

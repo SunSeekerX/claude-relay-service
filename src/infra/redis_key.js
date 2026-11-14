@@ -439,6 +439,10 @@ export const RedisKeys = {
   // === 计费事件流 ===
   billingEvents: 'billing:events', // Stream
   relayConfig: 'claude_relay_config', // String(JSON): Claude relay 全局配置
+  relayRequestResources: {
+    config: 'relay:request_resources:config', // Hash: 实例转发容量配置和递增版本
+    changedChannel: 'relay:request_resources:changed',
+  },
   testModelConfig: 'test_model_config', // String(JSON): 连通性测试默认模型配置
   testPromptConfig: 'test_prompt_config', // String(JSON): 访问测试题库,持久配置不设 TTL
   // String(JSON): 模型定价数据源(管理端可改,空/缺失回落 config/pricingSource.js)

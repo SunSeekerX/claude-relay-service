@@ -311,7 +311,7 @@ class UnifiedOpenAIScheduler {
         // 检查是否是分组
         if (apiKeyData.openaiAccountId.startsWith('group:')) {
           const groupId = apiKeyData.openaiAccountId.replace('group:', '')
-          logger.info(`API key ${apiKeyData.name} is bound to group ${groupId}, selecting from group`)
+          logger.debug(`API key ${apiKeyData.name} is bound to group ${groupId}, selecting from group`)
           return await this.selectAccountFromGroup(groupId, sessionHash, requestedModel, apiKeyData, options)
         }
 
@@ -440,7 +440,7 @@ class UnifiedOpenAIScheduler {
               throw error
             }
 
-            logger.info(
+            logger.debug(
               `Using bound dedicated ${accountType} account: ${boundAccount.name} (${boundAccount.id}) for API key ${apiKeyData.name}`,
             )
             // 更新账户的最后使用时间
@@ -484,7 +484,7 @@ class UnifiedOpenAIScheduler {
           if (isAvailable) {
             // 智能会话续期（续期 unified 映射键，按配置）
             await this._extendSessionMappingTTL(sessionHash)
-            logger.info(
+            logger.debug(
               `Using sticky session account: ${mappedAccount.accountId} (${mappedAccount.accountType}) for session ${sessionHash}`,
             )
             // 更新账户的最后使用时间
@@ -527,7 +527,7 @@ class UnifiedOpenAIScheduler {
         )
       }
 
-      logger.info(
+      logger.debug(
         `Selected account: ${selectedAccount.name} (${selectedAccount.accountId}, ${selectedAccount.accountType}, priority: ${selectedAccount.priority || 50}) for API key ${apiKeyData.name}`,
       )
 
@@ -1069,7 +1069,7 @@ class UnifiedOpenAIScheduler {
         throw error
       }
 
-      logger.info(`Selecting account from OpenAI group: ${group.name}`)
+      logger.debug(`Selecting account from OpenAI group: ${group.name}`)
 
       let groupCostHoldReleased = false
       releaseGroupCostHoldOnce = async () => {
@@ -1110,7 +1110,7 @@ class UnifiedOpenAIScheduler {
             if (isAvailable) {
               // 智能会话续期（续期 unified 映射键，按配置）
               await this._extendSessionMappingTTL(sessionHash)
-              logger.info(
+              logger.debug(
                 `Using sticky session account from group: ${mappedAccount.accountId} (${mappedAccount.accountType})`,
               )
               // 更新账户的最后使用时间
@@ -1178,7 +1178,7 @@ class UnifiedOpenAIScheduler {
         )
       }
 
-      logger.info(
+      logger.debug(
         `Selected account from group: ${selectedAccount.name} (${selectedAccount.accountId}, ${selectedAccount.accountType}, priority: ${selectedAccount.priority || 50})`,
       )
 

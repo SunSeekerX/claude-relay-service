@@ -66,6 +66,7 @@ class ClaudeConsoleRelayService {
 
   // 转发请求到Claude Console API
   async relayRequest(requestBody, apiKeyData, clientRequest, clientResponse, clientHeaders, accountId, options = {}) {
+    const releaseRequestResources = clientRequest?._crsRetainRequestResources?.()
     let abortController = null
     let detachClientDisconnect = () => {}
     let account = null
@@ -142,7 +143,7 @@ class ClaudeConsoleRelayService {
 
       const autoProtectionDisabled = account.disableAutoProtection === true
 
-      logger.info(
+      logger.debug(
         `Processing Claude Console API request for key: ${apiKeyData.name || apiKeyData.id}, account: ${account.name} (${accountId}), request: ${requestId}`,
       )
 
@@ -186,7 +187,7 @@ class ClaudeConsoleRelayService {
       ) {
         const newModel = claudeConsoleAccountService.getMappedModel(account.supportedModels, requestBody.model)
         if (newModel !== requestBody.model) {
-          logger.info(`Mapping model from ${requestBody.model} to ${newModel}`)
+          logger.debug(`Mapping model from ${requestBody.model} to ${newModel}`)
           mappedModel = newModel
         }
       }
@@ -524,6 +525,7 @@ class ClaudeConsoleRelayService {
           logger.error(`Failed to release user message queue lock for account ${accountId}:`, releaseError.message)
         }
       }
+      releaseRequestResources?.()
     }
   }
 
@@ -545,6 +547,7 @@ class ClaudeConsoleRelayService {
     let queueLockAcquired = false
     let queueRequestId = null
     let proxyResolution = null
+    const releaseRequestResources = responseStream.req?._crsRetainRequestResources?.()
 
     try {
       // 用户消息队列处理：如果是用户消息请求，需要获取队列锁
@@ -610,7 +613,7 @@ class ClaudeConsoleRelayService {
         throw new Error('Claude Console Claude account not found')
       }
 
-      logger.info(
+      logger.debug(
         `Processing streaming Claude Console API request for key: ${apiKeyData.name || apiKeyData.id}, account: ${account.name} (${accountId}), request: ${requestId}`,
       )
 
@@ -670,7 +673,7 @@ class ClaudeConsoleRelayService {
       ) {
         const newModel = claudeConsoleAccountService.getMappedModel(account.supportedModels, requestBody.model)
         if (newModel !== requestBody.model) {
-          logger.info(`[Stream] Mapping model from ${requestBody.model} to ${newModel}`)
+          logger.debug(`[Stream] Mapping model from ${requestBody.model} to ${newModel}`)
           mappedModel = newModel
         }
       }
@@ -727,7 +730,7 @@ class ClaudeConsoleRelayService {
     } catch (error) {
       // 客户端断开导致的主动 abort 不是代理/上游故障，先拦截再 report，否则会污染代理健康与错误日志
       if (error.message === 'Client disconnected') {
-        logger.info(`Claude Console stream relay ended: Client disconnected (Account: ${account?.name || accountId})`)
+        logger.debug(`Claude Console stream relay ended: Client disconnected (Account: ${account?.name || accountId})`)
         throw error
       }
       // 被动健康检查：上报连接级故障（客户端断开/上游响应由 classifyBusinessTraffic 区分，不误熔断）
@@ -776,6 +779,7 @@ class ClaudeConsoleRelayService {
           )
         }
       }
+      releaseRequestResources?.()
     }
   }
 

@@ -73,6 +73,10 @@
             v-if="visitedSections.claude"
             v-show="activeSection === 'claude'"
           />
+          <RequestResourcesSettingsSection
+            v-if="visitedSections.requestResources"
+            v-show="activeSection === 'requestResources'"
+          />
           <ServiceRatesSettingsSection
             v-if="visitedSections.serviceRates"
             v-show="activeSection === 'serviceRates'"
@@ -117,6 +121,7 @@ import { useSettingsStore } from '@/stores/settings'
 import BrandingSettingsSection from '@/components/settings/branding_settings_section.vue'
 import WebhookSettingsSection from '@/components/settings/webhook_settings_section.vue'
 import ClaudeSettingsSection from '@/components/settings/claude_settings_section.vue'
+import RequestResourcesSettingsSection from '@/components/settings/request_resources_settings_section.vue'
 import ServiceRatesSettingsSection from '@/components/settings/service_rates_settings_section.vue'
 import GrokMediaPricingSection from '@/components/settings/grok_media_pricing_section.vue'
 import TestModelsSettingsSection from '@/components/settings/test_models_settings_section.vue'
@@ -148,6 +153,7 @@ const sectionGroups = [
     label: '转发与协议',
     tabs: [
       { key: 'claude', label: '转发配置', icon: 'i-lucide-bot', hint: '客户端限制、会话绑定、请求明细与错误收集' },
+      { key: 'requestResources', label: '实例资源保护', icon: 'i-lucide-shield-check', hint: '在途请求数量和请求体总预算，默认不限制' },
       { key: 'protocol', label: '协议转换', icon: 'i-lucide-git-branch', hint: '跨协议转换注册表与桥接说明' },
       { key: 'tokenizers', label: '词表管理', icon: 'i-lucide-book-open', hint: '词表下载、更新应用、启停与模型规则' }
     ]

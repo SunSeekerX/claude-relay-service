@@ -134,7 +134,7 @@ class UnifiedGeminiScheduler {
             this._isGeminiModelSupported(boundAccount, requestedModel)
           if (usable) {
             assertPinned(accountId)
-            logger.info(
+            logger.debug(
               `Using bound Gemini-API account: ${boundAccount.name} (${accountId}) for API key ${apiKeyData.name}`,
             )
             // 更新账户的最后使用时间
@@ -152,7 +152,7 @@ class UnifiedGeminiScheduler {
         // 检查是否是分组
         else if (apiKeyData.geminiAccountId.startsWith('group:')) {
           const groupId = apiKeyData.geminiAccountId.replace('group:', '')
-          logger.info(`API key ${apiKeyData.name} is bound to group ${groupId}, selecting from group`)
+          logger.debug(`API key ${apiKeyData.name} is bound to group ${groupId}, selecting from group`)
           return await this.selectAccountFromGroup(groupId, sessionHash, requestedModel, apiKeyData, { allowApiAccounts, preferApiAccounts, pinnedAccountId, oauthProvider: normalizedOauthProvider })
         }
         // 普通 Gemini OAuth 专属账户
@@ -170,7 +170,7 @@ class UnifiedGeminiScheduler {
             this._isGeminiModelSupported(boundAccount, requestedModel)
           if (usable) {
             assertPinned(apiKeyData.geminiAccountId)
-            logger.info(
+            logger.debug(
               `Using bound dedicated Gemini account: ${boundAccount.name} (${apiKeyData.geminiAccountId}) for API key ${apiKeyData.name}`,
             )
             // 更新账户的最后使用时间
@@ -198,7 +198,7 @@ class UnifiedGeminiScheduler {
           if (isAvailable) {
             // 智能会话续期（续期 unified 映射键，按配置）
             await this._extendSessionMappingTTL(sessionHash, normalizedOauthProvider)
-            logger.info(
+            logger.debug(
               `Using sticky session account: ${mappedAccount.accountId} (${mappedAccount.accountType}) for session ${sessionHash}`,
             )
             // 更新账户的最后使用时间（根据账户类型调用正确的服务）
@@ -251,7 +251,7 @@ class UnifiedGeminiScheduler {
         )
       }
 
-      logger.info(
+      logger.debug(
         `Selected account: ${selectedAccount.name} (${selectedAccount.accountId}, ${selectedAccount.accountType}) with priority ${selectedAccount.priority} for API key ${apiKeyData.name}`,
       )
 
@@ -295,7 +295,7 @@ class UnifiedGeminiScheduler {
           (await this._isAccountAvailable(accountId, 'gemini-api')) &&
           this._isGeminiModelSupported(boundAccount, requestedModel)
         if (usable) {
-          logger.info(`Using bound Gemini-API account: ${boundAccount.name} (${accountId})`)
+          logger.debug(`Using bound Gemini-API account: ${boundAccount.name} (${accountId})`)
           return [
             {
               ...boundAccount,
@@ -326,7 +326,7 @@ class UnifiedGeminiScheduler {
           (await this._isAccountAvailable(apiKeyData.geminiAccountId, 'gemini')) &&
           this._isGeminiModelSupported(boundAccount, requestedModel)
         if (usable) {
-          logger.info(`Using bound dedicated Gemini account: ${boundAccount.name} (${apiKeyData.geminiAccountId})`)
+          logger.debug(`Using bound dedicated Gemini account: ${boundAccount.name} (${apiKeyData.geminiAccountId})`)
           return [
             {
               ...boundAccount,
@@ -712,7 +712,7 @@ class UnifiedGeminiScheduler {
         throw new Error(`Group ${group.name} is not a Gemini/Antigravity group`)
       }
 
-      logger.info(`Selecting account from Gemini group: ${group.name} (${group.platform})`)
+      logger.debug(`Selecting account from Gemini group: ${group.name} (${group.platform})`)
 
       let groupCostHoldReleased = false
       releaseGroupCostHoldOnce = async () => {
@@ -752,7 +752,7 @@ class UnifiedGeminiScheduler {
             if (isAvailable) {
               // 智能会话续期（续期 unified 映射键，按配置）
               await this._extendSessionMappingTTL(sessionHash)
-              logger.info(
+              logger.debug(
                 `Using sticky session account from group: ${mappedAccount.accountId} (${mappedAccount.accountType}) for session ${sessionHash}`,
               )
               // 更新账户的最后使用时间（根据账户类型调用正确的服务）
@@ -831,7 +831,7 @@ class UnifiedGeminiScheduler {
         )
       }
 
-      logger.info(
+      logger.debug(
         `Selected account from Gemini group ${group.name}: ${selectedAccount.name} (${selectedAccount.accountId}, ${selectedAccount.accountType}) with priority ${selectedAccount.priority}`,
       )
 

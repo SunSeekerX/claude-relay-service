@@ -108,7 +108,7 @@ test('successful requests have one line and request ID; warnings retain context 
     level: 'info',
     message: '200 GET /apiStats/models 5ms 300B',
     _file: { requestId: 'request-1', model: 'model-a' },
-    _accessMetaLines: ['request body'],
+    _accessMetaLines: () => ['request body'],
   }
   const line = formatConsoleEntry(info)
   assert.equal(line.split('\n').length, 1)

@@ -152,7 +152,7 @@ const normalizeGpt5ModelForCodex = (body = {}) => {
   const compatibleModel = getCodexCompatibleModel(requestedModel)
 
   if (compatibleModel !== requestedModel) {
-    logger.info(`Model ${requestedModel} detected, normalizing to gpt-5 for Codex API`)
+    logger.debug(`Model ${requestedModel} detected, normalizing to gpt-5 for Codex API`)
     body.model = compatibleModel
   }
 
@@ -212,10 +212,10 @@ const applyRateLimitTracking = async (
     )
 
     if (totalTokens > 0) {
-      logger.api(`Updated rate limit token count${label}: +${totalTokens} tokens`)
+      logger.debug(`Updated rate limit token count${label}: +${totalTokens} tokens`)
     }
     if (typeof totalCost === 'number' && totalCost > 0) {
-      logger.api(`Updated rate limit cost count${label}: +$${totalCost.toFixed(6)}`)
+      logger.debug(`Updated rate limit cost count${label}: +$${totalCost.toFixed(6)}`)
     }
   } catch (error) {
     logger.error(`Failed to update rate limit counters${label}:`, error)
@@ -265,7 +265,7 @@ const getOpenAIAuthToken = async (apiKeyData, sessionId = null, requestedModel =
         }
       }
 
-      logger.info(`Selected OpenAI-Responses account: ${account.name} (${result.accountId})`)
+      logger.debug(`Selected OpenAI-Responses account: ${account.name} (${result.accountId})`)
     } else {
       // 处理普通 OpenAI 账户
       account = await openaiAccountService.getAccount(result.accountId)
@@ -314,7 +314,7 @@ const getOpenAIAuthToken = async (apiKeyData, sessionId = null, requestedModel =
         }
       }
 
-      logger.info(`Selected OpenAI account: ${account.name} (${result.accountId})`)
+      logger.debug(`Selected OpenAI account: ${account.name} (${result.accountId})`)
     }
 
     return {
@@ -385,6 +385,7 @@ export const handleOpenAIChatRequest = async (req, res) => {
 
 // 主处理函数，供两个路由共享
 export const handleResponses = async (req, res) => {
+  const releaseRequestResources = req._crsRetainRequestResources?.()
   let upstream = null
   let accountId = null
   let accountType = 'openai'
@@ -426,7 +427,7 @@ export const handleResponses = async (req, res) => {
     if (compactV2) {
       normalizeCompactionTriggerBody(req.body)
       req._crsCompactV2 = true
-      logger.info('Detected Responses compact v2 (compaction_trigger)')
+      logger.debug('Detected Responses compact v2 (compaction_trigger)')
     }
 
     if (shouldUseToggleControlledFlow) {
@@ -437,18 +438,18 @@ export const handleResponses = async (req, res) => {
         normalizeGpt5ModelForCodex(req.body)
         // API Key 标准 responses：只剥字段 + tier 别名，不注入 Codex system prompt
         applyCodexCliAdaptation(req.body, { injectInstructions: false })
-        logger.info('Standard Responses request applied Codex CLI adaptation (no instructions inject)')
+        logger.debug('Standard Responses request applied Codex CLI adaptation (no instructions inject)')
       } else if (isCodexCLI) {
         applyOpenAIServiceTierAlias(req.body)
-        logger.info('Codex CLI request detected, forwarding current payload')
+        logger.debug('Codex CLI request detected, forwarding current payload')
       } else {
         applyOpenAIServiceTierAlias(req.body)
-        logger.info('Standard Responses request is passing through without Codex adaptation')
+        logger.debug('Standard Responses request is passing through without Codex adaptation')
       }
 
       if (shouldApplyPayloadRules) {
         req.body = requestBodyRuleService.applyRules(req.body, apiKeyData.openaiResponsesPayloadRules)
-        logger.info('Standard Responses request applied API key payload rules')
+        logger.debug('Standard Responses request applied API key payload rules')
       }
     } else {
       normalizeGpt5ModelForCodex(req.body)
@@ -457,12 +458,12 @@ export const handleResponses = async (req, res) => {
         const injectInstructions =
           isOauthCodexRoute && !compactRoute && !isCodexSearchRoute(req) && !isCodexRealtimeRoute(req)
         applyCodexCliAdaptation(req.body, { injectInstructions })
-        logger.info(
+        logger.debug(
           `Non-Codex CLI request adaptation injectInstructions=${injectInstructions} oauthRoute=${isOauthCodexRoute}`,
         )
       } else {
         applyOpenAIServiceTierAlias(req.body)
-        logger.info('Codex CLI request detected, forwarding as-is')
+        logger.debug('Codex CLI request detected, forwarding as-is')
       }
     }
 
@@ -476,7 +477,9 @@ export const handleResponses = async (req, res) => {
       const bootstrap = normalizeCodexBootstrapBody(req.body)
       if (bootstrap.changed) {
         req.body = bootstrap.body
-        logger.info(`Codex bootstrap normalized kinds=${bootstrap.kinds.join(',')} path=${req.originalUrl || req.path}`)
+        logger.debug(
+          `Codex bootstrap normalized kinds=${bootstrap.kinds.join(',')} path=${req.originalUrl || req.path}`,
+        )
       }
       // 保留客户端原始 model 供选号/映射；出站前再 applyOpenAIPublicModelAlias
       req._crsClientModel = typeof req.body.model === 'string' && req.body.model.trim() ? req.body.model.trim() : null
@@ -507,7 +510,9 @@ export const handleResponses = async (req, res) => {
     const isStream = compactRoute || searchRoute || realtimeRoute ? false : req.body?.stream !== false
 
     if (schedulerModel !== requestedModel) {
-      logger.info(`Using Codex-compatible model ${schedulerModel} for account selection (requested: ${requestedModel})`)
+      logger.debug(
+        `Using Codex-compatible model ${schedulerModel} for account selection (requested: ${requestedModel})`,
+      )
     }
 
     // 使用调度器选择账户
@@ -544,13 +549,13 @@ export const handleResponses = async (req, res) => {
           },
         })
       }
-      logger.info(`Using OpenAI-Responses relay service for account: ${account.name}`)
+      logger.debug(`Using OpenAI-Responses relay service for account: ${account.name}`)
       return await openaiResponsesRelayService.handleRequest(req, res, account, apiKeyData)
     }
 
     // OAuth Codex：仅做 gpt-5-* → gpt-5 兼容缩名；公开别名在出站阶段再套
     if (schedulerModel !== requestedModel && req.body && typeof req.body === 'object' && !Buffer.isBuffer(req.body)) {
-      logger.info(
+      logger.debug(
         `Standard Responses request normalized model ${requestedModel} -> ${schedulerModel} for OpenAI Codex backend`,
       )
       req.body.model = schedulerModel
@@ -657,7 +662,7 @@ export const handleResponses = async (req, res) => {
       axiosConfig.httpAgent = proxyAgent
       axiosConfig.httpsAgent = proxyAgent
       axiosConfig.proxy = false
-      logger.info('Using proxy for OpenAI request')
+      logger.debug('Using proxy for OpenAI request')
     } else {
       logger.debug('No proxy configured for OpenAI request')
     }
@@ -1060,7 +1065,7 @@ export const handleResponses = async (req, res) => {
           return
         }
 
-        logger.info(`Processing OpenAI non-stream response for model: ${upstreamRequestedModel}`)
+        logger.debug(`Processing OpenAI non-stream response for model: ${upstreamRequestedModel}`)
 
         // 从响应中获取实际的 model 和 usage（仅 responses 类 JSON）
         actualModel =
@@ -1102,7 +1107,7 @@ export const handleResponses = async (req, res) => {
             }),
           )
 
-          logger.info(
+          logger.debug(
             `Recorded OpenAI non-stream usage - Input: ${totalInputTokens}(actual:${actualInputTokens}+cached:${cacheReadTokens}), Output: ${outputTokens}, Total: ${usageData.total_tokens || totalInputTokens + outputTokens}, Model: ${actualModel}`,
           )
 
@@ -1257,7 +1262,7 @@ export const handleResponses = async (req, res) => {
             }),
           )
 
-          logger.info(
+          logger.debug(
             `Recorded OpenAI usage - Input: ${totalInputTokens}(actual:${actualInputTokens}+cached:${cacheReadTokens}), Output: ${outputTokens}, Total: ${usageData.total_tokens || totalInputTokens + outputTokens}, Model: ${modelToRecord} (actual: ${actualModel}, requested: ${upstreamRequestedModel})`,
           )
           usageReported = true
@@ -1384,6 +1389,8 @@ export const handleResponses = async (req, res) => {
     if (!res.headersSent) {
       res.status(status).json(responsePayload)
     }
+  } finally {
+    releaseRequestResources?.()
   }
 }
 
@@ -1733,7 +1740,7 @@ const handleImages = async (req, res) => {
             }),
           )
 
-          logger.info(
+          logger.debug(
             `Recorded OpenAI images usage - Input: ${totalInputTokens}(actual:${actualInputTokens}+cached:${cacheReadTokens}), Output: ${outputTokens}, Images: ${imageCount}, BillModel: ${modelToRecord}, UpstreamModel: ${actualModel || '-'}`,
           )
 

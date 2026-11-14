@@ -2,6 +2,7 @@
 import * as thinkingMap from './relay_translator_thinking.js'
 import { mergeClaudeMessageTurns } from '../relay_claude_message_turns.js'
 import { resolveResponsesConfiguration } from '../relay_responses_configuration.js'
+import { responsesTextToClaudeOutputConfig } from './relay_translator_response_format.js'
 import { TranslatorFormat, TranslatorQuality } from './relay_translator_formats.js'
 import { registerTranslator } from './relay_translator_registry.js'
 import { normalizeOpenAITokenUsage } from '../relay_request_detail_helper.js'
@@ -9,12 +10,12 @@ import { buildAnthropicClientErrorBody } from '../../../common/client_error_buil
 import { buildResponsesToolMap, visibleReplayText, unsupportedReplay } from './relay_translator_response_tools.js'
 import {
   createClaudeFromResponsesStreamState,
-  convertResponsesStreamEventToClaude
+  convertResponsesStreamEventToClaude,
 } from './relay_translator_responses_stream.js'
 export {
   createClaudeFromResponsesStreamState,
   convertResponsesStreamEventToClaude,
-  finishClaudeFromResponsesStream
+  finishClaudeFromResponsesStream,
 } from './relay_translator_responses_stream.js'
 
 const generateId = (prefix) => `${prefix}_${Math.random().toString(36).slice(2, 12)}`
@@ -82,14 +83,14 @@ const claudeContentToResponsesInputParts = (content) => {
         parts.push({
           type: 'input_file',
           filename: block.title ?? 'document.pdf',
-          file_data: `data:${source.media_type ?? 'application/pdf'};base64,${source.data ?? ''}`
+          file_data: `data:${source.media_type ?? 'application/pdf'};base64,${source.data ?? ''}`,
         })
       } else if (source.type === 'url') {
         parts.push({ type: 'input_file', file_url: source.url })
       } else {
         throw Object.assign(new Error('This document source cannot be shared across providers'), {
           statusCode: 400,
-          code: 'unsupported_document_source'
+          code: 'unsupported_document_source',
         })
       }
     }
@@ -117,7 +118,7 @@ const responsesContentToClaude = (content) =>
       const data = url.match(/^data:([^;]+);base64,([\s\S]+)$/)
       return {
         type: 'image',
-        source: data ? { type: 'base64', media_type: data[1], data: data[2] } : { type: 'url', url }
+        source: data ? { type: 'base64', media_type: data[1], data: data[2] } : { type: 'url', url },
       }
     }
     if (part?.type === 'input_file') {
@@ -133,7 +134,7 @@ const responsesContentToClaude = (content) =>
         if (mime.startsWith('text/')) {
           return {
             type: 'document',
-            source: { type: 'text', media_type: 'text/plain', data: Buffer.from(data[2], 'base64').toString('utf8') }
+            source: { type: 'text', media_type: 'text/plain', data: Buffer.from(data[2], 'base64').toString('utf8') },
           }
         }
       }
@@ -156,39 +157,31 @@ export const convertClaudeRequestToResponses = (claudeRequest, options = {}) => 
       if (Array.isArray(content)) {
         const toolResults = content.filter((block) => block && block.type === 'tool_result')
         const other = content.filter((block) => block && block.type !== 'tool_result')
-        const toolResultFiles = []
         for (const result of toolResults) {
           const parts = Array.isArray(result.content) ? claudeContentToResponsesInputParts(result.content) : null
-          const files = parts?.filter((part) => part.type === 'input_file') ?? []
-          const outputParts = parts?.filter((part) => part.type !== 'input_file')
           input.push({
             type: 'function_call_output',
             call_id: result.tool_use_id,
             output:
               result.is_error === true
                 ? parts
-                  ? [{ type: 'input_text', text: '[tool_result is_error=true]' }, ...outputParts]
+                  ? [{ type: 'input_text', text: '[tool_result is_error=true]' }, ...parts]
                   : `[tool_result is_error=true]\n${String(result.content ?? '')}`
-                : parts
-                  ? outputParts.length
-                    ? outputParts
-                    : ''
-                  : String(result.content ?? ''),
+                : parts ?? String(result.content ?? ''),
           })
-          toolResultFiles.push(...files)
         }
-        if (other.length > 0 || toolResultFiles.length > 0) {
+        if (other.length > 0) {
           input.push({
             type: 'message',
             role: 'user',
-            content: [...(other.length ? claudeContentToResponsesInputParts(other) : []), ...toolResultFiles]
+            content: claudeContentToResponsesInputParts(other),
           })
         }
       } else {
         input.push({
           type: 'message',
           role: 'user',
-          content: claudeContentToResponsesInputParts(content)
+          content: claudeContentToResponsesInputParts(content),
         })
       }
       continue
@@ -203,7 +196,7 @@ export const convertClaudeRequestToResponses = (claudeRequest, options = {}) => 
               input.push({
                 type: 'message',
                 role: 'assistant',
-                content: [{ type: 'output_text', text: block.thinking }]
+                content: [{ type: 'output_text', text: block.thinking }],
               })
             }
           } else if (block?.type === 'text') {
@@ -219,7 +212,7 @@ export const convertClaudeRequestToResponses = (claudeRequest, options = {}) => 
               type: 'function_call',
               call_id: block.id || generateId('call'),
               name: block.name,
-              arguments: JSON.stringify(block.input ?? {})
+              arguments: JSON.stringify(block.input ?? {}),
             })
           }
         }
@@ -227,7 +220,7 @@ export const convertClaudeRequestToResponses = (claudeRequest, options = {}) => 
         input.push({
           type: 'message',
           role: 'assistant',
-          content: [{ type: 'output_text', text: content }]
+          content: [{ type: 'output_text', text: content }],
         })
       }
     }
@@ -238,7 +231,7 @@ export const convertClaudeRequestToResponses = (claudeRequest, options = {}) => 
     input,
     stream: body.stream === true,
     store: false,
-    parallel_tool_calls: options.parallelToolCalls !== false && body.tool_choice?.disable_parallel_tool_use !== true
+    parallel_tool_calls: options.parallelToolCalls !== false && body.tool_choice?.disable_parallel_tool_use !== true,
   }
 
   if (instructions) {
@@ -257,7 +250,7 @@ export const convertClaudeRequestToResponses = (claudeRequest, options = {}) => 
           name: tool.name,
           description: tool.description || '',
           parameters: tool.input_schema || tool.parameters || { type: 'object', properties: {} },
-          strict: tool.strict === true
+          strict: tool.strict === true,
         }
       })
   }
@@ -280,7 +273,7 @@ export const convertClaudeRequestToResponses = (claudeRequest, options = {}) => 
   if (effort && effort !== 'none') {
     result.reasoning = {
       effort: effort === 'auto' ? 'medium' : effort,
-      summary: 'auto'
+      summary: 'auto',
     }
     result.include = ['reasoning.encrypted_content']
   }
@@ -408,7 +401,7 @@ export const convertResponsesRequestToClaude = (responsesRequest, options = {}) 
         type: 'tool_use',
         id: item.call_id || item.id || generateId('toolu'),
         name: toolMap.name(name, item.namespace),
-        input: item.type === 'custom_tool_call' ? { input: item.input ?? '' } : safeJsonParse(item.arguments, {})
+        input: item.type === 'custom_tool_call' ? { input: item.input ?? '' } : safeJsonParse(item.arguments, {}),
       })
       continue
     }
@@ -430,9 +423,9 @@ export const convertResponsesRequestToClaude = (responsesRequest, options = {}) 
                 ? JSON.stringify(item.tools ?? [])
                 : typeof item.output === 'string'
                   ? item.output
-                  : JSON.stringify(item.output ?? '')
-          }
-        ]
+                  : JSON.stringify(item.output ?? ''),
+          },
+        ],
       })
     }
   }
@@ -463,6 +456,10 @@ export const convertResponsesRequestToClaude = (responsesRequest, options = {}) 
     claude.tool_choice = { type: 'tool', name: toolMap.name(body.tool_choice.name, body.tool_choice.namespace) }
   }
 
+  const outputConfig = responsesTextToClaudeOutputConfig(body.text)
+  if (outputConfig) {
+    claude.output_config = outputConfig
+  }
   const effort = body.reasoning?.effort
   if (effort) {
     const mapped = thinkingMap.effortToClaudeThinking(effort, { supportsAdaptive: true, modelId: claude.model })
@@ -470,7 +467,7 @@ export const convertResponsesRequestToClaude = (responsesRequest, options = {}) 
       claude.thinking = mapped.thinking
     }
     if (mapped?.output_config) {
-      claude.output_config = mapped.output_config
+      claude.output_config = { ...claude.output_config, ...mapped.output_config }
     }
     thinkingMap.normalizeClaudeThinkingForModel(claude, claude.model)
     thinkingMap.applyThinkingSamplingRules(claude, thinkingMap.isThinkingEnabled(claude.thinking))
@@ -510,7 +507,7 @@ export const convertResponsesResultToClaudeMessage = (responseData) => {
         type: 'tool_use',
         id: item.call_id || item.id || generateId('toolu'),
         name: item.name,
-        input: safeJsonParse(item.arguments, {})
+        input: safeJsonParse(item.arguments, {}),
       })
     }
   }
@@ -539,8 +536,8 @@ export const convertResponsesResultToClaudeMessage = (responseData) => {
       input_tokens: usage.inputTokens,
       output_tokens: usage.outputTokens,
       cache_read_input_tokens: usage.cacheReadTokens,
-      cache_creation_input_tokens: usage.cacheCreateTokens
-    }
+      cache_creation_input_tokens: usage.cacheCreateTokens,
+    },
   }
 }
 
@@ -552,7 +549,7 @@ export const registerClaudeResponsesTranslators = () => {
     convertRequest: (request, options) => convertClaudeRequestToResponses(request, options),
     convertResponse: (response) => convertResponsesResultToClaudeMessage(response),
     createStreamState: () => createClaudeFromResponsesStreamState(),
-    convertStreamChunk: (chunk, state) => convertResponsesStreamEventToClaude(chunk, state)
+    convertStreamChunk: (chunk, state) => convertResponsesStreamEventToClaude(chunk, state),
   })
 
   registerTranslator({
@@ -560,6 +557,6 @@ export const registerClaudeResponsesTranslators = () => {
     to: TranslatorFormat.claudeMessages,
     quality: TranslatorQuality.good,
     convertRequest: (request, options) => convertResponsesRequestToClaude(request, options),
-    convertResponse: (response) => convertResponsesResultToClaudeMessage(response)
+    convertResponse: (response) => convertResponsesResultToClaudeMessage(response),
   })
 }

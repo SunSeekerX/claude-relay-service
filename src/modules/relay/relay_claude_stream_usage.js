@@ -31,7 +31,7 @@ export const createClaudeStreamFinalizer = ({ state, usageCallback, clientReques
       } catch (error) {
         logger.error('Failed to record Claude stream usage:', error)
       }
-      logger.info('Claude stream finished', {
+      logger[result.statusCode >= 400 ? 'warn' : 'debug']('Claude stream finished', {
         requestId: clientRequest?.requestId,
         accountId,
         accountType,

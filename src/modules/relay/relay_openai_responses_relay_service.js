@@ -8,6 +8,7 @@ import axios from 'axios'
 import { redis } from '../../infra/redis.js'
 import { proxyResolver } from '../proxy/proxy_resolver.js'
 import { logger } from '../../common/logger.js'
+import { copyLogSnippet } from '../../common/http_access_log.js'
 import { filterForOpenAI, applyFilteredResponseHeaders } from './relay_header_filter.js'
 import { openaiResponsesAccountService } from '../account/account_openai_responses_service.js'
 import { apiKeyService } from '../apikey/apikey_service.js'
@@ -17,10 +18,7 @@ import crypto from 'node:crypto'
 import { LRUCache } from '../../common/lru_cache.js'
 import * as upstreamErrorHelper from './relay_upstream_error_helper.js'
 import { buildClientError, extractSafeMessage, summarizeErrorForLog } from '../../common/client_error_builder.js'
-import {
-  sanitizeOpenAICapacityShedForClient,
-  createCapacityShedSseRewriteStream,
-} from './relay_openai_capacity_shed.js'
+import { sanitizeOpenAICapacityShedForClient, rewriteCapacityShedSseFrame } from './relay_openai_capacity_shed.js'
 import { applyOpenAIServiceTierAlias } from './relay_openai_compact_v2.js'
 import { applyOpenAIPublicModelAlias } from './relay_openai_model_alias.js'
 import { extractMultipartFormField, rewriteMultipartFormField } from './relay_multipart_form_field.js'
@@ -33,7 +31,7 @@ import { CostCalculator } from '../pricing/pricing_cost_calculator.js'
 import { pricingService } from '../pricing/pricing_service.js'
 import { isNonProtocolUpstreamBody, handleNonProtocolUpstream } from './relay_upstream_protocol_guard.js'
 import { updateRateLimitCounters } from './relay_rate_limit_helper.js'
-import { IncrementalSSEParser } from './relay_sse_parser.js'
+import { IncrementalSSEParser, parseSSEEvent } from './relay_sse_parser.js'
 import { readAudioResponse } from './relay_audio_response.js'
 import { ResponsesStreamState, isResponsesRateLimitError } from './relay_responses_stream_state.js'
 import { requestDetailService } from './relay_request_detail_service.js'
@@ -67,6 +65,10 @@ class OpenAIResponsesRelayService {
 
   // 处理请求转发
   async handleRequest(req, res, account, apiKeyData) {
+    if (res.destroyed) {
+      return
+    }
+    const releaseRequestResources = req._crsRetainRequestResources?.()
     let abortController = null
     let detachClientDisconnect = () => {}
     let proxyResolution = null
@@ -92,6 +94,7 @@ class OpenAIResponsesRelayService {
       }
       // 失败明细采集用：finish 钩子可带上实际选中的账户
       req._crsAccountId = fullAccount.id
+      req._crsAccountName = fullAccount.name
       req._crsAccountType = 'openai-responses'
       if (req.body && typeof req.body.model === 'string') {
         req._crsRequestedModel = req.body.model
@@ -165,7 +168,7 @@ class OpenAIResponsesRelayService {
         (targetPath === '/v1/chat/completions' || targetPath === '/chat/completions')
       ) {
         const newPath = targetPath.startsWith('/v1') ? '/v1/responses' : '/responses'
-        logger.info(`Normalized path (${req.path}) → ${newPath} (providerEndpoint=responses)`)
+        logger.debug(`Normalized path (${req.path}) → ${newPath} (providerEndpoint=responses)`)
         targetPath = newPath
       }
       // providerEndpoint === 'auto'时保持原始路径不变
@@ -176,7 +179,7 @@ class OpenAIResponsesRelayService {
         targetPath = targetPath.slice(3) // '/v1/responses' → '/responses'
       }
       const targetUrl = `${baseApi}${targetPath}`
-      logger.info(`Forwarding to: ${targetUrl}`)
+      logger.debug(`Forwarding to: ${targetUrl}`)
 
       // 构建请求头 - 使用统一的 headerFilter 移除 CDN headers
       const headers = {
@@ -205,14 +208,14 @@ class OpenAIResponsesRelayService {
         const bootstrap = normalizeCodexBootstrapBody(outboundBody)
         if (bootstrap.changed) {
           outboundBody = bootstrap.body
-          logger.info(`Codex bootstrap normalized on openai-responses kinds=${bootstrap.kinds.join(',')}`)
+          logger.debug(`Codex bootstrap normalized on openai-responses kinds=${bootstrap.kinds.join(',')}`)
         }
         if (requestedModelName && fullAccount.supportedModels) {
           const mappedModel = getMappedModelName(fullAccount.supportedModels, requestedModelName)
           if (mappedModel && mappedModel !== requestedModelName) {
             outboundBody.model = mappedModel
             mapped = true
-            logger.info(
+            logger.debug(
               `OpenAI-Responses model mapping: ${requestedModelName} → ${mappedModel} (account=${account.id})`,
             )
           }
@@ -243,11 +246,11 @@ class OpenAIResponsesRelayService {
         requestOptions.httpAgent = proxyAgent
         requestOptions.httpsAgent = proxyAgent
         requestOptions.proxy = false
-        logger.info('Using proxy for OpenAI-Responses request')
+        logger.debug('Using proxy for OpenAI-Responses request')
       }
 
       // 记录请求信息
-      logger.info('OpenAI-Responses relay request', {
+      logger.debug('OpenAI-Responses relay request', {
         accountId: account.id,
         accountName: account.name,
         targetUrl,
@@ -515,7 +518,7 @@ class OpenAIResponsesRelayService {
 
       // 处理流式响应
       if (req.body?.stream && response.data && typeof response.data.pipe === 'function') {
-        return this._handleStreamResponse(
+        return await this._handleStreamResponse(
           response,
           res,
           account,
@@ -552,6 +555,17 @@ class OpenAIResponsesRelayService {
           res.status(499).end()
         }
         return
+      }
+      if (error.code === 'OPENAI_RESPONSES_CONCURRENCY_FULL') {
+        res.setHeader('Retry-After', '1')
+        return res.status(429).json({
+          error: {
+            message: 'Concurrent request limit reached, please retry later',
+            type: 'rate_limit_error',
+            code: 'rate_limit_exceeded',
+            param: null,
+          },
+        })
       }
       // 被动健康检查：上报连接级故障（classifyBusinessTraffic 区分传输错误 vs 上游响应，不误熔断）
       proxyResolver.report(proxyResolution?.proxyId, proxyResolution?.contextKey, error)
@@ -679,6 +693,8 @@ class OpenAIResponsesRelayService {
         const sanitized = sanitizeOpenAICapacityShedForClient(clientError.body)
         return res.status(clientError.statusCode).json(sanitized.payload)
       }
+    } finally {
+      releaseRequestResources?.()
     }
   }
 
@@ -731,29 +747,41 @@ class OpenAIResponsesRelayService {
         }
       }
     }
-    const capacityShedSseRewriter = createCapacityShedSseRewriteStream()
     const backpressure = createStreamBackpressure(response.data, res)
+    const processFrame = async (frame) => {
+      clientGone ||= Boolean(req?._crsClientGone)
+      observeEvents([parseSSEEvent(frame)])
+      if (!clientGone && !res.destroyed) {
+        const rewritten = rewriteCapacityShedSseFrame(frame)
+        if (!res.write(rewritten)) {
+          clientGone ||= !(await backpressure.waitForDrain())
+        }
+        if (rewritten.includes('"error"') || rewritten.includes('server_error')) {
+          res._responseBody = res._responseBody || copyLogSnippet(rewritten)
+        }
+      }
+    }
     try {
       try {
         for await (const chunk of response.data) {
-          clientGone ||= Boolean(req?._crsClientGone)
-          observeEvents(parser.feed(chunk))
-          if (!clientGone && !res.destroyed) {
-            const rewritten = capacityShedSseRewriter.push(chunk)
-            if (rewritten) {
-              if (!res.write(rewritten)) {
-                clientGone ||= !(await backpressure.waitForDrain())
-              }
-              if (rewritten.includes('"error"') || rewritten.includes('server_error')) {
-                res._responseBody = res._responseBody || rewritten.slice(0, 2000)
-              }
+          for (const frame of parser.feedFrames(chunk)) {
+            await processFrame(frame)
+            if (upstreamState.terminalType) {
+              break
             }
           }
           if (upstreamState.terminalType) {
             break
           }
         }
-        observeEvents(parser.finish())
+        if (!upstreamState.terminalType) {
+          for (const frame of parser.finishFrames()) {
+            await processFrame(frame)
+            if (upstreamState.terminalType) {
+              break
+            }
+          }
+        }
       } catch (error) {
         transportError = error
         logger.error('OpenAI-Responses stream failed', {
@@ -770,17 +798,6 @@ class OpenAIResponsesRelayService {
       const rateLimitDetected = isResponsesRateLimitError(rateLimitErrorData)
       const resetSeconds = Number(rateLimitErrorData?.resets_in_seconds)
       const rateLimitResetsInSeconds = Number.isFinite(resetSeconds) && resetSeconds > 0 ? resetSeconds : null
-      if (!transportError) {
-        const rest = capacityShedSseRewriter.flush()
-        if (rest && !clientGone && !res.destroyed) {
-          if (!res.write(rest)) {
-            clientGone ||= !(await backpressure.waitForDrain())
-          }
-          if (rest.includes('"error"')) {
-            res._responseBody = res._responseBody || rest.slice(0, 2000)
-          }
-        }
-      }
       if (!hadTerminal && result.clientError && !clientGone && !res.destroyed) {
         if (!res.write(`data: ${JSON.stringify(result.clientError)}\n\n`)) {
           clientGone ||= !(await backpressure.waitForDrain())
@@ -828,7 +845,7 @@ class OpenAIResponsesRelayService {
             }),
           )
 
-          logger.info(
+          logger.debug(
             `Recorded usage - Input: ${totalInputTokens}(actual:${actualInputTokens}+cached:${cacheReadTokens}), CacheCreate: ${cacheCreateTokens}, Output: ${outputTokens}, Total: ${totalTokens}, Model: ${modelToRecord}`,
           )
 
@@ -931,7 +948,7 @@ class OpenAIResponsesRelayService {
         }
       }
 
-      logger.info('OpenAI-Responses stream finished', {
+      logger.debug('OpenAI-Responses stream finished', {
         requestId: req.requestId,
         timings: getRequestTimings(req),
         accountId: account.id,
@@ -1000,7 +1017,7 @@ class OpenAIResponsesRelayService {
           }),
         )
 
-        logger.info(
+        logger.debug(
           `Recorded non-stream usage - Input: ${totalInputTokens}(actual:${actualInputTokens}+cached:${cacheReadTokens}), CacheCreate: ${cacheCreateTokens}, Output: ${outputTokens}, Total: ${totalTokens}, Model: ${actualModel}`,
         )
 
@@ -1033,7 +1050,7 @@ class OpenAIResponsesRelayService {
     // 返回响应
     res.status(response.status).json(responseData)
 
-    logger.info('Normal response completed', {
+    logger.debug('Normal response completed', {
       accountId: account.id,
       status: response.status,
       hasUsage: !!usageData,
@@ -1215,7 +1232,7 @@ class OpenAIResponsesRelayService {
           if (mappedModel && mappedModel !== requestedModelName) {
             outboundBody.model = mappedModel
             mapped = true
-            logger.info(
+            logger.debug(
               `OpenAI-Responses embeddings mapping: ${requestedModelName} → ${mappedModel} (account=${account.id})`,
             )
           }
@@ -1389,7 +1406,7 @@ class OpenAIResponsesRelayService {
           const mappedModel = getMappedModelName(fullAccount.supportedModels, requestedModelName)
           if (mappedModel && mappedModel !== requestedModelName) {
             outboundModel = mappedModel
-            logger.info(
+            logger.debug(
               `OpenAI-Responses multipart mapping: ${requestedModelName} → ${mappedModel} (account=${account.id})`,
             )
           }

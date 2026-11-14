@@ -3,6 +3,7 @@ import { EventEmitter } from 'node:events'
 import { PassThrough, Readable } from 'node:stream'
 import { IncrementalSSEParser } from '../src/modules/relay/relay_sse_parser.js'
 import { adaptResponsesTools } from '../src/modules/relay/relay_responses_tools.js'
+import { createRequestResourceBudget } from '../src/infra/middleware_request_resources.js'
 
 const axios = jest.fn()
 const videoDb = {
@@ -24,6 +25,7 @@ const requestDetailService = {
   captureRequestDetail: jest.fn().mockResolvedValue({ captured: true })
 }
 const openaiResponsesAccountService = {
+  getAccount: jest.fn(),
   updateAccountUsage: jest.fn().mockResolvedValue(undefined),
   updateUsageQuota: jest.fn().mockResolvedValue(undefined),
 }
@@ -58,7 +60,11 @@ const modules = {
   '../config/config.js': { config: { requestTimeout: 1000, proxy: { timeout: 1000 } } },
   '../src/common/logger.js': { logger },
   '../src/infra/redis.js': {
-    redis: { getClientSafe: () => videoDb, reserveCost, releaseCostReservation }
+    redis: {
+      getClientSafe: () => videoDb, reserveCost, releaseCostReservation,
+      incrOpenaiResponsesAccountConcurrency: jest.fn().mockResolvedValue(2),
+      decrOpenaiResponsesAccountConcurrency: jest.fn().mockResolvedValue(1),
+    }
   },
   '../src/infra/redis_key.js': {
     RedisKeys: { session: { grokVideoTask: (_key, id) => `fixture-video:${id}` } },
@@ -68,7 +74,10 @@ const modules = {
   '../src/modules/apikey/apikey_service.js': { apiKeyService },
   '../src/modules/account/account_grok_service.js': { grokAccountService },
   '../src/modules/account/account_openai_responses_service.js': { openaiResponsesAccountService },
-  '../src/modules/account/account_gemini_service.js': {},
+  '../src/modules/account/account_gemini_service.js': {
+    getAccount: jest.fn().mockResolvedValue({ ...geminiAccount, oauthProvider: 'gemini-cli' }),
+    markAccountUsed: jest.fn().mockResolvedValue(),
+  },
   '../src/modules/account/account_gemini_api_service.js': {
     geminiApiAccountService: {
       getAccount: jest.fn().mockResolvedValue(geminiAccount),
@@ -134,10 +143,9 @@ const modules = {
   '../src/modules/relay/relay_openai_model_alias.js': { applyOpenAIPublicModelAlias: jest.fn(), normalizeKnownOpenAICodexModel: () => null },
   '../src/modules/relay/relay_codex_bootstrap_normalize.js': { normalizeCodexBootstrapBody: jest.fn() },
   '../src/modules/relay/relay_gemini_relay_service.js': {
-    sendGeminiRequest: jest.fn(),
+    relayGeminiChatResponse: jest.fn(),
     getAvailableModels: jest.fn(),
   },
-  '../src/modules/relay/relay_antigravity_relay_service.js': { sendAntigravityRequest: jest.fn() },
   '../src/modules/relay/relay_session_helper.js': {
     sessionHelper: { generateSessionHash: () => 'fixture-session' },
   },
@@ -222,6 +230,53 @@ beforeEach(() => {
 })
 
 describe('Grok forwarding contracts', () => {
+  it.each([
+    ['native', {}],
+    ['chat', { reverseBridgeToChat: true }],
+    ['claude', { reverseBridgeToClaudeMessages: true }],
+  ])('waits for a slow %s client and meters the terminal usage once', async (_label, options) => {
+    const source = new PassThrough()
+    const res = makeResponse()
+    const req = makeRequest(res, { model: 'grok-test', stream: true })
+    res.write.mockImplementationOnce((chunk) => { res.chunks.push(String(chunk)); return false })
+    const completion = grokRelayService._handleStreamResponse(
+      { status: 200, headers: {}, data: source }, res, account, req.apiKey, 'grok-test', req, options,
+    )
+    source.write('data: {"type":"response.created","response":{"id":"fixture","model":"grok-test"}}\n\n')
+    source.write(`data: ${JSON.stringify({ type: 'response.completed', response: { id: 'fixture', usage } })}\n\n`)
+    await nextTick()
+    expect(apiKeyService.recordUsage).not.toHaveBeenCalled()
+    expect(res.chunks).toHaveLength(1)
+    res.emit('drain')
+    await completion
+    expect(apiKeyService.recordUsage).toHaveBeenCalledTimes(1)
+    expect(res.listenerCount('drain')).toBe(0)
+    expect(res.writableEnded).toBe(true)
+  })
+
+  it('retains instance capacity after disconnect until Grok usage is drained', async () => {
+    grokScheduler.selectAccount.mockResolvedValueOnce(account)
+    const source = new PassThrough()
+    axios.mockResolvedValueOnce({ status: 200, headers: {}, data: source })
+    const res = makeResponse()
+    const req = makeRequest(res, { model: 'grok-test', stream: true })
+    const budget = createRequestResourceBudget({ maxRequests: 1, maxBodyBytes: 1000, maxInflightBodyBytes: 1000 })
+    req.headers['content-length'] = '200'
+    budget.middleware(req, res, () => {})
+    req._crsReleaseRequestBodyProcessing()
+    res.write.mockReturnValueOnce(false)
+    const completion = grokRelayService.relayResponses(req, res, req.apiKey)
+    source.write('data: {"type":"response.created","response":{"id":"fixture"}}\n\n')
+    await nextTick()
+    res.destroyed = true
+    res.emit('close')
+    expect(budget.status().activeRequests).toBe(1)
+    source.end(`data: ${JSON.stringify({ type: 'response.completed', response: { usage } })}\n\n`)
+    await completion
+    expect(apiKeyService.recordUsage).toHaveBeenCalledTimes(1)
+    expect(budget.status()).toMatchObject({ activeRequests: 0, activeBodyBytes: 0 })
+    expect(res.listenerCount('drain')).toBe(0)
+  })
   const compact = {
     id: 'cmp1',
     object: 'response.compaction',
@@ -671,6 +726,33 @@ describe('Grok forwarding contracts', () => {
 })
 
 describe('OpenAI Responses stream completion', () => {
+  it('returns 429 when account admission is full, without dispatch or account cooldown', async () => {
+    openaiResponsesAccountService.getAccount.mockResolvedValueOnce({ ...account, maxConcurrentTasks: '1' })
+    const res = makeResponse()
+    const req = makeRequest(res)
+    await openaiResponsesRelayService.handleRequest(req, res, account, req.apiKey)
+    expect(res.statusCode).toBe(429)
+    expect(res.body.error).toMatchObject({ type: 'rate_limit_error', code: 'rate_limit_exceeded' })
+    expect(axios).not.toHaveBeenCalled()
+    expect(markTempUnavailable).not.toHaveBeenCalled()
+    const { redis: redisClient } = await import('../src/infra/redis.js')
+    expect(redisClient.decrOpenaiResponsesAccountConcurrency).toHaveBeenCalledTimes(1)
+  })
+
+  it('ignores bytes after a terminal event in the same upstream chunk', async () => {
+    const res = makeResponse()
+    const req = makeRequest(res)
+    const data = [
+      { type: 'response.completed', response: { usage } },
+      { type: 'error', error: { message: 'trailing failure' } },
+    ].map((event) => `data: ${JSON.stringify(event)}\n\n`).join('')
+    await openaiResponsesRelayService._handleStreamResponse(
+      { status: 200, headers: {}, data: Readable.from([data]) }, res, account, req.apiKey,
+      'gpt-test', jest.fn(), req,
+    )
+    expect(res.chunks.join('')).not.toContain('trailing failure')
+    expect(apiKeyService.recordUsage).toHaveBeenCalledTimes(1)
+  })
   it('waits for downstream drain before forwarding another chunk', async () => {
     const res = makeResponse()
     const req = makeRequest(res)
@@ -1072,6 +1154,44 @@ describe('Gemini API Key tool responses', () => {
   })
 })
 
+
+describe('Gemini /messages OAuth dispatch', () => {
+  it.each([false, true])(
+    'passes the full request and selected account to the shared relay, stream=%s',
+    async (stream) => {
+      modules[
+        '../src/modules/relay/relay_unified_gemini_scheduler.js'
+      ].unifiedGeminiScheduler.selectAccountForApiKey.mockResolvedValueOnce({
+        accountId: geminiAccount.id,
+        accountType: 'gemini',
+      })
+      const forward = modules['../src/modules/relay/relay_gemini_relay_service.js'].relayGeminiChatResponse
+      forward.mockImplementation(async ({ res }) => res.end())
+      const res = makeResponse()
+      const req = makeRequest(res, {
+        model: 'gemini-fixture',
+        stream,
+        temperature: 0,
+        messages: [{ role: 'user', content: 'fixture' }],
+        tools: [{ type: 'function', function: { name: 'lookup' } }],
+      })
+      await handleMessages(req, res)
+      expect(forward).toHaveBeenCalledTimes(1)
+      expect(forward).toHaveBeenCalledWith(
+        expect.objectContaining({
+          req,
+          res,
+          model: 'gemini-fixture',
+          stream,
+          requestBody: req.body,
+          account: expect.objectContaining({ id: geminiAccount.id, oauthProvider: 'gemini-cli' }),
+          signal: expect.any(AbortSignal),
+        }),
+      )
+      expect(axios).not.toHaveBeenCalled()
+    },
+  )
+})
 
 describe('Gemini UTF-8 success stream', () => {
   it.each([false, true])('normalizes cached input and reasoning, stream=%s', async (stream) => {

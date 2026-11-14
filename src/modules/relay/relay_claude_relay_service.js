@@ -468,6 +468,7 @@ class ClaudeRelayService {
 
   // 转发请求到Claude API
   async relayRequest(requestBody, apiKeyData, clientRequest, clientResponse, clientHeaders, options = {}) {
+    const releaseRequestResources = clientRequest?._crsRetainRequestResources?.()
     let upstreamRequest = null
     let queueLockAcquired = false
     let queueRequestId = null
@@ -476,7 +477,7 @@ class ClaudeRelayService {
 
     try {
       // 调试日志：查看API Key数据
-      logger.info('API Key data received:', {
+      logger.debug('API Key data received:', {
         apiKeyName: apiKeyData.name,
         enableModelRestriction: apiKeyData.enableModelRestriction,
         restrictedModels: apiKeyData.restrictedModels,
@@ -539,7 +540,7 @@ class ClaudeRelayService {
       const { accountType } = accountSelection
       selectedAccountId = accountId
 
-      logger.info(
+      logger.debug(
         `Processing API request for key: ${apiKeyData.name || apiKeyData.id}, account: ${accountId} (${accountType})${sessionHash ? `, session: ${sessionHash}` : ''}`,
       )
 
@@ -1056,7 +1057,7 @@ class ClaudeRelayService {
 
         const sessionWindowStatus = get5hStatus(response.headers)
         if (sessionWindowStatus) {
-          logger.info(`Session window status for account ${accountId}: ${sessionWindowStatus}`)
+          logger.debug(`Session window status for account ${accountId}: ${sessionWindowStatus}`)
           // 保存会话窗口状态到账户数据
           await claudeAccountService.updateSessionWindowStatus(accountId, sessionWindowStatus)
         }
@@ -1097,7 +1098,7 @@ class ClaudeRelayService {
       if (responseBody && responseBody.usage) {
         const { usage } = responseBody
         // 打印原始usage数据为JSON字符串
-        logger.info(
+        logger.debug(
           ` === Non-Stream Request Usage Summary === Model: ${requestBody.model}, Usage: ${JSON.stringify(usage)}`,
         )
       } else {
@@ -1109,7 +1110,7 @@ class ClaudeRelayService {
           ? response.content.reduce((sum, content) => sum + (content.text?.length || 0), 0) / 4
           : 0
 
-        logger.info(
+        logger.debug(
           `API request completed - Key: ${apiKeyData.name}, Account: ${accountId}, Model: ${requestBody.model}, Input: ~${Math.round(inputTokens)} tokens (estimated), Output: ~${Math.round(outputTokens)} tokens (estimated)`,
         )
       }
@@ -1145,6 +1146,7 @@ class ClaudeRelayService {
           )
         }
       }
+      releaseRequestResources?.()
     }
   }
 
@@ -1384,7 +1386,7 @@ class ClaudeRelayService {
       ...parsed,
       deviceId: unifiedClientId,
     })
-    logger.info(`Replaced client ID with unified ID: ${body.metadata.user_id}`)
+    logger.debug(`Replaced client ID with unified ID: ${body.metadata.user_id}`)
   }
 
   // 验证并限制max_tokens参数
@@ -1465,7 +1467,7 @@ class ClaudeRelayService {
       if (accountData.proxyGroupId) {
         const { agent, proxyId, contextKey } = proxyResolver.resolveAgent(accountData, 'claude')
         if (agent) {
-          logger.info(`Using pooled proxy for Claude request proxyId=${proxyId || 'fallback'}`)
+          logger.debug(`Using pooled proxy for Claude request proxyId=${proxyId || 'fallback'}`)
         } else {
           logger.debug('No available proxy from pool for Claude account')
         }
@@ -1479,7 +1481,7 @@ class ClaudeRelayService {
 
       const proxyAgent = ProxyHelper.createProxyAgent(accountData.proxy)
       if (proxyAgent) {
-        logger.info(`Using proxy for Claude request: ${ProxyHelper.getProxyDescription(accountData.proxy)}`)
+        logger.debug(`Using proxy for Claude request: ${ProxyHelper.getProxyDescription(accountData.proxy)}`)
       }
       return { agent: proxyAgent, proxyId: null, contextKey: 'claude' }
     } catch (error) {
@@ -1813,10 +1815,11 @@ class ClaudeRelayService {
     let queueRequestId = null
     let selectedAccountId = null
     let proxyResolution = null
+    const releaseRequestResources = responseStream.req?._crsRetainRequestResources?.()
 
     try {
       // 调试日志：查看API Key数据（流式请求）
-      logger.info('[Stream] API Key data received:', {
+      logger.debug('[Stream] API Key data received:', {
         apiKeyName: apiKeyData.name,
         enableModelRestriction: apiKeyData.enableModelRestriction,
         restrictedModels: apiKeyData.restrictedModels,
@@ -1950,7 +1953,7 @@ class ClaudeRelayService {
         }
       }
 
-      logger.info(
+      logger.debug(
         `Processing streaming API request with usage capture for key: ${apiKeyData.name || apiKeyData.id}, account: ${accountId} (${accountType})${sessionHash ? `, session: ${sessionHash}` : ''}`,
       )
 
@@ -2071,6 +2074,7 @@ class ClaudeRelayService {
           )
         }
       }
+      releaseRequestResources?.()
     }
   }
 
@@ -2824,7 +2828,7 @@ class ClaudeRelayService {
 
             const sessionWindowStatus = get5hStatus(res.headers)
             if (sessionWindowStatus) {
-              logger.info(`Session window status for account ${accountId}: ${sessionWindowStatus}`)
+              logger.debug(`Session window status for account ${accountId}: ${sessionWindowStatus}`)
               // 保存会话窗口状态到账户数据
               await claudeAccountService.updateSessionWindowStatus(accountId, sessionWindowStatus)
             }

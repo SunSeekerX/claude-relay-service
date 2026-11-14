@@ -6,6 +6,7 @@
   "main": "src/app.js",
   "packageManager": "pnpm@11.24.0",
   "scripts": {
+    "gs": "git add -A && (git diff --cached --quiet || git commit -m \"1\") && git pull && git push",
     "setup:droid": "node scripts/install_droid_cli.js",
     "start": "pnpm run lint && node src/app.js",
     "dev": "nodemon",

@@ -5,10 +5,8 @@ import { gzipSync, deflateSync } from 'node:zlib'
 import { ClaudeStreamState } from '../src/modules/relay/relay_claude_stream_state.js'
 import { IncrementalSSEParser } from '../src/modules/relay/relay_sse_parser.js'
 import { httpRequestStats } from '../src/common/http_request_stats.js'
-import {
-  createRequestDetailMeta,
-  finalizeRequestDetailMeta
-} from '../src/modules/relay/relay_request_detail_helper.js'
+import { createRequestResourceBudget } from '../src/infra/middleware_request_resources.js'
+import { createRequestDetailMeta, finalizeRequestDetailMeta } from '../src/modules/relay/relay_request_detail_helper.js'
 
 const axios = jest.fn()
 const httpsRequest = jest.fn()
@@ -20,71 +18,69 @@ const claudeAccountService = {
   isAccountOverloaded: jest.fn().mockResolvedValue(false),
   removeAccountOverload: jest.fn().mockResolvedValue(),
   updateSessionWindowStatus: jest.fn().mockResolvedValue(),
-  markAccountModelRateLimited: jest.fn().mockResolvedValue()
+  markAccountModelRateLimited: jest.fn().mockResolvedValue(),
 }
 const claudeConsoleAccountService = {
   isAccountRateLimited: jest.fn().mockResolvedValue(false),
   removeAccountRateLimit: jest.fn().mockResolvedValue(),
   isAccountOverloaded: jest.fn().mockResolvedValue(false),
-  removeAccountOverload: jest.fn().mockResolvedValue()
+  removeAccountOverload: jest.fn().mockResolvedValue(),
 }
 const scheduler = {
   isAccountRateLimited: jest.fn().mockResolvedValue(false),
   removeAccountRateLimit: jest.fn().mockResolvedValue(),
-  markAccountRateLimited: jest.fn().mockResolvedValue()
+  markAccountRateLimited: jest.fn().mockResolvedValue(),
 }
 const recordErrorHistory = jest.fn().mockResolvedValue()
 const mocks = {
   axios: { default: axios },
   'node:https': { default: { request: httpsRequest } },
   '../config/config.js': {
-    config: { requestTimeout: 1000, claude: { apiVersion: '2023-06-01' } }
+    config: { requestTimeout: 1000, claude: { apiVersion: '2023-06-01' } },
   },
   '../src/common/logger.js': { logger },
   '../src/infra/redis.js': { redis: { client: { del: jest.fn().mockResolvedValue(1) } } },
   '../src/common/performance_optimizer.js': {
     getHttpsAgentForStream: () => null,
     getHttpsAgentForNonStream: () => null,
-    getPricingData: () => null
+    getPricingData: () => null,
   },
   '../src/modules/account/account_claude_service.js': { claudeAccountService },
   '../src/modules/account/account_claude_console_service.js': { claudeConsoleAccountService },
   '../src/modules/relay/relay_unified_claude_scheduler.js': { unifiedClaudeScheduler: scheduler },
   '../src/modules/relay/relay_claude_code_headers_service.js': { claudeCodeHeadersService: {} },
   '../src/modules/relay/relay_request_detail_service.js': {
-    requestDetailService: { captureUnmeteredRequest }
+    requestDetailService: { captureUnmeteredRequest },
   },
   '../src/modules/relay/relay_upstream_error_helper.js': {
     buildErrorContext: (context) => context,
     recordErrorHistory,
     markTempUnavailable: jest.fn().mockResolvedValue(),
-    parseRetryAfter: () => null
+    parseRetryAfter: () => null,
   },
   '../src/modules/proxy/proxy_resolver.js': { proxyResolver: {} },
   '../src/modules/proxy/proxy_helper.js': { ProxyHelper: {} },
   '../src/modules/user/user_message_queue_service.js': { userMessageQueueService: {} },
   '../src/common/test_payload_helper.js': {
     createClaudeTestPayload: jest.fn(),
-    sendStreamTestRequest: jest.fn()
-  }
+    sendStreamTestRequest: jest.fn(),
+  },
 }
 for (const [name, exports] of Object.entries(mocks)) {
   jest.unstable_mockModule(name, () => exports)
 }
 const { claudeRelayService } = await import('../src/modules/relay/relay_claude_relay_service.js')
-const { claudeConsoleRelayService } =
-  await import('../src/modules/relay/relay_claude_console_relay_service.js')
+const { claudeConsoleRelayService } = await import('../src/modules/relay/relay_claude_console_relay_service.js')
 const { openaiToClaude } = await import('../src/modules/relay/relay_openai_to_claude.js')
-const { createClaudeStreamFinalizer } =
-  await import('../src/modules/relay/relay_claude_stream_usage.js')
+const { createClaudeStreamFinalizer } = await import('../src/modules/relay/relay_claude_stream_usage.js')
 const nextTick = () => new Promise((resolve) => setImmediate(resolve))
 const start = {
   type: 'message_start',
-  message: { model: 'claude-test', usage: { input_tokens: 10, output_tokens: 1 } }
+  message: { model: 'claude-test', usage: { input_tokens: 10, output_tokens: 1 } },
 }
 const delta = (output, usage = {}) => ({
   type: 'message_delta',
-  usage: { output_tokens: output, ...usage }
+  usage: { output_tokens: output, ...usage },
 })
 const stop = { type: 'message_stop' }
 const wire = (events) => events.map((event) => `data: ${JSON.stringify(event)}\n\n`).join('')
@@ -96,7 +92,7 @@ const makeResponse = () => {
     statusCode: 200,
     headersSent: false,
     destroyed: false,
-    writableEnded: false
+    writableEnded: false,
   })
   res.chunks = []
   res.req = { apiKey: { id: 'key' }, _crsRecordRelayResult: jest.fn() }
@@ -129,7 +125,7 @@ const run = (provider, res, source, usageCallback, transformer = null, encoding 
       res,
       'account',
       usageCallback,
-      transformer
+      transformer,
     )
   }
   httpsRequest.mockImplementation((_options, onResponse) => {
@@ -160,7 +156,7 @@ const run = (provider, res, source, usageCallback, transformer = null, encoding 
     'account',
     'claude-official',
     null,
-    transformer
+    transformer,
   )
 }
 
@@ -171,13 +167,66 @@ beforeEach(() => {
   jest.spyOn(claudeRelayService, '_prepareRequestHeadersAndPayload').mockResolvedValue({
     bodyString: '{}',
     headers: {},
-    toolNameMap: new Map()
+    toolNameMap: new Map(),
   })
 })
 afterEach(() => {
   jest.restoreAllMocks()
   openaiToClaude.streamUsage.clear()
 })
+
+test.each([false, true])(
+  'the public Claude stream retains capacity through disconnect and pending work (failure=%s)',
+  async (fails) => {
+    const res = makeResponse()
+    const { req } = res
+    Object.assign(req, { method: 'POST', url: '/v1/messages', headers: { 'content-length': '2' } })
+    const budget = createRequestResourceBudget({ maxRequests: 1, maxBodyBytes: 64, maxInflightBodyBytes: 64 })
+    budget.middleware(req, res, () => {})
+    req._crsReleaseRequestBodyProcessing()
+    scheduler.selectAccountForApiKey = jest
+      .fn()
+      .mockResolvedValue({ accountId: 'account', accountType: 'claude-official' })
+    claudeAccountService.getValidAccessToken = jest.fn().mockResolvedValue('fixture-token')
+    mocks['../src/modules/user/user_message_queue_service.js'].userMessageQueueService.isUserMessageRequest = () =>
+      false
+    mocks['../src/modules/proxy/proxy_resolver.js'].proxyResolver.report = jest.fn()
+    jest.spyOn(claudeRelayService, '_processRequestBody').mockImplementation((body) => body)
+    jest.spyOn(claudeRelayService, '_isActualClaudeCodeRequest').mockReturnValue(false)
+    jest
+      .spyOn(claudeRelayService, '_getProxyAgent')
+      .mockResolvedValue({ agent: null, proxyId: null, contextKey: 'fixture' })
+    let settle
+    const pending = new Promise((resolve, reject) => {
+      settle = () => (fails ? reject(new Error('fixture upstream failure')) : resolve())
+    })
+    const transport = jest
+      .spyOn(claudeRelayService, '_makeClaudeStreamRequestWithUsageCapture')
+      .mockImplementation(async (...args) => {
+        try {
+          await pending
+        } finally {
+          claudeRelayService.bodyStore.delete(args[10].bodyStoreId)
+        }
+      })
+    const completion = claudeRelayService.relayStreamRequestWithUsageCapture(
+      { model: 'claude-test', messages: [] },
+      { id: 'key' },
+      res,
+      {},
+      jest.fn(),
+    )
+    const settled = fails ? expect(completion).rejects.toThrow('fixture upstream failure') : completion
+    await nextTick()
+    expect(transport).toHaveBeenCalledTimes(1)
+    res.destroyed = true
+    res.emit('close')
+    expect(budget.status()).toMatchObject({ activeRequests: 1, activeBodyBytes: 2 })
+    settle()
+    await settled
+    expect(budget.status()).toMatchObject({ activeRequests: 0, activeBodyBytes: 0 })
+  },
+)
 
 for (const provider of ['official', 'console']) {
   describe(`${provider} Claude stream accounting`, () => {
@@ -195,13 +244,13 @@ for (const provider of ['official', 'console']) {
             cache_creation_input_tokens: 11,
             cache_read_input_tokens: 30,
             cache_creation: { ephemeral_5m_input_tokens: 5, ephemeral_1h_input_tokens: 6 },
-            speed: 'fast'
+            speed: 'fast',
           }),
           stop,
           delta(99),
-          stop
+          stop,
         ]),
-        callback
+        callback,
       )
       expect(callback).toHaveBeenCalledTimes(1)
       expect(callback).toHaveBeenCalledWith(
@@ -213,7 +262,7 @@ for (const provider of ['official', 'console']) {
           speed: 'fast',
           model: 'claude-test',
           accountId: 'account',
-          cache_creation: { ephemeral_5m_input_tokens: 5, ephemeral_1h_input_tokens: 6 }
+          cache_creation: { ephemeral_5m_input_tokens: 5, ephemeral_1h_input_tokens: 6 },
         }),
         { statusCode: 200, errorCode: null, errorMessage: null, protocolTerminal: 'message_stop' },
       )
@@ -221,8 +270,8 @@ for (const provider of ['official', 'console']) {
         expect.objectContaining({
           statusCode: 200,
           hasUsage: true,
-          final: true
-        })
+          final: true,
+        }),
       )
       expect(res.chunks.join('')).not.toContain('99')
     })
@@ -249,45 +298,42 @@ for (const provider of ['official', 'console']) {
                 output_tokens: 1,
                 cache_creation_input_tokens: 3,
                 cache_read_input_tokens: 4,
-                cache_creation: null
-              }
-            }
+                cache_creation: null,
+              },
+            },
           },
           delta(4),
           delta(9, {
             input_tokens: null,
             cache_creation_input_tokens: null,
             cache_read_input_tokens: null,
-            cache_creation: null
+            cache_creation: null,
           }),
-          stop
+          stop,
         ]),
-        callback
+        callback,
       )
       expect(callback).toHaveBeenCalledTimes(1)
       expect(callback.mock.calls[0][0]).toMatchObject({
         input_tokens: 10,
         output_tokens: 9,
         cache_creation_input_tokens: 3,
-        cache_read_input_tokens: 4
+        cache_read_input_tokens: 4,
       })
     })
 
-    it.each([true, false])(
-      'does not bill message_start alone, with message_stop=%s',
-      async (hasStop) => {
-        const res = makeResponse()
-        const callback = jest.fn()
-        await run(provider, res, sourceFrom(hasStop ? [start, stop] : [start]), callback)
-        expect(callback).not.toHaveBeenCalled()
-        expect(captureUnmeteredRequest).toHaveBeenCalledTimes(1)
-        expect(captureUnmeteredRequest.mock.calls[0][1]).toMatchObject({
-          accountId: 'account',
-          apiKeyId: 'key',
-          result: { statusCode: hasStop ? 200 : 502 }
-        })
-      }
-    )
+    it.each([true, false])('does not bill message_start alone, with message_stop=%s', async (hasStop) => {
+      const res = makeResponse()
+      const callback = jest.fn()
+      await run(provider, res, sourceFrom(hasStop ? [start, stop] : [start]), callback)
+      expect(callback).not.toHaveBeenCalled()
+      expect(captureUnmeteredRequest).toHaveBeenCalledTimes(1)
+      expect(captureUnmeteredRequest.mock.calls[0][1]).toMatchObject({
+        accountId: 'account',
+        apiKeyId: 'key',
+        result: { statusCode: hasStop ? 200 : 502 },
+      })
+    })
 
     it('bills reported usage at truncated EOF and emits one protocol failure', async () => {
       const res = makeResponse()
@@ -320,24 +366,24 @@ for (const provider of ['official', 'console']) {
           delta(9),
           {
             type: 'error',
-            error: { type: 'overloaded_error', message: 'Busy sk-ant-secret-12345678' }
+            error: { type: 'overloaded_error', message: 'Busy sk-ant-secret-12345678' },
           },
-          stop
+          stop,
         ]),
-        callback
+        callback,
       )
       expect(res.statusCode).toBe(200)
       expect(callback.mock.calls[0][0].output_tokens).toBe(9)
       expect(callback.mock.calls[0][1]).toMatchObject({
         statusCode: 529,
-        errorCode: 'overloaded_error'
+        errorCode: 'overloaded_error',
       })
       expect(res.req._crsRecordRelayResult).toHaveBeenLastCalledWith(
         expect.objectContaining({
           statusCode: 529,
           hasUsage: true,
-          final: true
-        })
+          final: true,
+        }),
       )
       expect(res.chunks.join('')).not.toContain('sk-ant-secret-12345678')
       expect(res.chunks.join('')).not.toContain('message_stop')
@@ -356,18 +402,14 @@ for (const provider of ['official', 'console']) {
       await run(
         provider,
         res,
-        sourceFrom([
-          start,
-          delta(9),
-          { type: 'error', error: { type: 'overloaded_error', message: 'Busy' } }
-        ]),
-        callback
+        sourceFrom([start, delta(9), { type: 'error', error: { type: 'overloaded_error', message: 'Busy' } }]),
+        callback,
       )
       expect(callback).toHaveBeenCalledTimes(1)
       expect(httpRequestStats.getStats()).toMatchObject({
         requests: 1,
         http: { completed: 1, disconnected: 0, status2xx: 1 },
-        relay: { total: 1, completed: 0, failed: 1, unmetered: 0 }
+        relay: { total: 1, completed: 0, failed: 1, unmetered: 0 },
       })
     })
 
@@ -376,16 +418,12 @@ for (const provider of ['official', 'console']) {
       await run(
         provider,
         makeResponse(),
-        sourceFrom([
-          start,
-          delta(9),
-          { type: 'error', error: { type: 'rate_limit_error', message: 'Retry later' } }
-        ]),
-        callback
+        sourceFrom([start, delta(9), { type: 'error', error: { type: 'rate_limit_error', message: 'Retry later' } }]),
+        callback,
       )
       expect(callback.mock.calls[0][1]).toMatchObject({
         statusCode: 429,
-        errorCode: 'rate_limit_error'
+        errorCode: 'rate_limit_error',
       })
       expect(scheduler.removeAccountRateLimit).not.toHaveBeenCalled()
       if (provider === 'official') {
@@ -394,7 +432,7 @@ for (const provider of ['official', 'console']) {
           'claude-official',
           429,
           'rate_limit',
-          expect.any(Object)
+          expect.any(Object),
         )
       }
     })
@@ -413,7 +451,7 @@ for (const provider of ['official', 'console']) {
       expect(callback.mock.calls[0][0].output_tokens).toBe(9)
       expect(callback.mock.calls[0][1]).toMatchObject({
         statusCode: 502,
-        errorCode: 'upstream_stream_error'
+        errorCode: 'upstream_stream_error',
       })
       expect(res.writableEnded).toBe(true)
       expect(res.listenerCount('close')).toBe(0)
@@ -424,10 +462,7 @@ for (const provider of ['official', 'console']) {
       const source = new PassThrough()
       const callback = jest.fn()
       const completion = run(provider, res, source, callback)
-      const settled =
-        provider === 'console'
-          ? expect(completion).rejects.toThrow('Client disconnected')
-          : completion
+      const settled = provider === 'console' ? expect(completion).rejects.toThrow('Client disconnected') : completion
       await nextTick()
       source.write(wire([start, delta(4)]))
       res.destroyed = true
@@ -448,7 +483,7 @@ for (const provider of ['official', 'console']) {
         () =>
           new Promise((resolve) => {
             finishBilling = resolve
-          })
+          }),
       )
       const completion = run(provider, res, source, callback)
       await nextTick()
@@ -466,21 +501,16 @@ for (const provider of ['official', 'console']) {
       const res = makeResponse()
       const content = JSON.stringify({
         type: 'content_block_delta',
-        delta: { type: 'text_delta', text: '中文' }
+        delta: { type: 'text_delta', text: '中文' },
       })
       const text = [
         wire([start]),
         `event: content_block_delta\r\ndata:${content}\r\n\r\n`,
         'event: message_delta\ndata:{"type":"message_delta",\ndata:"usage":{"output_tokens":9}}\n\n',
-        wire([stop])
+        wire([stop]),
       ].join('')
       const callback = jest.fn()
-      await run(
-        provider,
-        res,
-        Readable.from([...Buffer.from(text)].map((byte) => Buffer.from([byte]))),
-        callback
-      )
+      await run(provider, res, Readable.from([...Buffer.from(text)].map((byte) => Buffer.from([byte]))), callback)
       expect(callback.mock.calls[0][0].output_tokens).toBe(9)
       expect(res.chunks.join('')).toContain('中文')
       expect(res.chunks.join('')).not.toContain('\uFFFD')
@@ -489,18 +519,13 @@ for (const provider of ['official', 'console']) {
     it('returns an OpenAI error envelope without DONE when the Claude stream fails', async () => {
       const res = makeResponse()
       const callback = jest.fn()
-      const transformer = (chunk) =>
-        openaiToClaude.convertStreamChunk(chunk, 'claude-test', provider)
+      const transformer = (chunk) => openaiToClaude.convertStreamChunk(chunk, 'claude-test', provider)
       await run(
         provider,
         res,
-        sourceFrom([
-          start,
-          delta(9),
-          { type: 'error', error: { type: 'overloaded_error', message: 'Busy' } }
-        ]),
+        sourceFrom([start, delta(9), { type: 'error', error: { type: 'overloaded_error', message: 'Busy' } }]),
         callback,
-        transformer
+        transformer,
       )
       const events = new IncrementalSSEParser().feed(res.chunks.join(''))
       expect(events.at(-1).data.error).toMatchObject({ message: expect.any(String) })
@@ -515,12 +540,12 @@ for (const provider of ['official', 'console']) {
       await expect(
         run(provider, res, sourceFrom([start, delta(9), stop]), callback, () => {
           throw new Error('fixture conversion error')
-        })
+        }),
       ).rejects.toThrow('fixture conversion error')
       expect(callback).toHaveBeenCalledTimes(1)
       expect(callback.mock.calls[0][1]).toMatchObject({
         statusCode: 502,
-        errorCode: 'stream_processing_error'
+        errorCode: 'stream_processing_error',
       })
     })
   })
@@ -533,7 +558,10 @@ describe('native Claude backpressure', () => {
     const callback = jest.fn()
     const { write } = res
     res.writableNeedDrain = true
-    res.write = jest.fn((chunk) => { write(chunk); return false })
+    res.write = jest.fn((chunk) => {
+      write(chunk)
+      return false
+    })
     const completion = run('official', res, source, callback)
     await nextTick()
     source.write(wire([start, delta(4)]))
@@ -542,7 +570,10 @@ describe('native Claude backpressure', () => {
     await nextTick()
     expect(callback).not.toHaveBeenCalled()
     res.writableNeedDrain = false
-    res.write = jest.fn((chunk) => { write(chunk); return true })
+    res.write = jest.fn((chunk) => {
+      write(chunk)
+      return true
+    })
     res.emit('drain')
     await completion
     expect(callback).toHaveBeenCalledTimes(1)
@@ -636,7 +667,7 @@ describe('Claude stream state validation and shared finalization', () => {
     const finalize = createClaudeStreamFinalizer({
       state,
       usageCallback: callback,
-      accountId: 'account'
+      accountId: 'account',
     })
     const first = finalize()
     expect(finalize(new Error('late close'))).toBe(first)
@@ -655,9 +686,9 @@ describe('Claude stream state validation and shared finalization', () => {
           cache_creation_input_tokens: 11,
           cache_read_input_tokens: 30,
           cache_creation: { ephemeral_5m_input_tokens: 5, ephemeral_1h_input_tokens: 6 },
-          speed: 'fast'
-        }
-      }
+          speed: 'fast',
+        },
+      },
     })
     state.observe(delta(4))
     state.observe(delta(9))
@@ -667,7 +698,7 @@ describe('Claude stream state validation and shared finalization', () => {
       speed: 'fast',
       cache_creation_input_tokens: 11,
       cache_read_input_tokens: 30,
-      cache_creation: { ephemeral_5m_input_tokens: 5, ephemeral_1h_input_tokens: 6 }
+      cache_creation: { ephemeral_5m_input_tokens: 5, ephemeral_1h_input_tokens: 6 },
     })
   })
 
@@ -681,16 +712,13 @@ describe('Claude stream state validation and shared finalization', () => {
     expect(openaiToClaude.streamUsage.has('multiline')).toBe(false)
   })
 
-  it.each(['gzip', 'deflate'])(
-    'meters native %s responses using the decoded events',
-    async (encoding) => {
-      const res = makeResponse()
-      const callback = jest.fn()
-      const bytes = Buffer.from(wire([start, delta(4), delta(9), stop]))
-      const compressed = encoding === 'gzip' ? gzipSync(bytes) : deflateSync(bytes)
-      await run('official', res, Readable.from([compressed]), callback, null, encoding)
-      expect(callback).toHaveBeenCalledTimes(1)
-      expect(callback.mock.calls[0][0].output_tokens).toBe(9)
-    }
-  )
+  it.each(['gzip', 'deflate'])('meters native %s responses using the decoded events', async (encoding) => {
+    const res = makeResponse()
+    const callback = jest.fn()
+    const bytes = Buffer.from(wire([start, delta(4), delta(9), stop]))
+    const compressed = encoding === 'gzip' ? gzipSync(bytes) : deflateSync(bytes)
+    await run('official', res, Readable.from([compressed]), callback, null, encoding)
+    expect(callback).toHaveBeenCalledTimes(1)
+    expect(callback.mock.calls[0][0].output_tokens).toBe(9)
+  })
 })

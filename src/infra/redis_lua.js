@@ -8,6 +8,17 @@
 // ===
 
 export const RedisLua = {
+  apiKey: {
+    touchLastUsed: `
+if redis.call('EXISTS', KEYS[1]) == 0 or redis.call('HGET', KEYS[1], 'isDeleted') == 'true' then return 0 end
+local indexType = redis.call('TYPE', KEYS[2]).ok
+if indexType ~= 'none' and indexType ~= 'zset' then return redis.error_reply('Invalid API key last-used index type') end
+redis.call('HSET', KEYS[1], 'lastUsedAt', ARGV[1])
+redis.call('ZADD', KEYS[2], ARGV[2], ARGV[3])
+redis.call('EXPIRE', KEYS[1], ARGV[4])
+return 1
+`,
+  },
   geminiInteraction: {
     recoverLegacy: `
 local raw = redis.call('GET', KEYS[1])
