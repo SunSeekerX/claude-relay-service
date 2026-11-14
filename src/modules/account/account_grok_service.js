@@ -326,11 +326,14 @@ class GrokAccountService {
 
   async createAccount(options = {}) {
     const accountType = options.accountType === 'apikey' ? 'apikey' : 'oauth'
-    const authType = options.authType || accountType
+    const authType = xaiHelper.normalizeAuthType(options.authType || accountType)
 
     let baseUrl
     try {
-      baseUrl = normalizeBaseUrl(options.baseUrl || options.baseApi, authType)
+      baseUrl = normalizeBaseUrl(
+        xaiHelper.resolveGrokBaseUrl({ ...options, authType, baseUrl: options.baseUrl || options.baseApi }),
+        authType,
+      )
     } catch (error) {
       throw new Error(`Invalid base URL: ${error.message}`, { cause: error })
     }
@@ -352,6 +355,7 @@ class GrokAccountService {
       name: options.name || (options.email ? options.email : 'Grok Account'),
       description: options.description || '',
       authType,
+      ...(options.customUpstream !== undefined ? { customUpstream: boolToStr(options.customUpstream, false) } : {}),
       accountType: sharedKind,
       priority: toStr(options.priority ?? 50),
       proxy: options.proxy ? JSON.stringify(options.proxy) : '',
@@ -381,7 +385,9 @@ class GrokAccountService {
       mediaBaseUrl: options.mediaBaseUrl ? String(options.mediaBaseUrl).replace(/\/+$/, '') : '',
       clientId: options.clientId || xaiHelper.effectiveClientId(),
       email: options.email ? encrypt(options.email) : '',
-      subscriptionTier: options.subscriptionTier || '',
+      subscriptionTier:
+        grokQuota.normalizeSubscriptionTier(options.subscriptionTier) ||
+        grokQuota.subscriptionTierFromJWT(options.idToken || options.accessToken),
       entitlementStatus: options.entitlementStatus || '',
       planType: options.planType || options.subscriptionTier || '',
       subscriptionExpiresAt: options.subscriptionExpiresAt || '',
@@ -515,6 +521,7 @@ class GrokAccountService {
     }
 
     accountData.platform = 'grok'
+    accountData.authType = xaiHelper.normalizeAuthType(accountData.authType)
     accountData.grokUsage = grokQuota.buildGrokUsageSnapshot(accountData)
     return accountData
   }
@@ -565,13 +572,25 @@ class GrokAccountService {
     if (next.supportedModels && typeof next.supportedModels !== 'string') {
       next.supportedModels = JSON.stringify(next.supportedModels)
     }
-    if (next.baseUrl) {
+    if (next.baseUrl !== undefined || next.baseUrlMode !== undefined || next.customUpstream !== undefined) {
       try {
-        next.baseUrl = normalizeBaseUrl(next.baseUrl, existing.authType || 'oauth')
+        next.baseUrl = normalizeBaseUrl(
+          xaiHelper.resolveGrokBaseUrl({
+            authType: existing.authType,
+            baseUrl: next.baseUrl ?? existing.baseUrl,
+            baseUrlMode: next.baseUrlMode,
+            customUpstream: next.customUpstream ?? existing.customUpstream,
+          }),
+          existing.authType || 'oauth',
+        )
       } catch (error) {
         throw new Error(`Invalid base URL: ${error.message}`, { cause: error })
       }
     }
+    if (next.customUpstream !== undefined) {
+      next.customUpstream = boolToStr(next.customUpstream, false)
+    }
+    delete next.baseUrlMode
     if (next.mediaBaseUrl) {
       next.mediaBaseUrl = String(next.mediaBaseUrl).replace(/\/+$/, '')
     }
@@ -691,6 +710,7 @@ class GrokAccountService {
     data.isActive = data.isActive === 'true'
     data.disableAutoProtection = data.disableAutoProtection === true || data.disableAutoProtection === 'true'
     data.platform = 'grok'
+    data.authType = xaiHelper.normalizeAuthType(data.authType)
     data.priority = parseInt(data.priority, 10) || 50
     data.dailyQuota = parseFloat(data.dailyQuota) || 0
     data.grokUsage = grokQuota.buildGrokUsageSnapshot(data)
@@ -809,10 +829,7 @@ class GrokAccountService {
     if (media && account.mediaBaseUrl) {
       return String(account.mediaBaseUrl).replace(/\/+$/, '')
     }
-    if (account.baseUrl) {
-      return String(account.baseUrl).replace(/\/+$/, '')
-    }
-    return account.authType === 'oauth' ? xaiHelper.effectiveCliBaseUrl() : xaiHelper.effectiveBaseUrl()
+    return xaiHelper.resolveGrokBaseUrl(account).replace(/\/+$/, '')
   }
 
   // === 状态 / 限流 ===
@@ -898,12 +915,9 @@ class GrokAccountService {
     if (!observation) {
       return
     }
-    await redis.getClientSafe().eval(
-      RedisLua.grokAccount.recordQuota,
-      1,
-      RedisKeys.accounts.grok(accountId),
-      JSON.stringify(observation),
-    )
+    await redis
+      .getClientSafe()
+      .eval(RedisLua.grokAccount.recordQuota, 1, RedisKeys.accounts.grok(accountId), JSON.stringify(observation))
   }
 
   async queryQuota(accountId) {

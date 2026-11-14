@@ -109,12 +109,13 @@ router.get(
 
     const accountIds = accounts.map((account) => account.id)
 
-    const [allApiKeys, allGroupInfosMap, dailyCostMap] = await Promise.all([
+    const [allApiKeys, allGroupInfosMap, dailyCostMap, rollingUsageMap] = await Promise.all([
       apiKeyService.getAllApiKeysLite(),
       accountGroupService.batchGetAccountGroupsByIndex
         ? accountGroupService.batchGetAccountGroupsByIndex(accountIds, 'grok')
         : Promise.resolve(new Map()),
       redis.batchGetAccountDailyCost ? redis.batchGetAccountDailyCost(accountIds) : Promise.resolve(new Map()),
+      redis.batchGetAccountRollingUsage(accountIds, { fallbackModel: 'grok-4.6' }),
     ])
 
     const bindingCountMap = new Map()
@@ -153,6 +154,7 @@ router.get(
         groupInfos: allGroupInfosMap?.get?.(account.id) || [],
         boundApiKeyCount: bindingCountMap.get(account.id) || 0,
         dailyCost: dailyCostMap?.get?.(account.id) || 0,
+        rollingUsage: rollingUsageMap.get(account.id),
         usage: {
           total: errTotal ? {} : parseUsage(total),
           daily: errDaily ? {} : parseUsage(daily),
@@ -400,6 +402,10 @@ router.post(
     )
 
     const latencyMs = Date.now() - started
+    await grokAccountService.recordQuotaObservation(accountId, response.headers, {
+      model: mappedModel,
+      statusCode: response.status,
+    })
     if (response.status >= 200 && response.status < 300) {
       return {
         ok: true,

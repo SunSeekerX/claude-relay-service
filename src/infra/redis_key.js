@@ -627,6 +627,7 @@ export const TTL = {
 // LIMITS — 集合容量上限(仅"真有裁剪动作"的)
 // ===
 export const LIMITS = {
+  accountRollingBatch: 10,
   responsesCountResponseBytes: 1024 * 1024,
   responsesCountItems: 20000,
   responsesCountDepth: 32,

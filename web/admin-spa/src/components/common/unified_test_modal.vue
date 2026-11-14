@@ -490,6 +490,11 @@ const disableTest = computed(
 
 // ========== account 模式 - 平台信息 ==========
 const platformConfigs = {
+  grok: {
+    label: 'Grok',
+    icon: PLATFORM_ICONS.grok,
+    badge: 'bg-zinc-100 text-zinc-800 dark:bg-zinc-700 dark:text-zinc-100'
+  },
   claude: {
     label: 'Claude OAuth',
     icon: PLATFORM_ICONS.claude,
@@ -597,6 +602,7 @@ const getAccountEndpoint = () => {
   if (!props.account) return ''
   const platform = props.account.platform
   const endpoints = {
+    grok: `${APP_CONFIG.apiPrefix}/admin/grok-accounts/${props.account.id}/test`,
     claude: `${APP_CONFIG.apiPrefix}/admin/claude-accounts/${props.account.id}/test`,
     'claude-console': `${APP_CONFIG.apiPrefix}/admin/claude-console-accounts/${props.account.id}/test`,
     bedrock: `${APP_CONFIG.apiPrefix}/admin/bedrock-accounts/${props.account.id}/test`,

@@ -43,6 +43,29 @@ export const DEFAULT_MODELS = [
   { id: 'grok-imagine-video-1.5', displayName: 'Grok Imagine Video 1.5' },
 ]
 
+export const REGIONAL_BASE_URLS = { us: 'https://us.api.x.ai/v1' }
+
+export const normalizeAuthType = (value) => (['apikey', 'api_key'].includes(value) ? 'apikey' : 'oauth')
+
+export const resolveGrokBaseUrl = ({ authType, baseUrl, baseUrlMode, customUpstream } = {}) => {
+  const type = normalizeAuthType(authType)
+  const raw = String(baseUrl ?? '').trim()
+  if (type === 'oauth') {
+    const custom =
+      customUpstream === true ||
+      customUpstream === 'true' ||
+      (customUpstream === undefined && raw && !isOfficialBaseUrl(raw))
+    return custom ? validateBaseUrl(raw) : effectiveCliBaseUrl()
+  }
+  if (baseUrlMode && !['api', 'custom', ...Object.keys(REGIONAL_BASE_URLS)].includes(baseUrlMode)) {
+    throw new Error('Unsupported Grok upstream mode')
+  }
+  if (baseUrlMode === 'custom') {
+    return validateBaseUrl(raw)
+  }
+  return REGIONAL_BASE_URLS[baseUrlMode] ?? (baseUrlMode === 'api' ? effectiveBaseUrl() : raw || effectiveBaseUrl())
+}
+
 // DEC_20261001_114137 通用别名指向官方默认模型 grok-4.6
 const DEFAULT_MODEL_MAPPING = {
   grok: 'grok-4.6',
@@ -480,8 +503,14 @@ export const isGrokTextModel = (model) => {
 }
 
 const REASONING_EFFORT_MODELS = new Set([
-  'grok-4.7', 'grok-4.6', 'grok-4.5', 'grok-4.3', 'grok-3-mini', 'grok-3-mini-fast',
-  'grok-4.20-0309-reasoning', 'grok-4.20-multi-agent-0309',
+  'grok-4.7',
+  'grok-4.6',
+  'grok-4.5',
+  'grok-4.3',
+  'grok-3-mini',
+  'grok-3-mini-fast',
+  'grok-4.20-0309-reasoning',
+  'grok-4.20-multi-agent-0309',
 ])
 
 export const normalizeChatCompletionsBody = (body, officialUpstream) => {
@@ -489,13 +518,18 @@ export const normalizeChatCompletionsBody = (body, officialUpstream) => {
   if (officialUpstream) {
     delete result.prompt_cache_key
   }
-  const rawModel = String(result.model ?? '').replace(/^(?:xai|x-ai|grok)\//i, '').toLowerCase()
+  const rawModel = String(result.model ?? '')
+    .replace(/^(?:xai|x-ai|grok)\//i, '')
+    .toLowerCase()
   const model = mapModel(rawModel.replace(/-latest$/, ''))
   const raw = result.reasoning_effort ?? result.reasoningEffort
   if (officialUpstream || REASONING_EFFORT_MODELS.has(model)) {
     delete result.reasoning_effort
     delete result.reasoningEffort
-    const value = String(raw ?? '').trim().toLowerCase().replace(/[-_\s]/g, '')
+    const value = String(raw ?? '')
+      .trim()
+      .toLowerCase()
+      .replace(/[-_\s]/g, '')
     const aliases = { minimal: 'low', max: 'high', ultra: 'high', extrahigh: 'xhigh' }
     let effort = aliases[value] ?? value
     if (effort === 'xhigh' && !['grok-4.7', 'grok-4.6', 'grok-4.20-multi-agent-0309'].includes(model)) {

@@ -55,6 +55,20 @@ const GPT6_SHARED_META = {
 }
 
 export const MODEL_FALLBACK_PRICING = {
+  // https://docs.x.ai/developers/pricing (2026-11-14)
+  'grok-4.7': {
+    litellm_provider: 'xai',
+    mode: 'chat',
+    max_input_tokens: 500000,
+    input_cost_per_token: 2e-6,
+    output_cost_per_token: 6e-6,
+    cache_read_input_token_cost: 0.5e-6,
+    input_cost_per_token_above_200k_tokens: 4e-6,
+    output_cost_per_token_above_200k_tokens: 12e-6,
+    cache_read_input_token_cost_above_200k_tokens: 1e-6,
+    supports_reasoning: true,
+    supports_xhigh_reasoning_effort: true,
+  },
   // https://platform.claude.com/docs/en/about-claude/pricing (2026-11-11)
   'claude-fable-5-2': {
     ...CLAUDE_SHARED_META,

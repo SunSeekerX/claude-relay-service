@@ -965,6 +965,8 @@ export const attach = (redisClient) => {
       accountData = await this.client.hgetall(RedisKeys.accounts.openai(accountId))
     } else if (accountType === 'openai-responses') {
       accountData = await this.client.hgetall(RedisKeys.accounts.openaiResponses(accountId))
+    } else if (accountType === 'grok') {
+      accountData = await this.client.hgetall(RedisKeys.accounts.grok(accountId))
     } else {
       // 尝试多个前缀（优先 claude:account:）
       accountData = await this.client.hgetall(RedisKeys.accounts.claude(accountId))
@@ -982,6 +984,9 @@ export const attach = (redisClient) => {
       }
       if (!accountData.createdAt) {
         accountData = await this.client.hgetall(RedisKeys.accounts.droid(accountId))
+      }
+      if (!accountData.createdAt) {
+        accountData = await this.client.hgetall(RedisKeys.accounts.grok(accountId))
       }
     }
     const createdAt = accountData.createdAt ? new Date(accountData.createdAt) : new Date()

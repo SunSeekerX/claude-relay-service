@@ -10,6 +10,7 @@ import { openaiResponsesAccountService } from '../account/account_openai_respons
 import * as azureOpenaiAccountService from '../account/account_azure_openai_service.js'
 import { droidAccountService } from '../account/account_droid_service.js'
 import { bedrockAccountService } from '../account/account_bedrock_service.js'
+import { grokAccountService } from '../account/account_grok_service.js'
 import { redis } from '../../infra/redis.js'
 import { RedisKeys } from '../../infra/redis_key.js'
 import { authenticateAdmin } from '../../infra/middleware_auth.js'
@@ -71,8 +72,6 @@ const slimTrendToTopApiKeys = async (trendData, apiKeyTotals, limit = 10) => {
 
   return { topApiKeys, totalApiKeys: liveIds.length }
 }
-
-
 
 const accountTypeNames = {
   claude: 'Claude官方',
@@ -207,12 +206,14 @@ router.get(
       'gemini-api',
       'droid',
       'bedrock',
+      'grok',
     ]
     if (!allowedPlatforms.includes(platform)) {
       throw badRequest('Unsupported account platform')
     }
 
     const accountTypeMap = {
+      grok: 'grok',
       openai: 'openai',
       'openai-responses': 'openai-responses',
       'gemini-api': 'gemini-api',
@@ -221,6 +222,7 @@ router.get(
     }
 
     const fallbackModelMap = {
+      grok: 'grok-4.6',
       claude: 'claude-3-5-sonnet-20241022',
       'claude-console': 'claude-3-5-sonnet-20241022',
       openai: 'gpt-4o-mini-2024-07-18',
@@ -237,6 +239,9 @@ router.get(
 
     try {
       switch (platform) {
+        case 'grok':
+          accountData = await grokAccountService.getAccount(accountId, { decryptSecrets: false })
+          break
         case 'claude':
           accountData = await claudeAccountService.getAccount(accountId)
           break
@@ -278,6 +283,11 @@ router.get(
 
     // 获取概览统计数据
     const accountUsageStats = await redis.getAccountUsageStats(accountId, accountTypeMap[platform] || null)
+    const rollingSnapshot = await redis.getAccountRollingUsage(accountId, {
+      fallbackModel,
+      includeDaily: platform === 'grok',
+    })
+    const { dailyHistory: _dailyHistory, ...rollingUsage } = rollingSnapshot
 
     const history = []
     let totalCost = 0
@@ -300,6 +310,12 @@ router.get(
         const modelParts = modelKey.split(':')
         const modelName = modelParts[4] || 'unknown'
         if (!modelData || Object.keys(modelData).length === 0) {
+          continue
+        }
+        if (platform === 'grok') {
+          const prefix = RedisKeys.accountUsage.modelDaily(accountId, '', '').slice(0, -1)
+          const model = modelKey.slice(prefix.length, -(dateKey.length + 1))
+          summedCost += redis._resolveAccountModelCost(modelData, model)
           continue
         }
 
@@ -341,7 +357,8 @@ router.get(
 
       const client = redis.getClientSafe()
       const dailyKey = RedisKeys.accountUsage.daily(accountId, dateKey)
-      const dailyData = await client.hgetall(dailyKey)
+      const cachedDay = rollingSnapshot.dailyHistory?.[dateKey]
+      const dailyData = cachedDay ? { ...cachedDay, allTokens: cachedDay.tokens } : await client.hgetall(dailyKey)
 
       const inputTokens = parseInt(dailyData?.inputTokens) || 0
       const outputTokens = parseInt(dailyData?.outputTokens) || 0
@@ -351,9 +368,9 @@ router.get(
         parseInt(dailyData?.allTokens) || inputTokens + outputTokens + cacheCreateTokens + cacheReadTokens
       const requests = parseInt(dailyData?.requests) || 0
 
-      let cost = await sumModelCostsForDay(dateKey)
+      let cost = cachedDay ? cachedDay.cost : await sumModelCostsForDay(dateKey)
 
-      if (cost === 0 && allTokens > 0) {
+      if (!cachedDay && platform !== 'grok' && cost === 0 && allTokens > 0) {
         const fallbackUsage = {
           input_tokens: inputTokens,
           output_tokens: outputTokens,
@@ -427,6 +444,7 @@ router.get(
 
     return {
       history,
+      rollingUsage,
       summary: {
         days: daysCount,
         actualDaysUsed: actualDaysForAvg, // 实际使用的天数（用于计算日均值）
@@ -1140,12 +1158,13 @@ router.get(
   asyncRoute('Failed to get account usage trend', async (req) => {
     const { granularity = 'day', group = 'claude', days = 7, startDate, endDate } = req.query
 
-    const allowedGroups = ['claude', 'openai', 'gemini', 'droid', 'bedrock']
+    const allowedGroups = ['claude', 'openai', 'gemini', 'droid', 'grok', 'bedrock']
     if (!allowedGroups.includes(group)) {
       throw badRequest('Invalid account group')
     }
 
     const groupLabels = {
+      grok: 'Grok账户',
       claude: 'Claude账户',
       openai: 'OpenAI账户',
       gemini: 'Gemini账户',
@@ -1244,6 +1263,12 @@ router.get(
           platform: 'droid',
         }
       })
+    } else if (group === 'grok') {
+      accounts = (await grokAccountService.getAllAccounts(true)).map((account) => ({
+        id: account.id,
+        name: account.name || `Grok账号 ${String(account.id).slice(0, 8)}`,
+        platform: 'grok',
+      }))
     } else if (group === 'bedrock') {
       const result = await bedrockAccountService.getAllAccounts()
       const bedrockAccounts = result?.success ? result.data : []
@@ -1280,6 +1305,7 @@ router.get(
     }
 
     const fallbackModelByGroup = {
+      grok: 'grok-4.6',
       claude: 'claude-3-5-sonnet-20241022',
       openai: 'gpt-4o-mini-2024-07-18',
       gemini: 'gemini-1.5-flash',

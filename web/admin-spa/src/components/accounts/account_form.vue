@@ -710,6 +710,15 @@
               </template>
             </div>
 
+            <GrokConnectionFields
+              v-if="form.platform === 'grok'"
+              v-model:api-key="form.apiKey"
+              v-model:base-url="form.baseUrl"
+              v-model:replace-enabled="apiKeyReplacement"
+              :editing="isEdit"
+              :oauth="form.addType !== 'apikey'"
+            />
+
             <!-- 分组选择器 -->
             <div v-if="form.accountType === 'group'">
               <label class="mb-1 block text-sm font-semibold text-gray-700 dark:text-gray-300"
@@ -2924,6 +2933,16 @@
             </div>
           </div>
 
+          <div v-if="form.platform === 'grok'" v-show="editActiveTab === 'basic'">
+            <GrokConnectionFields
+              v-model:api-key="form.apiKey"
+              v-model:base-url="form.baseUrl"
+              v-model:replace-enabled="apiKeyReplacement"
+              :editing="isEdit"
+              :oauth="form.addType !== 'apikey'"
+            />
+          </div>
+
           <!-- Gemini API（并入基本信息）-->
           <div v-show="editActiveTab === 'basic'" class="space-y-4">
           <div v-if="form.platform === 'gemini-api'" class="space-y-4">
@@ -3465,6 +3484,7 @@ import ProxyBinding from './proxy_binding.vue'
 import OpenAIResponsesFields from './openai_responses_fields.vue'
 import AccountModelCatalog from './account_model_catalog.vue'
 import AccountApiKeyField from './account_api_key_field.vue'
+import GrokConnectionFields from './grok_connection_fields.vue'
 import { getAccountModelConfiguration } from '@/libs/account_model_config'
 import OAuthFlow from './oauth_flow.vue'
 import TempUnavailablePolicyFields from './temp_unavailable_policy_fields.vue'
@@ -3921,7 +3941,7 @@ const form = ref({
   baseApi: props.account?.baseApi || '',
   providerEndpoint: props.account?.providerEndpoint || 'responses',
   // Gemini-API 特定字段
-  baseUrl: props.account?.baseUrl || 'https://generativelanguage.googleapis.com',
+  baseUrl: props.account?.baseUrl || (props.account?.platform === 'grok' ? '' : 'https://generativelanguage.googleapis.com'),
   rateLimitDuration: props.account?.rateLimitDuration || 60,
   supportedModels: (() => {
     const models = props.account?.supportedModels
@@ -5640,6 +5660,11 @@ const updateAccount = async (closeAfter = false) => {
     }
 
     // OpenAI 账号优先级更新
+    if (props.account.platform === 'grok') {
+      data.baseUrl = form.value.baseUrl
+      if (apiKeyReplacement.value) data.apiKey = form.value.apiKey
+    }
+
     if (props.account.platform === 'openai') {
       data.priority = form.value.priority || 50
       data.upstreamRequestIdHeader = form.value.upstreamRequestIdHeader || ''
@@ -5986,7 +6011,10 @@ const handleApiKeyRefresh = async () => {
 // 监听平台变化，重置表单
 watch(
   () => form.value.platform,
-  (newPlatform) => {
+  (newPlatform, previousPlatform) => {
+    if (!isEdit.value && (newPlatform === 'grok' || previousPlatform === 'grok')) {
+      form.value.baseUrl = newPlatform === 'grok' ? '' : 'https://generativelanguage.googleapis.com'
+    }
     // 处理添加方式的自动切换
     if (
       newPlatform === 'claude-console' ||
@@ -6305,7 +6333,7 @@ watch(
         baseApi: newAccount.baseApi || '',
         providerEndpoint: newAccount.providerEndpoint || 'responses',
         // Gemini-API 特定字段
-        baseUrl: newAccount.baseUrl || 'https://generativelanguage.googleapis.com',
+        baseUrl: newAccount.baseUrl || (newAccount.platform === 'grok' ? '' : 'https://generativelanguage.googleapis.com'),
         // 额度管理字段
         dailyQuota: Number(newAccount.dailyQuota ) || 0,
         dailyUsage: newAccount.dailyUsage || 0,

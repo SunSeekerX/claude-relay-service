@@ -31,6 +31,7 @@ const openaiResponsesAccountService = {
 }
 const unifiedOpenAIScheduler = { markAccountRateLimited: jest.fn().mockResolvedValue(undefined) }
 const grokAccountService = {
+  recordQuotaObservation: jest.fn().mockResolvedValue(undefined),
   markAccountRateLimited: jest.fn().mockResolvedValue(undefined),
   markAccountUnauthorized: jest.fn().mockResolvedValue(undefined),
   getAccount: jest.fn(),
@@ -109,6 +110,8 @@ const modules = {
   },
   '../src/modules/proxy/proxy_helper.js': { ProxyHelper: {} },
   '../src/common/xai_helper.js': {
+    normalizeChatCompletionsBody: (body) => ({ ...body, ...(body.stream ? { stream_options: { ...body.stream_options, include_usage: true } } : {}) }),
+    isOfficialBaseUrl: () => true,
     mapModel: (model) => model,
     buildResponsesUrl: (base) => `${base}/responses`,
     buildResponsesCompactUrl: (base) => `${base}/responses/compact`,

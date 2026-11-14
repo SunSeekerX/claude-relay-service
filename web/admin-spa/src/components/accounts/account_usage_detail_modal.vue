@@ -66,6 +66,13 @@
             <div class="loading-spinner h-12 w-12 border-4 border-blue-500" />
           </div>
           <template v-else>
+            <AccountUsageWindows
+              class="mb-5"
+              :quota="account?.grokUsage"
+              :rolling-usage="summary?.rollingUsage || account?.rollingUsage"
+              :show-quota="account?.platform === 'grok'"
+            />
+
             <!-- 关键指标 -->
             <div class="mb-5 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
               <div
@@ -334,6 +341,7 @@
 <script setup>
 import { computed, nextTick, onUnmounted, ref, watch } from 'vue'
 import ModalTransition from '@/components/common/modal_transition.vue'
+import AccountUsageWindows from './account_usage_windows.vue'
 import Chart from 'chart.js/auto'
 import { useThemeStore } from '@/stores/theme'
 
@@ -365,6 +373,7 @@ const platformLabelMap = {
   gemini: 'Gemini',
   'gemini-api': 'Gemini API',
   droid: 'Droid',
+  grok: 'Grok',
   bedrock: 'Claude AWS Bedrock'
 }
 

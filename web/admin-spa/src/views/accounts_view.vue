@@ -1226,6 +1226,12 @@
                       <span class="text-sm">暂无统计</span>
                     </div>
                   </div>
+                  <AccountUsageWindows
+                    v-else-if="account.platform === 'grok'"
+                    :quota="account.grokUsage"
+                    :rolling-usage="account.rollingUsage"
+                    :show-quota="account.authType === 'oauth'"
+                  />
                   <div v-else class="text-sm text-gray-400">
                     <span class="text-sm">N/A</span>
                   </div>
@@ -1245,6 +1251,7 @@
                       account.platform === 'azure_openai' ||
                       account.platform === 'ccr' ||
                       account.platform === 'droid' ||
+                      account.platform === 'grok' ||
                       account.platform === 'gemini-api'
                     "
                     class="flex items-center gap-2"
@@ -1822,6 +1829,13 @@
               </div>
             </div>
 
+            <AccountUsageWindows
+              v-if="account.platform === 'grok'"
+              :quota="account.grokUsage"
+              :rolling-usage="account.rollingUsage"
+              :show-quota="account.authType === 'oauth'"
+            />
+
             <!-- 最后使用时间 -->
             <div class="flex items-center justify-between text-sm">
               <span class="text-gray-500 dark:text-gray-400">最后使用</span>
@@ -2320,6 +2334,7 @@ import * as httpApis from '@/libs/http_apis'
 import AccountForm from '@/components/accounts/account_form.vue'
 import CcrAccountForm from '@/components/accounts/ccr_account_form.vue'
 import AccountUsageDetailModal from '@/components/accounts/account_usage_detail_modal.vue'
+import AccountUsageWindows from '@/components/accounts/account_usage_windows.vue'
 import AccountUsageRecordsDialog from '@/components/accounts/account_usage_records_dialog.vue'
 import AccountErrorHistoryModal from '@/components/accounts/account_error_history_modal.vue'
 import AccountExpiryEditModal from '@/components/accounts/account_expiry_edit_modal.vue'
@@ -2778,6 +2793,7 @@ const canViewUsage = (account) => !!account && supportedUsagePlatforms.includes(
 // 判断是否显示重置状态按钮
 const showResetButton = (account) => {
   const supportedPlatforms = [
+    'grok',
     'claude',
     'claude-console',
     'openai',
@@ -2811,7 +2827,7 @@ const openAccountUsageModal = async (account) => {
   if (isOk(response)) {
     const data = response.data || {}
     accountUsageHistory.value = data.history || []
-    accountUsageSummary.value = data.summary || {}
+    accountUsageSummary.value = { ...data.summary, rollingUsage: data.rollingUsage }
     accountUsageOverview.value = data.overview || {}
     accountUsageGeneratedAt.value = data.generatedAt || ''
   } else {

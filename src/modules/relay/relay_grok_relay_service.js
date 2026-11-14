@@ -478,6 +478,12 @@ class GrokRelayService {
           proxyResolver.report?.(proxyResolution?.proxyId, proxyResolution?.contextKey, error)
           throw error
         }
+        await grokAccountService
+          .recordQuotaObservation(account.id, received.headers, {
+            statusCode: received.status,
+            model: body?.model || requestedModel,
+          })
+          .catch((error) => logger.warn('Failed to retain Grok quota observation:', error))
         if (received.status >= 400 && typeof received.data?.pipe === 'function') {
           const text = await this._readStreamText(received.data, Math.max(1, Math.min(5000, deadline - Date.now())))
           try {
@@ -750,10 +756,6 @@ class GrokRelayService {
       req._crsAccountType = 'grok'
       req._crsRequestedModel = req._grokMessagesOriginalModel ?? requestedModel
       req._crsUpstreamHeaders = response.headers
-      await grokAccountService.recordQuotaObservation(account.id, response.headers, {
-        statusCode: response.status,
-        model: body?.model || requestedModel,
-      }).catch((error) => logger.warn('Failed to retain Grok quota observation:', error))
       if (endpointKind === 'video_content') {
         const contentType = response.headers?.['content-type'] || 'video/mp4'
         res.setHeader('Content-Type', contentType)

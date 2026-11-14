@@ -6,7 +6,7 @@ const TIER_BY_NUMBER = {
   4: 'x_premium_plus',
   5: 'supergrok_heavy',
   6: 'supergrok_lite',
-  7: 'supergrok_plus'
+  7: 'supergrok_plus',
 }
 
 const PLAN_LABELS = {
@@ -18,17 +18,14 @@ const PLAN_LABELS = {
   supergrok_heavy: 'SuperGrok Heavy',
   x_basic: 'X Basic',
   x_premium: 'X Premium',
-  x_premium_plus: 'X Premium+'
+  x_premium_plus: 'X Premium+',
 }
 
-const HEAVY_REQUEST_LIMIT = 8300
-const HEAVY_TOKEN_LIMIT = 53_000_000
+export const HEAVY_REQUEST_LIMIT = 8300
+export const HEAVY_TOKEN_LIMIT = 53_000_000
 
 const REQUEST_LIMIT_HEADERS = ['x-ratelimit-limit-requests', 'x-rate-limit-limit-requests']
-const REQUEST_REMAINING_HEADERS = [
-  'x-ratelimit-remaining-requests',
-  'x-rate-limit-remaining-requests'
-]
+const REQUEST_REMAINING_HEADERS = ['x-ratelimit-remaining-requests', 'x-rate-limit-remaining-requests']
 const REQUEST_RESET_HEADERS = ['x-ratelimit-reset-requests', 'x-rate-limit-reset-requests']
 const TOKEN_LIMIT_HEADERS = ['x-ratelimit-limit-tokens', 'x-rate-limit-limit-tokens']
 const TOKEN_REMAINING_HEADERS = ['x-ratelimit-remaining-tokens', 'x-rate-limit-remaining-tokens']
@@ -42,14 +39,14 @@ const TIER_HEADERS = [
   'xai-tier',
   'x-user-tier',
   'x-plan-tier',
-  'x-subscription-plan'
+  'x-subscription-plan',
 ]
 const ENTITLEMENT_HEADERS = [
   'xai-entitlement-status',
   'x-entitlement-status',
   'x-xai-entitlement-status',
   'x-xai-user-entitlement-status',
-  'x-user-entitlement-status'
+  'x-user-entitlement-status',
 ]
 
 export const headerValue = (headers, names) => {
@@ -134,7 +131,7 @@ export const parseQuotaWindow = (headers, limitNames, remainingNames, resetNames
     limit,
     remaining,
     resetUnix,
-    resetsAt: resetUnix ? new Date(resetUnix * 1000).toISOString() : null
+    resetsAt: resetUnix ? new Date(resetUnix * 1000).toISOString() : null,
   }
 }
 
@@ -192,13 +189,14 @@ export const normalizeSubscriptionTier = (raw) => {
     xbasic: 'x_basic',
     xpremium: 'x_premium',
     xpremiumplus: 'x_premium_plus',
-    'x_premium+': 'x_premium_plus'
+    'x_premium+': 'x_premium_plus',
   }
   return aliases[text] || text
 }
 
 export const subscriptionTierFromClaims = (payload = {}) => {
-  const raw = payload.tier ?? payload.subscription_tier ?? payload.plan ?? payload.user_tier
+  const raw =
+    payload.tier ?? payload.subscription_tier ?? payload.xai_subscription_tier ?? payload.plan ?? payload.user_tier
   if (raw === undefined || raw === null) {
     return ''
   }
@@ -208,9 +206,7 @@ export const subscriptionTierFromClaims = (payload = {}) => {
   return normalizeSubscriptionTier(raw)
 }
 
-export const subscriptionTierFromJWT = (token) => {
-  return subscriptionTierFromClaims(decodeJwtPayload(token) || {})
-}
+export const subscriptionTierFromJWT = (token) => subscriptionTierFromClaims(decodeJwtPayload(token) || {})
 
 export const planLabel = (plan) => {
   const normalized = normalizeSubscriptionTier(plan)
@@ -238,20 +234,8 @@ export const parseQuotaHeaders = (headers, { statusCode = 0, model = '', now = n
     return null
   }
   const snapshot = {
-    requests: parseQuotaWindow(
-      headers,
-      REQUEST_LIMIT_HEADERS,
-      REQUEST_REMAINING_HEADERS,
-      REQUEST_RESET_HEADERS,
-      now
-    ),
-    tokens: parseQuotaWindow(
-      headers,
-      TOKEN_LIMIT_HEADERS,
-      TOKEN_REMAINING_HEADERS,
-      TOKEN_RESET_HEADERS,
-      now
-    ),
+    requests: parseQuotaWindow(headers, REQUEST_LIMIT_HEADERS, REQUEST_REMAINING_HEADERS, REQUEST_RESET_HEADERS, now),
+    tokens: parseQuotaWindow(headers, TOKEN_LIMIT_HEADERS, TOKEN_REMAINING_HEADERS, TOKEN_RESET_HEADERS, now),
     subscriptionTier: normalizeSubscriptionTier(headerValue(headers, TIER_HEADERS)),
     entitlementStatus: headerValue(headers, ENTITLEMENT_HEADERS),
     statusCode,
@@ -260,15 +244,10 @@ export const parseQuotaHeaders = (headers, { statusCode = 0, model = '', now = n
     lastHeadersSeenAt: now.toISOString(),
     headersObserved: false,
     planFrom45Responses: '',
-    planFrom45ResponsesAt: ''
+    planFrom45ResponsesAt: '',
   }
 
-  if (
-    !snapshot.requests &&
-    !snapshot.tokens &&
-    !snapshot.subscriptionTier &&
-    !snapshot.entitlementStatus
-  ) {
+  if (!snapshot.requests && !snapshot.tokens && !snapshot.subscriptionTier && !snapshot.entitlementStatus) {
     return null
   }
 
@@ -278,52 +257,6 @@ export const parseQuotaHeaders = (headers, { statusCode = 0, model = '', now = n
     snapshot.planFrom45ResponsesAt = snapshot.updatedAt
   }
   return snapshot
-}
-
-// 单个配额窗口的合并：本次响应给了哪个字段就用哪个，没给的沿用上一次已知值。
-export const mergeQuotaWindow = (previous, next) => {
-  if (!next) {
-    return previous || null
-  }
-  if (!previous) {
-    return next
-  }
-  const pick = (a, b) => (a === null || a === undefined ? b : a)
-  return {
-    limit: pick(next.limit, previous.limit),
-    remaining: pick(next.remaining, previous.remaining),
-    resetUnix: pick(next.resetUnix, previous.resetUnix),
-    resetsAt: pick(next.resetsAt, previous.resetsAt)
-  }
-}
-
-export const mergeQuotaSnapshots = (previous, next) => {
-  if (!next) {
-    return previous || null
-  }
-  if (!previous) {
-    return next
-  }
-  const merged = { ...previous, ...next }
-  if (!next.planFrom45Responses && previous.planFrom45Responses) {
-    merged.planFrom45Responses = previous.planFrom45Responses
-    merged.planFrom45ResponsesAt = previous.planFrom45ResponsesAt
-  }
-  if (!next.subscriptionTier && previous.subscriptionTier) {
-    merged.subscriptionTier = previous.subscriptionTier
-  }
-  // parseQuotaWindow 在本次响应没带这组头时返回 null，浅合并会把上一次真实测到的
-  // 窗口直接抹掉（xAI 并非每个端点都同时回传 requests 与 tokens 两组头）。已观测到
-  // 的数据要保留，否则界面会退回「等待上游配额头」。
-  // 逐字段保留而不是整块保留：parseQuotaWindow 在只有 reset 头时会返回
-  // { limit:null, remaining:null, resetUnix:X } —— 它是 truthy，整块判断会放它
-  // 覆盖掉上一次真实测到的 limit/remaining，界面又退回「等待上游配额头」。
-  merged.requests = mergeQuotaWindow(previous.requests, next.requests)
-  merged.tokens = mergeQuotaWindow(previous.tokens, next.tokens)
-  if (!next.entitlementStatus && previous.entitlementStatus) {
-    merged.entitlementStatus = previous.entitlementStatus
-  }
-  return merged
 }
 
 export const canonicalPlan = ({ subscriptionTier = '', snapshot = null } = {}) => {
@@ -351,8 +284,7 @@ export const formatWindow = (window, now = new Date()) => {
   const remaining = hasExpired && hasLimit ? limit : window.remaining === null ? NaN : Number(window.remaining)
   const hasRemaining = Number.isFinite(remaining)
   const used = hasLimit && hasRemaining ? Math.max(0, limit - remaining) : null
-  const utilization =
-    hasLimit && used !== null ? Math.min(100, Math.round((used / limit) * 1000) / 10) : null
+  const utilization = hasLimit && used !== null ? Math.min(100, Math.round((used / limit) * 1000) / 10) : null
   const remainingSeconds = resetsAt
     ? Math.max(0, Math.floor((new Date(resetsAt).getTime() - now.getTime()) / 1000))
     : null
@@ -362,7 +294,7 @@ export const formatWindow = (window, now = new Date()) => {
     used,
     utilization,
     resetsAt,
-    remainingSeconds
+    remainingSeconds,
   }
 }
 
@@ -387,7 +319,7 @@ export const buildGrokUsageSnapshot = (account, now = new Date()) => {
   const snapshot = parseStoredSnapshot(account.grokQuotaSnapshot)
   const plan = canonicalPlan({
     subscriptionTier: account.subscriptionTier,
-    snapshot
+    snapshot,
   })
   const tokens = formatWindow(snapshot?.tokens, now)
   const requests = formatWindow(snapshot?.requests, now)
@@ -399,12 +331,15 @@ export const buildGrokUsageSnapshot = (account, now = new Date()) => {
     planLabel: planLabel(plan) || 'Grok',
     planSource: normalizeSubscriptionTier(snapshot?.subscriptionTier)
       ? 'header'
-      : normalizeSubscriptionTier(account.subscriptionTier) ? 'token' : plan ? 'quota' : null,
+      : normalizeSubscriptionTier(account.subscriptionTier)
+        ? 'token'
+        : plan
+          ? 'quota'
+          : null,
     entitlementStatus: snapshot?.entitlementStatus || '',
     updatedAt: snapshot?.updatedAt || snapshot?.lastHeadersSeenAt || null,
     headersObserved: snapshot?.headersObserved === true,
     tokens,
-    requests
+    requests,
   }
 }
-

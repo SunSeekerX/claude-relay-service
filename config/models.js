@@ -39,7 +39,7 @@ export const GEMINI_MODELS = [
   { value: 'gemini-3.1-pro-preview', label: 'Gemini 3.1 Pro Preview' },
   { value: 'gemini-3.1-pro-preview-customtools', label: 'Gemini 3.1 Pro Preview Custom Tools' },
   { value: 'gemma-4-31b-it', label: 'Gemma 4 31B IT' },
-  { value: 'gemma-4-26b-a4b-it', label: 'Gemma 4 26B A4B IT' }
+  { value: 'gemma-4-26b-a4b-it', label: 'Gemma 4 26B A4B IT' },
 ]
 
 export const OPENAI_MODELS = [
@@ -63,7 +63,7 @@ export const OPENAI_MODELS = [
   { value: 'gpt-6-luna', label: 'GPT-6 Luna' },
   { value: 'gpt-6-astra', label: 'GPT-6 Astra' },
   { value: 'gpt-6', label: 'GPT-6 (Astra)' },
-  { value: 'codex-mini', label: 'Codex Mini' }
+  { value: 'codex-mini', label: 'Codex Mini' },
 ]
 
 // DEC_20261001_114137 Bedrock ID 对齐 Claude Code 2.1.280 provider_ids.bedrock
@@ -112,7 +112,7 @@ export const OTHER_MODELS = [
   { value: 'deepseek-chat', label: 'DeepSeek Chat' },
   { value: 'Qwen', label: 'Qwen' },
   { value: 'Kimi', label: 'Kimi' },
-  { value: 'GLM', label: 'GLM' }
+  { value: 'GLM', label: 'GLM' },
 ]
 
 // 各平台测试可用模型
@@ -126,7 +126,7 @@ export const PLATFORM_TEST_MODELS = {
   'azure-openai': [],
   droid: CLAUDE_MODELS,
   ccr: CLAUDE_MODELS,
-  grok: GROK_MODELS
+  grok: GROK_MODELS,
 }
 
 export const modelsConfig = {
@@ -154,5 +154,5 @@ export const modelsConfig = {
     }
   },
   // 获取所有模型（用于账户编辑）
-  getAllModels: () => [...CLAUDE_MODELS, ...GEMINI_MODELS, ...OPENAI_MODELS, ...GROK_MODELS, ...OTHER_MODELS]
+  getAllModels: () => [...CLAUDE_MODELS, ...GEMINI_MODELS, ...OPENAI_MODELS, ...GROK_MODELS, ...OTHER_MODELS],
 }

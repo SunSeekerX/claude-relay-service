@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head><meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1" /><title>Grok 合并验证</title></head>
+  <body>
+    <div id="app"></div>
+    <script type="module">
+      import { createApp, h, ref } from 'vue'
+      import { createPinia } from 'pinia'
+      import { createRouter, createMemoryHistory } from 'vue-router'
+      import Windows from '/src/components/accounts/account_usage_windows.vue'
+      import GrokFields from '/src/components/accounts/grok_connection_fields.vue'
+      import OAuthFlow from '/src/components/accounts/oauth_flow.vue'
+      import UnifiedTestModal from '/src/components/common/unified_test_modal.vue'
+      import '/src/assets/styles/main.css'
+      import 'virtual:uno.css'
+      const url = new URL(location.href)
+      const quota = { planLabel: 'SuperGrok Heavy', planSource: 'quota', tokens: { used: 1000000, limit: 53000000, utilization: 1.9, resetsAt: '2026-11-15T00:00:00Z', remainingSeconds: 3600 }, requests: { used: 300, limit: 8300, utilization: 3.6 } }
+      const rolling = Object.fromEntries(['fiveHour', 'oneDay', 'sevenDay', 'thirtyDay'].map((key, i) => [key, { cost: i + 0.25, formattedCost: `$${(i + .25).toFixed(6)}`, requests: i + 1, tokens: 1000 }]))
+      const account = { id: 'fixture', name: 'Grok 测试账户', platform: 'grok', authType: 'apikey' }
+      const Root = { setup() {
+        const baseUrl = ref('https://api.x.ai/v1')
+        const oauth = ref(false)
+        return () => url.searchParams.get('page') === 'oauth'
+          ? h(OAuthFlow, { platform: 'grok' })
+          : url.searchParams.get('page') === 'test'
+          ? h(UnifiedTestModal, { show: true, account, mode: 'account', preferredModel: 'grok-4.7' })
+          : h('main', { class: 'mx-auto max-w-3xl space-y-6 p-4' }, [
+            h(Windows, { showQuota: true, quota, rollingUsage: rolling }),
+            h(GrokFields, { baseUrl: baseUrl.value, 'onUpdate:baseUrl': (value) => baseUrl.value = value, oauth: oauth.value }),
+            h('button', { onClick: () => oauth.value = !oauth.value }, '切换 OAuth'),
+            h('output', { id: 'selected-url' }, baseUrl.value),
+          ])
+      } }
+      const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/', component: Root }] })
+      await router.push('/')
+      createApp(Root).use(createPinia()).use(router).mount('#app')
+    </script>
+  </body>
+</html>
