@@ -55,6 +55,7 @@ export class AccountBalanceService {
       'azure_openai',
       'bedrock',
       'droid',
+      'grok',
       'ccr',
     ]
   }

@@ -25,6 +25,7 @@ export const OAUTH_ENDPOINT_ALLOWED_HOSTS = ['x.ai', '*.x.ai']
 export const BASE_URL_ALLOWED_HOSTS = ['api.x.ai', '*.api.x.ai', 'cli-chat-proxy.grok.com']
 
 export const DEFAULT_MODELS = [
+  { id: 'grok-4.7', displayName: 'Grok 4.7' },
   { id: 'grok-4.6', displayName: 'Grok 4.6' },
   { id: 'grok-4.5', displayName: 'Grok 4.5' },
   { id: 'grok-4.3', displayName: 'Grok 4.3' },
@@ -46,6 +47,7 @@ export const DEFAULT_MODELS = [
 const DEFAULT_MODEL_MAPPING = {
   grok: 'grok-4.6',
   'grok-latest': 'grok-4.6',
+  'grok-4.7-latest': 'grok-4.7',
   'grok-4.6-latest': 'grok-4.6',
   'grok-4.5-latest': 'grok-4.5',
   'grok-build': 'grok-build-0.1',
@@ -475,6 +477,38 @@ export const mapModel = (model) => {
 export const isGrokTextModel = (model) => {
   const mapped = mapModel(model).toLowerCase()
   return mapped.startsWith('grok') || mapped.startsWith('composer')
+}
+
+const REASONING_EFFORT_MODELS = new Set([
+  'grok-4.7', 'grok-4.6', 'grok-4.5', 'grok-4.3', 'grok-3-mini', 'grok-3-mini-fast',
+  'grok-4.20-0309-reasoning', 'grok-4.20-multi-agent-0309',
+])
+
+export const normalizeChatCompletionsBody = (body, officialUpstream) => {
+  const result = { ...body }
+  if (officialUpstream) {
+    delete result.prompt_cache_key
+  }
+  const rawModel = String(result.model ?? '').replace(/^(?:xai|x-ai|grok)\//i, '').toLowerCase()
+  const model = mapModel(rawModel.replace(/-latest$/, ''))
+  const raw = result.reasoning_effort ?? result.reasoningEffort
+  if (officialUpstream || REASONING_EFFORT_MODELS.has(model)) {
+    delete result.reasoning_effort
+    delete result.reasoningEffort
+    const value = String(raw ?? '').trim().toLowerCase().replace(/[-_\s]/g, '')
+    const aliases = { minimal: 'low', max: 'high', ultra: 'high', extrahigh: 'xhigh' }
+    let effort = aliases[value] ?? value
+    if (effort === 'xhigh' && !['grok-4.7', 'grok-4.6', 'grok-4.20-multi-agent-0309'].includes(model)) {
+      effort = 'high'
+    }
+    if (REASONING_EFFORT_MODELS.has(model) && ['low', 'medium', 'high', 'xhigh'].includes(effort)) {
+      result.reasoning_effort = effort
+    }
+  }
+  if (result.stream === true) {
+    result.stream_options = { ...result.stream_options, include_usage: true }
+  }
+  return result
 }
 
 export const isGrokMediaModel = (model) => {

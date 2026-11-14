@@ -8,6 +8,36 @@
 // ===
 
 export const RedisLua = {
+  grokAccount: {
+    recordQuota: `
+if redis.call('EXISTS', KEYS[1]) == 0 then return 0 end
+local next = cjson.decode(ARGV[1])
+local previous = {}
+local raw = redis.call('HGET', KEYS[1], 'grokQuotaSnapshot')
+if raw then
+  local ok, decoded = pcall(cjson.decode, raw)
+  if ok and type(decoded) == 'table' then previous = decoded end
+end
+if previous.updatedAt and previous.updatedAt > next.updatedAt then return 0 end
+for _, field in ipairs({'requests', 'tokens'}) do
+  if type(next[field]) == 'table' then
+    local window = type(previous[field]) == 'table' and previous[field] or {}
+    for key, value in pairs(next[field]) do
+      if value ~= cjson.null then window[key] = value end
+    end
+    previous[field] = window
+  end
+end
+for _, field in ipairs({'subscriptionTier', 'entitlementStatus', 'planFrom45Responses', 'planFrom45ResponsesAt'}) do
+  if next[field] and next[field] ~= '' and next[field] ~= cjson.null then previous[field] = next[field] end
+end
+for _, field in ipairs({'updatedAt', 'lastHeadersSeenAt', 'headersObserved', 'statusCode', 'model'}) do
+  previous[field] = next[field]
+end
+redis.call('HSET', KEYS[1], 'grokQuotaSnapshot', cjson.encode(previous))
+return 1
+`,
+  },
   apiKey: {
     touchLastUsed: `
 if redis.call('EXISTS', KEYS[1]) == 0 or redis.call('HGET', KEYS[1], 'isDeleted') == 'true' then return 0 end

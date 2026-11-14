@@ -386,6 +386,12 @@ class GrokRelayService {
           } else if (!bridge.ok) {
             logger.debug(`[GrokRelay] chat raw forward account=${account.id} reason=${bridge.reason}`)
           }
+          if (effectiveEndpointKind === 'chat') {
+            body = xaiHelper.normalizeChatCompletionsBody(
+              body,
+              xaiHelper.isOfficialBaseUrl(grokAccountService.getUpstreamBaseUrl(account)),
+            )
+          }
         }
       }
       prepareAttempt()
@@ -744,6 +750,10 @@ class GrokRelayService {
       req._crsAccountType = 'grok'
       req._crsRequestedModel = req._grokMessagesOriginalModel ?? requestedModel
       req._crsUpstreamHeaders = response.headers
+      await grokAccountService.recordQuotaObservation(account.id, response.headers, {
+        statusCode: response.status,
+        model: body?.model || requestedModel,
+      }).catch((error) => logger.warn('Failed to retain Grok quota observation:', error))
       if (endpointKind === 'video_content') {
         const contentType = response.headers?.['content-type'] || 'video/mp4'
         res.setHeader('Content-Type', contentType)

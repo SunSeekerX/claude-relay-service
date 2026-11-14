@@ -17,6 +17,8 @@ import * as grokSsoHelper from '../../common/grok_sso_helper.js'
 import { proxyResolver } from '../proxy/proxy_resolver.js'
 import { logRefreshStart, logRefreshSuccess, logRefreshError } from '../../common/token_refresh_logger.js'
 import crypto from 'node:crypto'
+import { RedisLua } from '../../infra/redis_lua.js'
+import * as grokQuota from './account_grok_quota.js'
 /**
  * Grok / xAI 账户服务
  * 支持 OAuth(PKCE) 与 API Key 两种认证；凭证 AES 加密存 Redis
@@ -85,19 +87,6 @@ const buildAxiosProxyConfig = (proxy) => {
     return {}
   }
   return { httpAgent: agent, httpsAgent: agent, proxy: false }
-}
-
-const decodeJwtPayload = (token) => {
-  try {
-    const parts = String(token || '').split('.')
-    if (parts.length < 2) {
-      return null
-    }
-    const payload = Buffer.from(parts[1].replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8')
-    return JSON.parse(payload)
-  } catch {
-    return null
-  }
 }
 
 class GrokAccountService {
@@ -271,7 +260,7 @@ class GrokAccountService {
     const expiresAt = new Date(Date.now() + expiresIn * 1000).toISOString()
 
     const idToken = tokenResp.id_token || ''
-    const claims = decodeJwtPayload(idToken) || {}
+    const claims = grokQuota.decodeJwtPayload(idToken) || grokQuota.decodeJwtPayload(tokenResp.access_token) || {}
 
     return {
       accessToken: tokenResp.access_token || '',
@@ -285,7 +274,7 @@ class GrokAccountService {
       email: claims.email || claims.preferred_username || '',
       subject: claims.sub || '',
       teamId: claims.team_id || claims.teamId || '',
-      subscriptionTier: claims.subscription_tier || claims.xai_subscription_tier || '',
+      subscriptionTier: grokQuota.subscriptionTierFromClaims(claims),
       entitlementStatus: claims.entitlement_status || '',
     }
   }
@@ -526,6 +515,7 @@ class GrokAccountService {
     }
 
     accountData.platform = 'grok'
+    accountData.grokUsage = grokQuota.buildGrokUsageSnapshot(accountData)
     return accountData
   }
 
@@ -703,6 +693,7 @@ class GrokAccountService {
     data.platform = 'grok'
     data.priority = parseInt(data.priority, 10) || 50
     data.dailyQuota = parseFloat(data.dailyQuota) || 0
+    data.grokUsage = grokQuota.buildGrokUsageSnapshot(data)
     if (data.email) {
       try {
         data.email = decrypt(data.email)
@@ -902,6 +893,19 @@ class GrokAccountService {
 
   // === 配额探测 ===
 
+  async recordQuotaObservation(accountId, headers, { statusCode = 0, model = '' } = {}) {
+    const observation = grokQuota.parseQuotaHeaders(headers, { statusCode, model })
+    if (!observation) {
+      return
+    }
+    await redis.getClientSafe().eval(
+      RedisLua.grokAccount.recordQuota,
+      1,
+      RedisKeys.accounts.grok(accountId),
+      JSON.stringify(observation),
+    )
+  }
+
   async queryQuota(accountId) {
     const account = await this.ensureFreshToken(accountId)
     if (!account) {
@@ -949,6 +953,12 @@ class GrokAccountService {
       monthlyRes?.error || monthlyRes.status >= 400
         ? { error: monthlyRes.error?.message || `status ${monthlyRes.status}` }
         : monthlyRes.data
+
+    for (const response of [weeklyRes, monthlyRes]) {
+      if (!response.error) {
+        await this.recordQuotaObservation(accountId, response.headers, { statusCode: response.status })
+      }
+    }
 
     // 尽量从响应头提取订阅档
     const tierHeader =
