@@ -1206,6 +1206,7 @@
     "mode": "chat",
     "output_cost_per_token": 4.2e-07,
     "source": "https://api-docs.deepseek.com/quick_start/pricing",
+    "successor_model": "deepseek-v4-flash",
     "supported_endpoints": [
       "/v1/chat/completions"
     ],
@@ -1268,7 +1269,8 @@
     "supports_response_schema": true,
     "supports_system_messages": true,
     "supports_tool_choice": true,
-    "supports_vision": true
+    "supports_vision": true,
+    "supports_web_search": true
   },
   "deepseek-reasoner": {
     "cache_read_input_token_cost": 2.8e-08,
@@ -1281,6 +1283,7 @@
     "mode": "chat",
     "output_cost_per_token": 4.2e-07,
     "source": "https://api-docs.deepseek.com/quick_start/pricing",
+    "successor_model": "deepseek-v4-flash",
     "supported_endpoints": [
       "/v1/chat/completions"
     ],
@@ -1357,7 +1360,8 @@
     "supports_response_schema": true,
     "supports_system_messages": true,
     "supports_tool_choice": true,
-    "supports_vision": true
+    "supports_vision": true,
+    "supports_web_search": true
   },
   "deepseek-v4-flash-vision-exp": {
     "cache_creation_input_token_cost": 0.0,
@@ -1410,7 +1414,8 @@
     "supports_response_schema": true,
     "supports_system_messages": true,
     "supports_tool_choice": true,
-    "supports_vision": true
+    "supports_vision": true,
+    "supports_web_search": true
   },
   "deepseek-v4-pro": {
     "cache_creation_input_token_cost": 0.0,
@@ -1463,7 +1468,8 @@
     "supports_response_schema": true,
     "supports_system_messages": true,
     "supports_tool_choice": true,
-    "supports_vision": false
+    "supports_vision": false,
+    "supports_web_search": true
   },
   "gemini-2.0-flash-exp-image-generation": {
     "deprecation_date": "2025-11-14",
@@ -4119,6 +4125,7 @@
   },
   "gemini-omni-flash-preview": {
     "deprecation_date": "2026-11-06",
+    "deprecation_source": "https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/gemini/omni-flash-preview",
     "input_cost_per_audio_token": 1.5e-06,
     "input_cost_per_token": 1.5e-06,
     "litellm_provider": "vertex_ai-language-models",
@@ -4129,6 +4136,7 @@
     "output_cost_per_token": 9e-06,
     "output_cost_per_video_token": 1.75e-05,
     "source": "https://cloud.google.com/gemini-enterprise-agent-platform/generative-ai/pricing",
+    "successor_model": "vertex_ai/gemini-omni-1.2-flash",
     "supported_endpoints": [
       "/v1/chat/completions"
     ],
@@ -4594,6 +4602,7 @@
     "max_output_tokens": 4096,
     "mode": "chat",
     "output_cost_per_token": 4e-06,
+    "successor_model": "gpt-6.1-terra",
     "supports_prompt_caching": true,
     "supports_system_messages": true,
     "supports_tool_choice": true
@@ -7470,6 +7479,7 @@
     "mode": "chat",
     "output_cost_per_token": 7.5e-05,
     "source": "https://developers.openai.com/api/docs/pricing",
+    "successor_model": "gpt-6-cyber",
     "supports_reasoning": true
   },
   "gpt-5.5-pro": {
