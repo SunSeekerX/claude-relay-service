@@ -1,6 +1,11 @@
 <template>
   <div class="stats-query-page tab-content">
     <ApiKeyInput />
+    <div class="flex flex-wrap items-center gap-2">
+      <button v-if="apiStatsStore.testApiKey" type="button" class="btn btn-secondary rounded-lg border border-solid px-3 py-2 text-sm" @click="credentialHistory.open()">换 Key 记录</button>
+      <RotateKeyModal :api-key="apiStatsStore.testApiKey" mode="key" @rotated="onKeyRotated" />
+    </div>
+    <CustomerCredentialHistoryModal ref="credentialHistory" :api-key="apiStatsStore.testApiKey" />
 
     <div v-if="error" class="mb-3 sm:mb-4">
       <div
@@ -180,6 +185,8 @@ import { getPublicApiKeyUsageRecordsApi } from '@/libs/http_apis'
 import { copyText } from '@/libs/tools'
 import ApiKeyUsageRecordsDialog from '@/components/api_keys/api_key_usage_records_dialog.vue'
 import ApiKeyInput from '@/components/api_stats/api_key_input.vue'
+import RotateKeyModal from '@/components/api_keys/rotate_key_modal.vue'
+import CustomerCredentialHistoryModal from '@/components/api_keys/customer_credential_history_modal.vue'
 import AvailableRoutesPanel from '@/components/api_stats/available_routes_panel.vue'
 import StatsOverview from '@/components/api_stats/stats_overview.vue'
 import TokenDistribution from '@/components/api_stats/token_distribution.vue'
@@ -190,6 +197,8 @@ import ServiceCostCards from '@/components/api_stats/service_cost_cards.vue'
 import UnifiedTestModal from '@/components/common/unified_test_modal.vue'
 
 const apiStatsStore = useApiStatsStore()
+const credentialHistory = ref(null)
+const onKeyRotated = async ({ key }) => { apiStatsStore.apiKey = key; await apiStatsStore.queryStats() }
 const { apiId, testApiKey, loading, error, statsPeriod, statsData, multiKeyMode, modelStatsLoading } =
   storeToRefs(apiStatsStore)
 const { switchPeriod } = apiStatsStore

@@ -16,7 +16,27 @@ import { weeklyClaudeCostInitService as weeklyInitService } from '../pricing/pri
 import { asyncRoute } from '../../common/route_handler.js'
 import { ok, badRequest, notFound, HttpError, conflict } from '../../common/http_result.js'
 import { parseObjectBody } from '../../common/parse_body.js'
+import { queryCredentialHistory } from './apikey_credential_history.js'
 export const router = express.Router()
+
+router.get(
+  '/api-key-history',
+  authenticateAdmin,
+  asyncRoute('Key 轨迹查询失败', (req) => queryCredentialHistory(req.query)),
+)
+router.post(
+  '/api-keys/:keyId/regenerate',
+  authenticateAdmin,
+  asyncRoute('更换 Key 失败', (req) => {
+    const { requestId } = parseObjectBody(req.body, '更换 Key')
+    return apiKeyService.regenerateApiKey(req.params.keyId, requestId, {
+      kind: 'admin',
+      id: req.admin.username,
+      name: req.admin.username,
+      ip: req.ip,
+    })
+  }),
+)
 
 // 有效的权限值列表
 const VALID_PERMISSIONS = ['claude', 'gemini', 'openai', 'droid', 'grok']

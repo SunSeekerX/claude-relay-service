@@ -13,13 +13,17 @@
       </button>
     </div>
 
-    <div
-      aria-label="安全事件列表"
-      class="custom-scrollbar min-h-0 flex-1 overflow-auto rounded-xl border border-gray-200 bg-white shadow-sm dark:border-gray-700 dark:bg-gray-900"
-      role="region"
-      tabindex="0"
-    >
-      <table class="w-full min-w-[650px] text-left text-sm">
+    <AppPagination
+      v-model:current-page="pagination.currentPage"
+      v-model:page-size="pagination.pageSize"
+      class="shrink-0"
+      :page-sizes="[20, 50, 100, 200]"
+      :total="pagination.totalRecords"
+      @current-change="handlePageChange"
+      @size-change="handleSizeChange"
+    />
+<VirtualTable aria-label="安全事件列表" class="custom-scrollbar min-h-0 flex-1 overflow-auto rounded-xl border border-gray-200 bg-white shadow-sm dark:border-gray-700 dark:bg-gray-900" fill-height mobile-fill role="region" :row-key="(event, index) => event.at + '-' + index" :rows="events" tabindex="0">
+<table class="w-full min-w-[650px] text-left text-sm">
         <thead class="sticky top-0 z-10 bg-gray-50 text-gray-600 dark:bg-gray-800 dark:text-gray-300">
           <tr>
             <th class="px-3 py-2 font-medium">时间</th>
@@ -28,13 +32,11 @@
             <th class="px-3 py-2 font-medium">结果</th>
           </tr>
         </thead>
-        <tbody class="divide-y divide-gray-100 dark:divide-gray-800">
-          <tr v-if="!loading && !events.length">
+        <tbody v-if="!loading && !events.length" class="divide-y divide-gray-100 dark:divide-gray-800"><tr >
             <td class="px-3 py-10 text-center text-gray-500 dark:text-gray-400" colspan="4">
               暂无事件
             </td>
-          </tr>
-          <tr v-for="(event, index) in events" :key="event.at + '-' + index">
+          </tr></tbody><VirtualTableRows class="divide-y divide-gray-100 dark:divide-gray-800" v-slot="{ row: event, index: index }"><tr  :key="event.at + '-' + index">
             <td class="px-3 py-2 text-gray-500">{{ formatDate(event.at) }}</td>
             <td class="px-3 py-2 font-mono text-gray-800 dark:text-gray-200">{{ event.ip }}</td>
             <td class="px-3 py-2 font-mono text-gray-800 dark:text-gray-200">{{ event.peer }}</td>
@@ -48,25 +50,18 @@
                 >{{ event.blocked ? '已限速' : '尝试' }}</span
               >
             </td>
-          </tr>
-        </tbody>
+          </tr></VirtualTableRows>
       </table>
-    </div>
+</VirtualTable>
 
-    <AppPagination
-      v-model:current-page="pagination.currentPage"
-      v-model:page-size="pagination.pageSize"
-      class="shrink-0"
-      :page-sizes="[20, 50, 100, 200]"
-      :total="pagination.totalRecords"
-      @current-change="handlePageChange"
-      @size-change="handleSizeChange"
-    />
+
   </div>
 </template>
 
 <script setup>
 import { onMounted, reactive, ref } from 'vue'
+import VirtualTable from '@/components/common/virtual_table.vue'
+import VirtualTableRows from '@/components/common/virtual_table_rows.vue'
 import AppPagination from '@/components/common/app_pagination.vue'
 import { getSecurityEventsApi } from '@/libs/http_apis'
 import { isOk, msgOf } from '@/libs/http_envelope'

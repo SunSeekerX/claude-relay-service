@@ -70,8 +70,8 @@
         </div>
       </div>
 
-      <div class="overflow-x-auto rounded-lg border border-gray-200 dark:border-gray-700">
-        <table class="w-full min-w-[640px] text-sm">
+      <VirtualTable class="overflow-x-auto rounded-lg border border-gray-200 dark:border-gray-700" :row-key="entry => entry.key" :rows="filteredEntries">
+<table class="w-full min-w-[640px] text-sm">
           <thead class="bg-gray-50 text-left text-gray-600 dark:bg-gray-800/80 dark:text-gray-300">
             <tr>
               <th class="px-3 py-2 font-medium">来源协议</th>
@@ -81,14 +81,12 @@
               <th class="px-3 py-2 font-medium">转换器标识</th>
             </tr>
           </thead>
-          <tbody class="divide-y divide-gray-100 dark:divide-gray-800">
-            <tr v-if="filteredEntries.length === 0">
+          <tbody v-if="filteredEntries.length === 0" class="divide-y divide-gray-100 dark:divide-gray-800"><tr >
               <td class="px-3 py-6 text-center text-gray-500 dark:text-gray-400" colspan="5">
                 无匹配条目
               </td>
-            </tr>
-            <tr
-              v-for="entry in filteredEntries"
+            </tr></tbody><VirtualTableRows class="divide-y divide-gray-100 dark:divide-gray-800" v-slot="{ row: entry }"><tr
+
               :key="entry.key"
               class="text-gray-800 dark:text-gray-200"
             >
@@ -113,10 +111,9 @@
               <td class="px-3 py-2 font-mono text-sm text-gray-500 dark:text-gray-400">
                 {{ entry.key }}
               </td>
-            </tr>
-          </tbody>
+            </tr></VirtualTableRows>
         </table>
-      </div>
+</VirtualTable>
 
       <div
         v-if="protocolSurface.length > 0"
@@ -127,7 +124,8 @@
         >
           官方 CLI 路径覆盖（扫缺口）
         </div>
-        <table class="w-full min-w-[720px] text-sm">
+        <VirtualTable :row-key="row => row.protocol" :rows="protocolSurface">
+<table class="w-full min-w-[720px] text-sm">
           <thead class="bg-gray-50 text-left text-gray-600 dark:bg-gray-800/80 dark:text-gray-300">
             <tr>
               <th class="px-3 py-2 font-medium">协议</th>
@@ -137,9 +135,8 @@
               <th class="px-3 py-2 font-medium">说明</th>
             </tr>
           </thead>
-          <tbody class="divide-y divide-gray-100 dark:divide-gray-800">
-            <tr
-              v-for="row in protocolSurface"
+          <VirtualTableRows class="divide-y divide-gray-100 dark:divide-gray-800" v-slot="{ row: row }"><tr
+
               :key="row.protocol"
               class="text-gray-800 dark:text-gray-200"
             >
@@ -177,9 +174,9 @@
                 <div v-for="pathItem in row.paths" :key="pathItem">{{ pathItem }}</div>
               </td>
               <td class="px-3 py-2 text-sm text-gray-600 dark:text-gray-300">{{ row.note }}</td>
-            </tr>
-          </tbody>
+            </tr></VirtualTableRows>
         </table>
+</VirtualTable>
       </div>
 
       <div
@@ -212,6 +209,8 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 
+import VirtualTable from '@/components/common/virtual_table.vue'
+import VirtualTableRows from '@/components/common/virtual_table_rows.vue'
 import CustomDropdown from '@/components/common/custom_dropdown.vue'
 import { isOk, msgOf } from '@/libs/http_envelope'
 import * as httpApis from '@/libs/http_apis.js'

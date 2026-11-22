@@ -179,9 +179,10 @@ describe('apiKeyService 索引随 hash 原子维护', () => {
 
     await apiKeyService.updateApiKey('k1', { name: 'NewName' })
 
-    // hash 与 hash_map 写入都落在事务上
+    // 普通字段更新不能回写凭据或重建旧映射,避免覆盖并发换 Key.
     expect(mockMultiCalls.some((c) => c[0] === 'hset' && c[1] === 'apikey:k1')).toBe(true)
-    expect(mockMultiCalls).toContainEqual(['hset', 'apikey:hash_map', 'hashedval', 'k1'])
+    expect(mockMultiCalls).not.toContainEqual(['hset', 'apikey:hash_map', 'hashedval', 'k1'])
+    expect(mockMultiCalls.find((c) => c[0] === 'hset' && c[1] === 'apikey:k1')[2]).not.toHaveProperty('apiKey')
     // 索引更新接收同一个 multi（随事务原子提交）
     expect(apiKeyIndexService.updateIndex).toHaveBeenCalledWith(
       'k1',

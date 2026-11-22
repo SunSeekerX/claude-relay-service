@@ -2,6 +2,7 @@ import express from 'express'
 import { ldapService } from './user_ldap_service.js'
 import { userService } from './user_service.js'
 import { apiKeyService } from '../apikey/apikey_service.js'
+import { queryCustomerCredentialHistory } from '../apikey/apikey_credential_history.js'
 import { logger } from '../../common/logger.js'
 import { config } from '../../../config/config.js'
 import { inputValidator } from '../../common/input_validator.js'
@@ -21,6 +22,25 @@ import {
 } from '../../common/http_result.js'
 import { parseObjectBody } from '../../common/parse_body.js'
 export const router = express.Router()
+
+router.get('/api-keys/:keyId/credential-history', authenticateUser, asyncRoute('换 Key 记录查询失败', (req) => {
+  const { page, pageSize, sortOrder } = req.query
+  return queryCustomerCredentialHistory({ keyId: req.params.keyId, userId: req.user.id, page, pageSize, sortOrder })
+}))
+
+router.post(
+  '/api-keys/:keyId/regenerate',
+  authenticateUser,
+  asyncRoute('更换 Key 失败', (req) => {
+    const { requestId } = parseObjectBody(req.body, '更换 Key')
+    return apiKeyService.regenerateApiKey(req.params.keyId, requestId, {
+      kind: 'user',
+      id: req.user.id,
+      name: req.user.username,
+      ip: req.ip,
+    })
+  }),
+)
 
 // 配置登录速率限制
 // 只基于IP地址限制，避免攻击者恶意锁定特定账户

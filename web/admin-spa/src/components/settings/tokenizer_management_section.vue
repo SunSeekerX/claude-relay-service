@@ -91,12 +91,12 @@
           </button>
         </div>
       </div>
-      <div class="tokenizer-table-wrap">
-        <table class="tokenizer-table">
+      <VirtualTable class="tokenizer-table-wrap" :row-key="row => row.id" :rows="visibleResources">
+<table class="tokenizer-table">
           <thead>
             <tr>
               <th class="tokenizer-check">
-                <input
+                <label class="virtual-table-check"><input
                   aria-label="选择当前筛选的全部词表"
                   :checked="
                     visibleResources.length > 0 &&
@@ -104,7 +104,7 @@
                   "
                   type="checkbox"
                   @change="toggleAll($event.target.checked)"
-                />
+                /></label>
               </th>
               <th>
                 <button @click="resourceAscending = !resourceAscending">
@@ -117,15 +117,14 @@
               <th>操作</th>
             </tr>
           </thead>
-          <tbody>
-            <tr v-for="row in visibleResources" :key="row.id">
+          <VirtualTableRows v-slot="{ row: row }"><tr  :key="row.id">
               <td class="tokenizer-check">
-                <input
+                <label class="virtual-table-check"><input
                   v-model="selected"
                   :aria-label="`选择 ${row.id}`"
                   type="checkbox"
                   :value="row.id"
-                />
+                /></label>
               </td>
               <td>
                 <button class="tokenizer-resource-name" title="查看词表详情" @click="detail = row">
@@ -192,20 +191,18 @@
                   </button>
                 </div>
               </td>
-            </tr>
-            <tr v-if="!visibleResources.length">
+            </tr></VirtualTableRows><tbody v-if="!visibleResources.length"><tr >
               <td class="tokenizer-empty" colspan="6">
                 {{ loading ? '加载中…' : '没有匹配的词表' }}
               </td>
-            </tr>
-          </tbody>
+            </tr></tbody>
         </table>
-      </div>
+</VirtualTable>
       <p class="tokenizer-hint">最多 4 个文件并行下载；下载后点击“应用”生效。</p>
     </template>
     <template v-else-if="tab === 'embedded'">
-      <div class="tokenizer-table-wrap">
-        <table class="tokenizer-table">
+      <VirtualTable class="tokenizer-table-wrap" :row-key="row => row.id" :rows="catalog.embedded">
+<table class="tokenizer-table">
           <thead>
             <tr>
               <th>内置词表</th>
@@ -215,8 +212,7 @@
               <th>操作</th>
             </tr>
           </thead>
-          <tbody>
-            <tr v-for="row in catalog.embedded" :key="row.id">
+          <VirtualTableRows v-slot="{ row: row }"><tr  :key="row.id">
               <td>
                 <span class="font-medium">{{ row.name }}</span
                 ><span class="tokenizer-version-note">{{
@@ -237,10 +233,9 @@
               <td>
                 <button class="text-blue-600 dark:text-blue-400" @click="detail = row">详情</button>
               </td>
-            </tr>
-          </tbody>
+            </tr></VirtualTableRows>
         </table>
-      </div>
+</VirtualTable>
     </template>
     <template v-else-if="tab === 'rules'">
       <p class="text-gray-500">入口指定优先；全局规则按映射依据和优先级匹配。</p>
@@ -473,6 +468,8 @@
 
 <script setup>
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import VirtualTable from '@/components/common/virtual_table.vue'
+import VirtualTableRows from '@/components/common/virtual_table_rows.vue'
 import SegmentedTabs from '@/components/common/segmented_tabs.vue'
 import CustomDropdown from '@/components/common/custom_dropdown.vue'
 import AppDialog from '@/components/common/app_dialog.vue'

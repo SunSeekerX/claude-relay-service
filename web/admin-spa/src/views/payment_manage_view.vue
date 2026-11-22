@@ -154,8 +154,8 @@
           <i class="i-lucide-plus mr-1" />新建商品
         </button>
       </div>
-      <div class="overflow-x-auto rounded-lg border border-gray-200 dark:border-gray-700">
-        <table class="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+      <VirtualTable class="overflow-x-auto rounded-lg border border-gray-200 dark:border-gray-700" fill-height mobile-fill :row-key="p => p.id" :rows="plans">
+<table class="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
           <thead class="bg-gray-100 dark:bg-gray-700">
             <tr>
               <th :class="TH">名称</th>
@@ -166,11 +166,9 @@
               <th :class="[TH, 'text-right']">操作</th>
             </tr>
           </thead>
-          <tbody class="divide-y divide-gray-200 bg-white dark:divide-gray-700 dark:bg-gray-800">
-            <tr v-if="!plans.length">
+          <tbody v-if="!plans.length" class="divide-y divide-gray-200 bg-white dark:divide-gray-700 dark:bg-gray-800"><tr >
               <td :class="TD_EMPTY" colspan="6">暂无商品</td>
-            </tr>
-            <tr v-for="p in plans" :key="p.id" class="hover:bg-gray-50 dark:hover:bg-gray-700/50">
+            </tr></tbody><VirtualTableRows class="divide-y divide-gray-200 bg-white dark:divide-gray-700 dark:bg-gray-800" v-slot="{ row: p }"><tr  :key="p.id" class="hover:bg-gray-50 dark:hover:bg-gray-700/50">
               <td :class="TD">{{ p.name }}</td>
               <td :class="[TD, 'text-right text-green-600 dark:text-green-400']">
                 ${{ p.quotaAmount }}
@@ -193,10 +191,9 @@
                   删除
                 </button>
               </td>
-            </tr>
-          </tbody>
+            </tr></VirtualTableRows>
         </table>
-      </div>
+</VirtualTable>
     </div>
 
     <!-- ③ 支付渠道 -->
@@ -206,8 +203,8 @@
           <i class="i-lucide-plus mr-1" />新建渠道
         </button>
       </div>
-      <div class="overflow-x-auto rounded-lg border border-gray-200 dark:border-gray-700">
-        <table class="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+      <VirtualTable class="overflow-x-auto rounded-lg border border-gray-200 dark:border-gray-700" fill-height mobile-fill :row-key="p => p.id" :rows="providers">
+<table class="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
           <thead class="bg-gray-100 dark:bg-gray-700">
             <tr>
               <th :class="TH">名称</th>
@@ -217,12 +214,10 @@
               <th :class="[TH, 'text-right']">操作</th>
             </tr>
           </thead>
-          <tbody class="divide-y divide-gray-200 bg-white dark:divide-gray-700 dark:bg-gray-800">
-            <tr v-if="!providers.length">
+          <tbody v-if="!providers.length" class="divide-y divide-gray-200 bg-white dark:divide-gray-700 dark:bg-gray-800"><tr >
               <td :class="TD_EMPTY" colspan="5">暂无渠道</td>
-            </tr>
-            <tr
-              v-for="p in providers"
+            </tr></tbody><VirtualTableRows class="divide-y divide-gray-200 bg-white dark:divide-gray-700 dark:bg-gray-800" v-slot="{ row: p }"><tr
+
               :key="p.id"
               class="hover:bg-gray-50 dark:hover:bg-gray-700/50"
             >
@@ -252,10 +247,9 @@
                   删除
                 </button>
               </td>
-            </tr>
-          </tbody>
+            </tr></VirtualTableRows>
         </table>
-      </div>
+</VirtualTable>
     </div>
 
     <!-- ④ 订单 -->
@@ -276,8 +270,21 @@
           <i class="i-lucide-refresh-cw mr-1" />刷新
         </button>
       </div>
-      <div class="overflow-x-auto rounded-lg border border-gray-200 dark:border-gray-700">
-        <table class="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+      <div class="flex items-center justify-end gap-2 text-sm text-gray-500">
+        <button :class="BTN_SECONDARY" :disabled="orderOffset === 0" @click="changePage(-1)">
+          上一页
+        </button>
+        <span>{{ orderOffset + 1 }} - {{ orderOffset + orders.length }} / {{ orderTotal }}</span>
+        <button
+          :class="BTN_SECONDARY"
+          :disabled="orderOffset + orders.length >= orderTotal"
+          @click="changePage(1)"
+        >
+          下一页
+        </button>
+      </div>
+<VirtualTable class="overflow-x-auto rounded-lg border border-gray-200 dark:border-gray-700" fill-height mobile-fill :row-key="o => o.id" :rows="orders">
+<table class="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
           <thead class="bg-gray-100 dark:bg-gray-700">
             <tr>
               <th :class="TH">订单号</th>
@@ -290,11 +297,9 @@
               <th :class="[TH, 'text-right']">操作</th>
             </tr>
           </thead>
-          <tbody class="divide-y divide-gray-200 bg-white dark:divide-gray-700 dark:bg-gray-800">
-            <tr v-if="!orders.length">
+          <tbody v-if="!orders.length" class="divide-y divide-gray-200 bg-white dark:divide-gray-700 dark:bg-gray-800"><tr >
               <td :class="TD_EMPTY" colspan="8">暂无订单</td>
-            </tr>
-            <tr v-for="o in orders" :key="o.id" class="hover:bg-gray-50 dark:hover:bg-gray-700/50">
+            </tr></tbody><VirtualTableRows class="divide-y divide-gray-200 bg-white dark:divide-gray-700 dark:bg-gray-800" v-slot="{ row: o }"><tr  :key="o.id" class="hover:bg-gray-50 dark:hover:bg-gray-700/50">
               <td :class="[TD, 'font-mono']">{{ o.outTradeNo }}</td>
               <td :class="TD">{{ o.apiKeyName || o.apiKeyId }}</td>
               <td :class="[TD, 'text-right']">{{ o.payAmount }} {{ o.currency }}</td>
@@ -360,23 +365,10 @@
                   </button>
                 </template>
               </td>
-            </tr>
-          </tbody>
+            </tr></VirtualTableRows>
         </table>
-      </div>
-      <div class="flex items-center justify-end gap-2 text-sm text-gray-500">
-        <button :class="BTN_SECONDARY" :disabled="orderOffset === 0" @click="changePage(-1)">
-          上一页
-        </button>
-        <span>{{ orderOffset + 1 }} - {{ orderOffset + orders.length }} / {{ orderTotal }}</span>
-        <button
-          :class="BTN_SECONDARY"
-          :disabled="orderOffset + orders.length >= orderTotal"
-          @click="changePage(1)"
-        >
-          下一页
-        </button>
-      </div>
+</VirtualTable>
+
     </div>
 
     <!-- ⑤ 看板 -->
@@ -741,6 +733,8 @@
 import SegmentedTabs from '@/components/common/segmented_tabs.vue'
 import { ref, reactive, computed, onMounted, watch } from 'vue'
 
+import VirtualTable from '@/components/common/virtual_table.vue'
+import VirtualTableRows from '@/components/common/virtual_table_rows.vue'
 import ModalTransition from '@/components/common/modal_transition.vue'
 import { isOk, msgOf } from '@/libs/http_envelope'
 import { showToast, formatDateTime } from '@/libs/tools'

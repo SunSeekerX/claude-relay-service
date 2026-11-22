@@ -589,8 +589,8 @@
           <div v-if="dashboardModelStats.length === 0" class="py-8 text-center">
             <p class="text-sm text-gray-500 sm:text-base">暂无模型使用数据</p>
           </div>
-          <div v-else class="max-h-[250px] overflow-auto sm:max-h-[300px]">
-            <table class="min-w-full">
+          <VirtualTable v-else class="max-h-[250px] overflow-auto sm:max-h-[300px]" :row-key="stat => stat.model" :rows="dashboardModelStats">
+<table class="min-w-full">
               <thead class="sticky top-0 bg-gray-50 dark:bg-gray-700">
                 <tr>
                   <th
@@ -620,9 +620,8 @@
                   </th>
                 </tr>
               </thead>
-              <tbody class="divide-y divide-gray-200 dark:divide-gray-600">
-                <tr
-                  v-for="stat in dashboardModelStats"
+              <VirtualTableRows class="divide-y divide-gray-200 dark:divide-gray-600" v-slot="{ row: stat }"><tr
+
                   :key="stat.model"
                   class="hover:bg-gray-50 dark:hover:bg-gray-700"
                 >
@@ -655,10 +654,9 @@
                       {{ calculatePercentage(stat.allTokens, dashboardModelStats) }}%
                     </span>
                   </td>
-                </tr>
-              </tbody>
+                </tr></VirtualTableRows>
             </table>
-          </div>
+</VirtualTable>
         </div>
       </div>
     </div>
@@ -753,6 +751,8 @@ import { ref, onMounted, onUnmounted, watch, nextTick, computed } from 'vue'
 import { storeToRefs } from 'pinia'
 import Chart from 'chart.js/auto'
 
+import VirtualTable from '@/components/common/virtual_table.vue'
+import VirtualTableRows from '@/components/common/virtual_table_rows.vue'
 import { useDashboardStore } from '@/stores/dashboard'
 import { useThemeStore } from '@/stores/theme'
 import { PLATFORM_ICONS } from '@/libs/platform_icons'

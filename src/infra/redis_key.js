@@ -96,6 +96,16 @@ export const RedisKeys = {
     // List: 快捷调整/禁用激活 变更流水（有界 + TTL）
     changeHistory: (id) => `apikey:change_history:${id}`,
   },
+  apiKeyHistory: {
+    hashPrefix: 'apikey_history:hash:',
+    byHash: (hash) => `apikey_history:hash:${hash}`,
+    event: (id) => `apikey_history:event:${id}`,
+    byKey: (id) => `apikey_history:key:${id}`,
+    all: 'apikey_history:all',
+    request: (id) => `apikey_history:request:${id}`,
+    rate: (ip) => `apikey_history:rate:${ip}`,
+    readRate: (ip) => `apikey_history:read_rate:${ip}`,
+  },
 
   // === Usage 统计(API Key 维度) ===
   usage: {
@@ -515,6 +525,9 @@ export const RedisKeys = {
 const DAY = 86400
 
 export const TTL = {
+  apiKeyRotationRequest: 600,
+  apiKeyRotationRate: 60,
+  apiKeyHistoryReadRate: 60,
   upstreamAuthWindow: 5 * 60,
   geminiCodeAssistOperation: DAY,
   upstreamAuthAlertCooldown: 15 * 60,
@@ -627,6 +640,9 @@ export const TTL = {
 // LIMITS — 集合容量上限(仅"真有裁剪动作"的)
 // ===
 export const LIMITS = {
+  apiKeyRotationAttempts: 3,
+  apiKeyHistoryPage: 100,
+  apiKeyHistoryReadAttempts: 30,
   accountRollingBatch: 10,
   responsesCountResponseBytes: 1024 * 1024,
   responsesCountItems: 20000,

@@ -156,6 +156,12 @@ export const getSupportedClientsApi = () =>
 
 // API Keys
 export const getApiKeysApi = () => request({ url: '/admin/api-keys', method: 'GET' })
+export const getKeyCredentialHistoryApi = (params) => request({ url: '/admin/api-key-history', method: 'GET', params })
+export const regenerateAdminKeyApi = (keyId, requestId) => request({ url: `/admin/api-keys/${keyId}/regenerate`, method: 'POST', data: { requestId } })
+export const regenerateUserKeyApi = (keyId, requestId) => request({ url: `/users/api-keys/${keyId}/regenerate`, method: 'POST', headers: { 'x-user-token': localStorage.getItem('userToken') ?? '' }, data: { requestId } })
+export const regenerateSelfKeyApi = (apiKey, requestId) => request({ url: '/apiStats/api/regenerate-key', method: 'POST', data: { apiKey, requestId } })
+export const getUserKeyCredentialHistoryApi = (keyId, params) => request({ url: `/users/api-keys/${keyId}/credential-history`, method: 'GET', headers: { 'x-user-token': localStorage.getItem('userToken') ?? '' }, params })
+export const getSelfKeyCredentialHistoryApi = (apiKey, params) => request({ url: '/apiStats/api/key-credential-history', method: 'POST', data: { apiKey, ...params } })
 export const getApiKeysWithParamsApi = (params) =>
   request({ url: `/admin/api-keys?${params}`, method: 'GET' })
 export const createApiKeyApi = (data) => request({ url: '/admin/api-keys', method: 'POST', data })

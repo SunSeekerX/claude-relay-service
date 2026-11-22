@@ -180,8 +180,8 @@
         <h3 class="mb-4 text-lg font-medium leading-6 text-gray-900 dark:text-gray-100">
           Usage by API Key
         </h3>
-        <div class="overflow-hidden">
-          <table class="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+        <VirtualTable class="overflow-hidden" :row-key="apiKey => apiKey.id" :rows="userApiKeys">
+<table class="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
             <thead class="bg-gray-50 dark:bg-gray-900/40">
               <tr>
                 <th
@@ -222,8 +222,7 @@
                 </th>
               </tr>
             </thead>
-            <tbody class="divide-y divide-gray-200 bg-white dark:divide-gray-700 dark:bg-gray-800">
-              <tr v-for="apiKey in userApiKeys" :key="apiKey.id">
+            <VirtualTableRows class="divide-y divide-gray-200 bg-white dark:divide-gray-700 dark:bg-gray-800" v-slot="{ row: apiKey }"><tr  :key="apiKey.id">
                 <td class="whitespace-nowrap px-6 py-4">
                   <div class="text-sm font-medium text-gray-900 dark:text-gray-100">
                     {{ apiKey.name }}
@@ -262,10 +261,9 @@
                     }}
                   </span>
                 </td>
-              </tr>
-            </tbody>
+              </tr></VirtualTableRows>
           </table>
-        </div>
+</VirtualTable>
       </div>
     </div>
 
@@ -289,6 +287,8 @@
 
 <script setup>
 import { ref, onMounted } from 'vue'
+import VirtualTable from '@/components/common/virtual_table.vue'
+import VirtualTableRows from '@/components/common/virtual_table_rows.vue'
 import { useUserStore } from '@/stores/user'
 import { showToast, formatNumber } from '@/libs/tools'
 

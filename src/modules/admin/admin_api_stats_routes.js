@@ -4,6 +4,7 @@ import { redis } from '../../infra/redis.js'
 import { RedisKeys, TTL } from '../../infra/redis_key.js'
 import { logger } from '../../common/logger.js'
 import { apiKeyService } from '../apikey/apikey_service.js'
+import { rotateCredential, queryCustomerCredentialHistory } from '../apikey/apikey_credential_history.js'
 import { CostCalculator } from '../pricing/pricing_cost_calculator.js'
 import { claudeAccountService } from '../account/account_claude_service.js'
 import * as openaiAccountService from '../account/account_openai_service.js'
@@ -33,11 +34,24 @@ import { badRequest, notFound, unauthorized, forbidden, tooManyRequests } from '
 
 export const router = express.Router()
 
+router.post('/api/key-credential-history', asyncRoute('换 Key 记录查询失败', (req) => {
+  const { apiKey, page, pageSize, sortOrder } = parseObjectBody(req.body, '换 Key 记录')
+  return queryCustomerCredentialHistory({ apiKey, page, pageSize, sortOrder, ip: req.ip })
+}))
+
+router.post(
+  '/api/regenerate-key',
+  asyncRoute('更换 Key 失败', (req) => {
+    const { apiKey, requestId } = parseObjectBody(req.body, '更换 Key')
+    return rotateCredential({ apiKey, requestId, actor: { kind: 'key', ip: req.ip } })
+  }),
+)
+
 router.get(
   '/test-prompt-config',
   asyncRoute('Failed to get test prompts', async () => ({
-    config: await testPromptConfigService.getConfig()
-  }))
+    config: await testPromptConfigService.getConfig(),
+  })),
 )
 
 const accountTypeNames = {

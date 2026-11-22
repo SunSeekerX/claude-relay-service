@@ -20,6 +20,7 @@ import { normalizePermissions, hasPermission } from '../../common/compat_permiss
 import * as groupPolicy from '../account/account_group_policy.js'
 import { RedisKeys, TTL, LIMITS } from '../../infra/redis_key.js'
 import { apiKeyIndexService } from './apikey_index_service.js'
+import { appendCredentialSnapshot, rotateCredential } from './apikey_credential_history.js'
 import { costRankService } from '../pricing/pricing_cost_rank_service.js'
 import { CostCalculator } from '../pricing/pricing_cost_calculator.js'
 import { buildBillingAudit } from '../pricing/pricing_billing_audit.js'
@@ -252,6 +253,7 @@ class ApiKeyService {
       name,
       description,
       apiKey: hashedKey,
+      keySuffix: apiKey.slice(-4),
       tokenLimit: String(tokenLimit ?? 0),
       concurrencyLimit: String(concurrencyLimit ?? 0),
       rateLimitWindow: String(rateLimitWindow ?? 0),
@@ -314,6 +316,11 @@ class ApiKeyService {
     }
     multi.hset(redisKey, keyData)
     multi.expire(redisKey, 86400 * 365)
+    appendCredentialSnapshot(multi, keyId, keyData, 'create', {
+      kind: keyData.createdBy,
+      id: keyData.userId,
+      name: keyData.userUsername,
+    })
     await apiKeyIndexService.addToIndex(
       {
         id: keyId,
@@ -438,7 +445,12 @@ class ApiKeyService {
 
         // 保存到 Redis：hash + LAST_USED_AT 排序索引原子更新（激活会写 lastUsedAt，
         // 排序索引须同步，否则按"最后使用时间"排序时该 key 长期错序）
-        await redis.setApiKeyWithLastUsedIndex(keyData.id, keyData)
+        await redis.setApiKeyWithLastUsedIndex(keyData.id, {
+          isActivated: keyData.isActivated,
+          activatedAt: keyData.activatedAt,
+          expiresAt: keyData.expiresAt,
+          lastUsedAt: keyData.lastUsedAt,
+        })
 
         logger.success(
           `API key activated: ${keyData.id} (${
@@ -1450,7 +1462,7 @@ class ApiKeyService {
         'enableOpenAIResponsesPayloadRules',
         'openaiResponsesPayloadRules',
       ]
-      const updatedData = { ...keyData }
+      const updatedData = {}
       if (updates.relayRouting !== undefined) {
         updatedData.relayRouting = JSON.stringify(await validateKeyRouting(updates.relayRouting))
       }
@@ -1505,9 +1517,6 @@ class ApiKeyService {
       const client = redis.getClientSafe()
       const redisKey = RedisKeys.apiKey.byId(keyId)
       const multi = client.multi()
-      if (keyData.apiKey) {
-        multi.hset(RedisKeys.apiKey.hashMap, keyData.apiKey, keyId)
-      }
       multi.hset(redisKey, updatedData)
       multi.expire(redisKey, 86400 * 365)
       const removedTags = await apiKeyIndexService.updateIndex(
@@ -1568,7 +1577,6 @@ class ApiKeyService {
 
       // 标记为已删除，保留所有数据和统计信息
       const updatedData = {
-        ...keyData,
         isDeleted: 'true',
         deletedAt: new Date().toISOString(),
         deletedBy,
@@ -1582,6 +1590,7 @@ class ApiKeyService {
       const redisKey = RedisKeys.apiKey.byId(keyId)
       const multi = client.multi()
       multi.hset(redisKey, updatedData)
+      appendCredentialSnapshot(multi, keyId, keyData, 'delete', { kind: deletedByType, name: deletedBy })
       multi.expire(redisKey, 86400 * 365)
       multi.zadd(apiKeyIndexService.INDEX_KEYS.DELETED_AT, new Date(updatedData.deletedAt).getTime(), keyId)
       // 状态集合随 hash 在同一 MULTI 维护：移出 ACTIVE、移入 DELETED，避免"软删后仍出现在主列表"（残留漂移由重建愈合）
@@ -1795,6 +1804,7 @@ class ApiKeyService {
         multi.del(RedisKeys.apiKey.hashLegacy(keyData.apiKey))
         multi.hdel(RedisKeys.apiKey.hashMap, keyData.apiKey)
       }
+      appendCredentialSnapshot(multi, keyId, keyData, 'purge', { kind: 'system' })
       multi.del(redisKey)
       multi.zrem(apiKeyIndexService.INDEX_KEYS.DELETED_AT, keyId)
       // 主列表依赖的核心索引随删除原子移除，杜绝"彻底删除后主列表留空槽 / 总数虚高"
@@ -2984,56 +2994,8 @@ class ApiKeyService {
   }
 
   // 重新生成API Key
-  async regenerateApiKey(keyId) {
-    try {
-      const existingKey = await redis.getApiKey(keyId)
-      if (!existingKey) {
-        throw new Error('API key not found')
-      }
-
-      // 生成新的key
-      const newApiKey = `${this.prefix}${this._generateSecretKey()}`
-      const newHashedKey = this._hashApiKey(newApiKey)
-
-      const oldHashedKey = existingKey.apiKey
-      const updatedKeyData = {
-        ...existingKey,
-        apiKey: newHashedKey,
-        updatedAt: new Date().toISOString(),
-      }
-
-      // 删旧认证映射（旧结构 apikey_hash:* + 新结构 hash_map）+ 写新数据 + 建新映射，并入同一 MULTI。
-      // 取代旧的两段式"先删旧映射、再写新数据"(中途失败会半成功:旧 key 已失效、新 key 未完整落库)。MULTI 非回滚,但同一 MULTI 已消除两段式之间的窗口。
-      const client = redis.getClientSafe()
-      const redisKey = RedisKeys.apiKey.byId(keyId)
-      const multi = client.multi()
-      if (oldHashedKey) {
-        multi.del(RedisKeys.apiKey.hashLegacy(oldHashedKey))
-        multi.hdel(RedisKeys.apiKey.hashMap, oldHashedKey)
-      }
-      // 新结构 hash_map + 旧结构 apikey_hash:*（与 setApiKeyHash/restore 一致，保证 hash_map 回退路径下也能认证）
-      multi.hset(RedisKeys.apiKey.hashMap, newHashedKey, keyId)
-      multi.hset(RedisKeys.apiKey.hashLegacy(newHashedKey), {
-        id: keyId,
-        name: existingKey.name,
-        isActive: existingKey.isActive,
-      })
-      multi.hset(redisKey, updatedKeyData)
-      multi.expire(redisKey, 86400 * 365)
-      await execMultiOrThrow(multi)
-
-      logger.info(`Regenerated API key: ${existingKey.name} (${keyId})`)
-
-      return {
-        id: keyId,
-        name: existingKey.name,
-        key: newApiKey, // 返回完整的新key
-        updatedAt: updatedKeyData.updatedAt,
-      }
-    } catch (error) {
-      logger.error('Failed to regenerate API key:', error)
-      throw error
-    }
+  async regenerateApiKey(keyId, requestId, actor) {
+    return rotateCredential({ keyId, requestId, actor })
   }
 
   // 硬删除API Key (完全移除)

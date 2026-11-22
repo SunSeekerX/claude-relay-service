@@ -197,19 +197,60 @@
 
         <!-- Table（内部滚动，表头吸顶） -->
         <div
-          class="overflow-x-auto rounded-lg border border-gray-200 dark:border-gray-700 md:min-h-0 md:flex-1 md:overflow-auto"
+          v-if="totalCards > 0"
+          class="flex flex-none flex-col items-center justify-between gap-3 border-t border-gray-200 px-1 pt-3 dark:border-gray-700 sm:flex-row"
         >
-          <table class="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+          <div class="flex items-center gap-4">
+            <span class="text-sm text-gray-600 dark:text-gray-400">
+              共 {{ totalCards }} 条记录
+            </span>
+            <div class="flex items-center gap-2">
+              <span class="text-sm text-gray-600 dark:text-gray-400">每页</span>
+              <div class="w-[90px]">
+                <CustomDropdown
+                  v-model="cardPageSize"
+                  accent="gray"
+                  :options="pageSizeDropdownOptions"
+                  placeholder="每页"
+                  size="sm"
+                  @change="changeCardPageSize"
+                />
+              </div>
+              <span class="text-sm text-gray-600 dark:text-gray-400">条</span>
+            </div>
+          </div>
+          <div class="flex items-center gap-2">
+            <button
+              class="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
+              :disabled="cardCurrentPage === 1"
+              @click="changeCardPage(cardCurrentPage - 1)"
+            >
+              <i class="i-lucide-chevron-left" />
+            </button>
+            <span class="text-sm text-gray-600 dark:text-gray-400">
+              {{ cardCurrentPage }} / {{ cardTotalPages }}
+            </span>
+            <button
+              class="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
+              :disabled="cardCurrentPage >= cardTotalPages"
+              @click="changeCardPage(cardCurrentPage + 1)"
+            >
+              <i class="i-lucide-chevron-right" />
+            </button>
+          </div>
+        </div>
+<VirtualTable class="overflow-x-auto rounded-lg border border-gray-200 dark:border-gray-700 md:min-h-0 md:flex-1 md:overflow-auto" fill-height mobile-fill :row-key="card => card.id" :rows="cards">
+<table class="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
             <thead class="sticky top-0 z-10 bg-gray-100 dark:bg-gray-700">
               <tr>
                 <th class="w-10 px-4 py-3">
-                  <input
+                  <label class="virtual-table-check"><input
                     :checked="isAllSelected"
                     class="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700"
                     :indeterminate="isIndeterminate"
                     type="checkbox"
                     @change="toggleSelectAll"
-                  />
+                  /></label>
                 </th>
                 <th
                   class="px-4 py-3 text-left text-sm font-medium uppercase tracking-wider text-gray-500 dark:text-gray-300"
@@ -248,29 +289,26 @@
                 </th>
               </tr>
             </thead>
-            <tbody class="divide-y divide-gray-200 bg-white dark:divide-gray-700 dark:bg-gray-800">
-              <tr v-if="loading">
+            <tbody v-if="loading" class="divide-y divide-gray-200 bg-white dark:divide-gray-700 dark:bg-gray-800"><tr >
                 <td
                   class="px-4 py-5 text-center text-sm text-gray-500 dark:text-gray-400"
                   colspan="8"
                 >
                   <i class="i-lucide-loader-circle animate-spin mr-2 text-blue-500" />加载中...
                 </td>
-              </tr>
-              <template v-else>
-                <tr
-                  v-for="card in cards"
+              </tr></tbody><template v-else><VirtualTableRows class="divide-y divide-gray-200 bg-white dark:divide-gray-700 dark:bg-gray-800" v-slot="{ row: card }"><tr
+
                   :key="card.id"
                   :class="[ 'hover:bg-gray-50 dark:hover:bg-gray-700/50', selectedCards.includes(card.id) ? 'bg-blue-50 dark:bg-blue-900/10' : '' ]"
                 >
                   <td class="whitespace-nowrap px-4 py-3">
-                    <input
+                    <label class="virtual-table-check"><input
                       v-if="card.status === 'unused'"
                       :checked="selectedCards.includes(card.id)"
                       class="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700"
                       type="checkbox"
                       @change="toggleSelectCard(card.id)"
-                    />
+                    /></label>
                   </td>
                   <td class="whitespace-nowrap px-4 py-3">
                     <code
@@ -350,64 +388,19 @@
                       </button>
                     </div>
                   </td>
-                </tr>
-                <tr v-if="cards.length === 0">
+                </tr></VirtualTableRows><tbody v-if="cards.length === 0" class="divide-y divide-gray-200 bg-white dark:divide-gray-700 dark:bg-gray-800"><tr >
                   <td
                     class="px-4 py-5 text-center text-sm text-gray-500 dark:text-gray-400"
                     colspan="8"
                   >
                     暂无卡片数据
                   </td>
-                </tr>
-              </template>
-            </tbody>
+                </tr></tbody></template>
           </table>
-        </div>
+</VirtualTable>
 
         <!-- 分页 -->
-        <div
-          v-if="totalCards > 0"
-          class="flex flex-none flex-col items-center justify-between gap-3 border-t border-gray-200 px-1 pt-3 dark:border-gray-700 sm:flex-row"
-        >
-          <div class="flex items-center gap-4">
-            <span class="text-sm text-gray-600 dark:text-gray-400">
-              共 {{ totalCards }} 条记录
-            </span>
-            <div class="flex items-center gap-2">
-              <span class="text-sm text-gray-600 dark:text-gray-400">每页</span>
-              <div class="w-[90px]">
-                <CustomDropdown
-                  v-model="cardPageSize"
-                  accent="gray"
-                  :options="pageSizeDropdownOptions"
-                  placeholder="每页"
-                  size="sm"
-                  @change="changeCardPageSize"
-                />
-              </div>
-              <span class="text-sm text-gray-600 dark:text-gray-400">条</span>
-            </div>
-          </div>
-          <div class="flex items-center gap-2">
-            <button
-              class="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
-              :disabled="cardCurrentPage === 1"
-              @click="changeCardPage(cardCurrentPage - 1)"
-            >
-              <i class="i-lucide-chevron-left" />
-            </button>
-            <span class="text-sm text-gray-600 dark:text-gray-400">
-              {{ cardCurrentPage }} / {{ cardTotalPages }}
-            </span>
-            <button
-              class="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
-              :disabled="cardCurrentPage >= cardTotalPages"
-              @click="changeCardPage(cardCurrentPage + 1)"
-            >
-              <i class="i-lucide-chevron-right" />
-            </button>
-          </div>
-        </div>
+
       </div>
 
       <!-- Redemptions Tab -->
@@ -477,9 +470,50 @@
 
         <!-- Table（内部滚动，表头吸顶） -->
         <div
-          class="overflow-x-auto rounded-lg border border-gray-200 dark:border-gray-700 md:min-h-0 md:flex-1 md:overflow-auto"
+          v-if="totalRedemptions > 0"
+          class="flex flex-none flex-col items-center justify-between gap-3 border-t border-gray-200 px-1 pt-3 dark:border-gray-700 sm:flex-row"
         >
-          <table class="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+          <div class="flex items-center gap-4">
+            <span class="text-sm text-gray-600 dark:text-gray-400">
+              共 {{ totalRedemptions }} 条记录
+            </span>
+            <div class="flex items-center gap-2">
+              <span class="text-sm text-gray-600 dark:text-gray-400">每页</span>
+              <div class="w-[90px]">
+                <CustomDropdown
+                  v-model="redemptionPageSize"
+                  accent="gray"
+                  :options="pageSizeDropdownOptions"
+                  placeholder="每页"
+                  size="sm"
+                  @change="changeRedemptionPageSize"
+                />
+              </div>
+              <span class="text-sm text-gray-600 dark:text-gray-400">条</span>
+            </div>
+          </div>
+          <div class="flex items-center gap-2">
+            <button
+              class="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
+              :disabled="redemptionCurrentPage === 1"
+              @click="changeRedemptionPage(redemptionCurrentPage - 1)"
+            >
+              <i class="i-lucide-chevron-left" />
+            </button>
+            <span class="text-sm text-gray-600 dark:text-gray-400">
+              {{ redemptionCurrentPage }} / {{ redemptionTotalPages }}
+            </span>
+            <button
+              class="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
+              :disabled="redemptionCurrentPage >= redemptionTotalPages"
+              @click="changeRedemptionPage(redemptionCurrentPage + 1)"
+            >
+              <i class="i-lucide-chevron-right" />
+            </button>
+          </div>
+        </div>
+<VirtualTable class="overflow-x-auto rounded-lg border border-gray-200 dark:border-gray-700 md:min-h-0 md:flex-1 md:overflow-auto" fill-height mobile-fill :row-key="redemption => redemption.id" :rows="redemptions">
+<table class="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
             <thead class="sticky top-0 z-10 bg-gray-100 dark:bg-gray-700">
               <tr>
                 <th
@@ -519,18 +553,15 @@
                 </th>
               </tr>
             </thead>
-            <tbody class="divide-y divide-gray-200 bg-white dark:divide-gray-700 dark:bg-gray-800">
-              <tr v-if="redemptionLoading">
+            <tbody v-if="redemptionLoading" class="divide-y divide-gray-200 bg-white dark:divide-gray-700 dark:bg-gray-800"><tr >
                 <td
                   class="px-4 py-5 text-center text-sm text-gray-500 dark:text-gray-400"
                   colspan="7"
                 >
                   <i class="i-lucide-loader-circle animate-spin mr-2 text-blue-500" />加载中...
                 </td>
-              </tr>
-              <template v-else>
-                <tr
-                  v-for="redemption in redemptions"
+              </tr></tbody><template v-else><VirtualTableRows class="divide-y divide-gray-200 bg-white dark:divide-gray-700 dark:bg-gray-800" v-slot="{ row: redemption }"><tr
+
                   :key="redemption.id"
                   class="hover:bg-gray-50 dark:hover:bg-gray-700/50"
                 >
@@ -595,64 +626,19 @@
                       <i class="i-lucide-undo-2" />
                     </button>
                   </td>
-                </tr>
-                <tr v-if="redemptions.length === 0">
+                </tr></VirtualTableRows><tbody v-if="redemptions.length === 0" class="divide-y divide-gray-200 bg-white dark:divide-gray-700 dark:bg-gray-800"><tr >
                   <td
                     class="px-4 py-5 text-center text-sm text-gray-500 dark:text-gray-400"
                     colspan="7"
                   >
                     暂无核销记录
                   </td>
-                </tr>
-              </template>
-            </tbody>
+                </tr></tbody></template>
           </table>
-        </div>
+</VirtualTable>
 
         <!-- 分页 -->
-        <div
-          v-if="totalRedemptions > 0"
-          class="flex flex-none flex-col items-center justify-between gap-3 border-t border-gray-200 px-1 pt-3 dark:border-gray-700 sm:flex-row"
-        >
-          <div class="flex items-center gap-4">
-            <span class="text-sm text-gray-600 dark:text-gray-400">
-              共 {{ totalRedemptions }} 条记录
-            </span>
-            <div class="flex items-center gap-2">
-              <span class="text-sm text-gray-600 dark:text-gray-400">每页</span>
-              <div class="w-[90px]">
-                <CustomDropdown
-                  v-model="redemptionPageSize"
-                  accent="gray"
-                  :options="pageSizeDropdownOptions"
-                  placeholder="每页"
-                  size="sm"
-                  @change="changeRedemptionPageSize"
-                />
-              </div>
-              <span class="text-sm text-gray-600 dark:text-gray-400">条</span>
-            </div>
-          </div>
-          <div class="flex items-center gap-2">
-            <button
-              class="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
-              :disabled="redemptionCurrentPage === 1"
-              @click="changeRedemptionPage(redemptionCurrentPage - 1)"
-            >
-              <i class="i-lucide-chevron-left" />
-            </button>
-            <span class="text-sm text-gray-600 dark:text-gray-400">
-              {{ redemptionCurrentPage }} / {{ redemptionTotalPages }}
-            </span>
-            <button
-              class="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
-              :disabled="redemptionCurrentPage >= redemptionTotalPages"
-              @click="changeRedemptionPage(redemptionCurrentPage + 1)"
-            >
-              <i class="i-lucide-chevron-right" />
-            </button>
-          </div>
-        </div>
+
       </div>
     </div>
 
@@ -962,8 +948,9 @@
             >
               当前没有兑换失败锁
             </p>
-            <table
-              v-else
+            <VirtualTable v-else :row-key="row => row.ip" :rows="redeemLocks">
+<table
+
               class="min-w-full divide-y divide-gray-200 dark:divide-gray-700"
             >
               <thead class="bg-gray-50 dark:bg-gray-800">
@@ -975,9 +962,8 @@
                   <th class="px-3 py-2 text-right">操作</th>
                 </tr>
               </thead>
-              <tbody class="divide-y divide-gray-100 dark:divide-gray-800">
-                <tr
-                  v-for="row in redeemLocks"
+              <VirtualTableRows class="divide-y divide-gray-100 dark:divide-gray-800" v-slot="{ row: row }"><tr
+
                   :key="row.ip"
                   class="text-sm"
                 >
@@ -1012,9 +998,9 @@
                       {{ redeemLocksUnlockingIp === row.ip ? '解锁中...' : '解锁' }}
                     </button>
                   </td>
-                </tr>
-              </tbody>
+                </tr></VirtualTableRows>
             </table>
+</VirtualTable>
           </div>
         </div>
       </div>
@@ -1198,6 +1184,8 @@
 <script setup>
 import SegmentedTabs from '@/components/common/segmented_tabs.vue'
 import { ref, computed, onMounted, onBeforeUnmount, nextTick, watch } from 'vue'
+import VirtualTable from '@/components/common/virtual_table.vue'
+import VirtualTableRows from '@/components/common/virtual_table_rows.vue'
 import ConfirmModal from '@/components/common/confirm_modal.vue'
 import ModalTransition from '@/components/common/modal_transition.vue'
 

@@ -272,11 +272,8 @@
             移除 {{ selectedImported.length || '' }}
           </button>
         </div>
-        <div
-          v-if="importedModels.length"
-          class="mt-3 max-h-80 overflow-auto rounded-lg border border-gray-200 dark:border-gray-700"
-        >
-          <table class="min-w-full table-fixed text-sm">
+        <VirtualTable v-if="importedModels.length" class="mt-3 max-h-80 overflow-auto rounded-lg border border-gray-200 dark:border-gray-700" :row-key="model => model.id" :rows="sortedImportedModels">
+<table class="min-w-full table-fixed text-sm">
             <colgroup>
               <col class="w-[36%]" />
               <col class="w-[12%]" />
@@ -303,8 +300,7 @@
                 <th class="px-3 py-2 text-right font-medium text-gray-500">操作</th>
               </tr>
             </thead>
-            <tbody class="divide-y divide-gray-100 dark:divide-gray-800">
-              <tr v-for="model in sortedImportedModels" :key="model.id">
+            <VirtualTableRows class="divide-y divide-gray-100 dark:divide-gray-800" v-slot="{ row: model }"><tr  :key="model.id">
                 <td class="px-3 py-2 align-middle">
                   <div
                     class="cursor-pointer font-medium text-gray-900 hover:underline dark:text-gray-100"
@@ -391,10 +387,9 @@
                     </button>
                   </div>
                 </td>
-              </tr>
-            </tbody>
+              </tr></VirtualTableRows>
           </table>
-        </div>
+</VirtualTable>
         <p v-else class="text-sm text-gray-500 dark:text-gray-400">
           还没有内部计费模型。从上方种子导入，或点「新建内部模型」。
         </p>
@@ -419,13 +414,8 @@
       </div>
 
       <!-- 表格 -->
-      <div
-        v-else
-        ref="tableWrapper"
-        class="overflow-auto rounded-lg border border-gray-200 dark:border-gray-700"
-        :style="{ maxHeight: tableMaxHeight }"
-      >
-        <table class="w-full min-w-[1100px] table-fixed text-sm">
+      <VirtualTable v-else  class="overflow-auto rounded-lg border border-gray-200 dark:border-gray-700"  :row-key="model => model.name" :rows="sortedModels">
+<table class="w-full min-w-[1100px] table-fixed text-sm">
           <colgroup>
             <col class="w-[22%]" />
             <col class="w-[7%]" />
@@ -509,9 +499,8 @@
               </th>
             </tr>
           </thead>
-          <tbody class="divide-y divide-gray-200 bg-white dark:divide-gray-700 dark:bg-gray-900">
-            <tr
-              v-for="model in sortedModels"
+          <VirtualTableRows class="divide-y divide-gray-200 bg-white dark:divide-gray-700 dark:bg-gray-900" v-slot="{ row: model }"><tr
+
               :key="model.name"
               class="transition hover:bg-gray-50 dark:hover:bg-gray-800/50"
             >
@@ -672,8 +661,7 @@
                   </button>
                 </div>
               </td>
-            </tr>
-            <tr v-if="sortedModels.length === 0">
+            </tr></VirtualTableRows><tbody v-if="sortedModels.length === 0" class="divide-y divide-gray-200 bg-white dark:divide-gray-700 dark:bg-gray-900"><tr >
               <td
                 class="px-3 py-5 text-center text-gray-500 dark:text-gray-400"
                 colspan="13"
@@ -681,10 +669,9 @@
                 <i class="i-lucide-search mb-2 text-2xl text-gray-300 dark:text-gray-600" />
                 <p>没有匹配的模型</p>
               </td>
-            </tr>
-          </tbody>
+            </tr></tbody>
         </table>
-      </div>
+</VirtualTable>
 
     </div>
 
@@ -1014,7 +1001,9 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
+import { ref, computed, onMounted } from 'vue'
+import VirtualTable from '@/components/common/virtual_table.vue'
+import VirtualTableRows from '@/components/common/virtual_table_rows.vue'
 import ModalTransition from '@/components/common/modal_transition.vue'
 import CustomDropdown from '@/components/common/custom_dropdown.vue'
 import SegmentedTabs from '@/components/common/segmented_tabs.vue'
@@ -1063,8 +1052,8 @@ const searchQuery = ref('')
 const activeProvider = ref('')
 const sortField = ref('display')
 const sortAsc = ref(true)
-const tableWrapper = ref(null)
-const tableMaxHeight = ref('60vh')
+
+
 const rawModal = ref({
   show: false,
   title: '',
@@ -1089,8 +1078,8 @@ const importedModels = ref([])
 const selectedImportable = ref([])
 const selectedImported = ref([])
 const editor = ref({ show: false, model: null, isCreate: false })
-let visibilityObserver = null
-let layoutObserver = null
+
+
 
 // ========== 计算属性 ==========
 const modelCount = computed(() => Object.keys(pricingData.value).length)
@@ -1412,63 +1401,6 @@ const copyRaw = () => {
   copyText(rawModal.value.content || '')
 }
 
-// 累加表格下方到视口底的固定占用，跨断点自适应，无需写死常量。每层算三块：
-// ① 节点自身的下外边距 ② 该节点之后兄弟的(上外边距+高度+下外边距) ③ 父级的下内边距+下边框
-// getBoundingClientRect().height 是 border-box，不含 margin，必须单独累加，
-// 否则会稳定少算（如统计行的 mt-3、卡片层的 1px 边框），表现为页面差一点点能滑
-// 底部预留：只沿祖先累加 padding/border/margin，不扫后续兄弟（避免价格大表每次 RO 全页强制布局）
-const calcBottomReserve = (el) => {
-  const px = (v) => parseFloat(v) || 0
-  let reserve = 12
-  for (
-    let node = el;
-    node && node !== document.body && node.parentElement;
-    node = node.parentElement
-  ) {
-    const cs = getComputedStyle(node)
-    reserve += px(cs.marginBottom) + px(cs.paddingBottom) + px(cs.borderBottomWidth)
-  }
-  return reserve
-}
-
-let heightCalcScheduled = false
-const scheduleTableHeight = () => {
-  if (heightCalcScheduled) return
-  heightCalcScheduled = true
-  requestAnimationFrame(() => {
-    heightCalcScheduled = false
-    calcTableHeight()
-  })
-}
-
-// 按视口剩余空间动态计算表格高度。不设固定下限——固定下限会在剩余空间小于它时
-// 把表格强行撑高，反而撑出视口（常见于 ~768px 笔记本，剩余恰好略小于旧的 240px）。
-// 直接用剩余高度：多则多、少则少并内部滚动，maxHeight 永不超过剩余，页面绝不超高；负值兜底 0
-const MOBILE_BREAKPOINT = 768
-const calcTableHeight = () => {
-  const el = tableWrapper.value
-  // offsetParent 为 null 说明所在 tab 被 v-show 隐藏，此时 rect 不可信，跳过
-  if (!el || el.offsetParent === null) return
-  // 移动端（< md 768px）不锁高度：让表格自然撑开、整页滚动，避免顶部内容变高时剩余被压到接近 0
-  if (window.innerWidth < MOBILE_BREAKPOINT) {
-    tableMaxHeight.value = 'none'
-    return
-  }
-  const top = el.getBoundingClientRect().top
-  const avail = window.innerHeight - top - calcBottomReserve(el)
-  tableMaxHeight.value = `${Math.max(0, Math.floor(avail))}px`
-}
-
-// tab 由隐藏变可见时重新计算（refresh 重建表格 DOM 后也需重新绑定）
-const observeVisibility = () => {
-  if (!tableWrapper.value) return
-  if (visibilityObserver) visibilityObserver.disconnect()
-  visibilityObserver = new IntersectionObserver((entries) => {
-    if (entries[0].isIntersecting) scheduleTableHeight()
-  })
-  visibilityObserver.observe(tableWrapper.value)
-}
-
 // 后端回显的地址已脱敏(隐去 query),不能回填输入框——否则保存会把脱敏值当真值写回、丢掉参数。
 // 输入框始终清空:填了才改,不填不动;要回默认走"恢复默认"按钮。
 const syncSourceForm = () => {
@@ -1503,9 +1435,9 @@ const loadData = async () => {
     }
   }
   loading.value = false
-  await nextTick()
-  calcTableHeight()
-  observeVisibility()
+
+
+
 }
 
 const handleRefresh = async () => {
@@ -1700,16 +1632,12 @@ onMounted(() => {
   if (!props.readonly) {
     loadModelCatalog()
   }
-  window.addEventListener('resize', scheduleTableHeight)
+
   // 只观察表格自身容器，避免 document.body 上 RO 因大表重排反复触发强制布局
-  layoutObserver = new ResizeObserver(() => scheduleTableHeight())
-  const observeTarget = tableWrapper.value?.parentElement || tableWrapper.value
-  if (observeTarget) layoutObserver.observe(observeTarget)
+
+
+
 })
 
-onUnmounted(() => {
-  window.removeEventListener('resize', scheduleTableHeight)
-  if (visibilityObserver) visibilityObserver.disconnect()
-  if (layoutObserver) layoutObserver.disconnect()
-})
+
 </script>

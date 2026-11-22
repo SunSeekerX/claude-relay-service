@@ -118,8 +118,18 @@
           <p>暂无记录</p>
         </div>
         <div v-else class="flex min-h-0 flex-1 flex-col gap-4">
-          <div class="hidden min-h-0 flex-1 overflow-auto md:block" :class="tableBodyClass">
-            <table class="min-w-full divide-y divide-gray-200 dark:divide-gray-800">
+          <div class="px-4 pb-4">
+            <AppPagination
+              v-model:current-page="pagination.currentPage"
+              v-model:page-size="pagination.pageSize"
+              :page-sizes="[20, 50, 100, 200]"
+              :total="pagination.totalRecords"
+              @current-change="handlePageChange"
+              @size-change="handleSizeChange"
+            />
+          </div>
+<VirtualTable class="hidden min-h-0 flex-1 overflow-auto md:block" :class="tableBodyClass" :row-key="(record, index) => buildRecordKey(record, index)" :rows="records">
+<table class="min-w-full divide-y divide-gray-200 dark:divide-gray-800">
               <thead class="sticky top-0 z-[1] bg-gray-50 dark:bg-gray-800">
                 <tr>
                   <th
@@ -170,10 +180,7 @@
                   </th>
                 </tr>
               </thead>
-              <tbody
-                class="divide-y divide-gray-200 bg-white dark:divide-gray-800 dark:bg-gray-900"
-              >
-                <tr v-for="(record, index) in records" :key="buildRecordKey(record, index)">
+              <VirtualTableRows class="divide-y divide-gray-200 bg-white dark:divide-gray-800 dark:bg-gray-900" v-slot="{ row: record, index: index }"><tr  :key="buildRecordKey(record, index)">
                   <td class="whitespace-nowrap px-4 py-3 text-sm text-gray-800 dark:text-gray-100">
                     {{ formatDate(record.timestamp) }}
                   </td>
@@ -220,10 +227,9 @@
                   >
                     {{ record.costFormatted || formatCost(record.cost) }}
                   </td>
-                </tr>
-              </tbody>
+                </tr></VirtualTableRows>
             </table>
-          </div>
+</VirtualTable>
 
           <div class="space-y-3 md:hidden" :class="tableBodyClass">
             <div
@@ -266,16 +272,7 @@
             </div>
           </div>
 
-          <div class="px-4 pb-4">
-            <AppPagination
-              v-model:current-page="pagination.currentPage"
-              v-model:page-size="pagination.pageSize"
-              :page-sizes="[20, 50, 100, 200]"
-              :total="pagination.totalRecords"
-              @current-change="handlePageChange"
-              @size-change="handleSizeChange"
-            />
-          </div>
+
         </div>
       </div>
     </div>
@@ -285,6 +282,8 @@
 
 <script setup>
 import { computed, onMounted, reactive, ref, watch } from 'vue'
+import VirtualTable from '@/components/common/virtual_table.vue'
+import VirtualTableRows from '@/components/common/virtual_table_rows.vue'
 import { showToast, formatNumber, formatDate } from '@/libs/tools'
 import { isOk, msgOf } from '@/libs/http_envelope'
 import { buildDateRangePreset } from '@/libs/time.js'

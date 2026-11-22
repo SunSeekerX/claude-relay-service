@@ -41,8 +41,9 @@
         ><button class="btn btn-secondary" type="button" @click="resetFilters">重置筛选</button>
       </div>
     </div>
-    <div class="admin-table-scroll min-h-0">
-      <table class="video-task-table w-full min-w-[900px] text-left text-sm">
+    <span class="admin-result-count">当前显示 {{ tasks.length }} 个任务</span>
+<VirtualTable class="admin-table-scroll min-h-0" fill-height mobile-fill :row-key="task => task.apiKeyId + ':' + task.requestId" :rows="tasks">
+<table class="video-task-table w-full min-w-[900px] text-left text-sm">
         <thead>
           <tr>
             <th>任务 / API Key</th>
@@ -53,18 +54,15 @@
             <th>创建时间</th>
           </tr>
         </thead>
-        <tbody>
-          <tr v-if="loading">
+        <tbody v-if="loading"><tr >
             <td class="admin-empty-state" colspan="6">
               <i class="i-lucide-loader-circle animate-spin" />正在加载任务...
             </td>
-          </tr>
-          <tr v-else-if="!tasks.length">
+          </tr></tbody><tbody v-else-if="!tasks.length"><tr >
             <td class="admin-empty-state" colspan="6">
               暂无匹配的视频任务，请调整筛选条件或稍后刷新
             </td>
-          </tr>
-          <tr v-for="task in tasks" v-else :key="task.apiKeyId + ':' + task.requestId">
+          </tr></tbody><VirtualTableRows v-else v-slot="{ row: task }"><tr   :key="task.apiKeyId + ':' + task.requestId">
             <td>
               <button
                 class="task-copy"
@@ -114,16 +112,17 @@
             <td class="t-text-secondary">
               {{ task.createdAt ? formatDateTime(task.createdAt) : '-' }}
             </td>
-          </tr>
-        </tbody>
+          </tr></VirtualTableRows>
       </table>
-    </div>
-    <span class="admin-result-count">当前显示 {{ tasks.length }} 个任务</span>
+</VirtualTable>
+
   </div>
 </template>
 
 <script setup>
 import { onMounted, reactive, ref, watch } from 'vue'
+import VirtualTable from '@/components/common/virtual_table.vue'
+import VirtualTableRows from '@/components/common/virtual_table_rows.vue'
 import CustomDropdown from '@/components/common/custom_dropdown.vue'
 import { getGrokVideoTasksApi, getApiKeysWithParamsApi, getGrokAccountsApi } from '@/libs/http_apis'
 import { isOk, msgOf } from '@/libs/http_envelope'

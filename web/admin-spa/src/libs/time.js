@@ -1,5 +1,8 @@
 import dayjs from 'dayjs'
 
+const beijingDateTimeFormat = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' })
+export const formatBeijingDateTime = (value) => value ? beijingDateTimeFormat.format(new Date(value)) : ''
+
 export const localDateTimeInputToISOString = (value) => {
   if (!value) return ''
   const date = dayjs(value)

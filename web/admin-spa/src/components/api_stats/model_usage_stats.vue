@@ -34,8 +34,8 @@
       <i class="i-lucide-loader-circle animate-spin" />正在加载{{ periodLabel }}模型统计...
     </div>
     <template v-else-if="stats.length">
-      <div class="model-table-scroll">
-        <table class="model-stats-table">
+      <VirtualTable class="model-table-scroll" :row-key="model => model.model" :rows="stats">
+<table class="model-stats-table">
           <caption class="sr-only">
             {{
               periodLabel
@@ -62,8 +62,7 @@
               <th class="text-right usage-charge" scope="col">实际扣费</th>
             </tr>
           </thead>
-          <tbody>
-            <tr v-for="model in stats" :key="model.model">
+          <VirtualTableRows v-slot="{ row: model }"><tr  :key="model.model">
               <th scope="row">
                 <button
                   :aria-label="`复制模型 ${model.model}`"
@@ -115,10 +114,9 @@
               >
                 {{ calculateCcCost(model) }}
               </td>
-            </tr>
-          </tbody>
+            </tr></VirtualTableRows>
         </table>
-      </div>
+</VirtualTable>
       <div class="model-mobile-list">
         <article v-for="model in stats" :key="model.model" class="model-mobile-row">
           <header>
@@ -185,6 +183,8 @@
 import { computed, ref } from 'vue'
 import SegmentedTabs from '@/components/common/segmented_tabs.vue'
 import { storeToRefs } from 'pinia'
+import VirtualTable from '@/components/common/virtual_table.vue'
+import VirtualTableRows from '@/components/common/virtual_table_rows.vue'
 import { useApiStatsStore } from '@/stores/api_stats'
 import { copyText, formatNumber } from '@/libs/tools'
 

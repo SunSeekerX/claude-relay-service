@@ -151,8 +151,18 @@
         <p>暂无记录</p>
       </div>
       <div v-else class="flex min-h-0 flex-1 flex-col overflow-hidden">
-        <div class="usage-table-scroll hidden min-h-0 flex-1 md:block" :class="tableBodyClass">
-          <table class="min-w-full divide-y divide-gray-200 dark:divide-gray-800">
+        <div class="shrink-0 border-t border-gray-200 px-3 py-2 dark:border-gray-800">
+          <AppPagination
+            v-model:current-page="pagination.currentPage"
+            v-model:page-size="pagination.pageSize"
+            :page-sizes="[20, 50, 100, 200]"
+            :total="pagination.totalRecords"
+            @current-change="handlePageChange"
+            @size-change="handleSizeChange"
+          />
+        </div>
+<VirtualTable class="usage-table-scroll hidden min-h-0 flex-1 md:block" :class="tableBodyClass" :row-key="record => record.timestamp + record.model + (record.requestId || '')" :rows="records">
+<table class="min-w-full divide-y divide-gray-200 dark:divide-gray-800">
             <thead class="sticky top-0 z-10 bg-gray-50 dark:bg-gray-800">
               <tr>
                 <th
@@ -207,9 +217,8 @@
                 </th>
               </tr>
             </thead>
-            <tbody class="divide-y divide-gray-200 bg-white dark:divide-gray-800 dark:bg-gray-900">
-              <tr
-                v-for="record in records"
+            <VirtualTableRows class="divide-y divide-gray-200 bg-white dark:divide-gray-800 dark:bg-gray-900" v-slot="{ row: record }"><tr
+
                 :key="record.timestamp + record.model + (record.requestId || '')"
               >
                 <td class="whitespace-nowrap px-3 py-2 text-sm text-gray-800 dark:text-gray-100">
@@ -250,10 +259,9 @@
                 <td class="whitespace-nowrap px-3 py-2 text-sm text-yellow-600 dark:text-yellow-400">
                   {{ record.costFormatted || formatCost(record.cost) }}
                 </td>
-              </tr>
-            </tbody>
+              </tr></VirtualTableRows>
           </table>
-        </div>
+</VirtualTable>
 
         <div class="min-h-0 flex-1 space-y-2 overflow-y-auto p-2 md:hidden" :class="tableBodyClass">
           <div
@@ -298,16 +306,7 @@
           </div>
         </div>
 
-        <div class="shrink-0 border-t border-gray-200 px-3 py-2 dark:border-gray-800">
-          <AppPagination
-            v-model:current-page="pagination.currentPage"
-            v-model:page-size="pagination.pageSize"
-            :page-sizes="[20, 50, 100, 200]"
-            :total="pagination.totalRecords"
-            @current-change="handlePageChange"
-            @size-change="handleSizeChange"
-          />
-        </div>
+
       </div>
     </div>
   </div>
@@ -316,6 +315,8 @@
 <script setup>
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 
+import VirtualTable from '@/components/common/virtual_table.vue'
+import VirtualTableRows from '@/components/common/virtual_table_rows.vue'
 import { getAccountUsageRecordsByIdApi } from '@/libs/http_apis'
 import { isOk, msgOf } from '@/libs/http_envelope'
 import { showToast, formatNumber, formatDate } from '@/libs/tools'

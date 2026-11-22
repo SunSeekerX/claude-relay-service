@@ -16,6 +16,7 @@
     "@iconify-json/logos": "^1.2.13",
     "@iconify-json/lucide": "^1.2.126",
     "@iconify-json/simple-icons": "^1.2.93",
+    "@tanstack/vue-virtual": "3.13.52",
     "@vue/devtools-api": "^8.2.1",
     "chart.js": "^4.5.1",
     "dayjs": "^1.11.23",

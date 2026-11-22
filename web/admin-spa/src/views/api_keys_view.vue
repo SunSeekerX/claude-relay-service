@@ -17,7 +17,95 @@
         <!-- 活跃 API Keys Tab Panel -->
         <div v-if="activeTab === 'active'" class="tab-panel">
           <!-- 工具栏区域 - 添加 mb-4 增加与表格的间距 -->
-          <div class="admin-toolbar">
+          <div
+            v-if="sortedApiKeys.length > 0"
+            class="mt-4 flex flex-col items-center justify-between gap-4 sm:mt-6 sm:flex-row"
+          >
+            <div class="flex w-full flex-col items-center gap-3 sm:w-auto sm:flex-row">
+              <span class="text-sm text-gray-600 dark:text-gray-400 sm:text-sm">
+                共 {{ sortedApiKeys.length }} 条记录
+              </span>
+              <div class="flex items-center gap-2">
+                <span class="text-sm text-gray-600 dark:text-gray-400 sm:text-sm">每页显示</span>
+                <div class="w-20">
+                  <CustomDropdown
+                    v-model="pageSize"
+                    accent="blue"
+                    :options="pageSizeOptions"
+                    placeholder="条数"
+                  />
+                </div>
+                <span class="text-sm text-gray-600 dark:text-gray-400 sm:text-sm">条</span>
+              </div>
+            </div>
+
+            <div class="flex items-center gap-2">
+              <!-- 上一页 -->
+              <button
+                class="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700 sm:py-1 sm:text-sm"
+                :disabled="currentPage === 1"
+                @click="currentPage--"
+              >
+                <i class="i-lucide-chevron-left" />
+              </button>
+
+              <!-- 页码 -->
+              <div class="flex items-center gap-1">
+                <!-- 第一页 -->
+                <button
+                  v-if="shouldShowFirstPage"
+                  class="hidden rounded-md border border-gray-300 bg-white px-3 py-1 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700 sm:block"
+                  @click="currentPage = 1"
+                >
+                  1
+                </button>
+                <span
+                  v-if="showLeadingEllipsis"
+                  class="hidden px-2 text-gray-500 dark:text-gray-400 sm:inline"
+                  >...</span
+                >
+
+                <!-- 中间页码 -->
+                <button
+                  v-for="page in pageNumbers"
+                  :key="page"
+                  :class="[
+                    'rounded-md px-2 py-1 text-sm font-medium sm:px-3 sm:text-sm',
+                    page === currentPage
+                      ? 'bg-blue-600 text-white'
+                      : 'border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700'
+                  ]"
+                  @click="currentPage = page"
+                >
+                  {{ page }}
+                </button>
+
+                <!-- 最后一页 -->
+                <span
+                  v-if="showTrailingEllipsis"
+                  class="hidden px-2 text-gray-500 dark:text-gray-400 sm:inline"
+                  >...</span
+                >
+                <button
+                  v-if="shouldShowLastPage"
+                  class="hidden rounded-md border border-gray-300 bg-white px-3 py-1 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700 sm:block"
+                  @click="currentPage = totalPages"
+                >
+                  {{ totalPages }}
+                </button>
+              </div>
+
+              <!-- 下一页 -->
+              <button
+                class="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700 sm:py-1 sm:text-sm"
+                :disabled="currentPage === totalPages || totalPages === 0"
+                @click="currentPage++"
+              >
+                <i class="i-lucide-chevron-right" />
+              </button>
+            </div>
+          </div>
+<div class="admin-toolbar">
             <!-- 左侧：查询筛选器组 -->
             <div class="admin-filter-group">
               <!-- 时间范围筛选 -->
@@ -111,6 +199,7 @@
             <!-- 右侧：操作按钮组 -->
             <div class="admin-actions">
               <!-- 刷新按钮 -->
+              <button class="btn btn-secondary" @click="credentialHistory.open()">Key 轨迹</button>
               <button
                 class="group relative flex items-center justify-center gap-2 rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm font-medium text-gray-700 shadow-sm transition-all duration-200 hover:border-gray-300 hover:shadow-md disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200 dark:hover:border-gray-500 sm:w-auto"
                 :disabled="apiKeysLoading"
@@ -215,12 +304,8 @@
 
           <!-- 桌面端表格视图 -->
           <div v-else class="table-wrapper hidden md:block">
-            <div
-              ref="mainTableScrollRef"
-              class="table-container table-container--scroll"
-              :style="{ maxHeight: mainTableMaxHeight }"
-            >
-              <table class="w-full">
+            <VirtualTable  class="table-container table-container--scroll" fill-height mobile-fill :row-key="key => key.id" :rows="paginatedApiKeys">
+<table class="w-full">
                 <thead
                   class="sticky top-0 z-20 bg-gradient-to-b from-gray-50 to-gray-100 dark:from-gray-700 dark:to-gray-800"
                 >
@@ -229,14 +314,14 @@
                       class="checkbox-column sticky left-0 z-20 min-w-[50px] px-3 py-4 text-left"
                     >
                       <div class="flex items-center">
-                        <input
+                        <label class="virtual-table-check"><input
                           v-model="selectAllChecked"
                           aria-label="选择当前页全部 API Key"
                           class="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                           :indeterminate="isIndeterminate"
                           type="checkbox"
                           @change="handleSelectAll"
-                        />
+                        /></label>
                       </div>
                     </th>
                     <th
@@ -364,8 +449,7 @@
                     </th>
                   </tr>
                 </thead>
-                <tbody>
-                  <template v-for="key in paginatedApiKeys" :key="key.id">
+                <VirtualTableRows v-slot="{ row: key }">
                     <!-- API Key 主行 - 添加斑马条纹和增强分隔 -->
                     <tr
                       :class="[
@@ -378,14 +462,14 @@
                         class="checkbox-column sticky left-0 z-10 px-3 py-3"
                       >
                         <div class="flex items-center">
-                          <input
+                          <label class="virtual-table-check"><input
                             v-model="selectedApiKeys"
                             :aria-label="`选择 ${key.name}`"
                             class="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                             type="checkbox"
                             :value="key.id"
                             @change="updateSelectAllState"
-                          />
+                          /></label>
                         </div>
                       </td>
                       <td
@@ -920,6 +1004,8 @@
                             <i class="i-lucide-scroll-text" />
                             <span class="ml-1">记录</span>
                           </button>
+                          <button class="rounded px-2 py-1 text-sm text-purple-600 hover:bg-purple-50 dark:hover:bg-purple-900/20" @click="credentialHistory.open(key)">Key 轨迹</button>
+                          <button class="rounded px-2 py-1 text-sm text-orange-600 hover:bg-orange-50 dark:hover:bg-orange-900/20" @click="keyRotation.open(key)">更换 Key</button>
                           <button
                             v-if="
                               key.expiresAt &&
@@ -1206,10 +1292,9 @@
                         </div>
                       </td>
                     </tr>
-                  </template>
-                </tbody>
+                  </VirtualTableRows>
               </table>
-            </div>
+</VirtualTable>
           </div>
 
           <!-- 移动端卡片视图 -->
@@ -1629,6 +1714,8 @@
                   <i class="i-lucide-scroll-text mr-1" />
                   记录
                 </button>
+                <button class="btn btn-secondary" @click="credentialHistory.open(key)">Key 轨迹</button>
+                <button class="btn btn-secondary" @click="keyRotation.open(key)">更换 Key</button>
                 <button
                   v-if="
                     key.expiresAt &&
@@ -1663,94 +1750,7 @@
           </div>
 
           <!-- 分页组件 -->
-          <div
-            v-if="sortedApiKeys.length > 0"
-            class="mt-4 flex flex-col items-center justify-between gap-4 sm:mt-6 sm:flex-row"
-          >
-            <div class="flex w-full flex-col items-center gap-3 sm:w-auto sm:flex-row">
-              <span class="text-sm text-gray-600 dark:text-gray-400 sm:text-sm">
-                共 {{ sortedApiKeys.length }} 条记录
-              </span>
-              <div class="flex items-center gap-2">
-                <span class="text-sm text-gray-600 dark:text-gray-400 sm:text-sm">每页显示</span>
-                <div class="w-20">
-                  <CustomDropdown
-                    v-model="pageSize"
-                    accent="blue"
-                    :options="pageSizeOptions"
-                    placeholder="条数"
-                  />
-                </div>
-                <span class="text-sm text-gray-600 dark:text-gray-400 sm:text-sm">条</span>
-              </div>
-            </div>
 
-            <div class="flex items-center gap-2">
-              <!-- 上一页 -->
-              <button
-                class="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700 sm:py-1 sm:text-sm"
-                :disabled="currentPage === 1"
-                @click="currentPage--"
-              >
-                <i class="i-lucide-chevron-left" />
-              </button>
-
-              <!-- 页码 -->
-              <div class="flex items-center gap-1">
-                <!-- 第一页 -->
-                <button
-                  v-if="shouldShowFirstPage"
-                  class="hidden rounded-md border border-gray-300 bg-white px-3 py-1 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700 sm:block"
-                  @click="currentPage = 1"
-                >
-                  1
-                </button>
-                <span
-                  v-if="showLeadingEllipsis"
-                  class="hidden px-2 text-gray-500 dark:text-gray-400 sm:inline"
-                  >...</span
-                >
-
-                <!-- 中间页码 -->
-                <button
-                  v-for="page in pageNumbers"
-                  :key="page"
-                  :class="[
-                    'rounded-md px-2 py-1 text-sm font-medium sm:px-3 sm:text-sm',
-                    page === currentPage
-                      ? 'bg-blue-600 text-white'
-                      : 'border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700'
-                  ]"
-                  @click="currentPage = page"
-                >
-                  {{ page }}
-                </button>
-
-                <!-- 最后一页 -->
-                <span
-                  v-if="showTrailingEllipsis"
-                  class="hidden px-2 text-gray-500 dark:text-gray-400 sm:inline"
-                  >...</span
-                >
-                <button
-                  v-if="shouldShowLastPage"
-                  class="hidden rounded-md border border-gray-300 bg-white px-3 py-1 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700 sm:block"
-                  @click="currentPage = totalPages"
-                >
-                  {{ totalPages }}
-                </button>
-              </div>
-
-              <!-- 下一页 -->
-              <button
-                class="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700 sm:py-1 sm:text-sm"
-                :disabled="currentPage === totalPages || totalPages === 0"
-                @click="currentPage++"
-              >
-                <i class="i-lucide-chevron-right" />
-              </button>
-            </div>
-          </div>
         </div>
 
         <!-- 已删除 API Keys Tab Panel -->
@@ -1850,13 +1850,52 @@
 
           <!-- 已删除的 API Keys 表格 -->
           <div v-else>
-            <div class="table-wrapper">
-              <div
-                ref="deletedTableScrollRef"
-                class="table-container table-container--scroll"
-                :style="{ maxHeight: deletedTableMaxHeight }"
-              >
-                <table class="w-full">
+            <div
+              v-if="deletedPagination.total > 0"
+
+              class="mt-4 flex flex-col items-center justify-between gap-4 sm:flex-row"
+            >
+              <div class="flex w-full flex-col items-center gap-3 sm:w-auto sm:flex-row">
+                <span class="text-sm text-gray-600 dark:text-gray-400 sm:text-sm">
+                  共 {{ deletedPagination.total }} 条记录
+                </span>
+                <div class="flex items-center gap-2">
+                  <span class="text-sm text-gray-600 dark:text-gray-400 sm:text-sm">每页显示</span>
+                  <div class="w-20">
+                    <CustomDropdown
+                      v-model="deletedPageSize"
+                      accent="blue"
+                      :options="pageSizeOptions"
+                      placeholder="条数"
+                    />
+                  </div>
+                  <span class="text-sm text-gray-600 dark:text-gray-400 sm:text-sm">条</span>
+                </div>
+              </div>
+
+              <div class="flex items-center gap-2">
+                <button
+                  class="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700 sm:py-1 sm:text-sm"
+                  :disabled="deletedCurrentPage === 1"
+                  @click="deletedCurrentPage--"
+                >
+                  <i class="i-lucide-chevron-left" />
+                </button>
+                <span class="px-2 text-sm text-gray-600 dark:text-gray-400 sm:text-sm">
+                  第 {{ deletedCurrentPage }} / {{ deletedTotalPages }} 页
+                </span>
+                <button
+                  class="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700 sm:py-1 sm:text-sm"
+                  :disabled="deletedCurrentPage >= deletedTotalPages"
+                  @click="deletedCurrentPage++"
+                >
+                  <i class="i-lucide-chevron-right" />
+                </button>
+              </div>
+            </div>
+<div class="table-wrapper">
+              <VirtualTable  class="table-container table-container--scroll" fill-height mobile-fill :row-key="key => key.id" :rows="deletedApiKeys">
+<table class="w-full">
                   <thead
                     class="sticky top-0 z-20 bg-gradient-to-b from-gray-50 to-gray-100 dark:from-gray-700 dark:to-gray-800"
                   >
@@ -1865,13 +1904,13 @@
                         class="checkbox-column sticky left-0 z-20 min-w-[50px] px-3 py-4 text-left"
                       >
                         <div class="flex items-center">
-                          <input
+                          <label class="virtual-table-check"><input
                             v-model="deletedSelectAllChecked"
                             class="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                             :indeterminate="deletedIsIndeterminate"
                             type="checkbox"
                             @change="handleDeletedSelectAll"
-                          />
+                          /></label>
                         </div>
                       </th>
                       <th
@@ -1932,17 +1971,16 @@
                       </th>
                     </tr>
                   </thead>
-                  <tbody class="divide-y divide-gray-200/50 dark:divide-gray-600/50">
-                    <tr v-for="key in deletedApiKeys" :key="key.id" class="table-row">
+                  <VirtualTableRows class="divide-y divide-gray-200/50 dark:divide-gray-600/50" v-slot="{ row: key }"><tr  :key="key.id" class="table-row">
                       <td class="checkbox-column sticky left-0 z-10 px-3 py-3">
                         <div class="flex items-center">
-                          <input
+                          <label class="virtual-table-check"><input
                             v-model="selectedDeletedKeys"
                             class="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                             type="checkbox"
                             :value="key.id"
                             @change="updateDeletedSelectAllState"
-                          />
+                          /></label>
                         </div>
                       </td>
                       <td class="name-column sticky left-[50px] z-10 px-3 py-3">
@@ -2158,56 +2196,13 @@
                           </button>
                         </div>
                       </td>
-                    </tr>
-                  </tbody>
+                    </tr></VirtualTableRows>
                 </table>
-              </div>
+</VirtualTable>
             </div>
 
             <!-- 已删除分页 -->
-            <div
-              v-if="deletedPagination.total > 0"
-              ref="deletedPaginationRef"
-              class="mt-4 flex flex-col items-center justify-between gap-4 sm:flex-row"
-            >
-              <div class="flex w-full flex-col items-center gap-3 sm:w-auto sm:flex-row">
-                <span class="text-sm text-gray-600 dark:text-gray-400 sm:text-sm">
-                  共 {{ deletedPagination.total }} 条记录
-                </span>
-                <div class="flex items-center gap-2">
-                  <span class="text-sm text-gray-600 dark:text-gray-400 sm:text-sm">每页显示</span>
-                  <div class="w-20">
-                    <CustomDropdown
-                      v-model="deletedPageSize"
-                      accent="blue"
-                      :options="pageSizeOptions"
-                      placeholder="条数"
-                    />
-                  </div>
-                  <span class="text-sm text-gray-600 dark:text-gray-400 sm:text-sm">条</span>
-                </div>
-              </div>
 
-              <div class="flex items-center gap-2">
-                <button
-                  class="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700 sm:py-1 sm:text-sm"
-                  :disabled="deletedCurrentPage === 1"
-                  @click="deletedCurrentPage--"
-                >
-                  <i class="i-lucide-chevron-left" />
-                </button>
-                <span class="px-2 text-sm text-gray-600 dark:text-gray-400 sm:text-sm">
-                  第 {{ deletedCurrentPage }} / {{ deletedTotalPages }} 页
-                </span>
-                <button
-                  class="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700 sm:py-1 sm:text-sm"
-                  :disabled="deletedCurrentPage >= deletedTotalPages"
-                  @click="deletedCurrentPage++"
-                >
-                  <i class="i-lucide-chevron-right" />
-                </button>
-              </div>
-            </div>
           </div>
         </div>
       </div>
@@ -2245,6 +2240,8 @@
       @success="handleQuickAdjustSuccess"
     />
 
+    <CredentialHistoryModal ref="credentialHistory" />
+    <RotateKeyModal ref="keyRotation" mode="admin" @rotated="loadApiKeys" />
     <ChangeHistoryModal
       v-if="showChangeHistoryModal && changeHistoryApiKey?.id"
       :api-key-name="changeHistoryApiKey?.name || ''"
@@ -2317,14 +2314,8 @@
 
 <script setup>
 import SegmentedTabs from '@/components/common/segmented_tabs.vue'
-import { ref, reactive, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
-import {
-  showToast,
-  copyText,
-  formatNumber,
-  formatDate,
-  calcViewportBottomReserve
-} from '@/libs/tools'
+import { ref, reactive, computed, onMounted, onUnmounted, watch } from 'vue'
+import { showToast, copyText, formatNumber, formatDate } from '@/libs/tools'
 import { formatLocalDate, formatLocalDateTime, toLocalDateString } from '@/libs/time'
 import { isOk, msgOf } from '@/libs/http_envelope'
 import { PLATFORM_ICONS } from '@/libs/platform_icons'
@@ -2333,11 +2324,15 @@ import RelayRoutesPanel from '@/components/api_keys/relay_routes_panel.vue'
 import * as httpApis from '@/libs/http_apis'
 import { useAuthStore } from '@/stores/auth'
 import * as XLSX from 'xlsx-js-style'
+import VirtualTable from '@/components/common/virtual_table.vue'
+import VirtualTableRows from '@/components/common/virtual_table_rows.vue'
 import CreateApiKeyModal from '@/components/api_keys/create_api_key_modal.vue'
 import EditApiKeyModal from '@/components/api_keys/edit_api_key_modal.vue'
 import RenewApiKeyModal from '@/components/api_keys/renew_api_key_modal.vue'
 import QuickAdjustModal from '@/components/api_keys/quick_adjust_modal.vue'
 import ChangeHistoryModal from '@/components/api_keys/change_history_modal.vue'
+import CredentialHistoryModal from '@/components/api_keys/credential_history_modal.vue'
+import RotateKeyModal from '@/components/api_keys/rotate_key_modal.vue'
 import NewApiKeyModal from '@/components/api_keys/new_api_key_modal.vue'
 import BatchApiKeyModal from '@/components/api_keys/batch_api_key_modal.vue'
 import BatchEditApiKeyModal from '@/components/api_keys/batch_edit_api_key_modal.vue'
@@ -2428,13 +2423,7 @@ const deletedSearchApplied = ref('')
 const selectedDeletedKeys = ref([])
 const deletedSelectAllChecked = ref(false)
 const deletedIsIndeterminate = ref(false)
-// 已删除表格滚动容器/分页元素引用 + 动态高度（取代 CSS 魔数 calc(100dvh - 360px)）
-const deletedTableScrollRef = ref(null)
-const deletedPaginationRef = ref(null)
-const deletedTableMaxHeight = ref('60vh')
-// 主表格滚动容器 + 动态高度（PC 端表格填满视口剩余空间、内部滚动）
-const mainTableScrollRef = ref(null)
-const mainTableMaxHeight = ref('60vh')
+
 const apiKeysSortBy = ref('createdAt') // 默认排序为创建时间
 const apiKeysSortOrder = ref('desc')
 const expandedApiKeys = ref({})
@@ -2543,6 +2532,7 @@ const showEditApiKeyModal = ref(false)
 const showRenewApiKeyModal = ref(false)
 const showQuickAdjustModal = ref(false)
 const showChangeHistoryModal = ref(false)
+const credentialHistory = ref(null), keyRotation = ref(null)
 const showNewApiKeyModal = ref(false)
 const showBatchApiKeyModal = ref(false)
 const showBatchEditModal = ref(false)
@@ -3170,26 +3160,8 @@ const batchPermanentDeleteApiKeys = async () => {
   reloadDeletedToValidPage(deletedPagination.value.total - successCount)
 }
 
-// 已删除表格：按容器实际位置 + 分页高度动态算高，取代 CSS 魔数（避免上下留白不准/双滚动条）
-const recalcDeletedTableHeight = () => {
-  const el = deletedTableScrollRef.value
-  if (!el) return
-  const top = el.getBoundingClientRect().top
-  const paginationH = deletedPaginationRef.value?.offsetHeight || 0
-  // 预留：表格与分页的 mt-4(16) 间距 + 分页自身高度 + 卡片/页面底部留白(48)
-  const reserve = paginationH + (paginationH > 0 ? 16 : 0) + 48
-  const available = window.innerHeight - top - reserve
-  deletedTableMaxHeight.value = `${Math.max(240, Math.round(available))}px`
-}
-
-// 主表格高度：填满 AppHeader 以下剩余视口（calcViewportBottomReserve 已含分页等后续元素）
-const recalcMainTableHeight = () => {
-  const el = mainTableScrollRef.value
-  if (!el) return
-  const top = el.getBoundingClientRect().top
-  const available = window.innerHeight - top - calcViewportBottomReserve(el)
-  mainTableMaxHeight.value = `${Math.max(240, Math.round(available))}px`
-}
+let activeApiKeySortField = null
+let apiKeySortStep = 0
 
 // 排序API Keys
 const sortApiKeys = (field) => {
@@ -3206,13 +3178,19 @@ const sortApiKeys = (field) => {
     }
   }
 
-  if (apiKeysSortBy.value === field) {
-    apiKeysSortOrder.value = apiKeysSortOrder.value === 'asc' ? 'desc' : 'asc'
+  apiKeySortStep = activeApiKeySortField === field ? apiKeySortStep + 1 : 1
+  activeApiKeySortField = field
+  if (apiKeySortStep === 3) {
+    apiKeysSortBy.value = 'createdAt'
+    apiKeysSortOrder.value = 'desc'
+    activeApiKeySortField = null
+    apiKeySortStep = 0
   } else {
     apiKeysSortBy.value = field
-    // 费用排序默认降序（高费用在前）
-    apiKeysSortOrder.value = field === 'cost' ? 'desc' : 'asc'
+    const firstOrder = field === 'cost' ? 'desc' : 'asc'
+    apiKeysSortOrder.value = apiKeySortStep === 1 ? firstOrder : firstOrder === 'asc' ? 'desc' : 'asc'
   }
+  currentPage.value = 1
 }
 
 // 计算是否可以进行费用排序
@@ -5152,15 +5130,10 @@ watch(selectedModels, () => {
   loadApiKeys(false)
 })
 
-// 监听排序变化，重新加载数据
-watch([apiKeysSortBy, apiKeysSortOrder], () => {
-  loadApiKeys(false)
-})
-
-// 监听分页变化，重新加载数据
-watch([currentPage, pageSize], ([newPage, newPageSize], [oldPage, oldPageSize]) => {
+// 排序和页码在同一轮更新，只发送一次列表查询。
+watch([apiKeysSortBy, apiKeysSortOrder, currentPage, pageSize], ([newSort, newOrder, newPage, newPageSize], [oldSort, oldOrder, oldPage, oldPageSize]) => {
   // 只有页码或每页数量真正变化时才重新加载
-  if (newPage !== oldPage || newPageSize !== oldPageSize) {
+  if (newSort !== oldSort || newOrder !== oldOrder || newPage !== oldPage || newPageSize !== oldPageSize) {
     loadApiKeys(false)
   }
   updateSelectAllState()
@@ -5187,20 +5160,6 @@ watch(deletedPageSize, () => {
 
 // 已删除 Tab 搜索改为"点搜索按钮/回车"触发（见 applyDeletedSearch），不再监听输入框做即时搜索
 
-// 已删除表格高度：切到该 Tab / 数据变化 / 选中数变化（工具栏按钮增减影响表格起点）后重算
-watch([activeTab, deletedApiKeys, () => selectedDeletedKeys.value.length], () => {
-  if (activeTab.value === 'deleted') {
-    nextTick(recalcDeletedTableHeight)
-  }
-})
-
-// 主表格高度：切到「活跃」Tab / 数据变化 / 选中数变化（工具栏增减影响表格起点）后重算
-watch([activeTab, sortedApiKeys, () => selectedApiKeys.value.length], () => {
-  if (activeTab.value === 'active') {
-    nextTick(recalcMainTableHeight)
-  }
-})
-
 // 监听API Keys数据变化，清理无效的选中状态
 watch(apiKeys, () => {
   if (showBatchEditModal.value) return
@@ -5225,11 +5184,6 @@ onMounted(async () => {
 
   // 异步加载账号数据（不阻塞页面显示）
   loadAccounts()
-
-  // 视口变化时重算表格高度
-  window.addEventListener('resize', recalcDeletedTableHeight)
-  window.addEventListener('resize', recalcMainTableHeight)
-  nextTick(recalcMainTableHeight)
 })
 
 // 组件卸载时清理定时器
@@ -5238,8 +5192,6 @@ onUnmounted(() => {
     clearTimeout(costSortStatusTimer)
     costSortStatusTimer = null
   }
-  window.removeEventListener('resize', recalcDeletedTableHeight)
-  window.removeEventListener('resize', recalcMainTableHeight)
 })
 </script>
 
@@ -5266,11 +5218,10 @@ onUnmounted(() => {
   -webkit-overflow-scrolling: touch;
 }
 
-/* 已删除表格：纵向内部滚动（表头 sticky 吸顶），避免上千行撑爆页面。
-   max-height 由 recalcDeletedTableHeight 按容器实际位置动态计算并内联设置，不再用魔数 */
+/* 具体高度由共享虚拟表格按可用容器计算。 */
 .table-container--scroll {
   overflow-y: auto;
-  min-height: 240px;
+  min-height: 0;
 }
 
 /* 防止表格内容溢出，保证横向滚动 */

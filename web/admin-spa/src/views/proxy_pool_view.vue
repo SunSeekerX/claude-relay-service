@@ -89,10 +89,8 @@
       <!-- 代理列表 -->
       <div v-show="activeTab === 'proxies'" class="flex min-h-0 flex-1 flex-col">
         <!-- 桌面：表格（横向滚动） -->
-        <div
-          class="hidden min-h-0 flex-1 overflow-auto rounded-lg border border-gray-200 dark:border-gray-700 md:block"
-        >
-          <table class="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+        <VirtualTable class="hidden min-h-0 flex-1 overflow-auto rounded-lg border border-gray-200 dark:border-gray-700 md:block" fill-height mobile-fill :row-key="proxy => proxy.id" :rows="filteredProxies">
+<table class="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
             <thead class="sticky top-0 z-10 bg-gray-100 dark:bg-gray-700">
               <tr>
                 <th class="th-cell">名称 / 地址</th>
@@ -103,16 +101,14 @@
                 <th class="th-cell text-right">操作</th>
               </tr>
             </thead>
-            <tbody class="divide-y divide-gray-200 bg-white dark:divide-gray-700 dark:bg-gray-800">
-              <tr v-if="store.loadingProxies">
+            <tbody v-if="store.loadingProxies" class="divide-y divide-gray-200 bg-white dark:divide-gray-700 dark:bg-gray-800"><tr >
                 <td
                   class="px-4 py-5 text-center text-sm text-gray-500 dark:text-gray-400"
                   colspan="6"
                 >
                   <i class="i-lucide-loader-circle animate-spin mr-2 text-blue-500" />加载中...
                 </td>
-              </tr>
-              <tr v-else-if="filteredProxies.length === 0">
+              </tr></tbody><tbody v-else-if="filteredProxies.length === 0" class="divide-y divide-gray-200 bg-white dark:divide-gray-700 dark:bg-gray-800"><tr >
                 <td
                   class="px-4 py-5 text-center text-sm text-gray-500 dark:text-gray-400"
                   colspan="6"
@@ -121,10 +117,9 @@
                     searchKeyword ? '没有匹配的代理，请调整搜索条件' : '暂无代理，点击添加代理创建'
                   }}
                 </td>
-              </tr>
-              <tr
-                v-for="proxy in filteredProxies"
-                v-else
+              </tr></tbody><VirtualTableRows v-else class="divide-y divide-gray-200 bg-white dark:divide-gray-700 dark:bg-gray-800" v-slot="{ row: proxy }"><tr
+
+
                 :key="proxy.id"
                 class="hover:bg-gray-50 dark:hover:bg-gray-700/50"
               >
@@ -168,10 +163,9 @@
                     </button>
                   </div>
                 </td>
-              </tr>
-            </tbody>
+              </tr></VirtualTableRows>
           </table>
-        </div>
+</VirtualTable>
 
         <!-- 移动端：卡片 -->
         <div class="space-y-3 md:hidden">
@@ -246,10 +240,8 @@
       <!-- 分组列表 -->
       <div v-show="activeTab === 'groups'" class="flex min-h-0 flex-1 flex-col">
         <!-- 桌面：表格（横向滚动） -->
-        <div
-          class="hidden min-h-0 flex-1 overflow-auto rounded-lg border border-gray-200 dark:border-gray-700 md:block"
-        >
-          <table class="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+        <VirtualTable class="hidden min-h-0 flex-1 overflow-auto rounded-lg border border-gray-200 dark:border-gray-700 md:block" fill-height mobile-fill :row-key="group => group.id" :rows="filteredGroups">
+<table class="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
             <thead class="sticky top-0 z-10 bg-gray-100 dark:bg-gray-700">
               <tr>
                 <th class="th-cell">名称</th>
@@ -259,26 +251,23 @@
                 <th class="th-cell text-right">操作</th>
               </tr>
             </thead>
-            <tbody class="divide-y divide-gray-200 bg-white dark:divide-gray-700 dark:bg-gray-800">
-              <tr v-if="store.loadingGroups">
+            <tbody v-if="store.loadingGroups" class="divide-y divide-gray-200 bg-white dark:divide-gray-700 dark:bg-gray-800"><tr >
                 <td
                   class="px-4 py-5 text-center text-sm text-gray-500 dark:text-gray-400"
                   colspan="5"
                 >
                   <i class="i-lucide-loader-circle animate-spin mr-2 text-blue-500" />加载中...
                 </td>
-              </tr>
-              <tr v-else-if="filteredGroups.length === 0">
+              </tr></tbody><tbody v-else-if="filteredGroups.length === 0" class="divide-y divide-gray-200 bg-white dark:divide-gray-700 dark:bg-gray-800"><tr >
                 <td
                   class="px-4 py-5 text-center text-sm text-gray-500 dark:text-gray-400"
                   colspan="5"
                 >
                   {{ searchKeyword ? '没有匹配的分组，请调整搜索条件' : '暂无分组' }}
                 </td>
-              </tr>
-              <tr
-                v-for="group in filteredGroups"
-                v-else
+              </tr></tbody><VirtualTableRows v-else class="divide-y divide-gray-200 bg-white dark:divide-gray-700 dark:bg-gray-800" v-slot="{ row: group }"><tr
+
+
                 :key="group.id"
                 class="hover:bg-gray-50 dark:hover:bg-gray-700/50"
               >
@@ -304,10 +293,9 @@
                     </button>
                   </div>
                 </td>
-              </tr>
-            </tbody>
+              </tr></VirtualTableRows>
           </table>
-        </div>
+</VirtualTable>
 
         <!-- 移动端：卡片 -->
         <div class="space-y-3 md:hidden">
@@ -511,8 +499,8 @@
             <h4 class="mb-2 text-sm font-semibold text-gray-700 dark:text-gray-300">
               各上下文权重
             </h4>
-            <div v-if="detailProxy.states?.length" class="mb-4 overflow-x-auto">
-              <table class="min-w-full text-sm">
+            <VirtualTable v-if="detailProxy.states?.length" class="mb-4 overflow-x-auto" :row-key="state => state.contextKey" :rows="detailProxy.states">
+<table class="min-w-full text-sm">
                 <thead>
                   <tr class="text-left text-sm text-gray-500 dark:text-gray-400">
                     <th class="py-1 pr-4">上下文</th>
@@ -523,18 +511,16 @@
                     <th class="py-1 pr-4">请求(5m)</th>
                   </tr>
                 </thead>
-                <tbody class="text-gray-700 dark:text-gray-200">
-                  <tr v-for="state in detailProxy.states" :key="state.contextKey">
+                <VirtualTableRows class="text-gray-700 dark:text-gray-200" v-slot="{ row: state }"><tr  :key="state.contextKey">
                     <td class="py-1 pr-4 font-mono">{{ state.contextKey }}</td>
                     <td class="py-1 pr-4">{{ state.weight }}</td>
                     <td class="py-1 pr-4">{{ state.circuitState }}</td>
                     <td class="py-1 pr-4">{{ (state.successRate5m * 100).toFixed(1) }}%</td>
                     <td class="py-1 pr-4">{{ state.p99LatencyMs }}</td>
                     <td class="py-1 pr-4">{{ state.requests5m }}</td>
-                  </tr>
-                </tbody>
+                  </tr></VirtualTableRows>
               </table>
-            </div>
+</VirtualTable>
             <p v-else class="mb-4 text-sm text-gray-400">暂无业务流量统计</p>
 
             <h4
@@ -710,6 +696,8 @@ import SegmentedTabs from '@/components/common/segmented_tabs.vue'
 import AppSwitch from '@/components/common/app_switch.vue'
 import { ref, computed, watch, onMounted } from 'vue'
 
+import VirtualTable from '@/components/common/virtual_table.vue'
+import VirtualTableRows from '@/components/common/virtual_table_rows.vue'
 import ModalTransition from '@/components/common/modal_transition.vue'
 import { useProxyPoolStore } from '@/stores/proxy_pool'
 import { isOk, msgOf } from '@/libs/http_envelope'

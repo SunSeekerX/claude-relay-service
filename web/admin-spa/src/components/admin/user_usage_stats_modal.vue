@@ -42,8 +42,8 @@
         </div>
       </div>
       <h4 class="mb-2 text-sm font-semibold">用户 API Key</h4>
-      <div class="admin-table-scroll">
-        <table class="w-full min-w-[640px] text-sm">
+      <VirtualTable class="admin-table-scroll" :row-key="apiKey => apiKey.id" :rows="userDetails?.apiKeys ?? []">
+<table class="w-full min-w-[640px] text-sm">
           <thead>
             <tr>
               <th>名称</th>
@@ -54,8 +54,7 @@
               <th>最近使用</th>
             </tr>
           </thead>
-          <tbody>
-            <tr v-for="apiKey in userDetails?.apiKeys ?? []" :key="apiKey.id">
+          <VirtualTableRows v-slot="{ row: apiKey }"><tr  :key="apiKey.id">
               <td>
                 <strong>{{ apiKey.name }}</strong>
                 <p class="mt-1 t-text-secondary">{{ apiKey.keyPreview }}</p>
@@ -81,13 +80,11 @@
               </td>
               <td class="text-right">${{ (apiKey.usage?.totalCost ?? 0).toFixed(4) }}</td>
               <td>{{ apiKey.lastUsedAt ? formatDate(apiKey.lastUsedAt) : '从未使用' }}</td>
-            </tr>
-            <tr v-if="!userDetails?.apiKeys?.length">
+            </tr></VirtualTableRows><tbody v-if="!userDetails?.apiKeys?.length"><tr >
               <td class="admin-empty-state" colspan="6">该用户暂无 API Key</td>
-            </tr>
-          </tbody>
+            </tr></tbody>
         </table>
-      </div>
+</VirtualTable>
     </template>
     <template #footer
       ><button class="btn btn-secondary ml-auto" type="button" @click="emit('close')">
@@ -100,6 +97,8 @@
 <script setup>
 import { ref, watch } from 'vue'
 
+import VirtualTable from '@/components/common/virtual_table.vue'
+import VirtualTableRows from '@/components/common/virtual_table_rows.vue'
 import AppDialog from '@/components/common/app_dialog.vue'
 import CustomDropdown from '@/components/common/custom_dropdown.vue'
 import { getFrontUserUsageStatsApi, getFrontUserByIdApi } from '@/libs/http_apis'

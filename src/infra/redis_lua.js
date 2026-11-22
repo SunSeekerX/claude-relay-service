@@ -8,6 +8,66 @@
 // ===
 
 export const RedisLua = {
+  apiKeyHistorySnapshot: `
+local event = cjson.decode(ARGV[1])
+local current = redis.call('HGET', KEYS[1], 'apiKey')
+if current then
+  event.oldHash = current
+  event.oldKeySuffix = redis.call('HGET', KEYS[1], 'keySuffix') or ''
+  event.keyName = redis.call('HGET', KEYS[1], 'name') or ''
+  event.ownerId = redis.call('HGET', KEYS[1], 'userId') or ''
+  event.ownerName = redis.call('HGET', KEYS[1], 'userUsername') or ''
+end
+redis.call('SET', ARGV[3] .. event.oldHash, event.keyId)
+redis.call('SET', KEYS[2], cjson.encode(event))
+redis.call('ZADD', KEYS[3], ARGV[2], event.id)
+redis.call('ZADD', KEYS[4], ARGV[2], event.id)
+if event.action == 'delete' then
+  redis.call('HDEL', KEYS[5], event.oldHash)
+  redis.call('DEL', ARGV[4] .. event.oldHash)
+end
+return 1
+`,
+  apiKeyRotation: `
+local expected = {'hash','hash','hash','hash','string','string','string','zset','zset','string'}
+for i, kind in ipairs(expected) do
+  local actual = redis.call('TYPE', KEYS[i]).ok
+  if actual ~= 'none' and actual ~= kind then return redis.error_reply('invalid key rotation storage type') end
+end
+local replay = redis.call('GET', KEYS[10])
+if replay then return replay end
+if redis.call('HGET', KEYS[1], 'apiKey') ~= ARGV[1] then return 'changed' end
+if redis.call('HGET', KEYS[1], 'isDeleted') == 'true' then return 'deleted' end
+local event = cjson.decode(ARGV[4])
+event.keyName = redis.call('HGET', KEYS[1], 'name') or ''
+event.ownerId = redis.call('HGET', KEYS[1], 'userId') or ''
+event.ownerName = redis.call('HGET', KEYS[1], 'userUsername') or ''
+if event.actorKind ~= 'admin' then
+  if redis.call('HGET', KEYS[1], 'isActive') ~= 'true' then return 'disabled' end
+  local owner = redis.call('HGET', KEYS[1], 'userId') or ''
+  if event.actorKind == 'key' and owner ~= '' then return 'owner' end
+  if event.actorKind == 'user' and owner ~= event.actorId then return 'owner' end
+end
+if redis.call('HEXISTS', KEYS[2], ARGV[2]) == 1 then return 'collision' end
+redis.call('DEL', KEYS[3])
+redis.call('HDEL', KEYS[2], ARGV[1])
+redis.call('HSET', KEYS[1], 'apiKey', ARGV[2], 'updatedAt', ARGV[3], 'keySuffix', event.newKeySuffix)
+redis.call('HSET', KEYS[2], ARGV[2], event.keyId)
+redis.call('HSET', KEYS[4], 'id', event.keyId, 'name', event.keyName, 'isActive', redis.call('HGET', KEYS[1], 'isActive'))
+redis.call('SET', KEYS[5], event.keyId)
+redis.call('SET', KEYS[6], event.keyId)
+local snapshot = cjson.encode(event)
+redis.call('SET', KEYS[7], snapshot)
+redis.call('ZADD', KEYS[8], ARGV[5], event.id)
+redis.call('ZADD', KEYS[9], ARGV[5], event.id)
+redis.call('SET', KEYS[10], snapshot, 'EX', ARGV[6])
+return snapshot
+`,
+  apiKeyRotationRate: `
+local count = redis.call('INCR', KEYS[1])
+if count == 1 then redis.call('EXPIRE', KEYS[1], ARGV[1]) end
+return count
+`,
   grokAccount: {
     recordQuota: `
 if redis.call('EXISTS', KEYS[1]) == 0 then return 0 end

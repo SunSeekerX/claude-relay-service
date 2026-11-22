@@ -578,7 +578,7 @@ export const attach = (redisClient) => {
     }
 
     const keyData = await this.client.hgetall(RedisKeys.apiKey.byId(keyId))
-    if (keyData && Object.keys(keyData).length > 0) {
+    if (keyData && Object.keys(keyData).length > 0 && keyData.apiKey === hashedKey) {
       return { id: keyId, ...keyData }
     }
 

@@ -122,6 +122,7 @@ export const useApiStatsStore = defineStore('apistats', () => {
   // Actions
 
   // 查询统计数据
+  let querySequence = 0
   async function queryStats() {
     // 多 Key 模式处理
     if (multiKeyMode.value) {
@@ -142,6 +143,7 @@ export const useApiStatsStore = defineStore('apistats', () => {
     }
 
     loading.value = true
+    const run = ++querySequence
     error.value = ''
     statsData.value = null
     modelStats.value = []
@@ -150,6 +152,7 @@ export const useApiStatsStore = defineStore('apistats', () => {
     try {
       // 获取 API Key ID
       const idResult = await httpApis.getKeyIdApi(trimmedKey)
+      if (run !== querySequence || apiKey.value.trim() !== trimmedKey) return
 
       if (isOk(idResult)) {
         apiId.value = idResult.data.id
@@ -157,6 +160,7 @@ export const useApiStatsStore = defineStore('apistats', () => {
 
         // 使用 apiId 查询统计数据
         const statsResult = await httpApis.getUserStatsApi(apiId.value)
+        if (run !== querySequence || apiKey.value.trim() !== trimmedKey) return
 
         if (isOk(statsResult)) {
           statsData.value = statsResult.data
@@ -166,6 +170,7 @@ export const useApiStatsStore = defineStore('apistats', () => {
 
           // 同时加载今日和本月的统计数据
           await loadAllPeriodStats()
+          if (run !== querySequence || apiKey.value.trim() !== trimmedKey) return
 
           // 清除错误信息
           error.value = ''
@@ -182,13 +187,14 @@ export const useApiStatsStore = defineStore('apistats', () => {
         throw new Error(msgOf(idResult, '获取 API Key ID 失败'))
       }
     } catch (err) {
+      if (run !== querySequence || apiKey.value.trim() !== trimmedKey) return
       console.error('Query stats error:', err)
       error.value = err.message || '查询统计数据失败，请检查您的 API Key 是否正确'
       statsData.value = null
       modelStats.value = []
       apiId.value = null
     } finally {
-      loading.value = false
+      if (run === querySequence) loading.value = false
     }
   }
 

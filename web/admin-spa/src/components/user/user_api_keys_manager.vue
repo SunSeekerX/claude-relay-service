@@ -117,6 +117,8 @@
 
               <!-- Actions -->
               <div class="flex items-center space-x-1">
+                <button type="button" class="btn btn-secondary rounded-lg border border-solid px-3 py-2 text-sm" :disabled="apiKey.isDeleted === 'true' || !!apiKey.deletedAt" @click="credentialHistory.open(apiKey)">换 Key 记录</button>
+                <button v-if="!apiKey.isDeleted && !apiKey.deletedAt" class="btn btn-secondary" @click="keyRotation.open(apiKey)">更换 Key</button>
                 <button
                   class="inline-flex items-center rounded border border-transparent p-1 text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300"
                   title="View API Key"
@@ -166,6 +168,8 @@
     </div>
 
     <!-- Create API Key Modal -->
+    <RotateKeyModal ref="keyRotation" mode="user" @rotated="loadApiKeys" />
+    <CustomerCredentialHistoryModal ref="credentialHistory" mode="user" />
     <CreateApiKeyModal
       :show="showCreateModal"
       @close="showCreateModal = false"
@@ -200,6 +204,11 @@ import { showToast, formatNumber, formatDate } from '@/libs/tools'
 import CreateApiKeyModal from './create_api_key_modal.vue'
 import ViewApiKeyModal from './view_api_key_modal.vue'
 import ConfirmModal from '@/components/common/confirm_modal.vue'
+import RotateKeyModal from '@/components/api_keys/rotate_key_modal.vue'
+import CustomerCredentialHistoryModal from '@/components/api_keys/customer_credential_history_modal.vue'
+
+const keyRotation = ref(null)
+const credentialHistory = ref(null)
 
 const userStore = useUserStore()
 

@@ -190,8 +190,8 @@
         <div v-else-if="orders.length === 0" class="py-4 text-center text-sm text-gray-400">
           暂无充值记录
         </div>
-        <div v-else class="overflow-x-auto">
-          <table class="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+        <VirtualTable v-else class="overflow-x-auto" :row-key="o => o.id" :rows="orders">
+<table class="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
             <thead>
               <tr>
                 <th
@@ -222,8 +222,7 @@
                 <th class="px-3 py-2"></th>
               </tr>
             </thead>
-            <tbody class="divide-y divide-gray-200 dark:divide-gray-700">
-              <tr v-for="o in orders" :key="o.id">
+            <VirtualTableRows class="divide-y divide-gray-200 dark:divide-gray-700" v-slot="{ row: o }"><tr  :key="o.id">
                 <td
                   class="whitespace-nowrap px-3 py-2 font-mono text-sm text-gray-600 dark:text-gray-300"
                 >
@@ -254,10 +253,9 @@
                     取消
                   </button>
                 </td>
-              </tr>
-            </tbody>
+              </tr></VirtualTableRows>
           </table>
-        </div>
+</VirtualTable>
       </div>
     </div>
   </div>
@@ -266,6 +264,8 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 
+import VirtualTable from '@/components/common/virtual_table.vue'
+import VirtualTableRows from '@/components/common/virtual_table_rows.vue'
 import { isOk, msgOf, reasonOf } from '@/libs/http_envelope'
 import { showToast, formatDateTime } from '@/libs/tools'
 import {

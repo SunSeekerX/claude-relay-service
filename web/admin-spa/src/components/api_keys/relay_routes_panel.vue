@@ -16,8 +16,8 @@
       class="form-input w-full sm:max-w-sm"
       placeholder="搜索入口名称或标识"
     />
-    <div class="max-h-[60vh] overflow-auto rounded-xl border border-gray-200 dark:border-gray-700">
-      <table class="w-full min-w-[760px] text-left">
+    <VirtualTable class="max-h-[60vh] overflow-auto rounded-xl border border-gray-200 dark:border-gray-700" :row-key="route => route.code" :rows="visibleRoutes">
+<table class="w-full min-w-[760px] text-left">
         <thead class="sticky top-0 bg-gray-100 dark:bg-gray-800">
           <tr>
             <th class="p-3">
@@ -29,8 +29,7 @@
             <th class="p-3">操作</th>
           </tr>
         </thead>
-        <tbody class="divide-y divide-gray-100 dark:divide-gray-700">
-          <tr v-for="route in visibleRoutes" :key="route.code">
+        <VirtualTableRows class="divide-y divide-gray-100 dark:divide-gray-700" v-slot="{ row: route }"><tr  :key="route.code">
             <td class="p-3">
               <button class="font-medium" title="复制入口名称" @click="copyText(route.name)">
                 {{ route.name }}</button
@@ -59,15 +58,13 @@
                 </button>
               </div>
             </td>
-          </tr>
-          <tr v-if="visibleRoutes.length === 0">
+          </tr></VirtualTableRows><tbody v-if="visibleRoutes.length === 0" class="divide-y divide-gray-100 dark:divide-gray-700"><tr >
             <td class="p-6 text-center text-gray-500" colspan="5">
               {{ loading ? '正在加载...' : '暂无匹配入口，可点击“创建入口”配置' }}
             </td>
-          </tr>
-        </tbody>
+          </tr></tbody>
       </table>
-    </div>
+</VirtualTable>
     <AppDialog
       v-model="editorOpen"
       :closable="!saving"
@@ -296,6 +293,8 @@
 
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue'
+import VirtualTable from '@/components/common/virtual_table.vue'
+import VirtualTableRows from '@/components/common/virtual_table_rows.vue'
 import AppDialog from '@/components/common/app_dialog.vue'
 import ConfirmModal from '@/components/common/confirm_modal.vue'
 import CustomDropdown from '@/components/common/custom_dropdown.vue'

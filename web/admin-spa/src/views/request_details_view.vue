@@ -351,8 +351,18 @@
 
         <div v-else class="flex min-h-0 flex-1 flex-col overflow-hidden">
           <!-- 桌面：表体内滚动，表头 sticky -->
-          <div class="table-container hidden min-h-0 flex-1 md:block">
-            <table
+          <div class="shrink-0 border-t border-gray-200 px-2 pb-2 pt-2 dark:border-gray-700">
+            <AppPagination
+              v-model:current-page="pagination.currentPage"
+              v-model:page-size="pagination.pageSize"
+              :page-sizes="[20, 50, 100, 200]"
+              :total="pagination.totalRecords"
+              @current-change="handlePageChange"
+              @size-change="handleSizeChange"
+            />
+          </div>
+<VirtualTable class="table-container hidden min-h-0 flex-1 md:block" fill-height mobile-fill :row-key="record => record.requestId" :rows="records">
+<table
               class="request-table w-full table-fixed divide-y divide-gray-200 dark:divide-gray-700"
             >
               <colgroup>
@@ -373,11 +383,8 @@
                   <th class="px-2 py-2 text-right"></th>
                 </tr>
               </thead>
-              <tbody
-                class="divide-y divide-gray-100 bg-white dark:divide-gray-800 dark:bg-gray-900"
-              >
-                <tr
-                  v-for="record in records"
+              <VirtualTableRows class="divide-y divide-gray-100 bg-white dark:divide-gray-800 dark:bg-gray-900" v-slot="{ row: record }"><tr
+
                   :key="record.requestId"
                   class="hover:bg-gray-50 dark:hover:bg-gray-800/70"
                 >
@@ -538,10 +545,9 @@
                       详情
                     </button>
                   </td>
-                </tr>
-              </tbody>
+                </tr></VirtualTableRows>
             </table>
-          </div>
+</VirtualTable>
 
           <!-- 小屏卡片：区域内滚动 -->
           <div class="min-h-0 flex-1 space-y-2 overflow-y-auto md:hidden">
@@ -635,16 +641,7 @@
             </div>
           </div>
 
-          <div class="shrink-0 border-t border-gray-200 px-2 pb-2 pt-2 dark:border-gray-700">
-            <AppPagination
-              v-model:current-page="pagination.currentPage"
-              v-model:page-size="pagination.pageSize"
-              :page-sizes="[20, 50, 100, 200]"
-              :total="pagination.totalRecords"
-              @current-change="handlePageChange"
-              @size-change="handleSizeChange"
-            />
-          </div>
+
         </div>
       </div>
 
@@ -661,6 +658,8 @@
 import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
 import dayjs from 'dayjs'
 import { useRouter } from 'vue-router'
+import VirtualTable from '@/components/common/virtual_table.vue'
+import VirtualTableRows from '@/components/common/virtual_table_rows.vue'
 import {
   getRequestDetailsApi,
   getRequestDetailBodyPreviewStatsApi,

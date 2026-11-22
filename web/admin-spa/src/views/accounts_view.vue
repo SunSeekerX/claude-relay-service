@@ -3,7 +3,95 @@
     <!-- 去掉内层 .card：外层 MainLayout 已是卡片，避免卡片套卡片 -->
     <SegmentedTabs class="mb-3" :model-value="activeView" :tabs="[{key:'accounts',label:'账户列表',icon:'i-lucide-circle-user'},{key:'groups',label:'账户分组',icon:'i-lucide-layers'}]" variant="underline" @update:model-value="switchAccountView" />
 
-    <div v-show="activeView === 'accounts'" class="relative">
+    <div
+      v-if="activeView === 'accounts' && !accountsLoading && sortedAccounts.length > 0"
+      class="mt-4 flex flex-col items-center justify-between gap-4 sm:mt-6 sm:flex-row"
+    >
+      <div class="flex w-full flex-col items-center gap-3 sm:w-auto sm:flex-row">
+        <span class="text-sm text-gray-600 dark:text-gray-400 sm:text-sm">
+          共 {{ sortedAccounts.length }} 条记录
+        </span>
+        <div class="flex items-center gap-2">
+          <span class="text-sm text-gray-600 dark:text-gray-400 sm:text-sm">每页显示</span>
+          <div class="w-20">
+            <CustomDropdown
+              v-model="pageSize"
+              accent="blue"
+              :options="pageSizeOptions"
+              placeholder="条数"
+              size="sm"
+              @change="currentPage = 1"
+            />
+          </div>
+          <span class="text-sm text-gray-600 dark:text-gray-400 sm:text-sm">条</span>
+        </div>
+      </div>
+
+      <div class="flex items-center gap-2">
+        <button
+          class="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700 sm:py-1 sm:text-sm"
+          :disabled="currentPage === 1"
+          @click="currentPage--"
+        >
+          <i class="i-lucide-chevron-left" />
+        </button>
+
+        <div class="flex items-center gap-1">
+          <button
+            v-if="shouldShowFirstPage"
+            class="hidden rounded-md border border-gray-300 bg-white px-3 py-1 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700 sm:block"
+            @click="currentPage = 1"
+          >
+            1
+          </button>
+
+          <span
+            v-if="showLeadingEllipsis"
+            class="hidden px-2 text-sm text-gray-500 dark:text-gray-400 sm:block"
+          >
+            ...
+          </span>
+
+          <button
+            v-for="page in pageNumbers"
+            :key="page"
+            :class="[
+              'rounded-md border px-3 py-1 text-sm font-medium transition-colors sm:text-sm',
+              page === currentPage
+                ? 'border-blue-500 bg-blue-50 text-blue-600 dark:border-blue-400 dark:bg-blue-500/10 dark:text-blue-300'
+                : 'border-gray-300 bg-white text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700'
+            ]"
+            @click="currentPage = page"
+          >
+            {{ page }}
+          </button>
+
+          <span
+            v-if="showTrailingEllipsis"
+            class="hidden px-2 text-sm text-gray-500 dark:text-gray-400 sm:block"
+          >
+            ...
+          </span>
+
+          <button
+            v-if="shouldShowLastPage"
+            class="hidden rounded-md border border-gray-300 bg-white px-3 py-1 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700 sm:block"
+            @click="currentPage = totalPages"
+          >
+            {{ totalPages }}
+          </button>
+        </div>
+
+        <button
+          class="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700 sm:py-1 sm:text-sm"
+          :disabled="currentPage === totalPages || totalPages === 0"
+          @click="currentPage++"
+        >
+          <i class="i-lucide-chevron-right" />
+        </button>
+      </div>
+    </div>
+<div v-show="activeView === 'accounts'" class="relative">
       <div class="mb-3 flex flex-col gap-2 sm:gap-3">
         <!-- 页面标题与主 Tab「账户管理」重复，已移除 -->
         <div class="admin-toolbar">
@@ -206,25 +294,21 @@
 
       <!-- 桌面端表格视图 -->
       <div v-else class="table-wrapper hidden md:block">
-        <div
-          ref="accountsTableScrollRef"
-          class="table-container table-container--scroll"
-          :style="{ maxHeight: accountsTableMaxHeight }"
-        >
-          <table class="w-full">
+        <VirtualTable  class="table-container table-container--scroll" fill-height mobile-fill :row-key="account => account.id" :rows="paginatedAccounts">
+<table class="w-full">
             <thead
               class="sticky top-0 z-10 bg-gradient-to-b from-gray-50 to-gray-100/90 backdrop-blur-sm dark:from-gray-700 dark:to-gray-800/90"
             >
               <tr>
                 <th class="checkbox-column sticky left-0 z-20 min-w-[50px] px-3 py-3 text-left">
                   <div class="flex items-center">
-                    <input
+                    <label class="virtual-table-check"><input
                       v-model="selectAllChecked"
                       class="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                       :indeterminate="isIndeterminate"
                       type="checkbox"
                       @change="handleSelectAll"
-                    />
+                    /></label>
                   </div>
                 </th>
                 <th
@@ -442,17 +526,16 @@
                 </th>
               </tr>
             </thead>
-            <tbody class="divide-y divide-gray-200/50 dark:divide-gray-600/50">
-              <tr v-for="account in paginatedAccounts" :key="account.id" class="table-row">
+            <VirtualTableRows class="divide-y divide-gray-200/50 dark:divide-gray-600/50" v-slot="{ row: account }"><tr  :key="account.id" class="table-row">
                 <td class="checkbox-column sticky left-0 z-10 px-3 py-3">
                   <div class="flex items-center">
-                    <input
+                    <label class="virtual-table-check"><input
                       v-model="selectedAccounts"
                       class="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                       type="checkbox"
                       :value="account.id"
                       @change="updateSelectAllState"
-                    />
+                    /></label>
                   </div>
                 </td>
                 <td class="name-column sticky left-[50px] z-10 px-3 py-3">
@@ -1420,10 +1503,9 @@
                     </button>
                   </div>
                 </td>
-              </tr>
-            </tbody>
+              </tr></VirtualTableRows>
           </table>
-        </div>
+</VirtualTable>
       </div>
 
       <!-- 移动端卡片视图 -->
@@ -1960,94 +2042,7 @@
       </div>
     </div>
 
-    <div
-      v-if="activeView === 'accounts' && !accountsLoading && sortedAccounts.length > 0"
-      class="mt-4 flex flex-col items-center justify-between gap-4 sm:mt-6 sm:flex-row"
-    >
-      <div class="flex w-full flex-col items-center gap-3 sm:w-auto sm:flex-row">
-        <span class="text-sm text-gray-600 dark:text-gray-400 sm:text-sm">
-          共 {{ sortedAccounts.length }} 条记录
-        </span>
-        <div class="flex items-center gap-2">
-          <span class="text-sm text-gray-600 dark:text-gray-400 sm:text-sm">每页显示</span>
-          <div class="w-20">
-            <CustomDropdown
-              v-model="pageSize"
-              accent="blue"
-              :options="pageSizeOptions"
-              placeholder="条数"
-              size="sm"
-              @change="currentPage = 1"
-            />
-          </div>
-          <span class="text-sm text-gray-600 dark:text-gray-400 sm:text-sm">条</span>
-        </div>
-      </div>
 
-      <div class="flex items-center gap-2">
-        <button
-          class="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700 sm:py-1 sm:text-sm"
-          :disabled="currentPage === 1"
-          @click="currentPage--"
-        >
-          <i class="i-lucide-chevron-left" />
-        </button>
-
-        <div class="flex items-center gap-1">
-          <button
-            v-if="shouldShowFirstPage"
-            class="hidden rounded-md border border-gray-300 bg-white px-3 py-1 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700 sm:block"
-            @click="currentPage = 1"
-          >
-            1
-          </button>
-
-          <span
-            v-if="showLeadingEllipsis"
-            class="hidden px-2 text-sm text-gray-500 dark:text-gray-400 sm:block"
-          >
-            ...
-          </span>
-
-          <button
-            v-for="page in pageNumbers"
-            :key="page"
-            :class="[
-              'rounded-md border px-3 py-1 text-sm font-medium transition-colors sm:text-sm',
-              page === currentPage
-                ? 'border-blue-500 bg-blue-50 text-blue-600 dark:border-blue-400 dark:bg-blue-500/10 dark:text-blue-300'
-                : 'border-gray-300 bg-white text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700'
-            ]"
-            @click="currentPage = page"
-          >
-            {{ page }}
-          </button>
-
-          <span
-            v-if="showTrailingEllipsis"
-            class="hidden px-2 text-sm text-gray-500 dark:text-gray-400 sm:block"
-          >
-            ...
-          </span>
-
-          <button
-            v-if="shouldShowLastPage"
-            class="hidden rounded-md border border-gray-300 bg-white px-3 py-1 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700 sm:block"
-            @click="currentPage = totalPages"
-          >
-            {{ totalPages }}
-          </button>
-        </div>
-
-        <button
-          class="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700 sm:py-1 sm:text-sm"
-          :disabled="currentPage === totalPages || totalPages === 0"
-          @click="currentPage++"
-        >
-          <i class="i-lucide-chevron-right" />
-        </button>
-      </div>
-    </div>
 
     <!-- 账户分组视图 -->
     <div v-if="activeView === 'groups'" class="relative">
@@ -2179,8 +2174,8 @@
           </button>
         </div>
       <div class="space-y-4">
-        <div class="overflow-x-auto">
-          <table class="w-full border-collapse text-sm" style="min-width: 1000px">
+        <VirtualTable class="overflow-x-auto" :row-key="stat => stat.platform" :rows="accountStats">
+<table class="w-full border-collapse text-sm" style="min-width: 1000px">
             <thead class="bg-gray-100 dark:bg-gray-700">
               <tr>
                 <th class="border border-gray-300 px-4 py-2 text-left dark:border-gray-600">
@@ -2216,49 +2211,7 @@
                   合计
                 </th>
               </tr>
-            </thead>
-            <tbody>
-              <tr v-for="stat in accountStats" :key="stat.platform">
-                <td class="border border-gray-300 px-4 py-2 font-medium dark:border-gray-600">
-                  {{ stat.platformLabel }}
-                </td>
-                <td class="border border-gray-300 px-4 py-2 text-center dark:border-gray-600">
-                  <span class="text-green-600 dark:text-green-400">{{ stat.normal }}</span>
-                </td>
-                <td class="border border-gray-300 px-4 py-2 text-center dark:border-gray-600">
-                  <span class="text-yellow-600 dark:text-yellow-400">{{ stat.unschedulable }}</span>
-                </td>
-                <td class="border border-gray-300 px-4 py-2 text-center dark:border-gray-600">
-                  <span class="text-orange-600 dark:text-orange-400">{{ stat.rateLimit0_1h }}</span>
-                </td>
-                <td class="border border-gray-300 px-4 py-2 text-center dark:border-gray-600">
-                  <span class="text-orange-600 dark:text-orange-400">{{ stat.rateLimit1_5h }}</span>
-                </td>
-                <td class="border border-gray-300 px-4 py-2 text-center dark:border-gray-600">
-                  <span class="text-orange-600 dark:text-orange-400">{{
-                    stat.rateLimit5_12h
-                  }}</span>
-                </td>
-                <td class="border border-gray-300 px-4 py-2 text-center dark:border-gray-600">
-                  <span class="text-orange-600 dark:text-orange-400">{{
-                    stat.rateLimit12_24h
-                  }}</span>
-                </td>
-                <td class="border border-gray-300 px-4 py-2 text-center dark:border-gray-600">
-                  <span class="text-orange-600 dark:text-orange-400">{{
-                    stat.rateLimitOver24h
-                  }}</span>
-                </td>
-                <td class="border border-gray-300 px-4 py-2 text-center dark:border-gray-600">
-                  <span class="text-red-600 dark:text-red-400">{{ stat.other }}</span>
-                </td>
-                <td
-                  class="border border-gray-300 bg-blue-50 px-4 py-2 text-center font-bold dark:border-gray-600 dark:bg-blue-900/30"
-                >
-                  {{ stat.total }}
-                </td>
-              </tr>
-              <tr class="bg-blue-50 font-bold dark:bg-blue-900/30">
+            <tr class="bg-blue-50 font-bold dark:bg-blue-900/30">
                 <td class="border border-gray-300 px-4 py-2 dark:border-gray-600">合计</td>
                 <td class="border border-gray-300 px-4 py-2 text-center dark:border-gray-600">
                   <span class="text-green-600 dark:text-green-400">{{
@@ -2301,10 +2254,49 @@
                 <td class="border border-gray-300 px-4 py-2 text-center dark:border-gray-600">
                   {{ accountStatsTotal.total }}
                 </td>
-              </tr>
-            </tbody>
+              </tr></thead>
+            <VirtualTableRows v-slot="{ row: stat }"><tr  :key="stat.platform">
+                <td class="border border-gray-300 px-4 py-2 font-medium dark:border-gray-600">
+                  {{ stat.platformLabel }}
+                </td>
+                <td class="border border-gray-300 px-4 py-2 text-center dark:border-gray-600">
+                  <span class="text-green-600 dark:text-green-400">{{ stat.normal }}</span>
+                </td>
+                <td class="border border-gray-300 px-4 py-2 text-center dark:border-gray-600">
+                  <span class="text-yellow-600 dark:text-yellow-400">{{ stat.unschedulable }}</span>
+                </td>
+                <td class="border border-gray-300 px-4 py-2 text-center dark:border-gray-600">
+                  <span class="text-orange-600 dark:text-orange-400">{{ stat.rateLimit0_1h }}</span>
+                </td>
+                <td class="border border-gray-300 px-4 py-2 text-center dark:border-gray-600">
+                  <span class="text-orange-600 dark:text-orange-400">{{ stat.rateLimit1_5h }}</span>
+                </td>
+                <td class="border border-gray-300 px-4 py-2 text-center dark:border-gray-600">
+                  <span class="text-orange-600 dark:text-orange-400">{{
+                    stat.rateLimit5_12h
+                  }}</span>
+                </td>
+                <td class="border border-gray-300 px-4 py-2 text-center dark:border-gray-600">
+                  <span class="text-orange-600 dark:text-orange-400">{{
+                    stat.rateLimit12_24h
+                  }}</span>
+                </td>
+                <td class="border border-gray-300 px-4 py-2 text-center dark:border-gray-600">
+                  <span class="text-orange-600 dark:text-orange-400">{{
+                    stat.rateLimitOver24h
+                  }}</span>
+                </td>
+                <td class="border border-gray-300 px-4 py-2 text-center dark:border-gray-600">
+                  <span class="text-red-600 dark:text-red-400">{{ stat.other }}</span>
+                </td>
+                <td
+                  class="border border-gray-300 bg-blue-50 px-4 py-2 text-center font-bold dark:border-gray-600 dark:bg-blue-900/30"
+                >
+                  {{ stat.total }}
+                </td>
+              </tr></VirtualTableRows>
           </table>
-        </div>
+</VirtualTable>
         <p class="text-sm text-gray-500 dark:text-gray-400">
           注：限流时间列表示剩余限流时间在指定范围内的账户数量
         </p>
@@ -2317,15 +2309,11 @@
 
 <script setup>
 import ModalTransition from '@/components/common/modal_transition.vue'
-import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import {
-  showToast,
-  copyText,
-  formatNumber,
-  formatRelativeTime,
-  calcViewportBottomReserve
-} from '@/libs/tools'
+import VirtualTable from '@/components/common/virtual_table.vue'
+import VirtualTableRows from '@/components/common/virtual_table_rows.vue'
+import { showToast, copyText, formatNumber, formatRelativeTime } from '@/libs/tools'
 import { formatLocalDate } from '@/libs/time'
 import { PLATFORM_ICONS } from '@/libs/platform_icons'
 import { isOk, msgOf, dataOf } from '@/libs/http_envelope'
@@ -3667,33 +3655,29 @@ const loadClaudeUsage = async () => {
   }
 }
 
-// 记录上一次的排序字段，用于判断下拉选择是否是同一字段被再次选择
-let lastDropdownSortField = 'name'
+let activeAccountSortField = null
+let accountSortStep = 0
 
 // 排序账户（表头点击使用）
 const sortAccounts = (field) => {
-  if (field) {
-    if (accountsSortBy.value === field) {
-      accountsSortOrder.value = accountsSortOrder.value === 'asc' ? 'desc' : 'asc'
-    } else {
-      accountsSortBy.value = field
-      accountsSortOrder.value = 'asc'
-    }
-    // 同步下拉选择器的状态记录
-    lastDropdownSortField = field
+  if (!field) return
+  accountSortStep = activeAccountSortField === field ? accountSortStep + 1 : 1
+  activeAccountSortField = field
+  if (accountSortStep === 3) {
+    accountsSortBy.value = 'name'
+    accountsSortOrder.value = 'asc'
+    activeAccountSortField = null
+    accountSortStep = 0
+  } else {
+    accountsSortBy.value = field
+    accountsSortOrder.value = accountSortStep === 1 ? 'asc' : 'desc'
   }
+  currentPage.value = 1
 }
 
 // 下拉选择器排序处理（支持再次选择同一选项时切换排序方向）
 const handleDropdownSort = (field) => {
-  if (field === lastDropdownSortField) {
-    // 选择同一字段，切换排序方向
-    accountsSortOrder.value = accountsSortOrder.value === 'asc' ? 'desc' : 'asc'
-  } else {
-    // 选择不同字段，重置为升序
-    accountsSortOrder.value = 'asc'
-  }
-  lastDropdownSortField = field
+  sortAccounts(field)
 }
 
 // 格式化数字（与原版保持一致）
@@ -5486,23 +5470,6 @@ const handleSaveAccountExpiry = async ({ accountId, expiresAt, closeAfter }) => 
 
 let tempUnavailableCountdownTimer = null
 
-// 主表格滚动容器 + 动态高度（PC 端表格填满视口剩余空间、内部滚动）
-const accountsTableScrollRef = ref(null)
-const accountsTableMaxHeight = ref('60vh')
-// calcViewportBottomReserve 已含表格之后的元素（移动端卡片在 PC 下 display:none 计 0）
-const recalcAccountsTableHeight = () => {
-  const el = accountsTableScrollRef.value
-  if (!el) return
-  const top = el.getBoundingClientRect().top
-  const available = window.innerHeight - top - calcViewportBottomReserve(el)
-  accountsTableMaxHeight.value = `${Math.max(240, Math.round(available))}px`
-}
-
-// 数据变化 / 选中数变化（工具栏增减影响表格起点）后重算高度
-watch([sortedAccounts, () => selectedAccounts.value.length], () => {
-  nextTick(recalcAccountsTableHeight)
-})
-
 onMounted(() => {
   // 首次加载时强制刷新所有数据
   loadAccounts(true)
@@ -5512,9 +5479,8 @@ onMounted(() => {
     tempUnavailableNowTs.value = Date.now()
   }, 1000)
 
-  // 视口变化时重算表格高度
-  window.addEventListener('resize', recalcAccountsTableHeight)
-  nextTick(recalcAccountsTableHeight)
+
+
 })
 
 onUnmounted(() => {
@@ -5522,7 +5488,7 @@ onUnmounted(() => {
     clearInterval(tempUnavailableCountdownTimer)
     tempUnavailableCountdownTimer = null
   }
-  window.removeEventListener('resize', recalcAccountsTableHeight)
+
 })
 </script>
 
@@ -5575,11 +5541,10 @@ onUnmounted(() => {
   -webkit-overflow-scrolling: touch;
 }
 
-/* 桌面端纵向内部滚动（表头 sticky 吸顶），表格填满视口剩余空间，避免长列表撑爆页面。
-   max-height 由 recalcAccountsTableHeight 按容器实际位置动态计算并内联设置 */
+/* 具体高度由共享虚拟表格按可用容器计算。 */
 .table-container--scroll {
   overflow-y: auto;
-  min-height: 240px;
+  min-height: 0;
 }
 
 /* 防止表格内容溢出，保证横向滚动 */
