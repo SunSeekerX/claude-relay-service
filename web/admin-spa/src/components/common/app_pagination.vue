@@ -1,5 +1,5 @@
 <template>
-  <div class="flex flex-wrap items-center justify-between gap-3 text-sm text-gray-700 dark:text-gray-200">
+  <div class="flex flex-wrap items-center justify-start gap-3 text-sm text-gray-700 dark:text-gray-200">
     <div v-if="showTotal" class="text-gray-500 dark:text-gray-400">
       共 <span class="font-medium text-gray-800 dark:text-gray-100">{{ total }}</span> 条
     </div>

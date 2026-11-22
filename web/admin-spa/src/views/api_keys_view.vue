@@ -19,9 +19,9 @@
           <!-- 工具栏区域 - 添加 mb-4 增加与表格的间距 -->
           <div
             v-if="sortedApiKeys.length > 0"
-            class="mt-4 flex flex-col items-center justify-between gap-4 sm:mt-6 sm:flex-row"
+            class="my-1 flex flex-wrap items-center justify-start gap-3"
           >
-            <div class="flex w-full flex-col items-center gap-3 sm:w-auto sm:flex-row">
+            <div class="flex flex-wrap items-center gap-3">
               <span class="text-sm text-gray-600 dark:text-gray-400 sm:text-sm">
                 共 {{ sortedApiKeys.length }} 条记录
               </span>
@@ -1853,9 +1853,9 @@
             <div
               v-if="deletedPagination.total > 0"
 
-              class="mt-4 flex flex-col items-center justify-between gap-4 sm:flex-row"
+              class="my-1 flex flex-wrap items-center justify-start gap-3"
             >
-              <div class="flex w-full flex-col items-center gap-3 sm:w-auto sm:flex-row">
+              <div class="flex flex-wrap items-center gap-3">
                 <span class="text-sm text-gray-600 dark:text-gray-400 sm:text-sm">
                   共 {{ deletedPagination.total }} 条记录
                 </span>
