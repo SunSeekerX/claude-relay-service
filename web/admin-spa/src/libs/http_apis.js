@@ -81,6 +81,16 @@ export const getAuthUserApi = () => request({ url: '/web/auth/user', method: 'GE
 export const changePasswordApi = (data) =>
   request({ url: '/web/auth/change-password', method: 'POST', data })
 
+// 后台登录与快捷调整设置
+export const getAdminLoginSettingsApi = (config = {}) =>
+  request({ url: '/admin/login-settings', method: 'GET', ...config })
+export const saveAdminLoginSettingsApi = (data, config = {}) =>
+  request({ url: '/admin/login-settings', method: 'PUT', data, ...config })
+export const getApiKeyQuickAdjustSettingsApi = (config = {}) =>
+  request({ url: '/admin/api-key-quick-adjust-settings', method: 'GET', ...config })
+export const saveApiKeyQuickAdjustSettingsApi = (data, config = {}) =>
+  request({ url: '/admin/api-key-quick-adjust-settings', method: 'PUT', data, ...config })
+
 // OEM 设置
 export const getOemSettingsApi = () => request({ url: '/admin/oem-settings', method: 'GET' })
 export const updateOemSettingsApi = (data) =>

@@ -65,6 +65,7 @@
             v-if="visitedSections.branding"
             v-show="activeSection === 'branding'"
           />
+          <AdminSettingsSection v-if="visitedSections.admin" v-show="activeSection === 'admin'" />
           <WebhookSettingsSection
             v-if="visitedSections.webhook"
             v-show="activeSection === 'webhook'"
@@ -119,6 +120,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { showToast, calcViewportBottomReserve } from '@/libs/tools'
 import { useSettingsStore } from '@/stores/settings'
 import BrandingSettingsSection from '@/components/settings/branding_settings_section.vue'
+import AdminSettingsSection from '@/components/settings/admin_settings_section.vue'
 import WebhookSettingsSection from '@/components/settings/webhook_settings_section.vue'
 import ClaudeSettingsSection from '@/components/settings/claude_settings_section.vue'
 import RequestResourcesSettingsSection from '@/components/settings/request_resources_settings_section.vue'
@@ -145,6 +147,7 @@ const sectionGroups = [
     label: '基础设置',
     tabs: [
       { key: 'branding', label: '品牌设置', icon: 'i-lucide-palette', hint: '站点名称、图标与入口展示' },
+      { key: 'admin', label: '后台管理', icon: 'i-lucide-settings', hint: '登录有效期与 API Key 快捷调整' },
       { key: 'webhook', label: '通知设置', icon: 'i-lucide-bell', hint: 'Webhook 推送与通知渠道' }
     ]
   },

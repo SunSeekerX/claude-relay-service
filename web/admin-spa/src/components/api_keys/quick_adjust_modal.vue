@@ -23,6 +23,11 @@
         </div>
 
         <div class="modal-scroll-content custom-scrollbar flex-1 space-y-3" :inert="saving">
+          <p v-if="presetsLoading" class="text-sm text-gray-500 dark:text-gray-400" role="status">正在加载快捷选项...</p>
+          <div v-if="presetsError" class="text-sm text-red-600 dark:text-red-400" role="alert">
+            {{ presetsError }}，可手动输入。
+            <button class="underline" :disabled="presetsLoading" type="button" @click="loadPresets">重新加载</button>
+          </div>
           <!-- API Key 信息 -->
           <div
             class="rounded-lg border border-blue-200 bg-blue-50 p-4 dark:border-blue-900/40 dark:bg-blue-900/20"
@@ -143,7 +148,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted, onBeforeUnmount } from 'vue'
 
 import ModalTransition from '@/components/common/modal_transition.vue'
 import { showToast, formatDateTime } from '@/libs/tools'
@@ -163,6 +168,7 @@ const emit = defineEmits(['close', 'success'])
 const visible = ref(false)
 onMounted(() => {
   visible.value = true
+  loadPresets()
 })
 const requestClose = () => {
   visible.value = false
@@ -170,8 +176,27 @@ const requestClose = () => {
 const onClosed = () => emit('close')
 
 const saving = ref(false)
-const costPresets = [10, 50, 100, 500]
-const extendPresets = [7, 30, 90, 180, 365]
+const costPresets = ref([])
+const extendPresets = ref([])
+const presetsLoading = ref(false)
+const presetsError = ref('')
+const presetsController = new AbortController()
+const loadPresets = async () => {
+  presetsLoading.value = true
+  presetsError.value = ''
+  try {
+    const response = await httpApis.getApiKeyQuickAdjustSettingsApi({ signal: presetsController.signal })
+    if (presetsController.signal.aborted) return
+    if (!isOk(response)) throw new Error(msgOf(response, '加载快捷选项失败'))
+    costPresets.value = response.data.costPresets
+    extendPresets.value = response.data.extendPresets
+  } catch (error) {
+    if (!presetsController.signal.aborted) presetsError.value = error.message
+  } finally {
+    presetsLoading.value = false
+  }
+}
+onBeforeUnmount(() => presetsController.abort())
 const extendUnitOptions = [
   { value: 'hours', label: '小时' },
   { value: 'days', label: '天' },

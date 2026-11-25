@@ -6,12 +6,16 @@ import path from 'node:path'
 import fs from 'node:fs'
 import { redis } from '../../infra/redis.js'
 import { logger } from '../../common/logger.js'
-import { config } from '../../../config/config.js'
 import { RedisKeys } from '../../infra/redis_key.js'
 import { asyncRoute } from '../../common/route_handler.js'
 import { ok, badRequest, unauthorized } from '../../common/http_result.js'
 import { parseObjectBody } from '../../common/parse_body.js'
 import { assertAdminLoginAllowed, clearAdminLoginAttempts } from './admin_login_policy.js'
+import {
+  adminLoginSettingsService,
+  adminSessionIssuePolicy,
+  assertAdminSessionActive,
+} from './admin_login_settings_service.js'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -85,12 +89,14 @@ router.post(
 
     // 存储会话
     const sessionData = {
+      ...(await adminLoginSettingsService.newSessionFields()),
       username: adminData.username,
       loginTime: new Date().toISOString(),
       lastActivity: new Date().toISOString(),
     }
 
-    await redis.setSession(sessionId, sessionData, config.security.adminSessionTimeout)
+    const sessionPolicy = adminSessionIssuePolicy(sessionData)
+    await redis.setSession(sessionId, sessionData, sessionPolicy.ttlSeconds)
 
     // 不写 Redis 最后登录时间（Redis 仅为缓存）
     // init.json 是唯一真实数据源
@@ -99,7 +105,7 @@ router.post(
 
     return {
       token: sessionId,
-      expiresIn: config.security.adminSessionTimeout,
+      expiresIn: sessionPolicy.expiresIn,
       username: adminData.username,
     }
   }),
@@ -144,17 +150,7 @@ router.post(
     // 获取当前会话
     const sessionData = await redis.getSession(token)
 
-    // 安全修复：检查空对象
-    if (!sessionData || Object.keys(sessionData).length === 0) {
-      throw unauthorized('Session expired or invalid')
-    }
-
-    // 安全修复：验证会话完整性
-    if (!sessionData.username || !sessionData.loginTime) {
-      logger.security(`Invalid session structure in /auth/change-password from ${req.ip || 'unknown'}`)
-      await redis.deleteSession(token)
-      throw unauthorized('Session data corrupted or incomplete')
-    }
+    await assertAdminSessionActive(token, sessionData)
 
     // 获取当前管理员信息
     const adminData = await redis.getSession('admin_credentials')
@@ -229,17 +225,7 @@ router.get(
     // 获取当前会话
     const sessionData = await redis.getSession(token)
 
-    // 安全修复：检查空对象
-    if (!sessionData || Object.keys(sessionData).length === 0) {
-      throw unauthorized('Session expired or invalid')
-    }
-
-    // 安全修复：验证会话完整性
-    if (!sessionData.username || !sessionData.loginTime) {
-      logger.security(`Invalid session structure in /auth/user from ${req.ip || 'unknown'}`)
-      await redis.deleteSession(token)
-      throw unauthorized('Session data corrupted or incomplete')
-    }
+    await assertAdminSessionActive(token, sessionData)
 
     // 获取管理员信息
     const adminData = await redis.getSession('admin_credentials')
@@ -269,25 +255,16 @@ router.post(
 
     const sessionData = await redis.getSession(token)
 
-    // 安全修复：检查空对象（hgetall 对不存在的 key 返回 {}）
-    if (!sessionData || Object.keys(sessionData).length === 0) {
-      throw unauthorized('Session expired or invalid')
-    }
-
-    // 安全修复：验证会话完整性（必须有 username 和 loginTime）
-    if (!sessionData.username || !sessionData.loginTime) {
-      logger.security(`Invalid session structure detected from ${req.ip || 'unknown'}`)
-      await redis.deleteSession(token) // 清理无效/伪造的会话
-      throw unauthorized('Session data corrupted or incomplete')
-    }
+    await assertAdminSessionActive(token, sessionData)
 
     // 更新最后活动时间
     sessionData.lastActivity = new Date().toISOString()
-    await redis.setSession(token, sessionData, config.security.adminSessionTimeout)
+    const sessionPolicy = adminSessionIssuePolicy(sessionData)
+    await redis.setSession(token, sessionData, sessionPolicy.ttlSeconds)
 
     return {
       token,
-      expiresIn: config.security.adminSessionTimeout,
+      expiresIn: sessionPolicy.expiresIn,
     }
   }),
 )

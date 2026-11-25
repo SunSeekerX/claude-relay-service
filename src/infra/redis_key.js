@@ -64,6 +64,7 @@ export const RedisKeys = {
   },
   // === API Key ===
   apiKey: {
+    quickAdjustSettings: 'apikey:settings:quick_adjust', // String(JSON): 快捷调整按钮配置
     byId: (id) => `apikey:${id}`, // Hash: API Key 主数据
     hashMap: 'apikey:hash_map', // Hash: hashedKey -> keyId(认证热路径)
     hashLegacy: (hashedKey) => `apikey_hash:${hashedKey}`, // Hash: 旧结构,兼容回退/双写/双删
@@ -478,6 +479,7 @@ export const RedisKeys = {
 
   // === 兑换码防爆破限流 ===
   adminLogin: {
+    settings: 'admin:login_settings', // String(JSON): 管理员登录有效期配置
     attempts: (identity) => `admin_login:attempts:${identity}`,
     events: 'admin_login:events',
   },
@@ -555,6 +557,7 @@ export const TTL = {
   grokVideoSettlementLease: 60,
   // —— 会话 ——
   adminSession: DAY, // session:${id} 参数默认 86400
+  adminSessionHours: (hours) => hours * 3600,
   oauthSession: 600, // oauth:${id} 参数默认 600(10 分钟)
   oauthCleanupOther: DAY, // cleanup 给无 TTL 的非 oauth key 兜底 1 天
   // —— 账户余额 ——
@@ -640,6 +643,7 @@ export const TTL = {
 // LIMITS — 集合容量上限(仅"真有裁剪动作"的)
 // ===
 export const LIMITS = {
+  apiKeyQuickAdjustPresets: 20,
   apiKeyRotationAttempts: 3,
   apiKeyHistoryPage: 100,
   apiKeyHistoryReadAttempts: 30,

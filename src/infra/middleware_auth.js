@@ -2,6 +2,7 @@ import { startRequestTiming, finishRequestTiming, getRequestTimings } from '../c
 import { config } from '../../config/config.js'
 import { apiKeyService } from '../modules/apikey/apikey_service.js'
 import { userService } from '../modules/user/user_service.js'
+import { adminSessionActivitySeconds, assertAdminSessionActive } from '../modules/admin/admin_login_settings_service.js'
 import { logger } from '../common/logger.js'
 import * as httpAccessLog from '../common/http_access_log.js'
 import { httpRequestStats } from '../common/http_request_stats.js'
@@ -1470,31 +1471,8 @@ export const authenticateAdmin = async (req, res, next) => {
       new Promise((_, reject) => setTimeout(() => reject(new Error('Session lookup timeout')), 5000)),
     ])
 
-    if (!adminSession || Object.keys(adminSession).length === 0) {
-      logger.security(`Invalid admin token attempt from ${req.ip || 'unknown'}`)
-      return sendAuthFail(res, 401, 'Invalid or expired admin session')
-    }
-
-    // 安全修复：验证会话必须字段（防止伪造会话绕过认证）
-    if (!adminSession.username || !adminSession.loginTime) {
-      logger.security(
-        `Corrupted admin session from ${req.ip || 'unknown'} - missing required fields (username: ${!!adminSession.username}, loginTime: ${!!adminSession.loginTime})`,
-      )
-      await redis.deleteSession(token) //清理无效/伪造的会话
-      return sendAuthFail(res, 401, 'Session data corrupted or incomplete')
-    }
-
-    // 检查会话活跃性（可选：检查最后活动时间）
+    await assertAdminSessionActive(token, adminSession, true)
     const now = new Date()
-    const lastActivity = new Date(adminSession.lastActivity || adminSession.loginTime)
-    const inactiveDuration = now - lastActivity
-    const maxInactivity = 24 * 60 * 60 * 1000 //24小时
-
-    if (inactiveDuration > maxInactivity) {
-      logger.security(`Expired admin session for ${adminSession.username} from ${req.ip || 'unknown'}`)
-      await redis.deleteSession(token) //清理过期会话
-      return sendAuthFail(res, 401, 'Admin session has expired due to inactivity')
-    }
 
     // 更新最后活动时间（异步，不阻塞请求）
     redis
@@ -1504,7 +1482,7 @@ export const authenticateAdmin = async (req, res, next) => {
           ...adminSession,
           lastActivity: now.toISOString(),
         },
-        86400,
+        adminSessionActivitySeconds(adminSession),
       )
       .catch((error) => {
         logger.error('Failed to update admin session activity:', error)
@@ -1523,6 +1501,10 @@ export const authenticateAdmin = async (req, res, next) => {
 
     return next()
   } catch (error) {
+    if (error.statusCode === 401) {
+      logger.security(`Rejected admin session from ${req.ip ?? 'unknown'}: ${error.message}`)
+      return sendAuthFail(res, 401, error.message)
+    }
     const authDuration = Date.now() - startTime
     logger.error(`Admin authentication error (${authDuration}ms):`, {
       error: error.message,
@@ -1622,28 +1604,25 @@ export const authenticateUserOrAdmin = async (req, res, next) => {
     if (adminToken) {
       try {
         const adminSession = await redis.getSession(adminToken)
-        if (adminSession && Object.keys(adminSession).length > 0) {
-          // 安全修复：验证会话必须字段（与 authenticateAdmin 保持一致）
-          if (!adminSession.username || !adminSession.loginTime) {
-            logger.security(
-              `Corrupted admin session in authenticateUserOrAdmin from ${req.ip || 'unknown'} - missing required fields (username: ${!!adminSession.username}, loginTime: ${!!adminSession.loginTime})`,
-            )
-            await redis.deleteSession(adminToken) //清理无效/伪造的会话
-            // 不返回 401，继续尝试用户认证
-          } else {
-            req.admin = {
-              username: adminSession.username,
-              sessionId: adminToken,
-              loginTime: adminSession.loginTime,
-            }
-            req.userType = 'admin'
-
-            const authDuration = Date.now() - startTime
-            req._authInfo = `${adminSession.username} ${authDuration}ms`
-            logger.debug(`Admin authenticated: ${adminSession.username} in ${authDuration}ms`)
-            return next()
-          }
+        await assertAdminSessionActive(adminToken, adminSession)
+        if (adminSession.sessionTimeoutSeconds !== undefined) {
+          await redis.setSession(
+            adminToken,
+            { ...adminSession, lastActivity: new Date().toISOString() },
+            adminSessionActivitySeconds(adminSession),
+          )
         }
+        req.admin = {
+          username: adminSession.username,
+          sessionId: adminToken,
+          loginTime: adminSession.loginTime,
+        }
+        req.userType = 'admin'
+
+        const authDuration = Date.now() - startTime
+        req._authInfo = `${adminSession.username} ${authDuration}ms`
+        logger.debug(`Admin authenticated: ${adminSession.username} in ${authDuration}ms`)
+        return next()
       } catch (error) {
         logger.debug('Admin authentication failed, trying user authentication:', error.message)
       }
