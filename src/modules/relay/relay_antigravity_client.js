@@ -1,5 +1,7 @@
 import axios from 'axios'
 import https from 'node:https'
+import { setTimeout as delay } from 'node:timers/promises'
+import { config } from '../../../config/config.js'
 import { ProxyHelper } from '../proxy/proxy_helper.js'
 import { logger } from '../../common/logger.js'
 import { convertAntigravityToolSchema } from './relay_gemini_schema_cleaner.js'
@@ -11,6 +13,7 @@ import {
 } from './relay_antigravity_model.js'
 import crypto from 'node:crypto'
 import { env } from '../../../config/env.js'
+import { parseAntigravityRetryDelayMs, readAntigravityErrorBody } from './relay_antigravity_retry.js'
 
 const keepAliveAgent = new https.Agent({
   keepAlive: true,
@@ -19,6 +22,10 @@ const keepAliveAgent = new https.Agent({
   maxSockets: 100,
   maxFreeSockets: 10,
 })
+
+const errorBodyText = (body) => (typeof body === 'string' ? body : JSON.stringify(body ?? {}))
+const requestDeadlineError = () =>
+  Object.assign(new Error('Antigravity request deadline exceeded'), { code: 'ETIMEDOUT' })
 
 // DEC_20261001_114137 端点/UA/请求体对齐 CLIProxyAPI antigravity executor（hub 2.9.1，非 sandbox daily）
 const ANTIGRAVITY_DAILY_BASE_URL = 'https://daily-cloudcode-pa.googleapis.com'
@@ -299,6 +306,8 @@ export const request = async ({
   params = null,
   timeoutMs = null,
 }) => {
+  const budgetMs = timeoutMs > 0 ? timeoutMs : config.proxy.timeout
+  const deadline = Date.now() + budgetMs
   const { model, envelope } = buildAntigravityEnvelope({
     requestData,
     projectId,
@@ -333,37 +342,7 @@ export const request = async ({
 
     // 400/404 的 “model unavailable / not found” 在不同环境间可能表现不同，允许 fallback。
     if (status === 400 || status === 404) {
-      const data = error?.response?.data
-      const safeToString = (value) => {
-        if (typeof value === 'string') {
-          return value
-        }
-        if (value === null || value === undefined) {
-          return ''
-        }
-        // axios responseType=stream 时，data 可能是 stream（存在循环引用），不能 JSON.stringify
-        if (typeof value === 'object' && typeof value.pipe === 'function') {
-          return ''
-        }
-        if (Buffer.isBuffer(value)) {
-          try {
-            return value.toString('utf8')
-          } catch (_) {
-            return ''
-          }
-        }
-        if (typeof value === 'object') {
-          try {
-            return JSON.stringify(value)
-          } catch (_) {
-            return ''
-          }
-        }
-        return String(value)
-      }
-
-      const text = safeToString(data)
-      const msg = (text || '').toLowerCase()
+      const msg = errorBodyText(error.response.data).toLowerCase()
       return (
         msg.includes('requested model is currently unavailable') ||
         msg.includes('tool_use') ||
@@ -377,12 +356,29 @@ export const request = async ({
   }
 
   let lastError = null
-  let retriedAfterDelay = false
+
+  const waitForRetry = async (error, fallbackMs = null) => {
+    const waitMs = parseAntigravityRetryDelayMs(error.response) ?? fallbackMs
+    if (waitMs === null || waitMs >= deadline - Date.now()) {
+      return false
+    }
+    logger.warn('Antigravity rate limited, waiting before retry', { model, delayMs: waitMs })
+    await delay(waitMs, undefined, { signal: signal ?? undefined })
+    return true
+  }
 
   const attemptRequest = async () => {
     for (let index = 0; index < endpoints.length; index += 1) {
+      signal?.throwIfAborted()
+      const remainingMs = deadline - Date.now()
+      if (remainingMs <= 0) {
+        throw lastError ?? requestDeadlineError()
+      }
       const baseUrl = endpoints[index]
       const url = `${baseUrl}/v1internal:${stream ? 'streamGenerateContent' : 'generateContent'}`
+      const deadlineController = new AbortController()
+      const deadlineTimer = setTimeout(() => deadlineController.abort(requestDeadlineError()), remainingMs)
+      const attemptSignal = signal ? AbortSignal.any([signal, deadlineController.signal]) : deadlineController.signal
 
       const axiosConfig = {
         url,
@@ -390,7 +386,8 @@ export const request = async ({
         ...(params ? { params } : {}),
         headers: getAntigravityHeaders(accessToken, baseUrl),
         data: envelope,
-        timeout: stream ? 0 : timeoutMs || 600000,
+        timeout: stream ? 0 : remainingMs,
+        signal: attemptSignal,
         ...(stream ? { responseType: 'stream' } : {}),
       }
 
@@ -404,10 +401,6 @@ export const request = async ({
         }
       } else {
         axiosConfig.httpsAgent = keepAliveAgent
-      }
-
-      if (signal) {
-        axiosConfig.signal = signal
       }
 
       try {
@@ -424,11 +417,19 @@ export const request = async ({
         const response = await axios(axiosConfig)
         return { model, response }
       } catch (error) {
+        signal?.throwIfAborted()
+        if (deadlineController.signal.aborted) {
+          throw deadlineController.signal.reason
+        }
+        await readAntigravityErrorBody(error.response, { signal: attemptSignal, timeoutMs: deadline - Date.now() })
         lastError = error
         const status = error?.response?.status || null
 
         const hasNext = index + 1 < endpoints.length
         if (hasNext && isRetryable(error)) {
+          if (status === 429 && parseAntigravityRetryDelayMs(error.response) !== null && !(await waitForRetry(error))) {
+            throw error
+          }
           logger.warn('Antigravity upstream error, retrying with fallback baseUrl', {
             status,
             from: baseUrl,
@@ -438,6 +439,8 @@ export const request = async ({
           continue
         }
         throw error
+      } finally {
+        clearTimeout(deadlineTimer)
       }
     }
 
@@ -447,47 +450,13 @@ export const request = async ({
   try {
     return await attemptRequest()
   } catch (error) {
-    // 如果是 429 RESOURCE_EXHAUSTED 且尚未重试过，等待 2 秒后重试一次
+    // 维持现有的最多一次完整重试；上游提示优先，等待不能超过请求剩余预算。
     const status = error?.response?.status
-    if (status === 429 && !retriedAfterDelay && !signal?.aborted) {
-      const data = error?.response?.data
-
-      // 安全地将 data 转为字符串，避免 stream 对象导致循环引用崩溃
-      const safeDataToString = (value) => {
-        if (typeof value === 'string') {
-          return value
-        }
-        if (value === null || value === undefined) {
-          return ''
-        }
-        // stream 对象存在循环引用，不能 JSON.stringify
-        if (typeof value === 'object' && typeof value.pipe === 'function') {
-          return ''
-        }
-        if (Buffer.isBuffer(value)) {
-          try {
-            return value.toString('utf8')
-          } catch (_) {
-            return ''
-          }
-        }
-        if (typeof value === 'object') {
-          try {
-            return JSON.stringify(value)
-          } catch (_) {
-            return ''
-          }
-        }
-        return String(value)
-      }
-
-      const msg = safeDataToString(data)
-      if (msg.toLowerCase().includes('resource_exhausted') || msg.toLowerCase().includes('no capacity')) {
-        // 递归重试读闭包变量；赋值后本帧不再读，eslint 会误报 no-useless-assignment
-        // eslint-disable-next-line no-useless-assignment -- recursive attemptRequest reads this flag
-        retriedAfterDelay = true
-        logger.warn('Antigravity 429 RESOURCE_EXHAUSTED, waiting 2s before retry', { model })
-        await new Promise((resolve) => setTimeout(resolve, 2000))
+    if (status === 429 && !signal?.aborted) {
+      const msg = errorBodyText(error.response.data)
+      const capacityError =
+        msg.toLowerCase().includes('resource_exhausted') || msg.toLowerCase().includes('no capacity')
+      if (await waitForRetry(error, capacityError ? 2000 : null)) {
         return await attemptRequest()
       }
     }

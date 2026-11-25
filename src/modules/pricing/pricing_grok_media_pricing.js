@@ -193,15 +193,15 @@ export const resolveGrokMediaUnitPrices = (pricing, usage = {}) => {
     const quality = resolveImageQuality(usage.image_quality || usage.quality)
     // 优先 分辨率_质量 复合键（2.0），否则纯分辨率键（quality 模型）
     const compound = `${res}_${quality}`
-    if (imageTiers[compound] !== null) {
+    if (imageTiers[compound] !== null && imageTiers[compound] !== undefined) {
       base.imageOutputPrice = num(imageTiers[compound])
-    } else if (imageTiers[res] !== null) {
+    } else if (imageTiers[res] !== null && imageTiers[res] !== undefined) {
       base.imageOutputPrice = num(imageTiers[res])
     } else {
       // 分档表有值但 key 未命中：取表内最高价，避免高档请求落到默认低价少收
       const tierValues = Object.values(imageTiers)
+        .filter((v) => v !== null && v !== undefined)
         .map(num)
-        .filter((v) => v > 0)
       if (tierValues.length) {
         base.imageOutputPrice = Math.max(...tierValues)
       }
@@ -211,19 +211,19 @@ export const resolveGrokMediaUnitPrices = (pricing, usage = {}) => {
   const videoTiers = pricing.xai_video_output_tiers
   if (videoTiers && typeof videoTiers === 'object') {
     const res = resolveVideoResolution(usage.video_resolution || usage.resolution, usage.video_size || usage.size)
-    if (videoTiers[res] !== null) {
+    if (videoTiers[res] !== null && videoTiers[res] !== undefined) {
       base.videoOutputPerSecond = num(videoTiers[res])
     } else {
       // 未识别分辨率：若请求像高档（1080）但表无该键，取最高；否则取 480p/最低
       const keys = Object.keys(videoTiers)
       if (res === '1080p' || res === '720p') {
         const tierValues = Object.values(videoTiers)
+          .filter((v) => v !== null && v !== undefined)
           .map(num)
-          .filter((v) => v > 0)
         if (tierValues.length) {
           base.videoOutputPerSecond = Math.max(...tierValues)
         }
-      } else if (videoTiers['480p'] !== null) {
+      } else if (videoTiers['480p'] !== null && videoTiers['480p'] !== undefined) {
         base.videoOutputPerSecond = num(videoTiers['480p'])
       } else if (keys.length) {
         base.videoOutputPerSecond = num(videoTiers[keys[0]])

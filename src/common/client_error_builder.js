@@ -215,6 +215,43 @@ const CLIENT_ACTIONABLE_CODES = new Set([
 const CLIENT_ACTIONABLE_MESSAGE_RE =
   /session is blocked|start a new session|blocked by cyber|cyber-security policy|网络安全策略|开启新会话|该会话已被|content\s*policy|usage\s*policy|content\s*filter|被屏蔽/i
 
+// 仅保留已知请求错误码，避免未知渠道把账号标识或凭据编码进 code。
+const PUBLIC_REQUEST_ERROR_CODES = new Set([
+  'invalid_request_error',
+  'invalid_argument',
+  'invalid_value',
+  'invalid_type',
+  'invalid_json',
+  'missing_required_parameter',
+  'unknown_parameter',
+  'unsupported_parameter',
+  'unsupported_value',
+  'model_not_found',
+  'context_length_exceeded',
+  'exceed_context_size_error',
+  'input_too_large',
+  'invalid_image',
+  'invalid_image_format',
+  'invalid_image_url',
+  'invalid_base64_image',
+  'image_too_large',
+  'image_too_small',
+  'invalid_encrypted_content',
+  'previous_response_not_found',
+  'response_not_found',
+  'conversation_not_found',
+])
+
+const extractRequestErrorParam = (body) => {
+  const param = body?.error?.param
+  return typeof param === 'string' &&
+    param.length <= 200 &&
+    /^[A-Za-z_]\w*(?:\[\d+\]|\.[A-Za-z_]\w*)*$/.test(param) &&
+    extractSafeMessage(param) === param
+    ? param
+    : null
+}
+
 export const isClientActionableUpstreamError = (statusCode, upstreamBody) => {
   // 仅 4xx；5xx 仍属上游故障。429 有独立限流语义，不走本分支
   if (!Number.isInteger(statusCode) || statusCode < 400 || statusCode >= 500 || statusCode === 429) {
@@ -256,7 +293,7 @@ export const describeError = (clientStatus) => {
 }
 
 // 按客户端协议构造 error body
-const buildErrorBody = (protocol, clientStatus, type, message, retryAfterSeconds, code = null) => {
+const buildErrorBody = (protocol, clientStatus, type, message, retryAfterSeconds, code = null, param = null) => {
   const errorCode = code || type
   if (protocol === 'anthropic') {
     return { type: 'error', error: { type, message } }
@@ -265,7 +302,7 @@ const buildErrorBody = (protocol, clientStatus, type, message, retryAfterSeconds
     return { error: { code: clientStatus, message, status: type } }
   }
   // openai（默认）
-  const body = { error: { message, type, code: errorCode, param: null } }
+  const body = { error: { message, type, code: errorCode, param } }
   if (retryAfterSeconds) {
     body.error.resets_in_seconds = retryAfterSeconds
   }
@@ -297,14 +334,21 @@ export const buildClientError = ({
   const clientStatus = normalizeStatusCode(statusCode)
   const desc = describeError(clientStatus)
   let { message } = desc
+  let requestCode = null
+  let requestParam = null
   if (shouldExposeUpstreamMessage(clientStatus)) {
     const safe = extractSafeMessage(upstreamBody)
     if (safe) {
       message = safe
     }
+    const candidate = extractUpstreamErrorCode(upstreamBody)
+    if (PUBLIC_REQUEST_ERROR_CODES.has(candidate)) {
+      requestCode = candidate
+      requestParam = extractRequestErrorParam(upstreamBody)
+    }
   }
   return {
     statusCode: clientStatus,
-    body: buildErrorBody(protocol, clientStatus, desc.type, message, retryAfterSeconds),
+    body: buildErrorBody(protocol, clientStatus, desc.type, message, retryAfterSeconds, requestCode, requestParam),
   }
 }

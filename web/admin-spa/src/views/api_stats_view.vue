@@ -1,7 +1,7 @@
 <template>
   <div
     class="api-stats-layout h-full min-h-0 overflow-y-auto"
-    :class="[isDarkMode ? 'gradient-bg-dark' : 'gradient-bg', { 'is-query-page': isQueryContext }]"
+    :class="[isDarkMode ? 'gradient-bg-dark' : 'gradient-bg', { 'is-query-page': isQueryContext, 'is-pricing-page': currentTab === 'pricing' }]"
   >
     <!-- 顶栏 + Tab 吸顶：教程等内容较长时保持可切换 -->
     <div class="api-stats-sticky-header sticky top-0 z-40 p-2 sm:p-3 md:p-4">
@@ -345,6 +345,23 @@ watch(apiKey, (newValue) => {
 </script>
 
 <style scoped>
+@media (min-width: 768px) {
+  .api-stats-layout.is-pricing-page {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  .is-pricing-page .api-stats-sticky-header {
+    flex-shrink: 0;
+  }
+  .is-pricing-page .api-stats-page-content {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    min-height: 0;
+    overflow: hidden;
+  }
+}
 .transaction-key-required {
   font-size: 14px;
   color: var(--text-secondary);

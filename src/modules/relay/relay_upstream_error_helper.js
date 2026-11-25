@@ -5,6 +5,7 @@ import { normalizeTempUnavailablePolicyFromAccountData } from './relay_temp_unav
 import { RedisKeys, TTL } from '../../infra/redis_key.js'
 import { RATE_LIMITED_MODEL_FAMILIES } from './relay_model_helper.js'
 import { createRequire } from 'node:module'
+import { parseRetryAfterMilliseconds } from '../../common/retry_after.js'
 
 const require = createRequire(import.meta.url)
 
@@ -239,19 +240,9 @@ export const parseRetryAfter = (headers) => {
   }
 
   // 标准 Retry-After 头（秒数或 HTTP 日期）
-  const retryAfter = headers['retry-after']
-  if (retryAfter) {
-    const seconds = parseInt(retryAfter, 10)
-    if (!isNaN(seconds) && seconds > 0) {
-      return seconds
-    }
-    const date = new Date(retryAfter)
-    if (!isNaN(date.getTime())) {
-      const diff = Math.ceil((date.getTime() - Date.now()) / 1000)
-      if (diff > 0) {
-        return diff
-      }
-    }
+  const retryAfterMs = parseRetryAfterMilliseconds(headers['retry-after'])
+  if (retryAfterMs > 0) {
+    return Math.ceil(retryAfterMs / 1000)
   }
 
   // Anthropic 限流重置头（ISO 时间）
@@ -651,7 +642,9 @@ export const markTempUnavailable = async (
 
     const policy = await getAccountTempUnavailablePolicy(accountId, accountType)
     if (Number(statusCode) === 401 && policy.disableAutoProtection) {
-      recordAuthFailureAlert(accountId, accountType).catch((error) => logger.warn('Authentication failure alert failed', { accountId, accountType, error }))
+      recordAuthFailureAlert(accountId, accountType).catch((error) =>
+        logger.warn('Authentication failure alert failed', { accountId, accountType, error }),
+      )
     }
     const policyDecision = resolveAccountTtlOverride({
       policy,

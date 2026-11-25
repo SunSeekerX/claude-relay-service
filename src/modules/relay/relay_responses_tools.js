@@ -1,7 +1,6 @@
 import crypto from 'node:crypto'
 
-const invalid = (message) =>
-  Object.assign(new Error(message), { statusCode: 400, code: 'unsupported_tool' })
+const invalid = (message) => Object.assign(new Error(message), { statusCode: 400, code: 'unsupported_tool' })
 const identity = (namespace, name) => JSON.stringify([namespace ?? '', name])
 const flatName = (namespace, name) => {
   if (typeof name !== 'string' || !name) {
@@ -15,9 +14,7 @@ const flatName = (namespace, name) => {
 }
 
 export const requiresResponsesToolAdapter = (body) =>
-  ['tools', 'additional_tools'].some(
-    (field) => body[field] !== undefined && !Array.isArray(body[field])
-  ) ||
+  ['tools', 'additional_tools'].some((field) => body[field] !== undefined && !Array.isArray(body[field])) ||
   body.additional_tools?.length > 0 ||
   body.tools?.some((tool) => ['namespace', 'tool_search', 'custom'].includes(tool.type)) ||
   body.input?.some?.(
@@ -28,7 +25,7 @@ export const requiresResponsesToolAdapter = (body) =>
         'tool_search_output',
         'additional_tools',
         'custom_tool_call',
-        'custom_tool_call_output'
+        'custom_tool_call_output',
       ].includes(item?.type),
   )
 
@@ -87,13 +84,13 @@ export const adaptResponsesTools = (source) => {
             type: 'object',
             properties: { input: { type: 'string' } },
             required: ['input'],
-            additionalProperties: false
+            additionalProperties: false,
           }
         : tool.type === 'tool_search'
           ? (tool.parameters ?? {
               type: 'object',
               properties: { query: { type: 'string' } },
-              required: ['query']
+              required: ['query'],
             })
           : tool.parameters
     tools.push({
@@ -102,7 +99,7 @@ export const adaptResponsesTools = (source) => {
       name: wire,
       parameters,
       execution: undefined,
-      format: undefined
+      format: undefined,
     })
   }
   for (const tool of source.tools ?? []) {
@@ -138,14 +135,14 @@ export const adaptResponsesTools = (source) => {
         type: 'function_call',
         call_id: item.call_id ?? item.id,
         name: '_crs_tool_search',
-        arguments: JSON.stringify(item.arguments ?? {})
+        arguments: JSON.stringify(item.arguments ?? {}),
       }
     }
     if (item.type === 'tool_search_output') {
       return {
         type: 'function_call_output',
         call_id: item.call_id,
-        output: JSON.stringify({ tools: item.tools ?? [] })
+        output: JSON.stringify({ tools: item.tools ?? [] }),
       }
     }
     if (item.type === 'custom_tool_call_output') {
@@ -157,7 +154,7 @@ export const adaptResponsesTools = (source) => {
         names.set(wire, {
           name: item.name,
           namespace: item.namespace,
-          type: item.type === 'custom_tool_call' ? 'custom' : 'function'
+          type: item.type === 'custom_tool_call' ? 'custom' : 'function',
         })
       }
       const result = { ...item, type: 'function_call', name: wire }
@@ -182,7 +179,7 @@ export const adaptResponsesTools = (source) => {
   if (choice?.type === 'function' || choice?.type === 'custom') {
     body.tool_choice = {
       type: 'function',
-      name: flatName(choice.namespace, choice.name ?? choice.function?.name)
+      name: flatName(choice.namespace, choice.name ?? choice.function?.name),
     }
   } else if (choice?.type === 'namespace') {
     body.tools = tools.filter((tool) => names.get(tool.name)?.namespace === choice.name)
@@ -190,6 +187,27 @@ export const adaptResponsesTools = (source) => {
       throw invalid('Selected tool namespace is unavailable')
     }
     body.tool_choice = 'required'
+  } else if (choice?.type === 'allowed_tools') {
+    if (!['auto', 'required'].includes(choice.mode) || !Array.isArray(choice.tools) || choice.tools.length === 0) {
+      throw invalid('allowed_tools requires auto/required mode and a nonempty tool selection')
+    }
+    const allowed = new Set()
+    for (const selected of choice.tools) {
+      if (!selected || typeof selected !== 'object') {
+        throw invalid('Allowed tool selections must be objects')
+      }
+      if (selected.type === 'function' || selected.type === 'custom') {
+        const wire = flatName(selected.namespace, selected.name)
+        if (names.get(wire)?.type !== selected.type || !declared.has(wire)) {
+          throw invalid('An allowed tool was not declared or discovered')
+        }
+        allowed.add(wire)
+      } else {
+        throw invalid(`Allowed tool ${selected.type ?? 'unknown'} cannot be represented by this adapter`)
+      }
+    }
+    body.tools = tools.filter((tool) => tool.type === 'function' && allowed.has(tool.name))
+    body.tool_choice = choice.mode
   }
   const restoreItem = (item) => {
     if (item?.type !== 'function_call') {
@@ -202,7 +220,7 @@ export const adaptResponsesTools = (source) => {
     const result = {
       ...item,
       name: entry.name,
-      ...(entry.namespace ? { namespace: entry.namespace } : {})
+      ...(entry.namespace ? { namespace: entry.namespace } : {}),
     }
     if (entry.type === 'custom') {
       result.type = 'custom_tool_call'
@@ -218,7 +236,7 @@ export const adaptResponsesTools = (source) => {
   }
   const restoreResponse = (response) => ({
     ...response,
-    ...(Array.isArray(response.output) ? { output: response.output.map(restoreItem) } : {})
+    ...(Array.isArray(response.output) ? { output: response.output.map(restoreItem) } : {}),
   })
   const streamItems = new Map()
   const restoreFrame = (event) => {
@@ -250,12 +268,12 @@ export const adaptResponsesTools = (source) => {
         output.push({
           ...fields,
           type: 'response.custom_tool_call_input.delta',
-          delta: restored.input
+          delta: restored.input,
         })
         output.push({
           ...fields,
           type: 'response.custom_tool_call_input.done',
-          input: restored.input
+          input: restored.input,
         })
       }
       return output
@@ -264,8 +282,8 @@ export const adaptResponsesTools = (source) => {
       {
         ...event,
         ...(event.item ? { item: restoreItem(event.item) } : {}),
-        ...(event.response ? { response: restoreResponse(event.response) } : {})
-      }
+        ...(event.response ? { response: restoreResponse(event.response) } : {}),
+      },
     ]
   }
   let streamSequence = 0

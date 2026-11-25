@@ -48,7 +48,7 @@
 
       <div
         class="settings-main custom-scrollbar min-h-0 min-w-0 flex-1 px-3 sm:px-4 md:px-6"
-        :class="activeSection === 'securityEvents' ? 'flex flex-col overflow-hidden' : 'md:overflow-y-auto'"
+        :class="activeSection === 'securityEvents' ? 'flex flex-col overflow-hidden' : activeSection === 'modelPricing' ? 'md:flex md:flex-col md:overflow-hidden' : 'md:overflow-y-auto'"
       >
         <div v-if="bootLoading" class="py-12 text-center">
           <div class="loading-spinner mx-auto mb-4"></div>
@@ -58,7 +58,7 @@
         <div
           v-else
           class="settings-panel py-1"
-          :class="{ 'min-h-0 flex-1 overflow-hidden': activeSection === 'securityEvents' }"
+          :class="{ 'min-h-0 flex-1 overflow-hidden': activeSection === 'securityEvents', 'md:flex md:min-h-0 md:flex-1 md:flex-col md:overflow-hidden': activeSection === 'modelPricing' }"
         >
           <!-- 首次进入某分区才挂载；之后 v-show 保活，避免切 tab 丢草稿，也避免一进设置就全量打接口 -->
           <BrandingSettingsSection

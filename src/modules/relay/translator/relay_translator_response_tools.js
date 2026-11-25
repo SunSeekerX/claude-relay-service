@@ -3,20 +3,20 @@ import { adaptResponsesTools } from '../relay_responses_tools.js'
 export const unsupportedReplay = (message) =>
   Object.assign(new Error(message), {
     statusCode: 400,
-    code: 'unsupported_cross_provider_state'
+    code: 'unsupported_cross_provider_state',
   })
 
 export const visibleReplayText = (item) => {
   const text = [
     typeof item.content === 'string' ? item.content : '',
     ...(Array.isArray(item.content) ? item.content.map((part) => part?.text ?? '') : []),
-    ...(Array.isArray(item.summary) ? item.summary.map((part) => part?.text ?? '') : [])
+    ...(Array.isArray(item.summary) ? item.summary.map((part) => part?.text ?? '') : []),
   ]
     .filter(Boolean)
     .join('\n')
   if (['compaction', 'agent_message'].includes(item.type) && !text) {
     throw unsupportedReplay(
-      'This encrypted task or compacted context cannot be recovered on another provider; use the original provider or start a new conversation'
+      'This encrypted task or compacted context cannot be recovered on another provider; use the original provider or start a new conversation',
     )
   }
   return text
@@ -40,11 +40,12 @@ export const buildResponsesToolMap = (body) => {
     return {
       name: tool.name,
       description: tool.description ?? '',
-      input_schema: tool.parameters ?? { type: 'object', properties: {} }
+      input_schema: tool.parameters ?? { type: 'object', properties: {} },
     }
   })
   return {
     tools,
+    toolChoice: adapter.body.tool_choice,
     name: (name, namespace = '') => {
       const wire = names.get(identity(namespace, name))
       if (wire) {
@@ -54,6 +55,6 @@ export const buildResponsesToolMap = (body) => {
         throw unsupportedReplay('The namespaced tool was not declared or discovered')
       }
       return name
-    }
+    },
   }
 }

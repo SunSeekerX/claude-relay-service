@@ -1,5 +1,5 @@
 <template>
-  <div>
+  <div class="model-pricing-section" :class="{ 'model-pricing-section--table': readonly || activeTab === 'table' }" :style="{ '--model-pricing-width': readonly ? '68rem' : '73.75rem' }">
     <!-- 管理端：tab + 右侧计数/刷新（extra 槽，不另起一块） -->
     <div v-if="!readonly" class="mb-2">
       <SegmentedTabs
@@ -406,29 +406,29 @@
     />
 
     <!-- 价格表 tab -->
-    <div v-show="readonly || activeTab === 'table'">
+    <div v-show="readonly || activeTab === 'table'" class="model-pricing-list">
       <!-- 加载状态 -->
-      <div v-if="loading" class="py-12 text-center">
+      <div v-if="loading" class="flex min-h-0 flex-1 flex-col items-center justify-center py-12 text-center">
         <i class="i-lucide-loader-circle animate-spin mb-4 text-2xl text-blue-500" />
         <p class="text-gray-500 dark:text-gray-400">加载价格数据中...</p>
       </div>
 
       <!-- 表格 -->
-      <VirtualTable v-else  class="overflow-auto rounded-lg border border-gray-200 dark:border-gray-700"  :row-key="model => model.name" :rows="sortedModels">
-<table class="w-full min-w-[1100px] table-fixed text-sm">
+      <VirtualTable v-else class="model-pricing-scroll rounded-lg border border-gray-200 dark:border-gray-700" fill-height mobile-fill :row-key="model => model.name" :rows="sortedModels">
+<table class="model-pricing-table text-sm">
           <colgroup>
-            <col class="w-[22%]" />
-            <col class="w-[7%]" />
-            <col class="w-[8%]" />
-            <col class="w-[8%]" />
-            <col class="w-[8%]" />
-            <col class="w-[8%]" />
-            <col class="w-[8%]" />
-            <col class="w-[7%]" />
-            <col class="w-[7%]" />
-            <col class="w-[7%]" />
-            <col class="w-[15rem]" />
-            <col class="w-[10%]" />
+            <col style="width: 11rem" />
+            <col style="width: 3.5rem" />
+            <col style="width: 4.5rem" />
+            <col style="width: 5rem" />
+            <col style="width: 5rem" />
+            <col style="width: 5rem" />
+            <col style="width: 5rem" />
+            <col style="width: 5rem" />
+            <col style="width: 4.5rem" />
+            <col style="width: 4.5rem" />
+            <col style="width: 10rem" />
+            <col :style="{ width: readonly ? '5rem' : '10.75rem' }" />
           </colgroup>
           <thead class="sticky top-0 z-10 bg-gray-50 dark:bg-gray-800">
             <tr>
@@ -506,7 +506,7 @@
             >
               <td class="px-2 py-2 text-left align-middle">
                 <div
-                  class="cursor-pointer break-words font-semibold leading-snug text-gray-900 hover:underline dark:text-gray-100"
+                  class="model-pricing-name cursor-pointer font-semibold leading-snug text-gray-900 hover:underline dark:text-gray-100"
                   title="点击复制模型名"
                   @click="copyCell(model.name)"
                 >
@@ -536,12 +536,12 @@
                   >种子</span
                 >
               </td>
-              <td class="px-2 py-2 text-center align-middle text-gray-600 dark:text-gray-300">
+              <td class="model-pricing-mode px-2 py-2 text-center align-middle text-gray-600 dark:text-gray-300">
                 <span
                   class="cursor-pointer hover:underline"
                   title="点击复制"
                   @click="copyCell(model.mode)"
-                  >{{ model.mode || '-' }}</span
+                  >{{ modeLabel(model.mode) }}</span
                 >
               </td>
               <!-- 价格语义色对齐 llysc：输入绿 / 输出红；点击复制 -->
@@ -602,11 +602,11 @@
                 >
               </td>
               <td class="px-2 py-2 text-left align-middle">
-                <div class="grid grid-cols-3 gap-0.5">
+                <div class="flex flex-wrap gap-1">
                   <span
                     v-for="tag in model.capabilityTags"
                     :key="tag"
-                    class="truncate rounded bg-blue-50 px-1.5 py-0.5 text-center text-sm text-blue-700 dark:bg-blue-900/30 dark:text-blue-300"
+                    class="whitespace-nowrap rounded bg-blue-50 px-1.5 py-0.5 text-center text-sm text-blue-700 dark:bg-blue-900/30 dark:text-blue-300"
                     :title="tag"
                     >{{ tag }}</span
                   >
@@ -614,7 +614,7 @@
                 </div>
               </td>
               <td class="px-1.5 py-2 text-left align-middle">
-                <div class="t-table-actions flex-col sm:flex-row">
+                <div class="t-table-actions">
                   <template v-if="!readonly">
                     <button
                       class="t-table-action"
@@ -1035,6 +1035,20 @@ const props = defineProps({
     default: false
   }
 })
+
+const MODE_LABELS = {
+  chat: '对话',
+  completion: '补全',
+  embedding: '嵌入',
+  image_generation: '生图',
+  image_edit: '编辑图片',
+  video_generation: '视频',
+  audio_generation: '语音生成',
+  audio_transcription: '语音转写',
+  rerank: '重排',
+  moderation: '审核'
+}
+const modeLabel = (mode) => MODE_LABELS[mode] ?? (mode === '' ? '-' : mode ?? '-')
 
 // ========== 状态 ==========
 // 二级 tab：三块内容原本纵向堆叠，配置卡片把表格挤到只剩几行高，改为分屏
@@ -1641,3 +1655,52 @@ onMounted(() => {
 
 
 </script>
+
+<style scoped>
+.model-pricing-section {
+  min-width: 0;
+}
+.model-pricing-name {
+  overflow-wrap: anywhere;
+}
+.model-pricing-scroll > .model-pricing-table {
+  width: 100%;
+  min-width: var(--model-pricing-width);
+  border-collapse: collapse;
+  border-spacing: 0;
+  table-layout: fixed;
+}
+.model-pricing-scroll td:not(:first-child):not(:nth-child(3)):not(:nth-last-child(2)):not(:last-child) {
+  white-space: nowrap;
+}
+.model-pricing-mode {
+  overflow-wrap: anywhere;
+}
+.model-pricing-scroll .t-table-actions {
+  justify-content: flex-start;
+}
+@media (min-width: 768px) {
+  .model-pricing-section {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    min-height: 0;
+    overflow-y: auto;
+  }
+  .model-pricing-section--table {
+    overflow: hidden;
+  }
+  .model-pricing-section > :not(.model-pricing-list) {
+    flex-shrink: 0;
+  }
+  .model-pricing-list {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    min-height: 0;
+  }
+  .model-pricing-scroll {
+    flex: 1;
+  }
+}
+</style>

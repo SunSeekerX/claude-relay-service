@@ -167,7 +167,7 @@ export const convertClaudeRequestToResponses = (claudeRequest, options = {}) => 
                 ? parts
                   ? [{ type: 'input_text', text: '[tool_result is_error=true]' }, ...parts]
                   : `[tool_result is_error=true]\n${String(result.content ?? '')}`
-                : parts ?? String(result.content ?? ''),
+                : (parts ?? String(result.content ?? '')),
           })
         }
         if (other.length > 0) {
@@ -442,18 +442,24 @@ export const convertResponsesRequestToClaude = (responsesRequest, options = {}) 
     claude.system = system
   }
 
-  if (Array.isArray(body.tools)) {
+  if (Array.isArray(body.tools) || toolMap.tools.length > 0) {
     claude.tools = toolMap.tools
   }
 
-  if (body.tool_choice === 'auto') {
+  const { toolChoice } = toolMap
+  if (toolChoice === 'auto') {
     claude.tool_choice = { type: 'auto' }
-  } else if (body.tool_choice === 'required') {
+  } else if (toolChoice === 'required') {
     claude.tool_choice = { type: 'any' }
-  } else if (body.tool_choice === 'none') {
+  } else if (toolChoice === 'none') {
     claude.tool_choice = { type: 'none' }
-  } else if (['function', 'custom'].includes(body.tool_choice?.type) && body.tool_choice.name) {
-    claude.tool_choice = { type: 'tool', name: toolMap.name(body.tool_choice.name, body.tool_choice.namespace) }
+  } else if (toolChoice?.type === 'function' && toolChoice.name) {
+    claude.tool_choice = { type: 'tool', name: toolChoice.name }
+  } else if (toolChoice !== undefined) {
+    throw unsupportedReplay('This tool choice cannot execute on a Claude backend')
+  }
+  if (body.parallel_tool_calls === false && toolMap.tools.length > 0 && toolChoice !== 'none') {
+    claude.tool_choice = { type: 'auto', ...claude.tool_choice, disable_parallel_tool_use: true }
   }
 
   const outputConfig = responsesTextToClaudeOutputConfig(body.text)
@@ -484,6 +490,7 @@ export const convertResponsesResultToClaudeMessage = (responseData) => {
   const output = Array.isArray(response.output) ? response.output : []
   const content = []
   let stopReason = 'end_turn'
+  let hasRefusal = false
 
   for (const item of output) {
     if (!item) {
@@ -499,6 +506,9 @@ export const convertResponsesResultToClaudeMessage = (responseData) => {
       for (const part of parts) {
         if (part?.type === 'output_text') {
           content.push({ type: 'text', text: part.text || '' })
+        } else if (part?.type === 'refusal') {
+          content.push({ type: 'text', text: part.refusal ?? '' })
+          hasRefusal = true
         }
       }
     } else if (item.type === 'function_call') {
@@ -512,6 +522,9 @@ export const convertResponsesResultToClaudeMessage = (responseData) => {
     }
   }
 
+  if (hasRefusal) {
+    stopReason = 'refusal'
+  }
   if (response.status === 'incomplete') {
     const reason = response.incomplete_details?.reason
     if (reason === 'max_output_tokens' || reason === 'max_tokens') {

@@ -1,6 +1,6 @@
 <template>
-  <div class="tab-content">
-    <div class="glass-strong rounded-2xl p-3 shadow-xl sm:rounded-2xl sm:p-4">
+  <div class="tab-content pricing-tab">
+    <div class="pricing-card glass-strong rounded-2xl p-3 shadow-xl sm:rounded-2xl sm:p-4">
       <ModelPricingSection readonly />
     </div>
   </div>
@@ -11,6 +11,17 @@ import ModelPricingSection from '@/components/settings/model_pricing_section.vue
 </script>
 
 <style scoped>
+@media (min-width: 768px) {
+  .pricing-tab,
+  .pricing-card {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    min-width: 0;
+    min-height: 0;
+    overflow: hidden;
+  }
+}
 .tab-content {
   animation: tabFadeIn 0.4s ease-out;
 }
