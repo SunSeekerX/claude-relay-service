@@ -1,5 +1,5 @@
 <template>
-  <div class="model-pricing-section" :class="{ 'model-pricing-section--table': readonly || activeTab === 'table' }" :style="{ '--model-pricing-width': readonly ? '68rem' : '73.75rem' }">
+  <div class="model-pricing-section" :class="{ 'model-pricing-section--table': readonly || activeTab === 'table' }" :style="{ '--model-pricing-width': readonly ? '68.5rem' : '74.25rem' }">
     <!-- 管理端：tab + 右侧计数/刷新（extra 槽，不另起一块） -->
     <div v-if="!readonly" class="mb-2">
       <SegmentedTabs
@@ -417,8 +417,8 @@
       <VirtualTable v-else class="model-pricing-scroll rounded-lg border border-gray-200 dark:border-gray-700" fill-height mobile-fill :row-key="model => model.name" :rows="sortedModels">
 <table class="model-pricing-table text-sm">
           <colgroup>
-            <col style="width: 11rem" />
-            <col style="width: 3.5rem" />
+            <col style="width: 10.5rem" />
+            <col style="width: 4.5rem" />
             <col style="width: 4.5rem" />
             <col style="width: 5rem" />
             <col style="width: 5rem" />
@@ -606,7 +606,7 @@
                   <span
                     v-for="tag in model.capabilityTags"
                     :key="tag"
-                    class="whitespace-nowrap rounded bg-blue-50 px-1.5 py-0.5 text-center text-sm text-blue-700 dark:bg-blue-900/30 dark:text-blue-300"
+                    class="model-pricing-capability rounded bg-blue-50 px-1.5 py-0.5 text-center text-sm text-blue-700 dark:bg-blue-900/30 dark:text-blue-300"
                     :title="tag"
                     >{{ tag }}</span
                   >
@@ -1674,6 +1674,10 @@ onMounted(() => {
   white-space: nowrap;
 }
 .model-pricing-mode {
+  overflow-wrap: anywhere;
+}
+.model-pricing-capability {
+  max-width: 100%;
   overflow-wrap: anywhere;
 }
 .model-pricing-scroll .t-table-actions {
